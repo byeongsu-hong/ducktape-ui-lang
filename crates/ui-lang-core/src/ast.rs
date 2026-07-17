@@ -214,9 +214,11 @@ pub enum ViewNode {
         span: Span,
     },
     Button {
-        label: String,
+        label: Option<String>,
+        content: Option<Box<ViewNode>>,
         id: Option<Id>,
         disabled: Option<Expr>,
+        options: ButtonOptions,
         styles: Vec<String>,
         route: Route,
         span: Span,
@@ -377,6 +379,14 @@ pub struct InputOptions {
     pub icon_side: Option<IconSide>,
     pub icon_size: Option<Expr>,
     pub icon_spacing: Option<Expr>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct ButtonOptions {
+    pub width: Option<LengthValue>,
+    pub height: Option<LengthValue>,
+    pub padding: Option<Expr>,
+    pub clip: Option<Expr>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
