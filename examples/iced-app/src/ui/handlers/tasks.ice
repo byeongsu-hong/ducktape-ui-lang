@@ -27,6 +27,8 @@ on close_about
 
 on about_link(url)
 
+on pane_clicked(name)
+
 on loaded(next)
   tasks = next
   loading = false

@@ -522,6 +522,14 @@ pub enum ViewNode {
         layer: Box<ViewNode>,
         span: Span,
     },
+    PaneGrid {
+        name: String,
+        axis: PaneAxis,
+        ratio: f32,
+        options: PaneGridOptions,
+        panes: Vec<PaneView>,
+        span: Span,
+    },
     Text {
         value: Expr,
         options: TextOptions,
@@ -1287,6 +1295,30 @@ pub struct OverlayOptions {
     pub padding: Expr,
     pub align_x: FlexAlignment,
     pub align_y: FlexAlignment,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum PaneAxis {
+    Horizontal,
+    Vertical,
+}
+
+#[derive(Clone, Debug)]
+pub struct PaneView {
+    pub name: String,
+    pub content: Box<ViewNode>,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct PaneGridOptions {
+    pub width: Option<LengthValue>,
+    pub height: Option<LengthValue>,
+    pub spacing: Option<Expr>,
+    pub min_size: Option<Expr>,
+    pub resize_leeway: Option<Expr>,
+    pub draggable: bool,
+    pub click: Option<Route>,
 }
 
 #[derive(Clone, Debug, Default)]

@@ -26,6 +26,17 @@ pub fn generate(document: &Document, source_path: &str) -> Result<String, Error>
         )
         .unwrap();
     }
+    for node in pane_grids(&document.view) {
+        let ViewNode::PaneGrid { name, .. } = node else {
+            unreachable!()
+        };
+        writeln!(
+            out,
+            "pub(crate) {}: ::iced::widget::pane_grid::State<&'static str>,",
+            pane_field(name)
+        )
+        .unwrap();
+    }
     for state in &document.states {
         writeln!(
             out,
@@ -68,6 +79,27 @@ pub fn generate(document: &Document, source_path: &str) -> Result<String, Error>
     }
     if needs_extern_noop(document) {
         writeln!(out, "__ExternNoop,").unwrap();
+    }
+    for node in pane_grids(&document.view) {
+        let ViewNode::PaneGrid { name, options, .. } = node else {
+            unreachable!()
+        };
+        if options.resize_leeway.is_some() {
+            writeln!(
+                out,
+                "{}(::iced::widget::pane_grid::ResizeEvent),",
+                pane_resize_variant(name)
+            )
+            .unwrap();
+        }
+        if options.draggable {
+            writeln!(
+                out,
+                "{}(::iced::widget::pane_grid::DragEvent),",
+                pane_drag_variant(name)
+            )
+            .unwrap();
+        }
     }
     writeln!(out, "}}").unwrap();
 
@@ -468,6 +500,30 @@ fn generate_boot(out: &mut String, document: &Document, message: &str) -> Result
         )
         .unwrap();
     }
+    for node in pane_grids(&document.view) {
+        let ViewNode::PaneGrid {
+            name,
+            axis,
+            ratio,
+            panes,
+            ..
+        } = node
+        else {
+            unreachable!()
+        };
+        let axis = match axis {
+            PaneAxis::Horizontal => "Horizontal",
+            PaneAxis::Vertical => "Vertical",
+        };
+        writeln!(
+            out,
+            "{}: ::iced::widget::pane_grid::State::with_configuration(::iced::widget::pane_grid::Configuration::Split {{ axis: ::iced::widget::pane_grid::Axis::{axis}, ratio: {ratio:?}, a: ::std::boxed::Box::new(::iced::widget::pane_grid::Configuration::Pane({})), b: ::std::boxed::Box::new(::iced::widget::pane_grid::Configuration::Pane({})) }}),",
+            pane_field(name),
+            rust_string(&panes[0].name),
+            rust_string(&panes[1].name)
+        )
+        .unwrap();
+    }
     writeln!(out, "}};").unwrap();
     if let Some(mount) = document
         .handlers
@@ -545,6 +601,29 @@ fn generate_update(out: &mut String, document: &Document, message: &str) -> Resu
             writeln!(out, "::iced::Task::none()").unwrap();
         }
         writeln!(out, "}}").unwrap();
+    }
+    for node in pane_grids(&document.view) {
+        let ViewNode::PaneGrid { name, options, .. } = node else {
+            unreachable!()
+        };
+        if options.resize_leeway.is_some() {
+            writeln!(
+                out,
+                "{message}::{}(__event) => {{ self.{}.resize(__event.split, __event.ratio); ::iced::Task::none() }},",
+                pane_resize_variant(name),
+                pane_field(name)
+            )
+            .unwrap();
+        }
+        if options.draggable {
+            writeln!(
+                out,
+                "{message}::{}(__event) => {{ if let ::iced::widget::pane_grid::DragEvent::Dropped {{ pane, target }} = __event {{ self.{}.drop(pane, target); }} ::iced::Task::none() }},",
+                pane_drag_variant(name),
+                pane_field(name)
+            )
+            .unwrap();
+        }
     }
     for binding in input_bindings(&document.view) {
         let variant = binding_variant(&binding);
@@ -1336,6 +1415,12 @@ fn render_node(
             layer,
             ..
         } => render_overlay(options, content, layer, document, message, env, scope, slot),
+        ViewNode::PaneGrid {
+            name,
+            options,
+            panes,
+            ..
+        } => render_pane_grid(name, options, panes, document, message, env, scope, slot),
         ViewNode::Text {
             value,
             options,
@@ -2735,6 +2820,81 @@ fn render_rich_text(
     ))
 }
 
+#[allow(clippy::too_many_arguments)]
+fn render_pane_grid(
+    name: &str,
+    options: &PaneGridOptions,
+    panes: &[PaneView],
+    document: &Document,
+    message: &str,
+    env: &HashMap<String, Binding>,
+    scope: &str,
+    slot: Option<&SlotContext>,
+) -> Result<String, Error> {
+    let arms = panes
+        .iter()
+        .map(|pane| {
+            let pane_scope = format!("format!(\"{{}}/{}\", {scope})", pane.name);
+            let content = render_node(
+                &pane.content,
+                document,
+                message,
+                env,
+                &pane_scope,
+                slot,
+            )?;
+            Ok(format!(
+                "{} => {{ let __pane_content: ::iced::Element<'_, {message}> = {content}; ::iced::widget::pane_grid::Content::new(__pane_content) }}",
+                rust_string(&pane.name)
+            ))
+        })
+        .collect::<Result<Vec<_>, Error>>()?
+        .join(", ");
+    let field = pane_field(name);
+    let mut code = format!(
+        "::iced::widget::pane_grid(&self.{field}, move |_, __pane_name, _| match *__pane_name {{ {arms}, _ => ::core::unreachable!() }})"
+    );
+    for (length, method) in [(&options.width, "width"), (&options.height, "height")] {
+        if let Some(length) = length {
+            write!(code, ".{method}({})", length_code(length, env, document)?).unwrap();
+        }
+    }
+    for (value, method) in [
+        (&options.spacing, "spacing"),
+        (&options.min_size, "min_size"),
+    ] {
+        if let Some(value) = value {
+            write!(
+                code,
+                ".{method}({} as f32)",
+                expr_code(value, env, document, ValueMode::Owned)?
+            )
+            .unwrap();
+        }
+    }
+    if let Some(leeway) = &options.resize_leeway {
+        write!(
+            code,
+            ".on_resize({} as f32, {message}::{})",
+            expr_code(leeway, env, document, ValueMode::Owned)?,
+            pane_resize_variant(name)
+        )
+        .unwrap();
+    }
+    if options.draggable {
+        write!(code, ".on_drag({message}::{})", pane_drag_variant(name)).unwrap();
+    }
+    if let Some(route) = &options.click {
+        let route = route_code(route, "__pane_name.to_owned()", env, document, message)?;
+        write!(
+            code,
+            ".on_click(move |__pane| {{ let __pane_name = self.{field}.get(__pane).copied().unwrap_or(\"\"); {route} }})"
+        )
+        .unwrap();
+    }
+    Ok(format!("{code}.into()"))
+}
+
 fn render_rich_span(
     item: &RichSpan,
     document: &Document,
@@ -3703,6 +3863,79 @@ fn initial_code(expr: &Expr, ty: &Type, document: &Document) -> String {
     }
 }
 
+fn pane_field(name: &str) -> String {
+    format!("__pane_{name}")
+}
+
+fn pane_resize_variant(name: &str) -> String {
+    format!("__Pane{}Resize", pascal(name))
+}
+
+fn pane_drag_variant(name: &str) -> String {
+    format!("__Pane{}Drag", pascal(name))
+}
+
+fn pane_grids(root: &ViewNode) -> Vec<&ViewNode> {
+    fn collect<'a>(node: &'a ViewNode, output: &mut Vec<&'a ViewNode>) {
+        match node {
+            ViewNode::PaneGrid { panes, .. } => {
+                output.push(node);
+                for pane in panes {
+                    collect(&pane.content, output);
+                }
+            }
+            ViewNode::Layout { children, .. }
+            | ViewNode::If { children, .. }
+            | ViewNode::For { children, .. } => {
+                for child in children {
+                    collect(child, output);
+                }
+            }
+            ViewNode::Tooltip { content, tip, .. } => {
+                collect(content, output);
+                collect(tip, output);
+            }
+            ViewNode::Overlay { content, layer, .. } => {
+                collect(content, output);
+                collect(layer, output);
+            }
+            ViewNode::Table { columns, .. } => {
+                for column in columns {
+                    collect(&column.header, output);
+                    collect(&column.cell, output);
+                }
+            }
+            ViewNode::MouseArea { content, .. }
+            | ViewNode::Container { content, .. }
+            | ViewNode::Theme { content, .. }
+            | ViewNode::Float { content, .. }
+            | ViewNode::Pin { content, .. }
+            | ViewNode::Sensor { content, .. }
+            | ViewNode::KeyedColumn { child: content, .. }
+            | ViewNode::Lazy { child: content, .. } => collect(content, output),
+            ViewNode::Button {
+                content: Some(content),
+                ..
+            }
+            | ViewNode::Component {
+                content: Some(content),
+                ..
+            } => collect(content, output),
+            ViewNode::Responsive { content, .. } => match content {
+                ResponsiveContent::Breakpoint { narrow, wide, .. } => {
+                    collect(narrow, output);
+                    collect(wide, output);
+                }
+                ResponsiveContent::Size { content, .. } => collect(content, output),
+            },
+            _ => {}
+        }
+    }
+    let mut output = Vec::new();
+    collect(root, &mut output);
+    output
+}
+
 fn state_bindings(root: &ViewNode, editors: bool) -> Vec<String> {
     fn collect(node: &ViewNode, editors: bool, output: &mut Vec<String>) {
         match node {
@@ -3730,6 +3963,11 @@ fn state_bindings(root: &ViewNode, editors: bool) -> Vec<String> {
             ViewNode::Overlay { content, layer, .. } => {
                 collect(content, editors, output);
                 collect(layer, editors, output);
+            }
+            ViewNode::PaneGrid { panes, .. } => {
+                for pane in panes {
+                    collect(&pane.content, editors, output);
+                }
             }
             ViewNode::Table { columns, .. } => {
                 for column in columns {
@@ -3786,6 +4024,7 @@ fn needs_extern_noop(document: &Document) -> bool {
             | ViewNode::For { children, .. } => children.iter().any(contains),
             ViewNode::Tooltip { content, tip, .. } => contains(content) || contains(tip),
             ViewNode::Overlay { .. } => true,
+            ViewNode::PaneGrid { panes, .. } => panes.iter().any(|pane| contains(&pane.content)),
             ViewNode::Table { columns, .. } => columns
                 .iter()
                 .any(|column| contains(&column.header) || contains(&column.cell)),
@@ -5450,6 +5689,35 @@ view
         assert!(generated.contains(".align_x(::iced::alignment::Horizontal::Center)"));
         assert!(generated.contains(".align_y(::iced::alignment::Vertical::Bottom)"));
         assert!(generated.contains("__DialogMessage::__ExternNoop"));
+    }
+
+    #[test]
+    fn lowers_persistent_pane_grids() {
+        let source = r#"app Workspace
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+on clicked(name)
+view
+  pane-grid #work split=vertical ratio=0.7 width=fill height=fill spacing=8.0 min-size=120.0 resize=6.0 drag click=clicked(_)
+    pane files
+      text "Files"
+    pane editor
+      text "Editor"
+"#;
+        let generated = compile(source, "workspace.ice").unwrap();
+        assert!(generated.contains("__pane_work: ::iced::widget::pane_grid::State"));
+        assert!(generated.contains("pane_grid::Configuration::Split"));
+        assert!(generated.contains("pane_grid::Axis::Vertical"));
+        assert!(generated.contains("Configuration::Pane(\"files\")"));
+        assert!(generated.contains("::iced::widget::pane_grid(&self.__pane_work"));
+        assert!(generated.contains(".on_resize(6.0 as f32, __WorkspaceMessage::__PaneWorkResize)"));
+        assert!(generated.contains(".on_drag(__WorkspaceMessage::__PaneWorkDrag)"));
+        assert!(generated.contains("self.__pane_work.resize(__event.split, __event.ratio)"));
+        assert!(generated.contains("self.__pane_work.drop(pane, target)"));
+        assert!(generated.contains("__WorkspaceMessage::Clicked(__pane_name.to_owned())"));
     }
 
     #[test]

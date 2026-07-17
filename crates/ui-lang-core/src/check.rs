@@ -9,6 +9,13 @@ pub fn check(document: &mut Document) -> Result<(), Error> {
     check_declared_types(document)?;
     check_theme(document)?;
     check_qr_data(document)?;
+    if let Some(span) = repeated_pane_grid_span(&document.view) {
+        return Err(Error::new(
+            "E187",
+            span,
+            "pane-grid cannot be repeated because each static ID owns one persistent layout state",
+        ));
+    }
 
     let states: HashMap<String, Type> = document
         .states
@@ -45,6 +52,13 @@ pub fn check(document: &mut Document) -> Result<(), Error> {
     infer_view(&document.view, &states, document, &mut signatures, &mut ids)?;
     let operation_ids = static_widget_ids(&document.view);
     for component in &document.components {
+        if let Some(span) = pane_grid_span(&component.root) {
+            return Err(Error::new(
+                "E187",
+                span,
+                "pane-grid must live in the app view because it owns persistent layout state",
+            ));
+        }
         if let Some(span) = editor_span(&component.root) {
             return Err(
                 Error::new("E139", span, "editor cannot bind a component parameter")
@@ -122,6 +136,12 @@ fn static_widget_ids(root: &ViewNode) -> HashSet<String> {
             ViewNode::Overlay { content, layer, .. } => {
                 collect(content, output);
                 collect(layer, output);
+            }
+            ViewNode::PaneGrid { name, panes, .. } => {
+                output.insert(name.clone());
+                for pane in panes {
+                    collect(&pane.content, output);
+                }
             }
             ViewNode::MouseArea { content, .. }
             | ViewNode::Theme { content, .. }
@@ -411,6 +431,9 @@ fn editor_span(node: &ViewNode) -> Option<&Span> {
         ViewNode::Overlay { content, layer, .. } => {
             editor_span(content).or_else(|| editor_span(layer))
         }
+        ViewNode::PaneGrid { panes, .. } => {
+            panes.iter().find_map(|pane| editor_span(&pane.content))
+        }
         ViewNode::Table { columns, .. } => columns
             .iter()
             .find_map(|column| editor_span(&column.header).or_else(|| editor_span(&column.cell))),
@@ -423,6 +446,90 @@ fn editor_span(node: &ViewNode) -> Option<&Span> {
                 editor_span(narrow).or_else(|| editor_span(wide))
             }
             ResponsiveContent::Size { content, .. } => editor_span(content),
+        },
+        _ => None,
+    }
+}
+
+fn pane_grid_span(node: &ViewNode) -> Option<&Span> {
+    match node {
+        ViewNode::PaneGrid { span, .. } => Some(span),
+        ViewNode::Layout { children, .. }
+        | ViewNode::If { children, .. }
+        | ViewNode::For { children, .. } => children.iter().find_map(pane_grid_span),
+        ViewNode::Button {
+            content: Some(content),
+            ..
+        }
+        | ViewNode::MouseArea { content, .. }
+        | ViewNode::Container { content, .. }
+        | ViewNode::Theme { content, .. }
+        | ViewNode::Float { content, .. }
+        | ViewNode::Pin { content, .. }
+        | ViewNode::Sensor { content, .. }
+        | ViewNode::KeyedColumn { child: content, .. }
+        | ViewNode::Lazy { child: content, .. } => pane_grid_span(content),
+        ViewNode::Tooltip { content, tip, .. } => {
+            pane_grid_span(content).or_else(|| pane_grid_span(tip))
+        }
+        ViewNode::Overlay { content, layer, .. } => {
+            pane_grid_span(content).or_else(|| pane_grid_span(layer))
+        }
+        ViewNode::Table { columns, .. } => columns.iter().find_map(|column| {
+            pane_grid_span(&column.header).or_else(|| pane_grid_span(&column.cell))
+        }),
+        ViewNode::Component {
+            content: Some(content),
+            ..
+        } => pane_grid_span(content),
+        ViewNode::Responsive { content, .. } => match content {
+            ResponsiveContent::Breakpoint { narrow, wide, .. } => {
+                pane_grid_span(narrow).or_else(|| pane_grid_span(wide))
+            }
+            ResponsiveContent::Size { content, .. } => pane_grid_span(content),
+        },
+        _ => None,
+    }
+}
+
+fn repeated_pane_grid_span(node: &ViewNode) -> Option<&Span> {
+    match node {
+        ViewNode::For { children, .. } => children.iter().find_map(pane_grid_span),
+        ViewNode::KeyedColumn { child, .. } | ViewNode::Lazy { child, .. } => pane_grid_span(child),
+        ViewNode::Table { columns, .. } => columns.iter().find_map(|column| {
+            pane_grid_span(&column.header).or_else(|| pane_grid_span(&column.cell))
+        }),
+        ViewNode::Layout { children, .. } | ViewNode::If { children, .. } => {
+            children.iter().find_map(repeated_pane_grid_span)
+        }
+        ViewNode::Button {
+            content: Some(content),
+            ..
+        }
+        | ViewNode::MouseArea { content, .. }
+        | ViewNode::Container { content, .. }
+        | ViewNode::Theme { content, .. }
+        | ViewNode::Float { content, .. }
+        | ViewNode::Pin { content, .. }
+        | ViewNode::Sensor { content, .. } => repeated_pane_grid_span(content),
+        ViewNode::Tooltip { content, tip, .. } => {
+            repeated_pane_grid_span(content).or_else(|| repeated_pane_grid_span(tip))
+        }
+        ViewNode::Overlay { content, layer, .. } => {
+            repeated_pane_grid_span(content).or_else(|| repeated_pane_grid_span(layer))
+        }
+        ViewNode::PaneGrid { panes, .. } => panes
+            .iter()
+            .find_map(|pane| repeated_pane_grid_span(&pane.content)),
+        ViewNode::Component {
+            content: Some(content),
+            ..
+        } => repeated_pane_grid_span(content),
+        ViewNode::Responsive { content, .. } => match content {
+            ResponsiveContent::Breakpoint { narrow, wide, .. } => {
+                repeated_pane_grid_span(narrow).or_else(|| repeated_pane_grid_span(wide))
+            }
+            ResponsiveContent::Size { content, .. } => repeated_pane_grid_span(content),
         },
         _ => None,
     }
@@ -647,6 +754,43 @@ fn infer_view(
             }
             infer_view(content, env, document, signatures, ids)?;
             infer_view(layer, env, document, signatures, ids)?;
+        }
+        ViewNode::PaneGrid {
+            name,
+            options,
+            panes,
+            span,
+            ..
+        } => {
+            if !ids.insert(name.clone()) {
+                return Err(Error::new(
+                    "E161",
+                    span,
+                    format!("duplicate local id `#{name}`"),
+                ));
+            }
+            for length in [&options.width, &options.height].into_iter().flatten() {
+                if let LengthValue::Fixed(value) = length {
+                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+                    require_literal_range(value, 0.0, None, "pane-grid bounds", span)?;
+                }
+            }
+            for (value, label) in [
+                (&options.spacing, "pane-grid spacing"),
+                (&options.min_size, "pane-grid minimum size"),
+                (&options.resize_leeway, "pane-grid resize leeway"),
+            ] {
+                if let Some(value) = value {
+                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+                    require_literal_range(value, 0.0, None, label, span)?;
+                }
+            }
+            if let Some(click) = &options.click {
+                infer_route(click, Some(Type::Str), env, document, signatures)?;
+            }
+            for pane in panes {
+                infer_view(&pane.content, env, document, signatures, ids)?;
+            }
         }
         ViewNode::Text {
             value,
@@ -2028,6 +2172,11 @@ fn check_lazy_subtree(
             check_lazy_subtree(content, document, components, supplied_slot)?;
             check_lazy_subtree(layer, document, components, supplied_slot)
         }
+        ViewNode::PaneGrid { span, .. } => Err(Error::new(
+            "E187",
+            span,
+            "pane-grid cannot live in lazy because its layout state is persistent",
+        )),
         ViewNode::Table { columns, .. } => {
             for column in columns {
                 check_lazy_subtree(&column.header, document, components, supplied_slot)?;
@@ -4150,6 +4299,39 @@ view
         let error = analyze(&unnamed_section).unwrap_err();
         assert_eq!(error.code, "E185");
         assert!(error.message.contains("`content` then `layer`"));
+    }
+
+    #[test]
+    fn checks_persistent_pane_grids() {
+        let source = r#"app Workspace
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+on clicked(name)
+view
+  pane-grid #work split=vertical ratio=0.7 width=fill height=fill spacing=8.0 min-size=120.0 resize=6.0 drag click=clicked(_)
+    pane files
+      text "Files"
+    pane editor
+      text "Editor"
+"#;
+        analyze(source).unwrap();
+
+        let bad_ratio = source.replace("ratio=0.7", "ratio=2.0");
+        let error = analyze(&bad_ratio).unwrap_err();
+        assert_eq!(error.code, "E187");
+        assert!(error.message.contains("ratio"));
+
+        let bad_metric = source.replace("min-size=120.0", "min-size=-1.0");
+        let error = analyze(&bad_metric).unwrap_err();
+        assert_eq!(error.code, "E128");
+
+        let bad_panes = source.replace("pane editor", "panel editor");
+        let error = analyze(&bad_panes).unwrap_err();
+        assert_eq!(error.code, "E187");
+        assert!(error.message.contains("pane-grid children"));
     }
 
     #[test]
