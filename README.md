@@ -60,6 +60,7 @@ src/ui/
 ├── backend.ice               typed Rust boundary
 ├── state.ice                 UI state
 ├── theme.ice                 color tokens
+├── components/panel.ice      component with a structured child slot
 ├── components/task_row.ice   reusable view
 └── handlers/tasks.ice        transitions and effects
 ```
@@ -106,9 +107,10 @@ cargo fmt --all
 
 ## Status
 
-This is an executable v0.26 language slice, not yet a complete iced replacement.
+This is an executable v0.27 language slice, not yet a complete iced replacement.
 It implements typed extern data/actions, state, handlers, async tasks, pure
-components, scoped IDs, relative multi-file `use`, `if`/`for`, five layouts,
+components with structured child slots, scoped IDs, relative multi-file `use`,
+`if`/`for`, five layouts,
 twenty-two native widget forms,
 checked style utilities, formatting, analysis, and iced code generation. Typed
 `Element`, `Task`, and `Subscription` adapters expose advanced iced features
