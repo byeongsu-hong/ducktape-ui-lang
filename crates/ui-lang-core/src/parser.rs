@@ -1243,6 +1243,7 @@ fn parse_input(parts: &[String], styles: Vec<String>, line: &Line) -> Result<Vie
     let mut binding = None;
     let mut hint = String::new();
     let mut disabled = None;
+    let mut options = InputOptions::default();
     let mut index = 2;
     while index < parts.len() {
         let part = &parts[index];
@@ -1258,6 +1259,59 @@ fn parse_input(parts: &[String], styles: Vec<String>, line: &Line) -> Result<Vie
             hint = string_literal(value, line)?;
         } else if let Some(value) = part.strip_prefix("disabled=") {
             disabled = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("secure=") {
+            options.secure = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("submit=") {
+            options.submit = Some(parse_route(value, line)?);
+        } else if let Some(value) = part.strip_prefix("paste=") {
+            options.paste = Some(parse_payload_route(value, line, 1)?);
+        } else if let Some(value) = part.strip_prefix("width=") {
+            options.width = Some(parse_length(value, line)?);
+        } else if let Some(value) = part.strip_prefix("padding=") {
+            options.padding = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("text-size=") {
+            options.text_size = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("line-height=") {
+            options.line_height = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("align=") {
+            options.align = Some(match value {
+                "left" => InputAlignment::Left,
+                "center" => InputAlignment::Center,
+                "right" => InputAlignment::Right,
+                _ => {
+                    return Err(error(
+                        "E065",
+                        line,
+                        "input align must be left, center, or right",
+                    ));
+                }
+            });
+        } else if let Some(value) = part.strip_prefix("font=") {
+            options.font = Some(match value {
+                "default" => InputFont::Default,
+                "mono" => InputFont::Monospace,
+                _ => return Err(error("E065", line, "input font must be default or mono")),
+            });
+        } else if let Some(value) = part.strip_prefix("icon=") {
+            let value = string_literal(value, line)?;
+            let mut chars = value.chars();
+            let icon = chars
+                .next()
+                .ok_or_else(|| error("E065", line, "input icon must contain one character"))?;
+            if chars.next().is_some() {
+                return Err(error("E065", line, "input icon must contain one character"));
+            }
+            options.icon = Some(icon);
+        } else if let Some(value) = part.strip_prefix("icon-side=") {
+            options.icon_side = Some(match value {
+                "left" => IconSide::Left,
+                "right" => IconSide::Right,
+                _ => return Err(error("E065", line, "input icon side must be left or right")),
+            });
+        } else if let Some(value) = part.strip_prefix("icon-size=") {
+            options.icon_size = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("icon-spacing=") {
+            options.icon_spacing = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else {
             return Err(error(
                 "E065",
@@ -1273,6 +1327,7 @@ fn parse_input(parts: &[String], styles: Vec<String>, line: &Line) -> Result<Vie
         binding: binding.ok_or_else(|| error("E065", line, "input requires `<-> state`"))?,
         hint,
         disabled,
+        options,
         styles,
         span: Span::line(line.number),
     })

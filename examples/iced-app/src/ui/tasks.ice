@@ -61,6 +61,9 @@ on submit
   error = ""
   run create_task(trim(draft)) -> created _ | failed _
 
+on draft_pasted(next)
+  draft = next
+
 on toggle(id, checked)
   return if loading
   loading = true
@@ -169,7 +172,7 @@ view
       text len(tasks) @text-sm text-muted
 
     row @w-full items-center gap-3
-      input "New task" #new-task <-> draft hint="What needs doing?" disabled=loading @w-full px-4 py-3 bg-surface border border-border rounded-lg focus:border-primary
+      input "New task" #new-task <-> draft hint="What needs doing?" disabled=loading secure=false submit=submit paste=draft_pasted width=fill text-size=14.0 line-height=1.2 align=left font=default icon="+" icon-side=left icon-size=14.0 icon-spacing=6.0 @px-4 py-3 bg-surface border border-border rounded-lg focus:border-primary
       button "Copy" disabled=empty(trim(draft)) @px-4 py-3 bg-surface text-foreground rounded-lg disabled:opacity-50 -> copy_draft
       button "Add" disabled=(loading || empty(trim(draft))) @px-4 py-3 bg-primary text-white rounded-lg hover:bg-primary/90 pressed:bg-primary/70 disabled:opacity-50 -> submit
 
