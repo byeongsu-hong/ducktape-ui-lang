@@ -4405,9 +4405,9 @@ fn parse_slider_style(line: &Line, styles: &mut SliderStyleSet) -> Result<(), Er
     };
     for part in &parts[1..] {
         if let Some(value) = part.strip_prefix("rail-start=") {
-            style.rail_start = Some(value.to_owned());
+            style.rail_start = Some(parse_background_value(value, line)?);
         } else if let Some(value) = part.strip_prefix("rail-end=") {
-            style.rail_end = Some(value.to_owned());
+            style.rail_end = Some(parse_background_value(value, line)?);
         } else if let Some(value) = part.strip_prefix("rail-width=") {
             style.rail_width = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else if let Some(value) = part.strip_prefix("rail-border=") {
@@ -4427,7 +4427,7 @@ fn parse_slider_style(line: &Line, styles: &mut SliderStyleSet) -> Result<(), Er
         } else if let Some(value) = part.strip_prefix("handle=") {
             style.handle_shape = Some(parse_slider_handle(value, line)?);
         } else if let Some(value) = part.strip_prefix("handle-color=") {
-            style.handle_color = Some(value.to_owned());
+            style.handle_color = Some(parse_background_value(value, line)?);
         } else if let Some(value) = part.strip_prefix("handle-border=") {
             style.handle_border_color = Some(value.to_owned());
         } else if let Some(value) = part.strip_prefix("handle-border-width=") {

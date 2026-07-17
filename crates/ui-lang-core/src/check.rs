@@ -2602,15 +2602,18 @@ fn check_slider_styles(
         .flatten()
     {
         let span = style.span.as_ref().unwrap_or(parent_span);
-        for color in [
-            &style.rail_start,
-            &style.rail_end,
-            &style.rail_border_color,
-            &style.handle_color,
-            &style.handle_border_color,
-        ]
-        .into_iter()
-        .flatten()
+        for (background, label) in [
+            (&style.rail_start, "slider rail start"),
+            (&style.rail_end, "slider rail end"),
+            (&style.handle_color, "slider handle"),
+        ] {
+            if let Some(background) = background {
+                check_background_value(background, env, document, span, "E129", label)?;
+            }
+        }
+        for color in [&style.rail_border_color, &style.handle_border_color]
+            .into_iter()
+            .flatten()
         {
             if !valid_theme_color(color, document) {
                 return Err(Error::new(
@@ -5149,7 +5152,7 @@ on changed(next)
 view
   col
     slider amount min=0.0 max=100.0 step=5.0 default=50.0 shift-step=1.0 width=fill(2) height=20.0 -> changed _
-      active rail-start=primary rail-end=background rail-width=4.0 rail-border=transparent rail-border-width=1.0 rail-radius=2.0 rail-radius-tl=1.0 handle=circle(7.0) handle-color=primary handle-border=foreground handle-border-width=1.0
+      active rail-start=linear(0.0, primary@0.0, danger@1.0) rail-end=linear(1.57, background@0.0, primary/25@1.0) rail-width=4.0 rail-border=transparent rail-border-width=1.0 rail-radius=2.0 rail-radius-tl=1.0 handle=circle(7.0) handle-color=linear(0.785, primary@0.0, foreground@1.0) handle-border=foreground handle-border-width=1.0
       hovered rail-start=foreground rail-end=background rail-radius-tr=3.0 rail-radius-br=3.0 rail-radius-bl=2.0 handle=rect(12) handle-color=foreground handle-radius=3.0 handle-radius-tl=1.0 handle-radius-tr=2.0 handle-radius-br=3.0 handle-radius-bl=4.0
       dragged rail-start=danger handle=circle(8.0) handle-color=danger
     slider amount min=0.0 max=100.0 step=5.0 default=50.0 shift-step=1.0 vertical width=20.0 height=fill -> changed _
@@ -5171,10 +5174,10 @@ view
         assert_eq!(error.code, "E128");
         assert!(error.message.contains("min cannot exceed max"));
 
-        let bad_color = source.replace("rail-start=primary", "rail-start=missing");
+        let bad_color = source.replace("danger@1.0", "missing@1.0");
         let error = analyze(&bad_color).unwrap_err();
         assert_eq!(error.code, "E129");
-        assert!(error.message.contains("unknown slider color"));
+        assert!(error.message.contains("unknown slider rail start color"));
 
         let bad_metric = source.replace("rail-width=4.0", "rail-width=-1.0");
         let error = analyze(&bad_metric).unwrap_err();
