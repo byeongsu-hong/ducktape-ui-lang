@@ -1,4 +1,4 @@
-# Ice Language Specification 0.3
+# Ice Language Specification 0.4
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.3 syntax.
+marked “planned” is a design constraint, not accepted 0.4 syntax.
 
 ## 1. Design contract
 
@@ -79,7 +79,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.3.
+  block comments are not part of 0.4.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -152,6 +152,7 @@ view_decl      = "view" INDENT node
 
 node           = layout | text | input | button | checkbox | toggler
                | slider | progress | radio | rule | space
+               | media | tooltip | mouse_area
                | component_call | extern_component_call | if_node | for_node
 layout         = ("col" | "row" | "scroll") id? styles? INDENT node+
                | "grid" id? ("columns=" expr)? styles? INDENT node+
@@ -171,6 +172,21 @@ radio          = "radio" expr "value=" expr "selected=" expr
 rule           = "rule" ("horizontal" | "vertical")
                  ("thickness=" expr)? styles?
 space          = "space" ("width=" expr)? ("height=" expr)? styles?
+media          = ("image" | "svg") expr media_property*
+media_property = ("width=" | "height=") length
+               | "fit=" ("contain" | "cover" | "fill" | "none" | "scale-down")
+               | "rotation=" expr | "opacity=" expr
+               | "filter=" ("linear" | "nearest")
+               | "scale=" expr | "expand=" expr | "radius=" expr
+length         = "fill" | "shrink" | expr
+tooltip        = "tooltip" tooltip_property* INDENT node node
+tooltip_property
+               = "position=" ("top" | "bottom" | "left" | "right" | "cursor")
+               | "gap=" expr | "padding=" expr | "delay=" expr | "snap=" expr
+mouse_area     = "mouse" mouse_property+ INDENT node
+mouse_property = ("press=" | "release=" | "double=" | "right_press="
+               | "right_release=" | "middle_press=" | "middle_release="
+               | "enter=" | "exit=") route | "cursor=" mouse_cursor
 component_call = PascalName "(" expr_list? ")" id?
 extern_component_call
                = "extern" name "(" expr_list? ")" ("->" route)?
@@ -183,6 +199,24 @@ id             = "#" kebab_name | "#" name "(" expr ")"
 route          = name | name "(" route_arg_list? ")"
 route_arg      = expr | "_"
 ```
+
+Media fixed lengths, rotation, opacity, scale, and radius are `f64`; rotation
+is radians, opacity is `0.0..=1.0`, scale is positive, and sizes/radius are
+non-negative. `filter`, `scale`, `expand`, and `radius` are image-only.
+Tooltip gap/padding are non-negative `f64`, delay is non-negative `i64`
+milliseconds, and snap is bool.
+
+The consuming Rust crate must enable iced's `image-without-codecs` or `image`
+feature for `image`, and `svg` for `svg`. Raster decoder features remain a
+Cargo choice; the reference app enables only the PNM decoder used by its tiny
+checked-in sample.
+
+Mouse routes do not carry a payload. `cursor=` accepts the iced interaction
+names in kebab case: `none`, `hidden`, `idle`, `context-menu`, `help`,
+`pointer`, `progress`, `wait`, `cell`, `crosshair`, `text`, `alias`, `copy`,
+`move`, `no-drop`, `not-allowed`, `grab`, `grabbing`, `resize-horizontal`,
+`resize-vertical`, `resize-diagonal-up`, `resize-diagonal-down`,
+`resize-column`, `resize-row`, `all-scroll`, `zoom-in`, and `zoom-out`.
 
 Spaces inside a compound expression should be wrapped in parentheses when the
 expression shares a line with widget properties:
@@ -225,7 +259,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.3 message payloads.
+`Clone` for 0.4 message payloads.
 
 Three typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
@@ -357,6 +391,10 @@ The implemented native nodes are:
 | `radio` | string label, `i64` or bool value, bool `selected`, value-payload route |
 | `rule` | horizontal or vertical separator with `f64` thickness |
 | `space` | optional fixed `f64` width and height |
+| `image` | raster path expression, typed length/fit/filter/rotation/opacity/scale/expand/radius properties |
+| `svg` | SVG path expression with typed length/fit/rotation/opacity properties |
+| `tooltip` | exactly two children (content then tip), position/gap/padding/delay/snap properties |
+| `mouse` | exactly one child; button/enter/exit routes and every iced cursor interaction |
 | `if` | includes its children when a bool expression is true |
 | `for` | iterates a list and adds one typed item binding |
 
@@ -500,7 +538,7 @@ The implemented families are:
 `cargo check` so rustc verifies extern items and generated iced types. A missing
 Rust item is named by its `crate::module::item` path in rustc's diagnostic. A
 future source-map layer may remap those rustc spans into the precise extern line;
-0.3 does not claim that remapping.
+0.4 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -520,11 +558,12 @@ skips `.git` and `target`.
 
 ## 12. Current coverage and escape hatches
 
-The 0.3 native backend is enough for CRUD/settings-style screens, not all of
-iced. It still lacks direct syntax for pick lists, combo boxes, image, SVG,
-canvas, overlay/modal, rich text and text editors, raw input events, widget
-operations, multiple windows, and custom widgets. [`COVERAGE.md`](COVERAGE.md)
-is the exact versioned ledger.
+The 0.4 native backend is enough for CRUD/settings-style screens, media, hover
+overlays, and common pointer events, not all of iced. It still lacks direct
+syntax for pick lists, combo boxes, canvas, general overlays/modals, rich text
+and text editors, pointer move/scroll payloads, widget operations, multiple
+windows, and custom widgets. [`COVERAGE.md`](COVERAGE.md) is the exact versioned
+ledger.
 
 The language must not grow one ad-hoc syntax form for every iced API. The next
 layer is therefore implemented as three typed Rust adapters: component, task,
@@ -552,5 +591,5 @@ state inference, typed extern structs/functions, mount and result handlers,
 direct input binding, `if`, `for`, a pure component, dynamic component IDs,
 theme utilities, disabled controls, fallible asynchronous tasks, grid and stack
 layouts, toggles, sliders, progress, radio controls, rules, fixed spacing, an
-extern tooltip/mouse-area component, a clipboard task, and a raw-event
-subscription.
+extern and native tooltip/mouse-area components, raster and SVG media, a
+clipboard task, and a raw-event subscription.

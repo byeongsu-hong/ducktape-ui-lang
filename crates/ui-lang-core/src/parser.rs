@@ -547,6 +547,9 @@ fn parse_view(line: &Line) -> Result<ViewNode, Error> {
         "rule" => parse_rule(&parts, styles, line),
         "space" => parse_space(&parts, styles, line),
         "extern" => parse_extern_component(&parts, styles, route_source, line),
+        "image" | "svg" => parse_media(kind, &parts, styles, line),
+        "tooltip" => parse_tooltip(&parts, styles, line),
+        "mouse" => parse_mouse_area(&parts, styles, line),
         _ if kind.chars().next().is_some_and(char::is_uppercase) => {
             ensure_leaf(line)?;
             let (name, args_source) = parse_signature(kind, line)?;
@@ -564,6 +567,248 @@ fn parse_view(line: &Line) -> Result<ViewNode, Error> {
         }
         _ => Err(error("E064", line, format!("unknown view node `{kind}`"))),
     }
+}
+
+fn parse_media(
+    kind: &str,
+    parts: &[String],
+    styles: Vec<String>,
+    line: &Line,
+) -> Result<ViewNode, Error> {
+    ensure_leaf(line)?;
+    if !styles.is_empty() {
+        return Err(error(
+            "E085",
+            line,
+            "media uses typed properties instead of `@` utilities",
+        ));
+    }
+    let source = parts
+        .get(1)
+        .ok_or_else(|| error("E085", line, format!("{kind} requires a source expression")))?;
+    let media_kind = if kind == "image" {
+        MediaKind::Image
+    } else {
+        MediaKind::Svg
+    };
+    let mut options = MediaOptions::default();
+    for part in &parts[2..] {
+        if let Some(value) = part.strip_prefix("width=") {
+            options.width = Some(parse_length(value, line)?);
+        } else if let Some(value) = part.strip_prefix("height=") {
+            options.height = Some(parse_length(value, line)?);
+        } else if let Some(value) = part.strip_prefix("fit=") {
+            options.fit = Some(match value {
+                "contain" => ContentFit::Contain,
+                "cover" => ContentFit::Cover,
+                "fill" => ContentFit::Fill,
+                "none" => ContentFit::None,
+                "scale-down" => ContentFit::ScaleDown,
+                _ => {
+                    return Err(error(
+                        "E085",
+                        line,
+                        "fit must be contain, cover, fill, none, or scale-down",
+                    ));
+                }
+            });
+        } else if let Some(value) = part.strip_prefix("rotation=") {
+            options.rotation = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("opacity=") {
+            options.opacity = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("filter=") {
+            if media_kind != MediaKind::Image {
+                return Err(error("E085", line, "filter is only available on image"));
+            }
+            options.filter = Some(match value {
+                "linear" => ImageFilter::Linear,
+                "nearest" => ImageFilter::Nearest,
+                _ => return Err(error("E085", line, "filter must be linear or nearest")),
+            });
+        } else if let Some(value) = part.strip_prefix("scale=") {
+            if media_kind != MediaKind::Image {
+                return Err(error("E085", line, "scale is only available on image"));
+            }
+            options.scale = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("expand=") {
+            if media_kind != MediaKind::Image {
+                return Err(error("E085", line, "expand is only available on image"));
+            }
+            options.expand = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("radius=") {
+            if media_kind != MediaKind::Image {
+                return Err(error("E085", line, "radius is only available on image"));
+            }
+            options.radius = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else {
+            return Err(error(
+                "E085",
+                line,
+                format!("unknown {kind} property `{part}`"),
+            ));
+        }
+    }
+    Ok(ViewNode::Media {
+        kind: media_kind,
+        source: parse_expr(source, line)?,
+        options,
+        span: Span::line(line.number),
+    })
+}
+
+fn parse_length(source: &str, line: &Line) -> Result<LengthValue, Error> {
+    Ok(match source {
+        "fill" => LengthValue::Fill,
+        "shrink" => LengthValue::Shrink,
+        source => LengthValue::Fixed(parse_expr(strip_wrapping_parens(source), line)?),
+    })
+}
+
+fn parse_tooltip(parts: &[String], styles: Vec<String>, line: &Line) -> Result<ViewNode, Error> {
+    if !styles.is_empty() {
+        return Err(error(
+            "E086",
+            line,
+            "tooltip content owns its styling; the wrapper does not accept `@`",
+        ));
+    }
+    if line.children.len() != 2 {
+        return Err(error(
+            "E086",
+            line,
+            "tooltip requires exactly two children: content, then tip",
+        ));
+    }
+    let mut options = TooltipOptions {
+        position: TooltipPosition::Top,
+        gap: Expr::F64(0.0),
+        padding: Expr::F64(5.0),
+        delay_ms: Expr::I64(0),
+        snap: Expr::Bool(true),
+    };
+    for part in &parts[1..] {
+        if let Some(value) = part.strip_prefix("position=") {
+            options.position = match value {
+                "top" => TooltipPosition::Top,
+                "bottom" => TooltipPosition::Bottom,
+                "left" => TooltipPosition::Left,
+                "right" => TooltipPosition::Right,
+                "cursor" => TooltipPosition::FollowCursor,
+                _ => {
+                    return Err(error(
+                        "E086",
+                        line,
+                        "tooltip position must be top, bottom, left, right, or cursor",
+                    ));
+                }
+            };
+        } else if let Some(value) = part.strip_prefix("gap=") {
+            options.gap = parse_expr(strip_wrapping_parens(value), line)?;
+        } else if let Some(value) = part.strip_prefix("padding=") {
+            options.padding = parse_expr(strip_wrapping_parens(value), line)?;
+        } else if let Some(value) = part.strip_prefix("delay=") {
+            options.delay_ms = parse_expr(strip_wrapping_parens(value), line)?;
+        } else if let Some(value) = part.strip_prefix("snap=") {
+            options.snap = parse_expr(strip_wrapping_parens(value), line)?;
+        } else {
+            return Err(error(
+                "E086",
+                line,
+                format!("unknown tooltip property `{part}`"),
+            ));
+        }
+    }
+    Ok(ViewNode::Tooltip {
+        options,
+        content: Box::new(parse_view(&line.children[0])?),
+        tip: Box::new(parse_view(&line.children[1])?),
+        span: Span::line(line.number),
+    })
+}
+
+fn parse_mouse_area(parts: &[String], styles: Vec<String>, line: &Line) -> Result<ViewNode, Error> {
+    if !styles.is_empty() {
+        return Err(error("E087", line, "mouse does not accept `@` utilities"));
+    }
+    if line.children.len() != 1 {
+        return Err(error("E087", line, "mouse requires exactly one child"));
+    }
+    let mut options = MouseAreaOptions::default();
+    for part in &parts[1..] {
+        let route = |value: &str| parse_route(value, line);
+        if let Some(value) = part.strip_prefix("press=") {
+            options.press = Some(route(value)?);
+        } else if let Some(value) = part.strip_prefix("release=") {
+            options.release = Some(route(value)?);
+        } else if let Some(value) = part.strip_prefix("double=") {
+            options.double_click = Some(route(value)?);
+        } else if let Some(value) = part.strip_prefix("right_press=") {
+            options.right_press = Some(route(value)?);
+        } else if let Some(value) = part.strip_prefix("right_release=") {
+            options.right_release = Some(route(value)?);
+        } else if let Some(value) = part.strip_prefix("middle_press=") {
+            options.middle_press = Some(route(value)?);
+        } else if let Some(value) = part.strip_prefix("middle_release=") {
+            options.middle_release = Some(route(value)?);
+        } else if let Some(value) = part.strip_prefix("enter=") {
+            options.enter = Some(route(value)?);
+        } else if let Some(value) = part.strip_prefix("exit=") {
+            options.exit = Some(route(value)?);
+        } else if let Some(value) = part.strip_prefix("cursor=") {
+            options.interaction = Some(parse_mouse_interaction(value, line)?);
+        } else {
+            return Err(error(
+                "E087",
+                line,
+                format!("unknown mouse property `{part}`"),
+            ));
+        }
+    }
+    if parts.len() == 1 {
+        return Err(error(
+            "E087",
+            line,
+            "mouse needs an event route or cursor property",
+        ));
+    }
+    Ok(ViewNode::MouseArea {
+        options,
+        content: Box::new(parse_view(&line.children[0])?),
+        span: Span::line(line.number),
+    })
+}
+
+fn parse_mouse_interaction(source: &str, line: &Line) -> Result<MouseInteraction, Error> {
+    Ok(match source {
+        "none" => MouseInteraction::None,
+        "hidden" => MouseInteraction::Hidden,
+        "idle" => MouseInteraction::Idle,
+        "context-menu" => MouseInteraction::ContextMenu,
+        "help" => MouseInteraction::Help,
+        "pointer" => MouseInteraction::Pointer,
+        "progress" => MouseInteraction::Progress,
+        "wait" => MouseInteraction::Wait,
+        "cell" => MouseInteraction::Cell,
+        "crosshair" => MouseInteraction::Crosshair,
+        "text" => MouseInteraction::Text,
+        "alias" => MouseInteraction::Alias,
+        "copy" => MouseInteraction::Copy,
+        "move" => MouseInteraction::Move,
+        "no-drop" => MouseInteraction::NoDrop,
+        "not-allowed" => MouseInteraction::NotAllowed,
+        "grab" => MouseInteraction::Grab,
+        "grabbing" => MouseInteraction::Grabbing,
+        "resize-horizontal" => MouseInteraction::ResizingHorizontally,
+        "resize-vertical" => MouseInteraction::ResizingVertically,
+        "resize-diagonal-up" => MouseInteraction::ResizingDiagonallyUp,
+        "resize-diagonal-down" => MouseInteraction::ResizingDiagonallyDown,
+        "resize-column" => MouseInteraction::ResizingColumn,
+        "resize-row" => MouseInteraction::ResizingRow,
+        "all-scroll" => MouseInteraction::AllScroll,
+        "zoom-in" => MouseInteraction::ZoomIn,
+        "zoom-out" => MouseInteraction::ZoomOut,
+        _ => return Err(error("E087", line, format!("unknown cursor `{source}`"))),
+    })
 }
 
 fn parse_extern_component(

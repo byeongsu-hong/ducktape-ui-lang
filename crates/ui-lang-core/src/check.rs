@@ -474,6 +474,109 @@ fn infer_view(
                 }
             }
         }
+        ViewNode::Media {
+            source,
+            options,
+            span,
+            ..
+        } => {
+            require_type(&expr_type(source, env, document, span)?, &Type::Str, span)?;
+            for length in [&options.width, &options.height].into_iter().flatten() {
+                if let LengthValue::Fixed(value) = length {
+                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+                    require_literal_range(value, 0.0, None, "media size", span)?;
+                }
+            }
+            for (value, label, min, max) in [
+                (&options.rotation, "rotation", None, None),
+                (&options.opacity, "opacity", Some(0.0), Some(1.0)),
+                (&options.scale, "scale", Some(f64::EPSILON), None),
+                (&options.radius, "radius", Some(0.0), None),
+            ] {
+                if let Some(value) = value {
+                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+                    require_literal_range(
+                        value,
+                        min.unwrap_or(f64::NEG_INFINITY),
+                        max,
+                        label,
+                        span,
+                    )?;
+                }
+            }
+            if let Some(expand) = &options.expand {
+                require_type(&expr_type(expand, env, document, span)?, &Type::Bool, span)?;
+            }
+        }
+        ViewNode::Tooltip {
+            options,
+            content,
+            tip,
+            span,
+        } => {
+            for (value, label) in [
+                (&options.gap, "tooltip gap"),
+                (&options.padding, "tooltip padding"),
+            ] {
+                require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+                require_literal_range(value, 0.0, None, label, span)?;
+            }
+            require_type(
+                &expr_type(&options.delay_ms, env, document, span)?,
+                &Type::I64,
+                span,
+            )?;
+            if matches!(&options.delay_ms, Expr::I64(value) if *value < 0) {
+                return Err(Error::new("E128", span, "tooltip delay cannot be negative"));
+            }
+            require_type(
+                &expr_type(&options.snap, env, document, span)?,
+                &Type::Bool,
+                span,
+            )?;
+            infer_view(content, env, document, signatures, ids)?;
+            infer_view(tip, env, document, signatures, ids)?;
+        }
+        ViewNode::MouseArea {
+            options, content, ..
+        } => {
+            for route in [
+                &options.press,
+                &options.release,
+                &options.double_click,
+                &options.right_press,
+                &options.right_release,
+                &options.middle_press,
+                &options.middle_release,
+                &options.enter,
+                &options.exit,
+            ]
+            .into_iter()
+            .flatten()
+            {
+                infer_route(route, None, env, document, signatures)?;
+            }
+            infer_view(content, env, document, signatures, ids)?;
+        }
+    }
+    Ok(())
+}
+
+fn require_literal_range(
+    expr: &Expr,
+    min: f64,
+    max: Option<f64>,
+    label: &str,
+    span: &Span,
+) -> Result<(), Error> {
+    if let Expr::F64(value) = expr
+        && (*value < min || max.is_some_and(|max| *value > max))
+    {
+        return Err(Error::new(
+            "E128",
+            span,
+            format!("{label} is outside its valid range"),
+        ));
     }
     Ok(())
 }
@@ -1247,5 +1350,21 @@ view
 "#;
         let error = analyze(source).unwrap_err();
         assert_eq!(error.code, "E135");
+    }
+
+    #[test]
+    fn rejects_out_of_range_media_opacity() {
+        let source = r#"app Demo
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+view
+  image "photo.ppm" opacity=1.5
+"#;
+        let error = analyze(source).unwrap_err();
+        assert_eq!(error.code, "E128");
+        assert!(error.message.contains("opacity"));
     }
 }
