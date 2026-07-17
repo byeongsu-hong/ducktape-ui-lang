@@ -372,6 +372,13 @@ pub enum ViewNode {
         route: Route,
         span: Span,
     },
+    Table {
+        item: String,
+        rows: Expr,
+        options: TableOptions,
+        columns: Vec<TableColumn>,
+        span: Span,
+    },
     Component {
         name: String,
         args: Vec<Expr>,
@@ -451,6 +458,27 @@ pub struct MarkdownOptions {
     pub h6_size: Option<Expr>,
     pub code_size: Option<Expr>,
     pub spacing: Option<Expr>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct TableOptions {
+    pub width: Option<LengthValue>,
+    pub padding: Option<Expr>,
+    pub padding_x: Option<Expr>,
+    pub padding_y: Option<Expr>,
+    pub separator: Option<Expr>,
+    pub separator_x: Option<Expr>,
+    pub separator_y: Option<Expr>,
+}
+
+#[derive(Clone, Debug)]
+pub struct TableColumn {
+    pub width: Option<LengthValue>,
+    pub align_x: Option<InputAlignment>,
+    pub align_y: Option<VerticalAlignment>,
+    pub header: ViewNode,
+    pub cell: ViewNode,
+    pub span: Span,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
