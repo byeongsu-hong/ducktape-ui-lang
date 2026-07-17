@@ -350,7 +350,7 @@ on native_scroll(x, y, pixels)
   pointer_y = y
   scroll_pixels = pixels
 
-on task_list_scrolled(x, y, relative_x, relative_y)
+on task_list_scrolled(x, y, _reversed_x, _reversed_y, relative_x, relative_y, _bounds_x, _bounds_y, _bounds_width, _bounds_height, _content_x, _content_y, _content_width, _content_height)
   scroll_x = x
   scroll_y = y
   scroll_relative_x = relative_x
@@ -565,9 +565,21 @@ view
           text "Dynamic preview" @text-sm text-foreground
           button "Close nested preview" -> close_nested_preview
 
-    scroll #task-list direction=vertical width=fill height=fill bar=visible bar-width=8.0 bar-margin=2.0 scroller-width=6.0 bar-spacing=2.0 anchor-y=start auto=true scroll=task_list_scrolled
+    scroll #task-list direction=vertical width=fill height=fill bar=visible bar-width=8.0 bar-margin=2.0 scroller-width=6.0 bar-spacing=2.0 anchor-y=start auto=true viewport=task_list_scrolled
       keyed task in tasks by=task.id width=fill height=shrink spacing=8.0 padding=4.0 padding-left=8.0 max-width=720.0 align=center
         TaskRow task=task loading=loading
+      active vertical-disabled=false
+        container background=background text=foreground border=border border-width=1.0 radius=8.0 shadow=black/25 shadow-y=2.0 shadow-blur=4.0 pixel-snap=true
+        horizontal-rail background=surface border=border border-width=1.0 radius=4.0
+        horizontal-scroller background=primary border=foreground border-width=1.0 radius=4.0
+        vertical-rail background=surface border=border border-width=1.0 radius=4.0
+        vertical-scroller background=primary border=foreground border-width=1.0 radius=4.0
+        gap background=background
+        auto background=surface border=primary border-width=1.0 radius=999.0 shadow=black/50 shadow-y=2.0 shadow-blur=4.0 icon=foreground
+      hovered vertical-hovered=true vertical-disabled=false
+        vertical-scroller background=foreground
+      dragged vertical-dragged=true vertical-disabled=false
+        vertical-scroller background=danger
 
     table task in tasks width=fill padding=4.0 padding-x=8.0 padding-y=6.0 separator=1.0 separator-x=2.0 separator-y=1.0
       column width=fill align-x=left align-y=center

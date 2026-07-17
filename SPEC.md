@@ -1,4 +1,4 @@
-# Ice Language Specification 0.73
+# Ice Language Specification 0.74
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.73 syntax.
+marked “planned” is a design constraint, not accepted 0.74 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.73.
+  block comments are not part of 0.74.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -256,7 +256,7 @@ node           = layout | text | input | button | checkbox | toggler
                | editor_view | container | overlay | rich_text | pane_grid
 layout         = "col" id? column_property* styles? INDENT node+
                | "row" id? flex_property* styles? INDENT node+
-               | "scroll" id? scroll_property* styles? INDENT node
+               | "scroll" id? scroll_property* styles? INDENT node scroll_status*
                | "grid" id? grid_property* styles? INDENT node+
                | "stack" id? stack_property* styles? INDENT node+
 container      = "container" id? container_property* styles? INDENT node
@@ -396,7 +396,28 @@ scroll_property = "direction=" ("vertical" | "horizontal" | "both")
                 | ("bar-width=" | "bar-margin=" | "scroller-width="
                   | "bar-spacing=") expr
                 | ("anchor-x=" | "anchor-y=") ("start" | "end")
-                | "auto=" expr | "scroll=" route
+                | "auto=" expr | ("scroll=" | "viewport=") route
+scroll_status  = ("active" | "hovered" | "dragged")
+                 scroll_selector*
+                 (INDENT scroll_style_section*)?
+scroll_selector = ("horizontal-disabled=" | "vertical-disabled=") bool
+                | ("horizontal-hovered=" | "vertical-hovered=") bool
+                | ("horizontal-dragged=" | "vertical-dragged=") bool
+scroll_bar_surface_property
+               = "background=" background_value | "border=" color_ref
+               | ("border-width=" | "radius=" | "radius-tl="
+                 | "radius-tr=" | "radius-br=" | "radius-bl=") expr
+scroll_auto_property
+               = scroll_bar_surface_property | "shadow=" color_ref
+               | ("shadow-x=" | "shadow-y=" | "shadow-blur=") expr
+               | "icon=" color_ref
+scroll_style_section
+               = "container" surface_style_property*
+               | ("horizontal-rail" | "vertical-rail"
+                 | "horizontal-scroller" | "vertical-scroller")
+                 scroll_bar_surface_property*
+               | "gap" "background=" background_value
+               | "auto" scroll_auto_property*
 text           = "text" expr text_property* styles?
 text_property  = ("width=" | "height=") length | "size=" expr
                | ("line-height=" | "line-height-px=") expr
@@ -664,7 +685,7 @@ default/centered/fixed position, visibility, resizability, close/minimize
 buttons, decorations, transparency, blur, level, and close-request behavior.
 Sizes, text size, and scale factor must be positive; minimum size cannot exceed
 maximum size. Window icons and platform-specific settings are not part of
-0.73.
+0.74.
 
 Media fixed lengths, rotation, opacity, scale, and radius are `f64`; rotation
 is radians, opacity is `0.0..=1.0`, scale is positive, and sizes/radius are
@@ -706,7 +727,32 @@ payloads automatically.
 `scroll` accepts every native direction, all four iced length variants, visible
 or hidden scrollbars, scrollbar dimensions/spacing, axis anchors, and bool
 auto-scroll. Its `scroll=` handler receives absolute x/y followed by relative
-x/y as four f64 payloads. Bare handler names receive all four automatically.
+x/y as four f64 payloads. `viewport=` is the complete alternative and receives
+14 f64 values in this order: absolute x/y, reversed absolute x/y, relative x/y,
+viewport x/y/width/height, then content x/y/width/height. The two routes are
+mutually exclusive. Bare handler names receive every payload automatically.
+
+Optional `active`, `hovered`, and `dragged` lines expose every concrete
+scrollable Style field: its container, both rails and scrollers, corner gap,
+and auto-scroll overlay. Bool selectors match iced's horizontal/vertical
+hovered, dragged, and disabled status fields. Omitted selectors are wildcards;
+matching lines apply in source order, so a later specific line can refine a
+base style:
+
+```ice
+scroll direction=both viewport=viewport_changed
+  col
+    text "Scrollable"
+  active
+    container background=background
+    horizontal-scroller background=primary
+    vertical-scroller background=primary
+    auto background=surface icon=foreground
+  hovered horizontal-hovered=true
+    horizontal-scroller background=foreground
+  dragged vertical-dragged=true
+    vertical-scroller background=danger
+```
 
 `text` accepts str, i64, and f64 values plus typed width/height, positive size,
 relative `line-height=` or absolute `line-height-px=`, horizontal and vertical
@@ -1032,7 +1078,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.73 message payloads.
+`Clone` for 0.74 message payloads.
 
 Three typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
@@ -1155,7 +1201,7 @@ The implemented native nodes are:
 | --- | --- |
 | `col` | vertical children with full sizing, padding, spacing, alignment, clipping and wrapping behavior |
 | `row` | horizontal children with full sizing, padding, spacing, alignment, clipping and wrapping behavior |
-| `scroll` | one child; direction, bounds, scrollbar, anchors, auto-scroll and absolute/relative offset route |
+| `scroll` | one content child; complete direction/scrollbar/builders, every viewport getter and status selector, and every concrete Style field |
 | `grid` | responsive children with pixel width/spacing, fixed columns or fluid max-cell width, and aspect-ratio or evenly distributed `Length` height |
 | `stack` | overlays children with typed width/height, optional clipping and `under=N` intrinsic-base control |
 | `container` | exactly one child with ID, all length bounds, max bounds, per-axis alignment, clipping, per-side padding and every concrete surface style field including linear backgrounds |
@@ -1574,7 +1620,7 @@ weight, stretch, and style variant is accepted. At most one declaration may be
 the application default. `font=default` and `font=mono` remain built-ins;
 declared fonts also work on text, rich text and spans, input, editor, checkbox,
 toggler, radio, pick, combo, and their custom icons. Font
-byte loading is not part of 0.73.
+byte loading is not part of 0.74.
 
 Widget operation tasks target checked static IDs in the app view:
 
@@ -1594,7 +1640,7 @@ snap/end; and absolute scroll-to/scroll-by. Effects have no route and
 non-negative `i64`; relative offsets are `f64` in `0.0..=1.0`; absolute
 offsets are unrestricted `f64`. Targets must be real static IDs in the app
 scope. Repeated/component scopes and the feature-gated selector API remain
-outside 0.73.
+outside 0.74.
 
 Persistent pane grids expose their native layout-state operations directly in
 handlers:
@@ -1641,7 +1687,7 @@ and constraints, resizability, maximize/minimize state, position and movement,
 all modes, decorations, user attention, focus, level, system menu, mouse
 passthrough, monitor size, and automatic tabbing. Positive sizes and bool
 arguments are checked before Rust generation. New-window IDs, open/oldest/latest,
-icons, raw handles, screenshots, and callbacks remain outside 0.73.
+icons, raw handles, screenshots, and callbacks remain outside 0.74.
 
 Every iced window event has a direct subscription form:
 
@@ -1794,7 +1840,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 0.73 does not claim that remapping.
+extern line; 0.74 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -1815,7 +1861,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 0.73 native backend is enough for CRUD/settings-style screens, selection,
+The 0.74 native backend is enough for CRUD/settings-style screens, selection,
 media, hover
 overlays, and common pointer events, not all of iced. It still lacks direct
 syntax for canvas, arbitrary custom overlays, multiple
