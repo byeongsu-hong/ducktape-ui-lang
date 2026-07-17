@@ -54,7 +54,12 @@ view
             container width=fill height=fill padding=16.0 @bg-surface border border-border rounded-lg
               col @gap-3
                 text "Details" @text-lg font-bold text-foreground
-                text "Drag or resize this pane." @text-sm text-muted
+                text "Drag, resize, or arrange this pane." @text-sm text-muted
+                row wrap @gap-2
+                  button "Maximize" -> maximize_details
+                  button "Restore" -> restore_workspace
+                  button "Swap" -> swap_workspace
+                  button "Move left" -> move_details_left
     layer
       Dialog
         header:

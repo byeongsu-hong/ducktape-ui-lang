@@ -1167,6 +1167,118 @@ fn generate_statements(
                 )
                 .unwrap();
             }
+            Statement::PaneOperation {
+                grid,
+                operation,
+                route,
+                ..
+            } => {
+                let field = pane_field(grid);
+                let pane = |name: &str| {
+                    format!(
+                        "{state}.{field}.iter().find_map(|(__pane, __name)| (*__name == {}).then_some(*__pane))",
+                        rust_string(name)
+                    )
+                };
+                let edge = |edge: &PaneEdge| match edge {
+                    PaneEdge::Top => "Top",
+                    PaneEdge::Left => "Left",
+                    PaneEdge::Right => "Right",
+                    PaneEdge::Bottom => "Bottom",
+                };
+                match operation {
+                    PaneOperation::Maximize { pane: name } => writeln!(
+                        out,
+                        "{{ let __pane = {}; if let ::std::option::Option::Some(__pane) = __pane {{ {state}.{field}.maximize(__pane); }} }}",
+                        pane(name)
+                    )
+                    .unwrap(),
+                    PaneOperation::Restore => {
+                        writeln!(out, "{state}.{field}.restore();").unwrap()
+                    }
+                    PaneOperation::Swap { first, second } => writeln!(
+                        out,
+                        "{{ let __first = {}; let __second = {}; if let (::std::option::Option::Some(__first), ::std::option::Option::Some(__second)) = (__first, __second) {{ {state}.{field}.swap(__first, __second); }} }}",
+                        pane(first),
+                        pane(second)
+                    )
+                    .unwrap(),
+                    PaneOperation::Close { pane: name } => writeln!(
+                        out,
+                        "{{ let __pane = {}; if let ::std::option::Option::Some(__pane) = __pane {{ let _ = {state}.{field}.close(__pane); }} }}",
+                        pane(name)
+                    )
+                    .unwrap(),
+                    PaneOperation::Move { pane: name, edge: side } => writeln!(
+                        out,
+                        "{{ let __pane = {}; if let ::std::option::Option::Some(__pane) = __pane {{ {state}.{field}.move_to_edge(__pane, ::iced::widget::pane_grid::Edge::{}); }} }}",
+                        pane(name),
+                        edge(side)
+                    )
+                    .unwrap(),
+                    PaneOperation::Resize { ratio } => writeln!(
+                        out,
+                        "{{ let __split = {state}.{field}.layout().splits().next().copied(); if let ::std::option::Option::Some(__split) = __split {{ {state}.{field}.resize(__split, ({}) as f32); }} }}",
+                        expr_code(ratio, env, document, ValueMode::Owned)?
+                    )
+                    .unwrap(),
+                    PaneOperation::Drop {
+                        pane: name,
+                        target,
+                        edge: side,
+                    } => {
+                        let region = side.as_ref().map_or_else(
+                            || "::iced::widget::pane_grid::Region::Center".into(),
+                            |side| {
+                                format!(
+                                    "::iced::widget::pane_grid::Region::Edge(::iced::widget::pane_grid::Edge::{})",
+                                    edge(side)
+                                )
+                            },
+                        );
+                        writeln!(
+                            out,
+                            "{{ let __pane = {}; let __target = {}; if let (::std::option::Option::Some(__pane), ::std::option::Option::Some(__target)) = (__pane, __target) {{ {state}.{field}.drop(__pane, ::iced::widget::pane_grid::Target::Pane(__target, {region})); }} }}",
+                            pane(name),
+                            pane(target)
+                        )
+                        .unwrap();
+                    }
+                    PaneOperation::Maximized | PaneOperation::Adjacent { .. } => {
+                        has_task = true;
+                        let value = match operation {
+                            PaneOperation::Maximized => format!(
+                                "{state}.{field}.maximized().and_then(|__pane| {state}.{field}.get(__pane)).map(|__name| (*__name).to_owned())"
+                            ),
+                            PaneOperation::Adjacent { pane: name, edge: side } => {
+                                let direction = match side {
+                                    PaneEdge::Top => "Up",
+                                    PaneEdge::Left => "Left",
+                                    PaneEdge::Right => "Right",
+                                    PaneEdge::Bottom => "Down",
+                                };
+                                format!(
+                                    "{}.and_then(|__pane| {state}.{field}.adjacent(__pane, ::iced::widget::pane_grid::Direction::{direction})).and_then(|__pane| {state}.{field}.get(__pane)).map(|__name| (*__name).to_owned())",
+                                    pane(name)
+                                )
+                            }
+                            _ => unreachable!(),
+                        };
+                        let route = route.as_ref().expect("checker requires pane query route");
+                        let message_code = route_code(route, "value", env, document, message)?;
+                        let task = format!(
+                            "{{ let value = {value}; ::iced::Task::done({message_code}) }}"
+                        );
+                        writeln!(
+                            out,
+                            "{}{task}{}",
+                            if return_task { "return " } else { "" },
+                            if return_task { ";" } else { "" }
+                        )
+                        .unwrap();
+                    }
+                }
+            }
             Statement::WindowOperation {
                 operation, route, ..
             } => {
@@ -5780,6 +5892,49 @@ view
         assert!(generated.contains("self.__pane_work.resize(__event.split, __event.ratio)"));
         assert!(generated.contains("self.__pane_work.drop(pane, target)"));
         assert!(generated.contains("__WorkspaceMessage::Clicked(__pane_name.to_owned())"));
+    }
+
+    #[test]
+    fn lowers_pane_state_operations_and_queries() {
+        let source = r#"app Workspace
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+on arrange
+  pane #work maximize editor
+  pane #work restore
+  pane #work swap files editor
+  pane #work move editor left
+  pane #work resize 0.6
+  pane #work drop editor files top
+  pane #work close editor
+on inspect
+  pane #work maximized -> observed _
+on inspect_neighbor
+  pane #work adjacent files right -> observed _
+on observed(name)
+view
+  pane-grid #work split=vertical
+    pane files
+      text "Files"
+    pane editor
+      text "Editor"
+"#;
+        let generated = compile(source, "workspace.ice").unwrap();
+        assert!(generated.contains("self.__pane_work.maximize(__pane)"));
+        assert!(generated.contains("self.__pane_work.restore()"));
+        assert!(generated.contains("self.__pane_work.swap(__first, __second)"));
+        assert!(generated.contains("move_to_edge(__pane, ::iced::widget::pane_grid::Edge::Left)"));
+        assert!(generated.contains("layout().splits().next().copied()"));
+        assert!(generated.contains("self.__pane_work.resize(__split, (0.6) as f32)"));
+        assert!(generated.contains("pane_grid::Target::Pane(__target"));
+        assert!(generated.contains("pane_grid::Region::Edge"));
+        assert!(generated.contains("self.__pane_work.close(__pane)"));
+        assert!(generated.contains("self.__pane_work.maximized()"));
+        assert!(generated.contains("pane_grid::Direction::Right"));
+        assert!(generated.contains("::iced::Task::done(__WorkspaceMessage::Observed(value))"));
     }
 
     #[test]

@@ -51,6 +51,7 @@ pub fn check(document: &mut Document) -> Result<(), Error> {
     let mut ids = HashSet::new();
     infer_view(&document.view, &states, document, &mut signatures, &mut ids)?;
     let operation_ids = static_widget_ids(&document.view);
+    let pane_grids = static_pane_grids(&document.view)?;
     for component in &document.components {
         if let Some(span) = pane_grid_span(&component.root) {
             return Err(Error::new(
@@ -92,7 +93,7 @@ pub fn check(document: &mut Document) -> Result<(), Error> {
     }
 
     for handler in &document.handlers {
-        check_handler(handler, &states, document, &operation_ids)?;
+        check_handler(handler, &states, document, &operation_ids, &pane_grids)?;
     }
     Ok(())
 }
@@ -162,6 +163,87 @@ fn static_widget_ids(root: &ViewNode) -> HashSet<String> {
     let mut output = HashSet::new();
     collect(root, &mut output);
     output
+}
+
+fn static_pane_grids(root: &ViewNode) -> Result<HashMap<String, HashSet<String>>, Error> {
+    fn collect(
+        node: &ViewNode,
+        output: &mut HashMap<String, HashSet<String>>,
+    ) -> Result<(), Error> {
+        match node {
+            ViewNode::PaneGrid {
+                name, panes, span, ..
+            } => {
+                if output
+                    .insert(
+                        name.clone(),
+                        panes.iter().map(|pane| pane.name.clone()).collect(),
+                    )
+                    .is_some()
+                {
+                    return Err(Error::new(
+                        "E187",
+                        span,
+                        format!("duplicate persistent pane-grid `#{name}`"),
+                    ));
+                }
+                for pane in panes {
+                    collect(&pane.content, output)?;
+                }
+            }
+            ViewNode::Layout { children, .. }
+            | ViewNode::If { children, .. }
+            | ViewNode::For { children, .. } => {
+                for child in children {
+                    collect(child, output)?;
+                }
+            }
+            ViewNode::Tooltip { content, tip, .. }
+            | ViewNode::Overlay {
+                content,
+                layer: tip,
+                ..
+            } => {
+                collect(content, output)?;
+                collect(tip, output)?;
+            }
+            ViewNode::Table { columns, .. } => {
+                for column in columns {
+                    collect(&column.header, output)?;
+                    collect(&column.cell, output)?;
+                }
+            }
+            ViewNode::MouseArea { content, .. }
+            | ViewNode::Container { content, .. }
+            | ViewNode::Theme { content, .. }
+            | ViewNode::Float { content, .. }
+            | ViewNode::Pin { content, .. }
+            | ViewNode::Sensor { content, .. }
+            | ViewNode::KeyedColumn { child: content, .. }
+            | ViewNode::Lazy { child: content, .. }
+            | ViewNode::Button {
+                content: Some(content),
+                ..
+            } => collect(content, output)?,
+            ViewNode::Component { slots, .. } => {
+                for slot in slots {
+                    collect(&slot.content, output)?;
+                }
+            }
+            ViewNode::Responsive { content, .. } => match content {
+                ResponsiveContent::Breakpoint { narrow, wide, .. } => {
+                    collect(narrow, output)?;
+                    collect(wide, output)?;
+                }
+                ResponsiveContent::Size { content, .. } => collect(content, output)?,
+            },
+            _ => {}
+        }
+        Ok(())
+    }
+    let mut output = HashMap::new();
+    collect(root, &mut output)?;
+    Ok(output)
 }
 
 fn check_declared_types(document: &Document) -> Result<(), Error> {
@@ -2561,6 +2643,20 @@ fn infer_runs(
         {
             infer_route(route, Some(Type::Bool), &unknown_env, document, signatures)?;
         }
+        if let Statement::PaneOperation {
+            operation: PaneOperation::Maximized | PaneOperation::Adjacent { .. },
+            route: Some(route),
+            ..
+        } = statement
+        {
+            infer_route(
+                route,
+                Some(Type::Option(Box::new(Type::Str))),
+                &unknown_env,
+                document,
+                signatures,
+            )?;
+        }
         if let Statement::WindowOperation {
             operation,
             route: Some(route),
@@ -2758,6 +2854,7 @@ fn check_handler(
     states: &HashMap<String, Type>,
     document: &Document,
     operation_ids: &HashSet<String>,
+    pane_grids: &HashMap<String, HashSet<String>>,
 ) -> Result<(), Error> {
     let mut env = states.clone();
     env.extend(
@@ -2922,6 +3019,77 @@ fn check_handler(
                             span,
                         )?;
                     }
+                }
+            }
+            Statement::PaneOperation {
+                grid,
+                operation,
+                route,
+                span,
+            } => {
+                let panes = pane_grids.get(grid).ok_or_else(|| {
+                    Error::new("E188", span, format!("unknown pane-grid `#{grid}`"))
+                })?;
+                let referenced = match operation {
+                    PaneOperation::Maximize { pane }
+                    | PaneOperation::Adjacent { pane, .. }
+                    | PaneOperation::Close { pane }
+                    | PaneOperation::Move { pane, .. } => vec![pane],
+                    PaneOperation::Swap { first, second } => vec![first, second],
+                    PaneOperation::Drop { pane, target, .. } => vec![pane, target],
+                    PaneOperation::Restore
+                    | PaneOperation::Maximized
+                    | PaneOperation::Resize { .. } => Vec::new(),
+                };
+                for pane in referenced {
+                    if !panes.contains(pane) {
+                        return Err(Error::new(
+                            "E188",
+                            span,
+                            format!("pane-grid `#{grid}` has no pane `{pane}`"),
+                        ));
+                    }
+                }
+                if matches!(
+                    operation,
+                    PaneOperation::Swap { first, second } if first == second
+                ) || matches!(
+                    operation,
+                    PaneOperation::Drop { pane, target, .. } if pane == target
+                ) {
+                    return Err(Error::new(
+                        "E188",
+                        span,
+                        "pane operation requires two different panes",
+                    ));
+                }
+                let query = matches!(
+                    operation,
+                    PaneOperation::Maximized | PaneOperation::Adjacent { .. }
+                );
+                if query && index + 1 != handler.statements.len() {
+                    return Err(Error::new(
+                        "E188",
+                        span,
+                        "pane query must be the final statement in a handler",
+                    ));
+                }
+                match (query, route) {
+                    (true, None) => {
+                        return Err(Error::new("E188", span, "pane query requires a route"));
+                    }
+                    (false, Some(_)) => {
+                        return Err(Error::new(
+                            "E188",
+                            span,
+                            "pane effects do not produce a route",
+                        ));
+                    }
+                    _ => {}
+                }
+                if let PaneOperation::Resize { ratio } = operation {
+                    require_type(&expr_type(ratio, &env, document, span)?, &Type::F64, span)?;
+                    require_literal_range(ratio, 0.0, Some(1.0), "pane split ratio", span)?;
                 }
             }
             Statement::WindowOperation {
@@ -4419,6 +4587,89 @@ view
         let error = analyze(&bad_panes).unwrap_err();
         assert_eq!(error.code, "E187");
         assert!(error.message.contains("pane-grid children"));
+    }
+
+    #[test]
+    fn checks_pane_state_operations_and_queries() {
+        let source = r#"app Workspace
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+on arrange
+  pane #work maximize editor
+  pane #work restore
+  pane #work swap files editor
+  pane #work move editor left
+  pane #work resize 0.6
+  pane #work drop editor files center
+  pane #work close editor
+on inspect
+  pane #work maximized -> observed _
+on inspect_neighbor
+  pane #work adjacent files right -> observed _
+on observed(name)
+view
+  pane-grid #work split=vertical
+    pane files
+      text "Files"
+    pane editor
+      text "Editor"
+"#;
+        let document = analyze(source).unwrap();
+        assert_eq!(document.handlers[3].params[0].ty.display(), "str?");
+
+        let error = analyze(&source.replace("#work maximize", "#missing maximize")).unwrap_err();
+        assert_eq!(error.code, "E188");
+        assert!(error.message.contains("unknown pane-grid"));
+
+        let error = analyze(&source.replace("maximize editor", "maximize preview")).unwrap_err();
+        assert_eq!(error.code, "E188");
+        assert!(error.message.contains("has no pane `preview`"));
+
+        let error = analyze(&source.replace("swap files editor", "swap files files")).unwrap_err();
+        assert_eq!(error.code, "E188");
+        assert!(error.message.contains("different panes"));
+
+        let error = analyze(&source.replace("resize 0.6", "resize 1.1")).unwrap_err();
+        assert_eq!(error.code, "E128");
+        assert!(error.message.contains("pane split ratio"));
+
+        let error =
+            analyze(&source.replace("pane #work maximized -> observed _", "pane #work maximized"))
+                .unwrap_err();
+        assert_eq!(error.code, "E188");
+        assert!(error.message.contains("query requires a route"));
+
+        let duplicate = r#"app Workspace
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+component Frame()
+  row
+    slot left
+    slot right
+view
+  Frame
+    left:
+      pane-grid #work split=vertical
+        pane a
+          text "A"
+        pane b
+          text "B"
+    right:
+      pane-grid #work split=horizontal
+        pane c
+          text "C"
+        pane d
+          text "D"
+"#;
+        let error = analyze(duplicate).unwrap_err();
+        assert_eq!(error.code, "E187");
+        assert!(error.message.contains("duplicate persistent pane-grid"));
     }
 
     #[test]

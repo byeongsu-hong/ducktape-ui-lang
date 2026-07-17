@@ -393,6 +393,52 @@ pub enum Statement {
         route: Option<Route>,
         span: Span,
     },
+    PaneOperation {
+        grid: String,
+        operation: PaneOperation,
+        route: Option<Route>,
+        span: Span,
+    },
+}
+
+#[derive(Clone, Debug)]
+pub enum PaneOperation {
+    Maximize {
+        pane: String,
+    },
+    Restore,
+    Maximized,
+    Adjacent {
+        pane: String,
+        edge: PaneEdge,
+    },
+    Swap {
+        first: String,
+        second: String,
+    },
+    Close {
+        pane: String,
+    },
+    Move {
+        pane: String,
+        edge: PaneEdge,
+    },
+    Resize {
+        ratio: Expr,
+    },
+    Drop {
+        pane: String,
+        target: String,
+        edge: Option<PaneEdge>,
+    },
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum PaneEdge {
+    Top,
+    Left,
+    Right,
+    Bottom,
 }
 
 #[derive(Clone, Debug)]

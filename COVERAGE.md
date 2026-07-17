@@ -15,7 +15,7 @@ counts toward the row below.
 
 ## Typed system reachability
 
-Ice 0.52 has three checked Rust boundaries:
+Ice 0.53 has three checked Rust boundaries:
 
 | Boundary | Rust ABI | Covers |
 | --- | --- | --- |
@@ -45,7 +45,7 @@ public behavior has direct documented Ice syntax and tests.
 | `markdown` | partial | owned parsed/replaced content, syntax highlighting, every `Settings` size/spacing field and str link events; incremental append, image URI access, full `Style` and custom `Viewer` remain |
 | `mouse_area` | native | all button/enter/move/scroll/exit events, scroll unit preservation, and all cursor interactions |
 | `overlay` | partial | structured content/layer sections, conditional visibility, all three alignments on both axes, padding, checked backdrop color, modal button/scroll blocking and backdrop dismissal lower through native Stack/Float overlay behavior; arbitrary custom Overlay implementations and z-index remain |
-| `pane_grid` | partial | persistent compiler-owned two-pane horizontal/vertical split, ratio, bounds, spacing, minimum size, click names, native resize and drag/drop state updates; nested/dynamic splits, title bars, controls, maximize/close/focus operations and style catalog remain |
+| `pane_grid` | partial | persistent compiler-owned two-pane split, bounds, click, interactive resize/drag, and checked maximize/restore/query, adjacency, swap, close, move-to-edge, ratio resize, and region drop operations; nested/dynamic splits, title bars, controls and style catalog remain |
 | `pick_list` | partial | native typed choices/optional selection, placeholder, sizing, padding, text size, open/close events; font, shaping, handle and style catalogs missing |
 | `pin` | native | one child, all `Length` bounds and pixel x/y positioning; x/y is behaviorally identical to iced's `position(Point)` helper |
 | `progress_bar` | partial | native range/value, all length/girth variants, horizontal/vertical, five presets, checked color backgrounds, border and per-corner radius; gradients, arbitrary runtime closures and advanced classes missing |
