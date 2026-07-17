@@ -1657,6 +1657,7 @@ fn parse_slider(
     let mut min = None;
     let mut max = None;
     let mut step = Expr::F64(1.0);
+    let mut options = SliderOptions::default();
     let mut vertical = false;
     let mut release = None;
     for part in &parts[2..] {
@@ -1666,6 +1667,14 @@ fn parse_slider(
             max = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else if let Some(value) = part.strip_prefix("step=") {
             step = parse_expr(strip_wrapping_parens(value), line)?;
+        } else if let Some(value) = part.strip_prefix("default=") {
+            options.default = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("shift-step=") {
+            options.shift_step = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("width=") {
+            options.width = Some(parse_length(value, line)?);
+        } else if let Some(value) = part.strip_prefix("height=") {
+            options.height = Some(parse_length(value, line)?);
         } else if part == "vertical" {
             vertical = true;
         } else if let Some(value) = part.strip_prefix("release=") {
@@ -1683,6 +1692,7 @@ fn parse_slider(
         min: min.ok_or_else(|| error("E076", line, "slider requires `min=value`"))?,
         max: max.ok_or_else(|| error("E076", line, "slider requires `max=value`"))?,
         step,
+        options,
         vertical,
         styles,
         route: parse_route(

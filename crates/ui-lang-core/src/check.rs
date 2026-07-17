@@ -421,6 +421,8 @@ fn infer_view(
             min,
             max,
             step,
+            options,
+            vertical,
             styles,
             route,
             release,
@@ -429,6 +431,56 @@ fn infer_view(
         } => {
             for expr in [value, min, max, step] {
                 require_type(&expr_type(expr, env, document, span)?, &Type::F64, span)?;
+            }
+            for expr in [&options.default, &options.shift_step]
+                .into_iter()
+                .flatten()
+            {
+                require_type(&expr_type(expr, env, document, span)?, &Type::F64, span)?;
+            }
+            require_literal_range(step, f64::EPSILON, None, "slider step", span)?;
+            if let Some(shift_step) = &options.shift_step {
+                require_literal_range(shift_step, f64::EPSILON, None, "slider shift step", span)?;
+            }
+            if let (Some(min), Some(max)) = (f64_literal(min), f64_literal(max))
+                && min > max
+            {
+                return Err(Error::new("E128", span, "slider min cannot exceed max"));
+            }
+            if let Some(default) = options.default.as_ref().and_then(f64_literal)
+                && (f64_literal(min).is_some_and(|min| default < min)
+                    || f64_literal(max).is_some_and(|max| default > max))
+            {
+                return Err(Error::new(
+                    "E128",
+                    span,
+                    "slider default is outside its range",
+                ));
+            }
+            for (length, fluid, label) in [
+                (&options.width, !*vertical, "slider width"),
+                (&options.height, *vertical, "slider height"),
+            ] {
+                if let Some(length) = length {
+                    match length {
+                        LengthValue::Fixed(value) => {
+                            require_type(
+                                &expr_type(value, env, document, span)?,
+                                &Type::F64,
+                                span,
+                            )?;
+                            require_literal_range(value, 0.0, None, label, span)?;
+                        }
+                        _ if !fluid => {
+                            return Err(Error::new(
+                                "E129",
+                                span,
+                                format!("{label} must be fixed on this axis"),
+                            ));
+                        }
+                        _ => {}
+                    }
+                }
             }
             infer_route(route, Some(Type::F64), env, document, signatures)?;
             if let Some(release) = release {
@@ -982,7 +1034,19 @@ fn require_literal_range(
     label: &str,
     span: &Span,
 ) -> Result<(), Error> {
-    let literal = match expr {
+    let literal = f64_literal(expr);
+    if literal.is_some_and(|value| value < min || max.is_some_and(|max| value > max)) {
+        return Err(Error::new(
+            "E128",
+            span,
+            format!("{label} is outside its valid range"),
+        ));
+    }
+    Ok(())
+}
+
+fn f64_literal(expr: &Expr) -> Option<f64> {
+    match expr {
         Expr::F64(value) => Some(*value),
         Expr::Unary {
             op: UnaryOp::Neg,
@@ -994,15 +1058,7 @@ fn require_literal_range(
             Some(-value)
         }
         _ => None,
-    };
-    if literal.is_some_and(|value| value < min || max.is_some_and(|max| value > max)) {
-        return Err(Error::new(
-            "E128",
-            span,
-            format!("{label} is outside its valid range"),
-        ));
     }
-    Ok(())
 }
 
 fn check_bool_control_options(
@@ -1980,6 +2036,41 @@ view
         let error = analyze(&unknown_color).unwrap_err();
         assert_eq!(error.code, "E129");
         assert!(error.message.contains("unknown rule color"));
+    }
+
+    #[test]
+    fn checks_slider_options_and_rejects_invalid_ranges() {
+        let source = r#"app Controls
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  amount = 50.0
+on changed(next)
+  amount = next
+view
+  col
+    slider amount min=0.0 max=100.0 step=5.0 default=50.0 shift-step=1.0 width=fill(2) height=20.0 -> changed _
+    slider amount min=0.0 max=100.0 step=5.0 default=50.0 shift-step=1.0 vertical width=20.0 height=fill -> changed _
+"#;
+        analyze(source).unwrap();
+
+        let bad_step = source.replace("step=5.0", "step=0.0");
+        let error = analyze(&bad_step).unwrap_err();
+        assert_eq!(error.code, "E128");
+        assert!(error.message.contains("slider step"));
+
+        let bad_axis = source.replace("vertical width=20.0", "vertical width=fill");
+        let error = analyze(&bad_axis).unwrap_err();
+        assert_eq!(error.code, "E129");
+        assert!(error.message.contains("slider width must be fixed"));
+
+        let bad_range = source.replace("min=0.0 max=100.0", "min=101.0 max=100.0");
+        let error = analyze(&bad_range).unwrap_err();
+        assert_eq!(error.code, "E128");
+        assert!(error.message.contains("min cannot exceed max"));
     }
 
     #[test]

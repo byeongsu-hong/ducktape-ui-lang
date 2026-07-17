@@ -248,6 +248,7 @@ pub enum ViewNode {
         min: Expr,
         max: Expr,
         step: Expr,
+        options: SliderOptions,
         vertical: bool,
         styles: Vec<String>,
         route: Route,
@@ -484,6 +485,14 @@ pub struct RuleOptions {
     pub radius_bottom_right: Option<Expr>,
     pub radius_bottom_left: Option<Expr>,
     pub snap: Option<Expr>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct SliderOptions {
+    pub default: Option<Expr>,
+    pub shift_step: Option<Expr>,
+    pub width: Option<LengthValue>,
+    pub height: Option<LengthValue>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

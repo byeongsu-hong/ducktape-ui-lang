@@ -716,6 +716,7 @@ fn render_node(
             min,
             max,
             step,
+            options,
             vertical,
             route,
             release,
@@ -734,6 +735,27 @@ fn render_node(
             let mut code = format!(
                 "::iced::widget::{helper}(({min})..=({max}), {value}, move |__value| {message_code}).step({step})"
             );
+            if let Some(default) = &options.default {
+                write!(
+                    code,
+                    ".default({})",
+                    expr_code(default, env, document, ValueMode::Owned)?
+                )
+                .unwrap();
+            }
+            if let Some(shift_step) = &options.shift_step {
+                write!(
+                    code,
+                    ".shift_step({})",
+                    expr_code(shift_step, env, document, ValueMode::Owned)?
+                )
+                .unwrap();
+            }
+            for (length, method) in [(&options.width, "width"), (&options.height, "height")] {
+                if let Some(length) = length {
+                    write!(code, ".{method}({})", length_code(length, env, document)?).unwrap();
+                }
+            }
             if let Some(release) = release {
                 write!(
                     code,
@@ -2569,7 +2591,8 @@ on choice_changed(next)
 view
   grid columns=2 @gap-2
     toggler "Enabled" checked=enabled -> enabled_changed _
-    slider amount min=0.0 max=100.0 step=0.5 vertical release=released -> amount_changed _
+    slider amount min=0.0 max=100.0 step=0.5 default=50.0 shift-step=0.1 vertical width=20.0 height=fill(2) release=released -> amount_changed _
+    slider amount min=0.0 max=100.0 step=1.0 width=fill height=18.0 -> amount_changed _
     progress amount vertical
     radio "First" value=0 selected=(choice == 0) -> choice_changed _
     rule horizontal thickness=2.0 style=weak fill=full color=primary/50 radius=4.0 radius-tl=2.0 snap=false
@@ -2586,6 +2609,9 @@ view
             generated.contains("::iced::widget::grid(__children).spacing(8).columns(2 as usize)")
         );
         assert!(generated.contains("::iced::widget::vertical_slider"));
+        assert!(generated.contains(".default(50.0).shift_step(0.1).width(20.0 as f32).height(::iced::Length::FillPortion(2))"));
+        assert!(generated.contains("::iced::widget::slider"));
+        assert!(generated.contains(".width(::iced::Fill).height(18.0 as f32)"));
         assert!(generated.contains("::iced::widget::progress_bar"));
         assert!(generated.contains(".vertical()"));
         assert!(generated.contains("::iced::widget::radio"));
