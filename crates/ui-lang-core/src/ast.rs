@@ -797,6 +797,7 @@ pub enum ViewNode {
     },
     Canvas {
         options: Box<CanvasOptions>,
+        locals: Vec<State>,
         commands: Vec<CanvasCommand>,
         events: Vec<CanvasEvent>,
         span: Span,
@@ -1510,20 +1511,32 @@ pub struct CanvasOptions {
     pub scroll: Option<Route>,
     pub exit: Option<Route>,
     pub interaction: Option<MouseInteraction>,
+    pub interaction_expr: Option<Expr>,
+    pub interaction_outside: Option<Expr>,
 }
 
 #[derive(Clone, Debug)]
 pub struct CanvasEvent {
     pub source: SubscriptionSource,
-    pub action: CanvasEventAction,
+    pub bindings: Vec<String>,
+    pub updates: Vec<CanvasStateUpdate>,
+    pub action: Option<CanvasEventAction>,
+    pub capture: bool,
+    pub route_payload: bool,
     pub span: Span,
 }
 
 #[derive(Clone, Debug)]
 pub enum CanvasEventAction {
     Route(Route),
-    Capture,
     Redraw { after_ms: Option<u64> },
+}
+
+#[derive(Clone, Debug)]
+pub struct CanvasStateUpdate {
+    pub name: String,
+    pub value: Expr,
+    pub span: Span,
 }
 
 #[derive(Clone, Debug)]

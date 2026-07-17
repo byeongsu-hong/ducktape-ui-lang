@@ -1,4 +1,4 @@
-# Ice Language Specification 0.79
+# Ice Language Specification 0.80
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.79 syntax.
+marked “planned” is a design constraint, not accepted 0.80 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.79.
+  block comments are not part of 0.80.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -637,13 +637,29 @@ mouse_property = ("press=" | "release=" | "double=" | "right_press="
                | "right_release=" | "middle_press=" | "middle_release="
                | "enter=" | "move=" | "scroll=" | "exit=") route
                | "cursor=" mouse_cursor
-canvas         = "canvas" canvas_property* INDENT canvas_command*
+canvas         = "canvas" canvas_property* INDENT canvas_item*
 canvas_property = ("width=" | "height=") length
                 | ("cache=" | "capture=") expr
                 | ("press=" | "release=" | "right_press=" | "right_release="
                   | "middle_press=" | "middle_release=" | "enter=" | "move="
                   | "scroll=" | "exit=") route
-                | "cursor=" mouse_cursor
+                | "cursor=" (mouse_cursor | "(" expr ")")
+                | "cursor-outside=" expr
+canvas_item    = canvas_state | canvas_event | canvas_command
+canvas_state   = "state" INDENT state+
+canvas_event   = "event" canvas_event_source "->" route
+               | "event" canvas_event_source ("as" name_list)?
+                 INDENT canvas_event_action+
+               | "capture" canvas_event_source
+               | "redraw" canvas_event_source ("after=" duration)?
+canvas_event_source
+               = "input-method" input_method_event
+               | "keyboard" ("press" | "release" | "modifiers")
+               | "mouse" mouse_event | "touch" touch_event
+               | "window" window_event
+canvas_event_action
+               = "set" name "=" expr | "emit" route | "capture"
+               | "redraw" ("after=" duration)?
 canvas_command = canvas_rect | canvas_circle | canvas_line | canvas_text
                | canvas_path | canvas_group | canvas_if | canvas_for
 canvas_rect    = "rect" point size canvas_radius* canvas_paint+
@@ -742,7 +758,7 @@ default/centered/fixed position, visibility, resizability, close/minimize
 buttons, decorations, transparency, blur, level, and close-request behavior.
 Sizes, text size, and scale factor must be positive; minimum size cannot exceed
 maximum size. Window icons and platform-specific settings are not part of
-0.79.
+0.80.
 
 Media fixed lengths, rotation, opacity, scale, and radius are `f64`; rotation
 is radians and defaults to floating layout behavior, while `solid(angle)` makes
@@ -1146,7 +1162,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.79 message payloads.
+`Clone` for 0.80 message payloads.
 
 Three typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
@@ -1455,7 +1471,21 @@ Canvas is a checked declarative layer over iced's native `Canvas`, `Program`,
 `Frame`, `Path`, and `Cache`. Its body is drawing code, not a widget subtree:
 
 ```ice
-canvas width=fill height=220.0 cache=chart_version cache-group=charts capture=true cursor=crosshair press=chart_pressed
+canvas width=fill height=220.0 cache=chart_version cache-group=charts capture=true cursor=(cursor_state) cursor-outside=true
+  state
+    cursor_state = "crosshair"
+    drag_count = 0
+    drag_x = 0.0
+    drag_y = 0.0
+  event mouse pressed as button
+    set cursor_state = "grabbing"
+    set drag_count = drag_count + 1
+    emit chart_button button
+    capture
+  event mouse released as button
+    set cursor_state = "crosshair"
+    redraw
+    capture
   event keyboard press -> chart_key _
   capture touch lost
   redraw window frame after=16ms
@@ -1472,11 +1502,13 @@ canvas width=fill height=220.0 cache=chart_version cache-group=charts capture=tr
 ```
 
 `canvas_width` and `canvas_height` are scoped `f64` bindings containing the
-current frame dimensions. Commands accept app state and these bindings in any
-numeric expression. Nested `if` and `for` commands draw conditional or repeated
-geometry. `group` applies translation, rotation, uniform/non-uniform scale and
-an optional `(x, y, width, height)` clip while restoring the previous transform
-after its body.
+current frame dimensions. A single optional `state` block declares typed,
+per-canvas `Program::State`; its initializers are self-contained and cannot
+capture app state or component parameters. Commands accept app state, canvas
+state, and frame dimensions in expressions. Nested `if` and `for` commands draw
+conditional or repeated geometry. `group` applies translation, rotation,
+uniform/non-uniform scale and an optional `(x, y, width, height)` clip while
+restoring the previous transform after its body.
 
 `rect`, `circle`, and `path` accept a checked solid or `linear(...)` fill,
 `non-zero` or `even-odd` fill rule, and an optional stroke. Strokes expose
@@ -1495,9 +1527,10 @@ rotation, and opacity contract plus an optional checked color. Add the bare
 commands draw inside the current frame transform and clip.
 
 `cache=dependency` uses iced's geometry cache and clears it when the checked
-hashable dependency changes or the bounds change. Include every state value
-that affects drawing in that dependency; omit `cache=` for always-fresh
-geometry. `cache-group=name` requires `cache=` and gives every canvas carrying
+hashable app dependency changes, the bounds change, or a canvas event updates
+local state. Include every app state value that affects drawing in that
+dependency; omit `cache=` for always-fresh geometry. `cache-group=name`
+requires `cache=` and gives every canvas carrying
 the same static name a shared native `canvas::Group`; this maps directly to
 iced's grouped cache storage without changing invalidation keys. Pointer
 press/release variants and move emit local `(x, y)` values;
@@ -1517,6 +1550,17 @@ event window resized -> resized _ _
 capture window close-request
 redraw window frame
 redraw window frame after=16ms
+
+event mouse moved as x, y
+  set drag_x = x
+  set drag_y = y
+  redraw
+  capture
+
+event mouse released as button
+  set cursor_state = "grab"
+  emit released button
+  capture
 ```
 
 `event` accepts every input-method, keyboard, mouse, touch, and window variant
@@ -1525,10 +1569,17 @@ coordinates are raw window coordinates; the compact `move=` canvas property
 continues to emit local coordinates. `capture source` returns iced's
 capture-only action. `redraw source` requests the next frame, while `after=ms`
 or `after=s` calls `request_redraw_at` relative to the current instant. A routed
-event publishes a message and therefore already redraws. `capture=true` also
-marks routed and redraw actions captured. Event sources must be unique within a
-canvas and these directives are allowed only at its root, not inside drawing
-groups or control flow.
+event publishes a message and therefore already redraws. A structured event
+uses `as` to name its typed payload, then may update local state with `set`,
+choose one explicit `emit` or immediate/timed `redraw`, and optionally
+`capture`. Publishing already requests a redraw. `emit` uses the named values
+instead of `_`. `cursor=(expression)`
+derives the complete iced mouse interaction from canvas state, while
+`cursor-outside=true` lets that interaction remain active outside the bounds;
+unknown runtime strings safely use the default interaction. `capture=true`
+also marks routed and redraw actions captured. Event sources must be unique
+within a canvas and these directives are allowed only at its root, not inside
+drawing groups or control flow.
 
 ### Components
 
@@ -1784,7 +1835,7 @@ weight, stretch, and style variant is accepted. At most one declaration may be
 the application default. `font=default` and `font=mono` remain built-ins;
 declared fonts also work on text, rich text and spans, input, editor, checkbox,
 toggler, radio, pick, combo, and their custom icons. Font
-byte loading is not part of 0.79.
+byte loading is not part of 0.80.
 
 Widget operation tasks target checked static IDs in the app view:
 
@@ -1804,7 +1855,7 @@ snap/end; and absolute scroll-to/scroll-by. Effects have no route and
 non-negative `i64`; relative offsets are `f64` in `0.0..=1.0`; absolute
 offsets are unrestricted `f64`. Targets must be real static IDs in the app
 scope. Repeated/component scopes and the feature-gated selector API remain
-outside 0.79.
+outside 0.80.
 
 Persistent pane grids expose their native layout-state operations directly in
 handlers:
@@ -1851,7 +1902,7 @@ and constraints, resizability, maximize/minimize state, position and movement,
 all modes, decorations, user attention, focus, level, system menu, mouse
 passthrough, monitor size, and automatic tabbing. Positive sizes and bool
 arguments are checked before Rust generation. New-window IDs, open/oldest/latest,
-icons, raw handles, screenshots, and callbacks remain outside 0.79.
+icons, raw handles, screenshots, and callbacks remain outside 0.80.
 
 Every iced window event has a direct subscription form:
 
@@ -2004,7 +2055,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 0.79 does not claim that remapping.
+extern line; 0.80 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -2025,7 +2076,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 0.79 native backend is enough for CRUD/settings-style screens, selection,
+The 0.80 native backend is enough for CRUD/settings-style screens, selection,
 media, hover overlays, declarative canvas geometry, and common pointer events,
 not all of iced. It still lacks direct syntax for shaders, arbitrary custom
 overlays, multiple windows, and custom widgets. [`COVERAGE.md`](COVERAGE.md) is
