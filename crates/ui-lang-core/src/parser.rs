@@ -402,15 +402,26 @@ fn parse_view(line: &Line) -> Result<ViewNode, Error> {
     let Some(kind) = parts.first().map(String::as_str) else {
         return Err(error("E061", line, "empty view node"));
     };
+    if route_source.is_some()
+        && !matches!(kind, "button" | "checkbox" | "toggler" | "slider" | "radio")
+    {
+        return Err(error(
+            "E081",
+            line,
+            format!("`{kind}` does not emit a route payload"),
+        ));
+    }
     let span = Span::line(line.number);
 
     match kind {
-        "col" | "row" | "scroll" => {
+        "col" | "row" | "scroll" | "grid" | "stack" => {
             let id = parts
                 .get(1)
                 .filter(|part| part.starts_with('#'))
                 .map(|part| parse_id(part, line))
                 .transpose()?;
+            let option_start = usize::from(id.is_some()) + 1;
+            let options = parse_layout_options(kind, &parts[option_start..], line)?;
             if kind == "scroll" && line.children.len() != 1 {
                 return Err(error("E062", line, "scroll must have exactly one child"));
             }
@@ -418,8 +429,11 @@ fn parse_view(line: &Line) -> Result<ViewNode, Error> {
                 kind: match kind {
                     "col" => Layout::Column,
                     "row" => Layout::Row,
-                    _ => Layout::Scroll,
+                    "scroll" => Layout::Scroll,
+                    "grid" => Layout::Grid,
+                    _ => Layout::Stack,
                 },
+                options,
                 id,
                 styles,
                 children: line
@@ -448,6 +462,12 @@ fn parse_view(line: &Line) -> Result<ViewNode, Error> {
         "input" => parse_input(&parts, styles, line),
         "button" => parse_button(&parts, styles, route_source, line),
         "checkbox" => parse_checkbox(&parts, styles, route_source, line),
+        "toggler" => parse_toggler(&parts, styles, route_source, line),
+        "slider" => parse_slider(&parts, styles, route_source, line),
+        "progress" => parse_progress(&parts, styles, line),
+        "radio" => parse_radio(&parts, styles, route_source, line),
+        "rule" => parse_rule(&parts, styles, line),
+        "space" => parse_space(&parts, styles, line),
         _ if kind.chars().next().is_some_and(char::is_uppercase) => {
             ensure_leaf(line)?;
             let (name, args_source) = parse_signature(kind, line)?;
@@ -465,6 +485,38 @@ fn parse_view(line: &Line) -> Result<ViewNode, Error> {
         }
         _ => Err(error("E064", line, format!("unknown view node `{kind}`"))),
     }
+}
+
+fn parse_layout_options(kind: &str, parts: &[String], line: &Line) -> Result<LayoutOptions, Error> {
+    let mut options = LayoutOptions::default();
+    for part in parts {
+        if let Some(value) = part.strip_prefix("columns=") {
+            if kind != "grid" || options.columns.is_some() {
+                return Err(error(
+                    "E074",
+                    line,
+                    format!("invalid layout property `{part}`"),
+                ));
+            }
+            options.columns = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("clip=") {
+            if kind != "stack" || options.clip.is_some() {
+                return Err(error(
+                    "E074",
+                    line,
+                    format!("invalid layout property `{part}`"),
+                ));
+            }
+            options.clip = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else {
+            return Err(error(
+                "E074",
+                line,
+                format!("unknown layout property `{part}`"),
+            ));
+        }
+    }
+    Ok(options)
 }
 
 fn parse_input(parts: &[String], styles: Vec<String>, line: &Line) -> Result<ViewNode, Error> {
@@ -593,6 +645,218 @@ fn parse_checkbox(
             route.ok_or_else(|| error("E067", line, "checkbox requires `-> handler`"))?,
             line,
         )?,
+        span: Span::line(line.number),
+    })
+}
+
+fn parse_toggler(
+    parts: &[String],
+    styles: Vec<String>,
+    route: Option<&str>,
+    line: &Line,
+) -> Result<ViewNode, Error> {
+    ensure_leaf(line)?;
+    let label = parts
+        .get(1)
+        .ok_or_else(|| error("E075", line, "toggler needs a label expression"))?;
+    let mut checked = None;
+    let mut disabled = None;
+    for part in &parts[2..] {
+        if let Some(value) = part.strip_prefix("checked=") {
+            checked = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("disabled=") {
+            disabled = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else {
+            return Err(error(
+                "E075",
+                line,
+                format!("unknown toggler property `{part}`"),
+            ));
+        }
+    }
+    Ok(ViewNode::Toggler {
+        label: parse_expr(label, line)?,
+        checked: checked.ok_or_else(|| error("E075", line, "toggler requires `checked=value`"))?,
+        disabled,
+        styles,
+        route: parse_route(
+            route.ok_or_else(|| error("E075", line, "toggler requires `-> handler`"))?,
+            line,
+        )?,
+        span: Span::line(line.number),
+    })
+}
+
+fn parse_slider(
+    parts: &[String],
+    styles: Vec<String>,
+    route: Option<&str>,
+    line: &Line,
+) -> Result<ViewNode, Error> {
+    ensure_leaf(line)?;
+    let value = parts
+        .get(1)
+        .ok_or_else(|| error("E076", line, "slider needs a value expression"))?;
+    let mut min = None;
+    let mut max = None;
+    let mut step = Expr::F64(1.0);
+    let mut vertical = false;
+    let mut release = None;
+    for part in &parts[2..] {
+        if let Some(value) = part.strip_prefix("min=") {
+            min = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("max=") {
+            max = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("step=") {
+            step = parse_expr(strip_wrapping_parens(value), line)?;
+        } else if part == "vertical" {
+            vertical = true;
+        } else if let Some(value) = part.strip_prefix("release=") {
+            release = Some(parse_route(value, line)?);
+        } else {
+            return Err(error(
+                "E076",
+                line,
+                format!("unknown slider property `{part}`"),
+            ));
+        }
+    }
+    Ok(ViewNode::Slider {
+        value: parse_expr(value, line)?,
+        min: min.ok_or_else(|| error("E076", line, "slider requires `min=value`"))?,
+        max: max.ok_or_else(|| error("E076", line, "slider requires `max=value`"))?,
+        step,
+        vertical,
+        styles,
+        route: parse_route(
+            route.ok_or_else(|| error("E076", line, "slider requires `-> handler`"))?,
+            line,
+        )?,
+        release,
+        span: Span::line(line.number),
+    })
+}
+
+fn parse_progress(parts: &[String], styles: Vec<String>, line: &Line) -> Result<ViewNode, Error> {
+    ensure_leaf(line)?;
+    let value = parts
+        .get(1)
+        .ok_or_else(|| error("E077", line, "progress needs a value expression"))?;
+    let mut min = Expr::F64(0.0);
+    let mut max = Expr::F64(100.0);
+    let mut vertical = false;
+    for part in &parts[2..] {
+        if let Some(value) = part.strip_prefix("min=") {
+            min = parse_expr(strip_wrapping_parens(value), line)?;
+        } else if let Some(value) = part.strip_prefix("max=") {
+            max = parse_expr(strip_wrapping_parens(value), line)?;
+        } else if part == "vertical" {
+            vertical = true;
+        } else {
+            return Err(error(
+                "E077",
+                line,
+                format!("unknown progress property `{part}`"),
+            ));
+        }
+    }
+    Ok(ViewNode::Progress {
+        value: parse_expr(value, line)?,
+        min,
+        max,
+        vertical,
+        styles,
+        span: Span::line(line.number),
+    })
+}
+
+fn parse_radio(
+    parts: &[String],
+    styles: Vec<String>,
+    route: Option<&str>,
+    line: &Line,
+) -> Result<ViewNode, Error> {
+    ensure_leaf(line)?;
+    let label = parts
+        .get(1)
+        .ok_or_else(|| error("E078", line, "radio needs a label expression"))?;
+    let mut value = None;
+    let mut selected = None;
+    for part in &parts[2..] {
+        if let Some(source) = part.strip_prefix("value=") {
+            value = Some(parse_expr(strip_wrapping_parens(source), line)?);
+        } else if let Some(source) = part.strip_prefix("selected=") {
+            selected = Some(parse_expr(strip_wrapping_parens(source), line)?);
+        } else {
+            return Err(error(
+                "E078",
+                line,
+                format!("unknown radio property `{part}`"),
+            ));
+        }
+    }
+    Ok(ViewNode::Radio {
+        label: parse_expr(label, line)?,
+        value: value.ok_or_else(|| error("E078", line, "radio requires `value=value`"))?,
+        selected: selected
+            .ok_or_else(|| error("E078", line, "radio requires `selected=condition`"))?,
+        styles,
+        route: parse_route(
+            route.ok_or_else(|| error("E078", line, "radio requires `-> handler`"))?,
+            line,
+        )?,
+        span: Span::line(line.number),
+    })
+}
+
+fn parse_rule(parts: &[String], styles: Vec<String>, line: &Line) -> Result<ViewNode, Error> {
+    ensure_leaf(line)?;
+    let axis = match parts.get(1).map(String::as_str) {
+        Some("horizontal") => Axis::Horizontal,
+        Some("vertical") => Axis::Vertical,
+        _ => return Err(error("E079", line, "rule uses `rule horizontal|vertical`")),
+    };
+    let mut thickness = Expr::F64(1.0);
+    for part in &parts[2..] {
+        if let Some(value) = part.strip_prefix("thickness=") {
+            thickness = parse_expr(strip_wrapping_parens(value), line)?;
+        } else {
+            return Err(error(
+                "E079",
+                line,
+                format!("unknown rule property `{part}`"),
+            ));
+        }
+    }
+    Ok(ViewNode::Rule {
+        axis,
+        thickness,
+        styles,
+        span: Span::line(line.number),
+    })
+}
+
+fn parse_space(parts: &[String], styles: Vec<String>, line: &Line) -> Result<ViewNode, Error> {
+    ensure_leaf(line)?;
+    let mut width = None;
+    let mut height = None;
+    for part in &parts[1..] {
+        if let Some(value) = part.strip_prefix("width=") {
+            width = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("height=") {
+            height = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else {
+            return Err(error(
+                "E080",
+                line,
+                format!("unknown space property `{part}`"),
+            ));
+        }
+    }
+    Ok(ViewNode::Space {
+        width,
+        height,
+        styles,
         span: Span::line(line.number),
     })
 }

@@ -1,4 +1,4 @@
-# Ice Language Specification 0.1
+# Ice Language Specification 0.2
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.1 syntax.
+marked “planned” is a design constraint, not accepted 0.2 syntax.
 
 ## 1. Design contract
 
@@ -79,7 +79,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.1.
+  block comments are not part of 0.2.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -138,13 +138,27 @@ statement      = name "=" expr
 
 view_decl      = "view" INDENT node
 
-node           = layout | text | input | button | checkbox
+node           = layout | text | input | button | checkbox | toggler
+               | slider | progress | radio | rule | space
                | component_call | if_node | for_node
 layout         = ("col" | "row" | "scroll") id? styles? INDENT node+
+               | "grid" id? ("columns=" expr)? styles? INDENT node+
+               | "stack" id? ("clip=" expr)? styles? INDENT node+
 text           = "text" expr styles?
 input          = "input" string id? "<->" name property* styles?
 button         = "button" string id? property* styles? "->" route
 checkbox       = "checkbox" expr id? property* styles? "->" route
+toggler        = "toggler" expr "checked=" expr ("disabled=" expr)?
+                 styles? "->" route
+slider         = "slider" expr "min=" expr "max=" expr "step=" expr
+                 "vertical"? ("release=" route)? styles? "->" route
+progress       = "progress" expr ("min=" expr)? ("max=" expr)?
+                 "vertical"? styles?
+radio          = "radio" expr "value=" expr "selected=" expr
+                 styles? "->" route
+rule           = "rule" ("horizontal" | "vertical")
+                 ("thickness=" expr)? styles?
+space          = "space" ("width=" expr)? ("height=" expr)? styles?
 component_call = PascalName "(" expr_list? ")" id?
 if_node        = "if" expr INDENT node+
 for_node       = "for" name "in" expr INDENT node+
@@ -197,7 +211,7 @@ crate::backend::create_task
 Extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.1 message payloads.
+`Clone` for 0.2 message payloads.
 
 Struct declarations are read-only views of Rust data. Ice may read a declared
 field (`task.title`) but cannot construct or mutate the struct. Declaring a
@@ -278,17 +292,25 @@ calls are backend details.
 
 ## 8. View language
 
-The implemented native nodes are deliberately small:
+The implemented native nodes are:
 
 | Node | Contract |
 | --- | --- |
 | `col` | vertical children |
 | `row` | horizontal children |
 | `scroll` | exactly one child |
+| `grid` | responsive grid; optional positive `i64` `columns` (default 3) |
+| `stack` | overlays children; optional bool `clip` |
 | `text` | one `str`, `i64`, or `f64` expression |
 | `input` | string label, optional ID/hint/disabled, required `str` binding |
 | `button` | literal label, optional ID/disabled, required route |
 | `checkbox` | string label expression, required bool `checked`, optional disabled, bool-payload route |
+| `toggler` | string label, bool `checked`, optional disabled, bool-payload route |
+| `slider` | `f64` value/range/step, optional vertical axis and release route, `f64`-payload route |
+| `progress` | `f64` value/range, optional vertical axis |
+| `radio` | string label, `i64` or bool value, bool `selected`, value-payload route |
+| `rule` | horizontal or vertical separator with `f64` thickness |
+| `space` | optional fixed `f64` width and height |
 | `if` | includes its children when a bool expression is true |
 | `for` | iterates a list and adds one typed item binding |
 
@@ -359,13 +381,13 @@ The implemented utility surface is:
 | Family | Values | Effective on |
 | --- | --- | --- |
 | size | `w-full`, `h-full` | layouts; `w-full` also input |
-| max width | `max-w-sm` through `max-w-2xl` | row, col |
+| max width | `max-w-sm` through `max-w-2xl` | row, col, grid, stack |
 | alignment | `items-center`, `self-center` | row, col |
-| spacing | `p-*`, `px-*`, `py-*`, `gap-*` | row/col; padding also input/button |
+| spacing | `p-*`, `px-*`, `py-*`, `gap-*` | row/col/grid/stack; padding also input/button; grid supports gap |
 | text | `text-xs` through `text-2xl`, `font-bold` | text |
 | color | `bg-TOKEN`, `text-TOKEN`, `border-TOKEN` | checked per widget |
-| border | `border`, `border-2` | row, col, input |
-| radius | `rounded-sm`, `rounded`, `rounded-md`, `rounded-lg`, `rounded-full` | row, col, input, button |
+| border | `border`, `border-2` | row, col, grid, stack, input |
+| radius | `rounded-sm`, `rounded`, `rounded-md`, `rounded-lg`, `rounded-full` | row, col, grid, stack, input, button |
 | states | `hover:bg-*`, `pressed:bg-*`, `disabled:opacity-*` | button |
 | focus | `focus:border-*` | input |
 
@@ -374,8 +396,8 @@ logical pixels per unit. Opacity values are `0 25 50 75 100`; color opacity may
 be any integer from 0 through 100.
 
 `border-TOKEN` and `focus:border-TOKEN` require `border` or `border-2` on the
-same node. A rounded row/column requires a background or border, because iced
-would otherwise have nothing to round.
+same node. A rounded row, column, grid, or stack requires a background or
+border, because iced would otherwise have nothing to round.
 
 The checker rejects both an unknown utility (`E041`) and a known utility on a
 node where the iced backend would ignore it (`E042`/`E044`). Silent CSS-like
@@ -407,7 +429,7 @@ The implemented families are:
 `cargo check` so rustc verifies extern items and generated iced types. A missing
 Rust item is named by its `crate::module::item` path in rustc's diagnostic. A
 future source-map layer may remap those rustc spans into the precise extern line;
-0.1 does not claim that remapping.
+0.2 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -427,17 +449,18 @@ skips `.git` and `target`.
 
 ## 12. Current coverage and planned escape hatch
 
-The 0.1 native backend is enough for a real CRUD/settings-style screen, not all
-of iced. It does not yet include radio, slider, pick list, image, SVG, canvas,
-tooltip, overlay/modal, text editor, subscription/stream, keyboard/mouse,
-clipboard, drag, focus operations, multiple windows, or custom widgets.
+The 0.2 native backend is enough for CRUD/settings-style screens, not all of
+iced. It still lacks pick lists, combo boxes, image, SVG, canvas, tooltip,
+overlay/modal, rich text and text editors, subscriptions/streams,
+keyboard/mouse/clipboard events, widget operations, multiple windows, and
+custom widgets. [`COVERAGE.md`](COVERAGE.md) is the exact versioned ledger.
 
 The language must not grow one ad-hoc syntax form for every iced API. The next
 extension is a typed extern-widget boundary: Ice declares typed properties and
 emitted events, while Rust supplies an iced `Element` adapter. That boundary
 will make advanced widgets available without admitting arbitrary Rust into
 expressions or duplicating iced in the core grammar. Its exact syntax and ABI
-are planned, not accepted by the 0.1 parser.
+are planned, not accepted by the 0.2 parser.
 
 Native language coverage and system coverage are therefore separate:
 
@@ -455,4 +478,5 @@ its Rust boundary in
 [`examples/iced-app/src/main.rs`](examples/iced-app/src/main.rs). It exercises
 state inference, typed extern structs/functions, mount and result handlers,
 direct input binding, `if`, `for`, a pure component, dynamic component IDs,
-theme utilities, disabled controls, and fallible asynchronous tasks.
+theme utilities, disabled controls, fallible asynchronous tasks, grid and stack
+layouts, toggles, sliders, progress, radio controls, rules, and fixed spacing.

@@ -44,7 +44,8 @@ The punctuation has one job each:
 cargo run -p iced-app
 ```
 
-The complete task app is split at the intended boundary:
+The complete task app is split at the intended boundary and includes grid and
+stack layouts, toggles, sliders, progress, radio controls, rules, and spacing:
 
 - [`tasks.ice`](examples/iced-app/src/ui/tasks.ice) owns UI state, events,
   layout, and style;
@@ -75,10 +76,10 @@ cargo fmt --all
 
 ## Status
 
-This is an executable v0.1 language slice, not a complete iced replacement. It
-implements typed extern data/actions, state, handlers, async tasks, pure
-components, scoped IDs, `if`/`for`, four core widgets, checked style utilities,
-formatting, analysis, and iced code generation. The next architectural escape
-hatch is a typed extern-widget boundary for canvas, SVG, editors, and other
-advanced iced widgets; unsupported syntax is rejected instead of silently
-ignored.
+This is an executable v0.2 language slice, not yet a complete iced replacement.
+It implements typed extern data/actions, state, handlers, async tasks, pure
+components, scoped IDs, `if`/`for`, five layouts, ten native widget forms,
+checked style utilities, formatting, analysis, and iced code generation.
+Unsupported syntax is rejected instead of silently ignored.
+
+[`COVERAGE.md`](COVERAGE.md) is the authoritative iced 0.14 coverage ledger.

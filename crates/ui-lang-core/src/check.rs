@@ -192,12 +192,22 @@ fn infer_view(
     match node {
         ViewNode::Layout {
             kind,
+            options,
             id,
             styles,
             children,
             span,
         } => {
             check_id(id, env, document, ids, span)?;
+            if let Some(columns) = &options.columns {
+                require_type(&expr_type(columns, env, document, span)?, &Type::I64, span)?;
+                if matches!(columns, Expr::I64(value) if *value <= 0) {
+                    return Err(Error::new("E124", span, "grid columns must be positive"));
+                }
+            }
+            if let Some(clip) = &options.clip {
+                require_type(&expr_type(clip, env, document, span)?, &Type::Bool, span)?;
+            }
             check_styles(styles, document, span, StyleTarget::Layout(*kind))?;
             for child in children {
                 infer_view(child, env, document, signatures, ids)?;
@@ -274,6 +284,108 @@ fn infer_view(
             }
             infer_route(route, Some(Type::Bool), env, document, signatures)?;
             check_styles(styles, document, span, StyleTarget::Checkbox)?;
+        }
+        ViewNode::Toggler {
+            label,
+            checked,
+            disabled,
+            styles,
+            route,
+            span,
+        } => {
+            require_type(&expr_type(label, env, document, span)?, &Type::Str, span)?;
+            require_type(&expr_type(checked, env, document, span)?, &Type::Bool, span)?;
+            if let Some(disabled) = disabled {
+                require_type(
+                    &expr_type(disabled, env, document, span)?,
+                    &Type::Bool,
+                    span,
+                )?;
+            }
+            infer_route(route, Some(Type::Bool), env, document, signatures)?;
+            check_styles(styles, document, span, StyleTarget::Toggler)?;
+        }
+        ViewNode::Slider {
+            value,
+            min,
+            max,
+            step,
+            styles,
+            route,
+            release,
+            span,
+            ..
+        } => {
+            for expr in [value, min, max, step] {
+                require_type(&expr_type(expr, env, document, span)?, &Type::F64, span)?;
+            }
+            infer_route(route, Some(Type::F64), env, document, signatures)?;
+            if let Some(release) = release {
+                infer_route(release, None, env, document, signatures)?;
+            }
+            check_styles(styles, document, span, StyleTarget::Slider)?;
+        }
+        ViewNode::Progress {
+            value,
+            min,
+            max,
+            styles,
+            span,
+            ..
+        } => {
+            for expr in [value, min, max] {
+                require_type(&expr_type(expr, env, document, span)?, &Type::F64, span)?;
+            }
+            check_styles(styles, document, span, StyleTarget::Progress)?;
+        }
+        ViewNode::Radio {
+            label,
+            value,
+            selected,
+            styles,
+            route,
+            span,
+        } => {
+            require_type(&expr_type(label, env, document, span)?, &Type::Str, span)?;
+            let value_type = expr_type(value, env, document, span)?;
+            if !matches!(value_type, Type::I64 | Type::Bool) {
+                return Err(Error::new(
+                    "E125",
+                    span,
+                    "radio values must be i64 or bool in Ice 0.2",
+                ));
+            }
+            require_type(
+                &expr_type(selected, env, document, span)?,
+                &Type::Bool,
+                span,
+            )?;
+            infer_route(route, Some(value_type), env, document, signatures)?;
+            check_styles(styles, document, span, StyleTarget::Radio)?;
+        }
+        ViewNode::Rule {
+            thickness,
+            styles,
+            span,
+            ..
+        } => {
+            require_type(
+                &expr_type(thickness, env, document, span)?,
+                &Type::F64,
+                span,
+            )?;
+            check_styles(styles, document, span, StyleTarget::Rule)?;
+        }
+        ViewNode::Space {
+            width,
+            height,
+            styles,
+            span,
+        } => {
+            for size in [width, height].into_iter().flatten() {
+                require_type(&expr_type(size, env, document, span)?, &Type::F64, span)?;
+            }
+            check_styles(styles, document, span, StyleTarget::Space)?;
         }
         ViewNode::If {
             condition,
@@ -690,6 +802,12 @@ enum StyleTarget {
     Input,
     Button,
     Checkbox,
+    Toggler,
+    Slider,
+    Progress,
+    Radio,
+    Rule,
+    Space,
 }
 
 fn check_styles(
@@ -701,15 +819,27 @@ fn check_styles(
     let spacing = [
         "0", "1", "2", "3", "4", "5", "6", "8", "10", "12", "16", "20", "24",
     ];
-    let is_flow = matches!(target, StyleTarget::Layout(Layout::Column | Layout::Row));
+    let is_linear = matches!(target, StyleTarget::Layout(Layout::Column | Layout::Row));
+    let is_box = matches!(
+        target,
+        StyleTarget::Layout(Layout::Column | Layout::Row | Layout::Grid | Layout::Stack)
+    );
     let target_name = match target {
         StyleTarget::Layout(Layout::Column) => "col",
         StyleTarget::Layout(Layout::Row) => "row",
         StyleTarget::Layout(Layout::Scroll) => "scroll",
+        StyleTarget::Layout(Layout::Grid) => "grid",
+        StyleTarget::Layout(Layout::Stack) => "stack",
         StyleTarget::Text => "text",
         StyleTarget::Input => "input",
         StyleTarget::Button => "button",
         StyleTarget::Checkbox => "checkbox",
+        StyleTarget::Toggler => "toggler",
+        StyleTarget::Slider => "slider",
+        StyleTarget::Progress => "progress",
+        StyleTarget::Radio => "radio",
+        StyleTarget::Rule => "rule",
+        StyleTarget::Space => "space",
     };
 
     for original in styles {
@@ -787,29 +917,33 @@ fn check_styles(
             None => match utility {
                 "w-full" => matches!(target, StyleTarget::Layout(_) | StyleTarget::Input),
                 "h-full" => matches!(target, StyleTarget::Layout(_)),
-                "max-w-sm" | "max-w-md" | "max-w-lg" | "max-w-xl" | "max-w-2xl"
-                | "items-center" | "self-center" => is_flow,
+                "max-w-sm" | "max-w-md" | "max-w-lg" | "max-w-xl" | "max-w-2xl" | "self-center" => {
+                    is_box
+                }
+                "items-center" => is_linear,
                 "text-xs" | "text-sm" | "text-base" | "text-lg" | "text-xl" | "text-2xl"
                 | "font-bold" => matches!(target, StyleTarget::Text),
-                "border" | "border-2" => is_flow || matches!(target, StyleTarget::Input),
+                "border" | "border-2" => is_box || matches!(target, StyleTarget::Input),
                 "rounded-sm" | "rounded" | "rounded-md" | "rounded-lg" | "rounded-full" => {
-                    is_flow || matches!(target, StyleTarget::Input | StyleTarget::Button)
+                    is_box || matches!(target, StyleTarget::Input | StyleTarget::Button)
                 }
-                _ if utility.starts_with("gap-") => is_flow,
+                _ if utility.starts_with("gap-") => {
+                    is_linear || matches!(target, StyleTarget::Layout(Layout::Grid))
+                }
                 _ if utility.starts_with("p-")
                     || utility.starts_with("px-")
                     || utility.starts_with("py-") =>
                 {
-                    is_flow || matches!(target, StyleTarget::Input | StyleTarget::Button)
+                    is_box || matches!(target, StyleTarget::Input | StyleTarget::Button)
                 }
                 _ if utility.starts_with("bg-") => {
-                    is_flow || matches!(target, StyleTarget::Input | StyleTarget::Button)
+                    is_box || matches!(target, StyleTarget::Input | StyleTarget::Button)
                 }
                 _ if utility.starts_with("text-") => {
-                    is_flow || matches!(target, StyleTarget::Text | StyleTarget::Button)
+                    is_box || matches!(target, StyleTarget::Text | StyleTarget::Button)
                 }
                 _ if utility.starts_with("border-") => {
-                    is_flow || matches!(target, StyleTarget::Input)
+                    is_box || matches!(target, StyleTarget::Input)
                 }
                 _ => false,
             },
@@ -831,7 +965,7 @@ fn check_styles(
         .iter()
         .map(|style| base_utility(style))
         .any(|utility| utility.starts_with("border-") && utility != "border-2");
-    if (is_flow || matches!(target, StyleTarget::Input)) && has_border_color && !has_border {
+    if (is_box || matches!(target, StyleTarget::Input)) && has_border_color && !has_border {
         return Err(Error::new(
             "E044",
             span,
@@ -846,7 +980,7 @@ fn check_styles(
         .iter()
         .map(|style| base_utility(style))
         .any(|utility| utility.starts_with("bg-"));
-    if is_flow && has_radius && !has_background && !has_border {
+    if is_box && has_radius && !has_background && !has_border {
         return Err(Error::new(
             "E044",
             span,
