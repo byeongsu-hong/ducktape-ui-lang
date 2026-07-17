@@ -30,6 +30,7 @@ pub enum Type {
     KeyRelease,
     KeyModifiers,
     SystemInfo,
+    Instant,
     TaskHandle,
     Named(String),
     Unit,
@@ -61,6 +62,7 @@ impl Type {
             Self::KeyRelease => "__IceKeyRelease".into(),
             Self::KeyModifiers => "__IceKeyModifiers".into(),
             Self::SystemInfo => "__IceSystemInfo".into(),
+            Self::Instant => "::iced::time::Instant".into(),
             Self::TaskHandle => "::iced::task::Handle".into(),
             Self::Named(name) => structs
                 .iter()
@@ -91,6 +93,7 @@ impl Type {
             Self::KeyRelease => "key-release".into(),
             Self::KeyModifiers => "key-modifiers".into(),
             Self::SystemInfo => "system-info".into(),
+            Self::Instant => "instant".into(),
             Self::TaskHandle => "task-handle".into(),
             Self::Named(name) => name.clone(),
             Self::Unit => "unit".into(),
@@ -301,6 +304,7 @@ pub enum EventStatus {
 #[derive(Clone, Debug)]
 pub enum SubscriptionSource {
     Every { milliseconds: u64 },
+    Repeat { function: String, milliseconds: u64 },
     Extern { function: String, args: Vec<Expr> },
     InputMethod(InputMethodEvent),
     Keyboard(KeyboardEvent),

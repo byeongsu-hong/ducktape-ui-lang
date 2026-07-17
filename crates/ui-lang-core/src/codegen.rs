@@ -862,8 +862,24 @@ fn generate_subscription(
         }
         match &subscription.source {
             SubscriptionSource::Every { milliseconds } => {
-                let message_code = route_code(&subscription.route, "", &env, document, message)?;
-                writeln!(out, "::iced::time::every(::std::time::Duration::from_millis({milliseconds})).map(move |_| {message_code}),").unwrap();
+                writeln!(out, "::iced::time::every(::std::time::Duration::from_millis({milliseconds})).map(move |__value| {route}),").unwrap();
+            }
+            SubscriptionSource::Repeat {
+                function,
+                milliseconds,
+            } => {
+                let source = document
+                    .functions
+                    .iter()
+                    .find(|item| item.name == *function && item.kind == ExternKind::Future)
+                    .ok_or_else(|| {
+                        Error::new(
+                            "E130",
+                            &subscription.span,
+                            format!("unknown repeated async function `{function}`"),
+                        )
+                    })?;
+                writeln!(out, "::iced::time::repeat({}, ::std::time::Duration::from_millis({milliseconds})).map(move |__value| {route}),", source.rust_path).unwrap();
             }
             SubscriptionSource::Extern { function, args } => {
                 let source = document
@@ -1173,6 +1189,7 @@ fn task_source_code(
                     "__ice_system_theme" => {
                         return Ok("::iced::system::theme().map(__ice_system_theme)".into());
                     }
+                    "__ice_time_now" => return Ok("::iced::time::now()".into()),
                     "__ice_clipboard_read" => return Ok("::iced::clipboard::read()".into()),
                     "__ice_clipboard_read_primary" => {
                         return Ok("::iced::clipboard::read_primary()".into());
@@ -1333,6 +1350,7 @@ fn generate_statements(
                         function.as_str(),
                         "__ice_system_info"
                             | "__ice_system_theme"
+                            | "__ice_time_now"
                             | "__ice_clipboard_read"
                             | "__ice_clipboard_read_primary"
                             | "__ice_font_load"
@@ -1355,6 +1373,7 @@ fn generate_statements(
                             "::iced::system::information().map(__ice_system_info)"
                         }
                         "__ice_system_theme" => "::iced::system::theme().map(__ice_system_theme)",
+                        "__ice_time_now" => "::iced::time::now()",
                         "__ice_clipboard_read" => "::iced::clipboard::read()",
                         "__ice_clipboard_read_primary" => "::iced::clipboard::read_primary()",
                         _ => unreachable!(),
@@ -10314,7 +10333,11 @@ view
         assert!(generated.contains("::iced::time::every(::std::time::Duration::from_millis(250))"));
         assert!(generated.contains("if self.auto_refresh { ::iced::Subscription::batch(["));
         assert!(generated.contains("]) } else { ::iced::Subscription::none() }"));
-        assert!(generated.contains(".map(move |_| __TimerEventsMessage::Tick)"));
+        assert!(generated.contains("::iced::time::now().map"));
+        assert!(generated.contains("__TimerEventsMessage::Tick(__value)"));
+        assert!(generated.contains(
+            "::iced::time::repeat(crate::backend::refresh_time, ::std::time::Duration::from_millis(1000))"
+        ));
     }
 
     #[test]

@@ -2774,7 +2774,7 @@ fn infer_view(
 
 fn lazy_hashable(ty: &Type) -> bool {
     match ty {
-        Type::Bool | Type::I64 | Type::Str | Type::Bytes | Type::Named(_) => true,
+        Type::Bool | Type::I64 | Type::Str | Type::Bytes | Type::Instant | Type::Named(_) => true,
         Type::List(inner) | Type::Option(inner) => lazy_hashable(inner),
         Type::Result(output, error) => lazy_hashable(output) && lazy_hashable(error),
         Type::F64
@@ -4043,7 +4043,7 @@ fn check_text_options(
 
 fn ordered_subscription_payloads(source: &SubscriptionSource) -> Option<Vec<Type>> {
     Some(match source {
-        SubscriptionSource::Every { .. } => Vec::new(),
+        SubscriptionSource::Every { .. } => return None,
         SubscriptionSource::InputMethod(event) => match event {
             InputMethodEvent::Opened | InputMethodEvent::Closed => Vec::new(),
             InputMethodEvent::Preedit => vec![
@@ -4165,12 +4165,11 @@ fn infer_subscriptions(
         let ordered_payloads = ordered_subscription_payloads(&subscription.source);
         if let Some(payloads) = ordered_payloads {
             let label = match &subscription.source {
-                SubscriptionSource::Every { .. } => "timer subscription",
                 SubscriptionSource::InputMethod(_) => "input-method subscription",
                 SubscriptionSource::Mouse(_) => "mouse subscription",
                 SubscriptionSource::Touch(_) => "touch subscription",
                 SubscriptionSource::Window(_) => "window subscription",
-                _ => unreachable!("only ordered subscription sources reach this branch"),
+                _ => unreachable!("only ordered event sources reach this branch"),
             };
             infer_ordered_payload_route(
                 &subscription.route,
@@ -4183,7 +4182,16 @@ fn infer_subscriptions(
             continue;
         }
         let output = match &subscription.source {
-            SubscriptionSource::Every { .. } => unreachable!("handled above"),
+            SubscriptionSource::Every { .. } => Type::Instant,
+            SubscriptionSource::Repeat { function, .. } => {
+                let source =
+                    extern_function(document, function, ExternKind::Future, &subscription.span)?;
+                check_call_args(source, &[], states, document, &subscription.span)?;
+                source.error.as_ref().map_or_else(
+                    || source.output.clone(),
+                    |error| Type::Result(Box::new(source.output.clone()), Box::new(error.clone())),
+                )
+            }
             SubscriptionSource::Extern { function, args } => {
                 let source = extern_function(
                     document,
@@ -5183,6 +5191,7 @@ fn builtin_task_output(
     let output = match (kind, function) {
         (EffectKind::Task, "__ice_system_info") => Some(Type::SystemInfo),
         (EffectKind::Task, "__ice_system_theme") => Some(Type::Str),
+        (EffectKind::Task, "__ice_time_now") => Some(Type::Instant),
         (EffectKind::Task, "__ice_clipboard_read" | "__ice_clipboard_read_primary") => {
             Some(Type::Option(Box::new(Type::Str)))
         }
@@ -5917,15 +5926,22 @@ mod tests {
     #[test]
     fn checks_native_timer_subscription() {
         let source = include_str!("../../../examples/iced-app/src/ui/timer.ice");
-        analyze(source).unwrap();
+        let document = analyze(source).unwrap();
+        assert_eq!(document.handlers[1].params[0].ty, Type::Instant);
+        assert_eq!(document.handlers[2].params[0].ty, Type::I64);
 
         let error = analyze(&source.replace(
-            "every 250ms when auto_refresh -> tick",
             "every 250ms when auto_refresh -> tick _",
+            "every 250ms when auto_refresh -> tick",
         ))
         .unwrap_err();
-        assert_eq!(error.code, "E129");
-        assert!(error.message.contains("expects 0 payloads"));
+        assert_eq!(error.code, "E133");
+        assert!(error.message.contains("expects 1 arguments, got 0"));
+
+        let error =
+            analyze(&source.replace("refresh_time() -> i64", "refresh_time(seed:i64) -> i64"))
+                .unwrap_err();
+        assert_eq!(error.code, "E142");
 
         for invalid in ["0ms", "1m", "1.5s"] {
             let error = analyze(&source.replace("250ms", invalid)).unwrap_err();

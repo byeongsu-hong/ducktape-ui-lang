@@ -1,3 +1,6 @@
+extern crate::backend
+  refresh_time() -> i64
+
 app TimerEvents
 
 theme
@@ -8,11 +11,23 @@ theme
 
 state
   auto_refresh = true
+  last:instant? = none
+  refreshes = 0
 
-on tick
+on start
+  task time now -> tick _
+
+on tick(now)
+  last = some(now)
+
+on refreshed(count)
+  refreshes = count
 
 subscribe
-  every 250ms when auto_refresh -> tick
+  every 250ms when auto_refresh -> tick _
+  repeat refresh_time() every 1s when auto_refresh -> refreshed _
 
 view
-  text "Timer compile fixture"
+  col
+    button "Read time" -> start
+    text refreshes
