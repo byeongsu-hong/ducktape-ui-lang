@@ -14,7 +14,6 @@ use "backend.ice"
 use "theme.ice"
 use "state.ice"
 use "components/task_row.ice"
-use "components/panel.ice"
 use "components/dialog.ice"
 use "handlers/tasks.ice"
 
@@ -45,28 +44,43 @@ view
           text "No tasks yet." @text-sm text-muted
 
         pane-grid #workspace split=vertical ratio=0.7 width=fill height=fill spacing=8.0 min-size=120.0 resize=8.0 drag click=pane_clicked(_)
-          pane tasks
-            Panel title="Task list" #tasks-panel
+          pane tasks @bg-surface border border-border rounded-lg
+            title padding=12.0 always-controls @bg-background border border-border
+              text "Task list" @text-lg font-bold text-foreground
+            controls
+              button "Inspect" -> inspect_adjacent
+            compact-controls
+              button "?" -> inspect_adjacent
+            content
               scroll #task-list direction=vertical width=fill height=fill
                 keyed task in tasks by=task.id width=fill spacing=8.0
                   TaskRow task=task loading=loading
-          pane details
-            container width=fill height=fill padding=16.0 @bg-surface border border-border rounded-lg
-              col @gap-3
-                text "Details" @text-lg font-bold text-foreground
-                text "Drag, resize, or arrange this pane." @text-sm text-muted
-                row wrap @gap-2
-                  button "Maximize" -> maximize_details
-                  button "Restore" -> restore_workspace
-                  button "Swap" -> swap_workspace
-                  button "Move left" -> move_details_left
-                  button "Open preview" -> open_preview
-          pane preview closed
-            container width=fill height=fill padding=16.0 @bg-surface border border-border rounded-lg
-              col @gap-3
-                text "Preview" @text-lg font-bold text-foreground
+          pane details @bg-surface border border-border rounded-lg
+            title padding=12.0 always-controls @bg-background border border-border
+              text "Details" @text-lg font-bold text-foreground
+            controls
+              button "Maximize" -> maximize_details
+            compact-controls
+              button "↗" -> maximize_details
+            content
+              container width=fill height=fill padding=16.0
+                col @gap-3
+                  text "Drag, resize, or arrange this pane." @text-sm text-muted
+                  row wrap @gap-2
+                    button "Restore" -> restore_workspace
+                    button "Swap" -> swap_workspace
+                    button "Move left" -> move_details_left
+                    button "Open preview" -> open_preview
+          pane preview closed @bg-surface border border-border rounded-lg
+            title padding=12.0 always-controls @bg-background border border-border
+              text "Preview" @text-lg font-bold text-foreground
+            controls
+              button "Close" -> close_preview
+            compact-controls
+              button "×" -> close_preview
+            content
+              container width=fill height=fill padding=16.0
                 text "This pane was opened dynamically." @text-sm text-muted
-                button "Close preview" -> close_preview
     layer
       Dialog
         Dialog.Header
