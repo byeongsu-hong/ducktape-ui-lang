@@ -331,6 +331,34 @@ pub enum ViewNode {
         content: Box<ViewNode>,
         span: Span,
     },
+    Float {
+        scale: Expr,
+        x: Expr,
+        y: Expr,
+        content: Box<ViewNode>,
+        span: Span,
+    },
+    Pin {
+        width: Option<LengthValue>,
+        height: Option<LengthValue>,
+        x: Expr,
+        y: Expr,
+        content: Box<ViewNode>,
+        span: Span,
+    },
+    Sensor {
+        options: SensorOptions,
+        content: Box<ViewNode>,
+        span: Span,
+    },
+    Responsive {
+        breakpoint: Expr,
+        width: Option<LengthValue>,
+        height: Option<LengthValue>,
+        narrow: Box<ViewNode>,
+        wide: Box<ViewNode>,
+        span: Span,
+    },
 }
 
 #[derive(Clone, Debug, Default)]
@@ -427,6 +455,16 @@ pub struct MouseAreaOptions {
     pub enter: Option<Route>,
     pub exit: Option<Route>,
     pub interaction: Option<MouseInteraction>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct SensorOptions {
+    pub show: Option<Route>,
+    pub resize: Option<Route>,
+    pub hide: Option<Route>,
+    pub key: Option<Expr>,
+    pub anticipate: Option<Expr>,
+    pub delay_ms: Option<Expr>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

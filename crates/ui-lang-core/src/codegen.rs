@@ -1017,6 +1017,122 @@ fn render_node(
             }
             Ok(format!("{code}.into() }}"))
         }
+        ViewNode::Float {
+            scale,
+            x,
+            y,
+            content,
+            ..
+        } => {
+            let content = render_node(content, document, message, env, scope)?;
+            let scale = expr_code(scale, env, document, ValueMode::Owned)?;
+            let x = expr_code(x, env, document, ValueMode::Owned)?;
+            let y = expr_code(y, env, document, ValueMode::Owned)?;
+            Ok(format!(
+                "{{ let __float_content: ::iced::Element<'_, {message}> = {content}; ::iced::widget::float(__float_content).scale({scale} as f32).translate(move |_, _| ::iced::Vector::new({x} as f32, {y} as f32)).into() }}"
+            ))
+        }
+        ViewNode::Pin {
+            width,
+            height,
+            x,
+            y,
+            content,
+            ..
+        } => {
+            let content = render_node(content, document, message, env, scope)?;
+            let x = expr_code(x, env, document, ValueMode::Owned)?;
+            let y = expr_code(y, env, document, ValueMode::Owned)?;
+            let mut code = format!(
+                "{{ let __pin_content: ::iced::Element<'_, {message}> = {content}; ::iced::widget::pin(__pin_content).x({x} as f32).y({y} as f32)"
+            );
+            if let Some(width) = width {
+                write!(code, ".width({})", length_code(width, env, document)?).unwrap();
+            }
+            if let Some(height) = height {
+                write!(code, ".height({})", length_code(height, env, document)?).unwrap();
+            }
+            Ok(format!("{code}.into() }}"))
+        }
+        ViewNode::Sensor {
+            options, content, ..
+        } => {
+            let content = render_node(content, document, message, env, scope)?;
+            let mut code = format!(
+                "{{ let __sensor_content: ::iced::Element<'_, {message}> = {content}; ::iced::widget::sensor(__sensor_content)"
+            );
+            if let Some(route) = &options.show {
+                write!(
+                    code,
+                    ".on_show(move |__size| {})",
+                    size_route_code(route, "__size", env, document, message)?
+                )
+                .unwrap();
+            }
+            if let Some(route) = &options.resize {
+                write!(
+                    code,
+                    ".on_resize(move |__size| {})",
+                    size_route_code(route, "__size", env, document, message)?
+                )
+                .unwrap();
+            }
+            if let Some(route) = &options.hide {
+                write!(
+                    code,
+                    ".on_hide({})",
+                    route_code(route, "", env, document, message)?
+                )
+                .unwrap();
+            }
+            if let Some(key) = &options.key {
+                write!(
+                    code,
+                    ".key({})",
+                    expr_code(key, env, document, ValueMode::Owned)?
+                )
+                .unwrap();
+            }
+            if let Some(distance) = &options.anticipate {
+                write!(
+                    code,
+                    ".anticipate({} as f32)",
+                    expr_code(distance, env, document, ValueMode::Owned)?
+                )
+                .unwrap();
+            }
+            if let Some(delay) = &options.delay_ms {
+                write!(
+                    code,
+                    ".delay(::std::time::Duration::from_millis({} as u64))",
+                    expr_code(delay, env, document, ValueMode::Owned)?
+                )
+                .unwrap();
+            }
+            Ok(format!("{code}.into() }}"))
+        }
+        ViewNode::Responsive {
+            breakpoint,
+            width,
+            height,
+            narrow,
+            wide,
+            ..
+        } => {
+            let breakpoint = expr_code(breakpoint, env, document, ValueMode::Owned)?;
+            let narrow = render_node(narrow, document, message, env, scope)?;
+            let wide = render_node(wide, document, message, env, scope)?;
+            let mut code = format!(
+                "::iced::widget::responsive(move |__size| {{ let __responsive: ::iced::Element<'_, {message}> = if __size.width < {breakpoint} as f32 {{ {narrow} }} else {{ {wide} }}; __responsive }})"
+            );
+            if let Some(width) = width {
+                write!(code, ".width({})", length_code(width, env, document)?).unwrap();
+            }
+            if let Some(height) = height {
+                write!(code, ".height({})", length_code(height, env, document)?).unwrap();
+            }
+            Ok(format!("{code}.into()"))
+        }
         ViewNode::If { span, .. } | ViewNode::For { span, .. } => Err(Error::new(
             "E170",
             span,
@@ -1366,6 +1482,31 @@ fn route_code(
     Ok(format!("{message}::{variant}({args})"))
 }
 
+fn size_route_code(
+    route: &Route,
+    size: &str,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+    message: &str,
+) -> Result<String, Error> {
+    let variant = pascal(&route.handler);
+    let mut payload = 0;
+    let args = route
+        .args
+        .iter()
+        .map(|arg| match arg {
+            RouteArg::Payload => {
+                let field = if payload == 0 { "width" } else { "height" };
+                payload += 1;
+                Ok(format!("{size}.{field} as f64"))
+            }
+            RouteArg::Expr(expr) => expr_code(expr, env, document, ValueMode::Owned),
+        })
+        .collect::<Result<Vec<_>, Error>>()?
+        .join(", ");
+    Ok(format!("{message}::{variant}({args})"))
+}
+
 fn initial_code(expr: &Expr, ty: &Type, document: &Document) -> String {
     match (expr, ty) {
         (Expr::Str(value), Type::Str) => format!("{}.to_owned()", rust_string(value)),
@@ -1413,6 +1554,13 @@ fn input_bindings(root: &ViewNode) -> Vec<String> {
                 collect(tip, output);
             }
             ViewNode::MouseArea { content, .. } => collect(content, output),
+            ViewNode::Float { content, .. }
+            | ViewNode::Pin { content, .. }
+            | ViewNode::Sensor { content, .. } => collect(content, output),
+            ViewNode::Responsive { narrow, wide, .. } => {
+                collect(narrow, output);
+                collect(wide, output);
+            }
             _ => {}
         }
     }
@@ -1430,6 +1578,10 @@ fn needs_extern_noop(document: &Document) -> bool {
             | ViewNode::For { children, .. } => children.iter().any(contains),
             ViewNode::Tooltip { content, tip, .. } => contains(content) || contains(tip),
             ViewNode::MouseArea { content, .. } => contains(content),
+            ViewNode::Float { content, .. }
+            | ViewNode::Pin { content, .. }
+            | ViewNode::Sensor { content, .. } => contains(content),
+            ViewNode::Responsive { narrow, wide, .. } => contains(narrow) || contains(wide),
             _ => false,
         }
     }
@@ -1941,6 +2093,48 @@ view
             generated
                 .contains(".on_option_hovered(move |__value| __SearchMessage::Hovered(__value))")
         );
+    }
+
+    #[test]
+    fn lowers_structural_widgets_and_size_events() {
+        let source = r#"app Structure
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  sensor_key = 0
+  width = 0.0
+  height = 0.0
+on shown(w, h)
+  width = w
+  height = h
+on resized(w, h)
+  width = w
+  height = h
+on hidden
+view
+  col
+    float scale=1.1 x=4.0 y=-2.0
+      text "Floating"
+    pin width=fill height=80.0 x=12.0 y=8.0
+      text "Pinned"
+    sensor show=shown resize=resized hide=hidden key=sensor_key anticipate=32.0 delay=10
+      text "Observed"
+    responsive at=600.0 width=fill height=40.0
+      text "Narrow"
+      text "Wide"
+"#;
+        let generated = compile(source, "structure.ice").unwrap();
+        assert!(generated.contains("::iced::widget::float(__float_content).scale(1.1 as f32)"));
+        assert!(generated.contains("::iced::widget::pin(__pin_content).x(12.0 as f32)"));
+        assert!(generated.contains(
+            ".on_show(move |__size| __StructureMessage::Shown(__size.width as f64, __size.height as f64))"
+        ));
+        assert!(generated.contains(".key(self.sensor_key)"));
+        assert!(generated.contains("::iced::widget::responsive(move |__size|"));
+        assert!(generated.contains("if __size.width < 600.0 as f32"));
     }
 
     #[test]
