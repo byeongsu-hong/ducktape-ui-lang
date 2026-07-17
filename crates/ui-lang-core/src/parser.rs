@@ -1286,6 +1286,7 @@ fn parse_view(line: &Line) -> Result<ViewNode, Error> {
         "rich-text" => parse_rich_text(&parts, styles, route_source, line),
         "container" => parse_container(&parts, styles, line),
         "overlay" => parse_overlay(&parts, styles, line),
+        "pane-grid" => parse_pane_grid(&parts, styles, line),
         "input" => parse_input(&parts, styles, line),
         "button" => parse_button(&parts, styles, route_source, line),
         "checkbox" => parse_checkbox(&parts, styles, route_source, line),
@@ -1472,6 +1473,112 @@ fn parse_overlay(parts: &[String], styles: Vec<String>, line: &Line) -> Result<V
         },
         content: Box::new(parse_view(&line.children[0].children[0])?),
         layer: Box::new(parse_view(&line.children[1].children[0])?),
+        span: Span::line(line.number),
+    })
+}
+
+fn parse_pane_grid(parts: &[String], styles: Vec<String>, line: &Line) -> Result<ViewNode, Error> {
+    if !styles.is_empty() {
+        return Err(error(
+            "E187",
+            line,
+            "pane-grid does not accept `@` utilities",
+        ));
+    }
+    let name = parts
+        .get(1)
+        .filter(|part| part.starts_with('#'))
+        .ok_or_else(|| error("E187", line, "pane-grid requires a static `#id`"))?;
+    let name = identifier(name.trim_start_matches('#'), line)?;
+    let mut axis = None;
+    let mut ratio = 0.5_f32;
+    let mut options = PaneGridOptions::default();
+    for part in &parts[2..] {
+        if let Some(value) = part.strip_prefix("split=") {
+            axis = Some(match value {
+                "horizontal" => PaneAxis::Horizontal,
+                "vertical" => PaneAxis::Vertical,
+                _ => {
+                    return Err(error(
+                        "E187",
+                        line,
+                        "pane-grid split must be horizontal or vertical",
+                    ));
+                }
+            });
+        } else if let Some(value) = part.strip_prefix("ratio=") {
+            ratio = value
+                .parse::<f32>()
+                .map_err(|_| error("E187", line, "pane-grid ratio must be a number from 0 to 1"))?;
+            if !(0.0..=1.0).contains(&ratio) {
+                return Err(error(
+                    "E187",
+                    line,
+                    "pane-grid ratio must be a number from 0 to 1",
+                ));
+            }
+        } else if let Some(value) = part.strip_prefix("width=") {
+            options.width = Some(parse_length(value, line)?);
+        } else if let Some(value) = part.strip_prefix("height=") {
+            options.height = Some(parse_length(value, line)?);
+        } else if let Some(value) = part.strip_prefix("spacing=") {
+            options.spacing = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("min-size=") {
+            options.min_size = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("resize=") {
+            options.resize_leeway = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if part == "drag" {
+            options.draggable = true;
+        } else if let Some(value) = part.strip_prefix("click=") {
+            options.click = Some(parse_route(value, line)?);
+        } else {
+            return Err(error(
+                "E187",
+                line,
+                format!("unknown pane-grid property `{part}`"),
+            ));
+        }
+    }
+    let axis = axis.ok_or_else(|| error("E187", line, "pane-grid requires `split=`"))?;
+    if line.children.len() != 2 {
+        return Err(error(
+            "E187",
+            line,
+            "pane-grid currently requires exactly two `pane name` sections",
+        ));
+    }
+    let mut names = std::collections::HashSet::new();
+    let panes = line
+        .children
+        .iter()
+        .map(|pane| {
+            let Some(name) = pane.text.strip_prefix("pane ") else {
+                return Err(error("E187", pane, "pane-grid children use `pane name`"));
+            };
+            let name = identifier(name.trim(), pane)?;
+            if !names.insert(name.clone()) {
+                return Err(error("E187", pane, format!("duplicate pane `{name}`")));
+            }
+            if pane.children.len() != 1 {
+                return Err(error(
+                    "E187",
+                    pane,
+                    "pane requires exactly one child; wrap siblings in row or col",
+                ));
+            }
+            Ok(PaneView {
+                name,
+                content: Box::new(parse_view(&pane.children[0])?),
+                span: Span::line(pane.number),
+            })
+        })
+        .collect::<Result<Vec<_>, Error>>()?;
+    Ok(ViewNode::PaneGrid {
+        name,
+        axis,
+        ratio,
+        options,
+        panes,
         span: Span::line(line.number),
     })
 }

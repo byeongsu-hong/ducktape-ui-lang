@@ -1,4 +1,4 @@
-# Ice Language Specification 0.50
+# Ice Language Specification 0.51
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.50 syntax.
+marked “planned” is a design constraint, not accepted 0.51 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.50.
+  block comments are not part of 0.51.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -244,7 +244,7 @@ node           = layout | text | input | button | checkbox | toggler
                | media | tooltip | mouse_area | theme_boundary
                | component_call | slot | extern_component_call | if_node | for_node
                | keyed_column | lazy_node | markdown_view | table_view
-               | editor_view | container | overlay | rich_text
+               | editor_view | container | overlay | rich_text | pane_grid
 layout         = "col" id? column_property* styles? INDENT node+
                | "row" id? flex_property* styles? INDENT node+
                | "scroll" id? scroll_property* styles? INDENT node
@@ -283,6 +283,13 @@ rich_span_property = ("size=" | "line-height=" | "line-height-px=") expr
                      | "padding-left=") expr
                    | "underline" | "underline=" expr
                    | "strike" | "strike=" expr
+pane_grid      = "pane-grid" id "split=" ("horizontal" | "vertical")
+                 pane_grid_property* INDENT pane_view pane_view
+pane_grid_property = "ratio=" number
+                   | ("width=" | "height=") length
+                   | ("spacing=" | "min-size=" | "resize=") expr
+                   | "drag" | "click=" route
+pane_view      = "pane" name INDENT node
 keyed_column   = "keyed" name "in" expr "by=" expr keyed_property*
                  INDENT node
 keyed_property = ("width=" | "height=") length | "spacing=" expr
@@ -507,7 +514,7 @@ default/centered/fixed position, visibility, resizability, close/minimize
 buttons, decorations, transparency, blur, level, and close-request behavior.
 Sizes, text size, and scale factor must be positive; minimum size cannot exceed
 maximum size. Window icons and platform-specific settings are not part of
-0.50.
+0.51.
 
 Media fixed lengths, rotation, opacity, scale, and radius are `f64`; rotation
 is radians, opacity is `0.0..=1.0`, scale is positive, and sizes/radius are
@@ -756,7 +763,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.50 message payloads.
+`Clone` for 0.51 message payloads.
 
 Three typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
@@ -886,6 +893,7 @@ The implemented native nodes are:
 | `overlay` | named `content` and `layer` trees with checked visibility, alignment, padding, backdrop and optional dismissal |
 | `text` | one `str`, `i64`, or `f64` expression with bounds, size/line-height, font, alignment, shaping, wrapping and checked color/weight styles |
 | `rich-text` | zero or more structured spans with rich defaults, complete span highlights and optional string link events |
+| `pane-grid` | two named pane trees backed by persistent split state with native click, resize and drag/drop behavior |
 | `input` | required `str` binding; ID, hint, disabled/secure, submit/paste, sizing, alignment, default/mono font and icon properties |
 | `button` | string label or one child; optional ID/disabled, typed size/padding/clip, required route |
 | `checkbox` | string label, bool value/route, disabled, sizing/typography/wrapping/font and custom icon properties |
@@ -963,6 +971,23 @@ Rich defaults cover size, relative or absolute line height, font, bounds,
 alignment, wrapping and color. A span can override size, line height, font and
 color; attach a string link; use a solid highlight background with complete
 border/radius/padding; and toggle underline or strikethrough.
+
+A pane grid owns persistent iced layout state generated from its required static
+ID. Pane names are the only identity exposed to Ice; native pane/split IDs stay
+inside generated Rust. `resize=` is grab leeway and enables automatic ratio
+updates, while `drag` automatically applies successful drop targets:
+
+```ice
+pane-grid #workspace split=vertical ratio=0.7 width=fill height=fill spacing=8.0 min-size=120.0 resize=6.0 drag click=pane_clicked(_)
+  pane files
+    FileList
+  pane editor
+    Editor
+```
+
+This slice accepts exactly two panes and may only live in the app view, because
+component/repeated instances need separately keyed persistent state. Click
+routes receive the stable pane name as `str`.
 
 ### Components
 
@@ -1154,7 +1179,7 @@ weight, stretch, and style variant is accepted. At most one declaration may be
 the application default. `font=default` and `font=mono` remain built-ins;
 declared fonts also work on text, rich text and spans, input, editor, checkbox,
 and toggler. Font
-byte loading is not part of 0.50.
+byte loading is not part of 0.51.
 
 Widget operation tasks target checked static IDs in the app view:
 
@@ -1174,7 +1199,7 @@ snap/end; and absolute scroll-to/scroll-by. Effects have no route and
 non-negative `i64`; relative offsets are `f64` in `0.0..=1.0`; absolute
 offsets are unrestricted `f64`. Targets must be real static IDs in the app
 scope. Repeated/component scopes and the feature-gated selector API remain
-outside 0.50.
+outside 0.51.
 
 Main-window tasks resolve iced's oldest (initial) window ID without leaking its
 Rust type:
@@ -1197,7 +1222,7 @@ and constraints, resizability, maximize/minimize state, position and movement,
 all modes, decorations, user attention, focus, level, system menu, mouse
 passthrough, monitor size, and automatic tabbing. Positive sizes and bool
 arguments are checked before Rust generation. New-window IDs, open/oldest/latest,
-icons, raw handles, screenshots, and callbacks remain outside 0.50.
+icons, raw handles, screenshots, and callbacks remain outside 0.51.
 
 Every iced window event has a direct subscription form:
 
@@ -1350,7 +1375,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 0.50 does not claim that remapping.
+extern line; 0.51 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -1371,7 +1396,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 0.50 native backend is enough for CRUD/settings-style screens, selection,
+The 0.51 native backend is enough for CRUD/settings-style screens, selection,
 media, hover
 overlays, and common pointer events, not all of iced. It still lacks direct
 syntax for canvas, arbitrary custom overlays, multiple

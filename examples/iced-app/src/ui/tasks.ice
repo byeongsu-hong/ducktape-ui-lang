@@ -43,10 +43,17 @@ view
         if empty(tasks) && !loading
           text "No tasks yet." @text-sm text-muted
 
-        Panel title="Task list" #tasks-panel
-          scroll #task-list direction=vertical width=fill height=fill
-            keyed task in tasks by=task.id width=fill spacing=8.0
-              TaskRow task=task loading=loading
+        pane-grid #workspace split=vertical ratio=0.7 width=fill height=fill spacing=8.0 min-size=120.0 resize=8.0 drag click=pane_clicked(_)
+          pane tasks
+            Panel title="Task list" #tasks-panel
+              scroll #task-list direction=vertical width=fill height=fill
+                keyed task in tasks by=task.id width=fill spacing=8.0
+                  TaskRow task=task loading=loading
+          pane details
+            container width=fill height=fill padding=16.0 @bg-surface border border-border rounded-lg
+              col @gap-3
+                text "Details" @text-lg font-bold text-foreground
+                text "Drag or resize this pane." @text-sm text-muted
     layer
       container width=480.0 height=shrink max-width=720.0 padding=24.0 @bg-surface border border-border rounded-lg
         col @w-full gap-4
