@@ -263,6 +263,7 @@ fn infer_view(
         }
         ViewNode::Text {
             value,
+            options,
             styles,
             span,
         } => {
@@ -270,6 +271,7 @@ fn infer_view(
             if !matches!(ty, Type::Str | Type::I64 | Type::F64) {
                 return Err(type_error(span, &Type::Str, &ty).hint("text accepts str, i64, or f64"));
             }
+            check_text_options(options, env, document, span)?;
             check_styles(styles, document, span, StyleTarget::Text)?;
         }
         ViewNode::Input {
@@ -1008,6 +1010,35 @@ fn check_bool_control_options(
             span,
             "checkbox icon properties require `icon=\"x\"`",
         ));
+    }
+    Ok(())
+}
+
+fn check_text_options(
+    options: &TextOptions,
+    env: &HashMap<String, Type>,
+    document: &Document,
+    span: &Span,
+) -> Result<(), Error> {
+    for length in [&options.width, &options.height].into_iter().flatten() {
+        if let LengthValue::Fixed(value) = length {
+            require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+            require_literal_range(value, 0.0, None, "text bounds", span)?;
+        }
+    }
+    for (value, label) in [
+        (options.size.as_ref(), "text size"),
+        (
+            options.line_height.as_ref().map(|height| match height {
+                TextLineHeight::Relative(value) | TextLineHeight::Absolute(value) => value,
+            }),
+            "text line height",
+        ),
+    ] {
+        if let Some(value) = value {
+            require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+            require_literal_range(value, f64::EPSILON, None, label, span)?;
+        }
     }
     Ok(())
 }
@@ -2103,6 +2134,26 @@ view
     toggler "Toggler" checked=enabled size=20.0 width=fill spacing=8.0 text-size=14.0 line-height=1.2 shaping=auto wrapping=glyph font=default align=right -> changed _
 "#;
         analyze(source).unwrap();
+    }
+
+    #[test]
+    fn checks_text_format_options_and_rejects_zero_line_height() {
+        let source = r#"app Typography
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+view
+  text "Long text" width=fill height=40.0 size=16.0 line-height-px=20.0 font=mono align-x=justified align-y=center shaping=advanced wrapping=word-or-glyph @font-bold
+"#;
+        analyze(source).unwrap();
+
+        let invalid = source.replace("line-height-px=20.0", "line-height=0.0");
+        let error = analyze(&invalid).unwrap_err();
+        assert_eq!(error.code, "E128");
+        assert!(error.message.contains("text line height"));
     }
 
     #[test]

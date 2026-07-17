@@ -200,6 +200,7 @@ pub enum ViewNode {
     },
     Text {
         value: Expr,
+        options: TextOptions,
         styles: Vec<String>,
         span: Span,
     },
@@ -384,6 +385,25 @@ pub struct InputOptions {
 }
 
 #[derive(Clone, Debug, Default)]
+pub struct TextOptions {
+    pub width: Option<LengthValue>,
+    pub height: Option<LengthValue>,
+    pub size: Option<Expr>,
+    pub line_height: Option<TextLineHeight>,
+    pub font: Option<FontPreset>,
+    pub align_x: Option<TextAlignment>,
+    pub align_y: Option<VerticalAlignment>,
+    pub shaping: Option<TextShaping>,
+    pub wrapping: Option<TextWrapping>,
+}
+
+#[derive(Clone, Debug)]
+pub enum TextLineHeight {
+    Relative(Expr),
+    Absolute(Expr),
+}
+
+#[derive(Clone, Debug, Default)]
 pub struct ButtonOptions {
     pub width: Option<LengthValue>,
     pub height: Option<LengthValue>,
@@ -443,6 +463,13 @@ pub enum TextAlignment {
     Center,
     Right,
     Justified,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VerticalAlignment {
+    Top,
+    Center,
+    Bottom,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
