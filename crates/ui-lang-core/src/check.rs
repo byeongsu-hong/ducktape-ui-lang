@@ -493,12 +493,49 @@ fn infer_view(
             value,
             min,
             max,
+            options,
             styles,
             span,
             ..
         } => {
             for expr in [value, min, max] {
                 require_type(&expr_type(expr, env, document, span)?, &Type::F64, span)?;
+            }
+            if let (Some(min), Some(max)) = (f64_literal(min), f64_literal(max))
+                && min > max
+            {
+                return Err(Error::new("E128", span, "progress min cannot exceed max"));
+            }
+            for length in [&options.length, &options.girth].into_iter().flatten() {
+                if let LengthValue::Fixed(value) = length {
+                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+                    require_literal_range(value, 0.0, None, "progress size", span)?;
+                }
+            }
+            for color in [&options.background, &options.bar, &options.border_color]
+                .into_iter()
+                .flatten()
+            {
+                if !valid_theme_color(color, document) {
+                    return Err(Error::new(
+                        "E129",
+                        span,
+                        format!("unknown progress color `{color}`"),
+                    ));
+                }
+            }
+            for (value, label) in [
+                (&options.border_width, "progress border width"),
+                (&options.radius, "progress radius"),
+                (&options.radius_top_left, "progress radius"),
+                (&options.radius_top_right, "progress radius"),
+                (&options.radius_bottom_right, "progress radius"),
+                (&options.radius_bottom_left, "progress radius"),
+            ] {
+                if let Some(value) = value {
+                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+                    require_literal_range(value, 0.0, None, label, span)?;
+                }
             }
             check_styles(styles, document, span, StyleTarget::Progress)?;
         }
@@ -2164,6 +2201,39 @@ view
         let error = analyze(&bad_handle).unwrap_err();
         assert_eq!(error.code, "E129");
         assert!(error.message.contains("requires `handle=rect"));
+    }
+
+    #[test]
+    fn checks_progress_options_and_rejects_invalid_style() {
+        let source = r#"app Controls
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  amount = 50.0
+view
+  col
+    progress amount min=0.0 max=100.0 length=fill(2) girth=20.0 style=success background=background bar=primary/75 border=foreground border-width=1.0 radius=4.0 radius-tl=2.0 radius-tr=3.0 radius-br=4.0 radius-bl=5.0
+    progress amount vertical length=120.0 girth=fill style=warning
+"#;
+        analyze(source).unwrap();
+
+        let bad_range = source.replace("min=0.0 max=100.0", "min=101.0 max=100.0");
+        let error = analyze(&bad_range).unwrap_err();
+        assert_eq!(error.code, "E128");
+        assert!(error.message.contains("progress min cannot exceed max"));
+
+        let bad_color = source.replace("bar=primary/75", "bar=missing");
+        let error = analyze(&bad_color).unwrap_err();
+        assert_eq!(error.code, "E129");
+        assert!(error.message.contains("unknown progress color"));
+
+        let bad_radius = source.replace("radius=4.0", "radius=-1.0");
+        let error = analyze(&bad_radius).unwrap_err();
+        assert_eq!(error.code, "E128");
+        assert!(error.message.contains("progress radius"));
     }
 
     #[test]

@@ -15,7 +15,7 @@ container API, so container remains partial.
 
 ## Typed system reachability
 
-Ice 0.17 has three checked Rust boundaries:
+Ice 0.18 has three checked Rust boundaries:
 
 | Boundary | Rust ABI | Covers |
 | --- | --- | --- |
@@ -48,7 +48,7 @@ public behavior has direct documented Ice syntax and tests.
 | `pane_grid` | missing | pane state, resizing, dragging, focus |
 | `pick_list` | partial | native typed choices/optional selection, placeholder, sizing, padding, text size, open/close events; font, shaping, handle and style catalogs missing |
 | `pin` | partial | native typed bounds and x/y positioning; point expression shorthand missing |
-| `progress_bar` | partial | native range/value and horizontal/vertical; style API missing |
+| `progress_bar` | partial | native range/value, all length/girth variants, horizontal/vertical, five presets, checked color backgrounds, border and per-corner radius; gradients, arbitrary runtime closures and advanced classes missing |
 | `qr_code` | missing | data, cell size, theme |
 | `radio` | partial | native bool/i64 values and selection event; generic values/style API missing |
 | `responsive` | partial | native width breakpoint with narrow/wide views and typed bounds; arbitrary size-dependent view closure missing |

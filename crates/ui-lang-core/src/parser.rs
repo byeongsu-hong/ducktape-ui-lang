@@ -1815,12 +1815,50 @@ fn parse_progress(parts: &[String], styles: Vec<String>, line: &Line) -> Result<
         .ok_or_else(|| error("E077", line, "progress needs a value expression"))?;
     let mut min = Expr::F64(0.0);
     let mut max = Expr::F64(100.0);
+    let mut options = ProgressOptions::default();
     let mut vertical = false;
     for part in &parts[2..] {
         if let Some(value) = part.strip_prefix("min=") {
             min = parse_expr(strip_wrapping_parens(value), line)?;
         } else if let Some(value) = part.strip_prefix("max=") {
             max = parse_expr(strip_wrapping_parens(value), line)?;
+        } else if let Some(value) = part.strip_prefix("length=") {
+            options.length = Some(parse_length(value, line)?);
+        } else if let Some(value) = part.strip_prefix("girth=") {
+            options.girth = Some(parse_length(value, line)?);
+        } else if let Some(value) = part.strip_prefix("style=") {
+            options.style = Some(match value {
+                "primary" => ProgressStyle::Primary,
+                "secondary" => ProgressStyle::Secondary,
+                "success" => ProgressStyle::Success,
+                "warning" => ProgressStyle::Warning,
+                "danger" => ProgressStyle::Danger,
+                _ => {
+                    return Err(error(
+                        "E077",
+                        line,
+                        "progress style must be primary, secondary, success, warning, or danger",
+                    ));
+                }
+            });
+        } else if let Some(value) = part.strip_prefix("background=") {
+            options.background = Some(value.to_owned());
+        } else if let Some(value) = part.strip_prefix("bar=") {
+            options.bar = Some(value.to_owned());
+        } else if let Some(value) = part.strip_prefix("border=") {
+            options.border_color = Some(value.to_owned());
+        } else if let Some(value) = part.strip_prefix("border-width=") {
+            options.border_width = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("radius=") {
+            options.radius = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("radius-tl=") {
+            options.radius_top_left = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("radius-tr=") {
+            options.radius_top_right = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("radius-br=") {
+            options.radius_bottom_right = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("radius-bl=") {
+            options.radius_bottom_left = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else if part == "vertical" {
             vertical = true;
         } else {
@@ -1835,6 +1873,7 @@ fn parse_progress(parts: &[String], styles: Vec<String>, line: &Line) -> Result<
         value: parse_expr(value, line)?,
         min,
         max,
+        options,
         vertical,
         styles,
         span: Span::line(line.number),

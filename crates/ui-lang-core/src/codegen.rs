@@ -771,16 +771,27 @@ fn render_node(
             value,
             min,
             max,
+            options,
             vertical,
             ..
         } => {
             let value = expr_code(value, env, document, ValueMode::Owned)?;
             let min = expr_code(min, env, document, ValueMode::Owned)?;
             let max = expr_code(max, env, document, ValueMode::Owned)?;
-            let vertical = if *vertical { ".vertical()" } else { "" };
-            Ok(format!(
-                "::iced::widget::progress_bar(({min} as f32)..=({max} as f32), {value} as f32){vertical}.into()"
-            ))
+            let mut code = format!(
+                "::iced::widget::progress_bar(({min} as f32)..=({max} as f32), {value} as f32)"
+            );
+            if let Some(length) = &options.length {
+                write!(code, ".length({})", length_code(length, env, document)?).unwrap();
+            }
+            if let Some(girth) = &options.girth {
+                write!(code, ".girth({})", length_code(girth, env, document)?).unwrap();
+            }
+            if *vertical {
+                code.push_str(".vertical()");
+            }
+            append_progress_options(&mut code, options, env, document)?;
+            Ok(format!("{code}.into()"))
         }
         ViewNode::Radio {
             label,
@@ -2039,6 +2050,89 @@ fn append_slider_style_fields(
     Ok(())
 }
 
+fn append_progress_options(
+    code: &mut String,
+    options: &ProgressOptions,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<(), Error> {
+    let has_radius = options.radius.is_some()
+        || options.radius_top_left.is_some()
+        || options.radius_top_right.is_some()
+        || options.radius_bottom_right.is_some()
+        || options.radius_bottom_left.is_some();
+    if options.style.is_none()
+        && options.background.is_none()
+        && options.bar.is_none()
+        && options.border_color.is_none()
+        && options.border_width.is_none()
+        && !has_radius
+    {
+        return Ok(());
+    }
+    let preset = match options.style.unwrap_or(ProgressStyle::Primary) {
+        ProgressStyle::Primary => "primary",
+        ProgressStyle::Secondary => "secondary",
+        ProgressStyle::Success => "success",
+        ProgressStyle::Warning => "warning",
+        ProgressStyle::Danger => "danger",
+    };
+    write!(
+        code,
+        ".style(move |__theme| {{ let mut __style = ::iced::widget::progress_bar::{preset}(__theme);"
+    )
+    .unwrap();
+    if let Some(background) = &options.background {
+        write!(
+            code,
+            " __style.background = {}.into();",
+            theme_color(document, background)
+        )
+        .unwrap();
+    }
+    if let Some(bar) = &options.bar {
+        write!(
+            code,
+            " __style.bar = {}.into();",
+            theme_color(document, bar)
+        )
+        .unwrap();
+    }
+    if let Some(border) = &options.border_color {
+        write!(
+            code,
+            " __style.border.color = {};",
+            theme_color(document, border)
+        )
+        .unwrap();
+    }
+    if let Some(width) = &options.border_width {
+        write!(
+            code,
+            " __style.border.width = {} as f32;",
+            expr_code(width, env, document, ValueMode::Owned)?
+        )
+        .unwrap();
+    }
+    if has_radius {
+        let radius = radius_code(
+            options.radius.as_ref(),
+            [
+                options.radius_top_left.as_ref(),
+                options.radius_top_right.as_ref(),
+                options.radius_bottom_right.as_ref(),
+                options.radius_bottom_left.as_ref(),
+            ],
+            env,
+            document,
+        )?
+        .expect("progress radius options were present");
+        write!(code, " __style.border.radius = {radius};").unwrap();
+    }
+    code.push_str(" __style })");
+    Ok(())
+}
+
 fn append_rule_options(
     code: &mut String,
     options: &RuleOptions,
@@ -2718,7 +2812,10 @@ view
       hovered rail-start=foreground rail-end=background handle=rect(12) handle-color=foreground handle-radius=3.0 handle-radius-tl=1.0
       dragged rail-start=danger handle=circle(8.0) handle-color=danger
     slider amount min=0.0 max=100.0 step=1.0 width=fill height=18.0 -> amount_changed _
-    progress amount vertical
+    progress amount vertical length=fill(2) girth=20.0 style=secondary background=background bar=primary/75 border=foreground border-width=1.0 radius=4.0 radius-tl=2.0
+    progress amount style=success
+    progress amount style=warning
+    progress amount style=danger
     radio "First" value=0 selected=(choice == 0) -> choice_changed _
     rule horizontal thickness=2.0 style=weak fill=full color=primary/50 radius=4.0 radius-tl=2.0 snap=false
     rule horizontal fill=percent(75.0)
@@ -2746,6 +2843,12 @@ view
         assert!(generated.contains("__style.rail.backgrounds.0"));
         assert!(generated.contains("::iced::widget::progress_bar"));
         assert!(generated.contains(".vertical()"));
+        assert!(generated.contains(".length(::iced::Length::FillPortion(2)).girth(20.0 as f32)"));
+        assert!(generated.contains("progress_bar::secondary(__theme)"));
+        assert!(generated.contains("progress_bar::success(__theme)"));
+        assert!(generated.contains("progress_bar::warning(__theme)"));
+        assert!(generated.contains("progress_bar::danger(__theme)"));
+        assert!(generated.contains("__style.border.radius"));
         assert!(generated.contains("::iced::widget::radio"));
         assert!(generated.contains("::iced::widget::rule::weak(__theme)"));
         assert!(generated.contains("rule::FillMode::Full"));
