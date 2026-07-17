@@ -22,6 +22,7 @@ pub enum Type {
     Option(Box<Type>),
     Combo(Box<Type>),
     Markdown,
+    Editor,
     Named(String),
     Unit,
     Unknown,
@@ -40,6 +41,7 @@ impl Type {
                 format!("::iced::widget::combo_box::State<{}>", inner.rust(structs))
             }
             Self::Markdown => "::iced::widget::markdown::Content".into(),
+            Self::Editor => "::iced::widget::text_editor::Content".into(),
             Self::Named(name) => structs
                 .iter()
                 .find(|item| item.name == *name)
@@ -59,6 +61,7 @@ impl Type {
             Self::Option(inner) => format!("{}?", inner.display()),
             Self::Combo(inner) => format!("combo[{}]", inner.display()),
             Self::Markdown => "markdown".into(),
+            Self::Editor => "editor".into(),
             Self::Named(name) => name.clone(),
             Self::Unit => "unit".into(),
             Self::Unknown => "unknown".into(),
@@ -372,6 +375,13 @@ pub enum ViewNode {
         route: Route,
         span: Span,
     },
+    TextEditor {
+        binding: String,
+        id: Option<Id>,
+        disabled: Option<Expr>,
+        options: TextEditorOptions,
+        span: Span,
+    },
     Table {
         item: String,
         rows: Expr,
@@ -458,6 +468,31 @@ pub struct MarkdownOptions {
     pub h6_size: Option<Expr>,
     pub code_size: Option<Expr>,
     pub spacing: Option<Expr>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct TextEditorOptions {
+    pub placeholder: Option<String>,
+    pub width: Option<Expr>,
+    pub height: Option<LengthValue>,
+    pub min_height: Option<Expr>,
+    pub max_height: Option<Expr>,
+    pub size: Option<Expr>,
+    pub line_height: Option<TextLineHeight>,
+    pub padding: Option<Expr>,
+    pub wrapping: Option<TextWrapping>,
+    pub font: Option<FontPreset>,
+    pub highlight: Option<String>,
+    pub highlight_theme: Option<HighlightTheme>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HighlightTheme {
+    SolarizedDark,
+    Base16Mocha,
+    Base16Ocean,
+    Base16Eighties,
+    InspiredGithub,
 }
 
 #[derive(Clone, Debug, Default)]

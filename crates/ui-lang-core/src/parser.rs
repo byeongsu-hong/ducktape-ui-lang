@@ -646,6 +646,7 @@ fn parse_view(line: &Line) -> Result<ViewNode, Error> {
         "keyed" => parse_keyed_column(&parts, styles, line),
         "lazy" => parse_lazy(&parts, styles, line),
         "markdown" => parse_markdown(&parts, styles, route_source, line),
+        "editor" => parse_text_editor(&parts, styles, line),
         "table" => parse_table(&parts, styles, line),
         "float" => parse_float(&parts, styles, line),
         "pin" => parse_pin(&parts, styles, line),
@@ -693,6 +694,98 @@ fn parse_view(line: &Line) -> Result<ViewNode, Error> {
         }
         _ => Err(error("E064", line, format!("unknown view node `{kind}`"))),
     }
+}
+
+fn parse_text_editor(
+    parts: &[String],
+    styles: Vec<String>,
+    line: &Line,
+) -> Result<ViewNode, Error> {
+    ensure_leaf(line)?;
+    if !styles.is_empty() {
+        return Err(error("E099", line, "editor does not accept `@` utilities"));
+    }
+    let mut binding = None;
+    let mut id = None;
+    let mut disabled = None;
+    let mut options = TextEditorOptions::default();
+    let mut index = 1;
+    while index < parts.len() {
+        let part = &parts[index];
+        if part.starts_with('#') {
+            id = Some(parse_id(part, line)?);
+        } else if part == "<->" {
+            index += 1;
+            binding = Some(identifier(
+                parts
+                    .get(index)
+                    .ok_or_else(|| error("E099", line, "missing editor binding"))?,
+                line,
+            )?);
+        } else if let Some(value) = part.strip_prefix("placeholder=") {
+            options.placeholder = Some(string_literal(value, line)?);
+        } else if let Some(value) = part.strip_prefix("width=") {
+            options.width = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("height=") {
+            options.height = Some(parse_length(value, line)?);
+        } else if let Some(value) = part.strip_prefix("min-height=") {
+            options.min_height = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("max-height=") {
+            options.max_height = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("size=") {
+            options.size = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("line-height=") {
+            options.line_height = Some(TextLineHeight::Relative(parse_expr(
+                strip_wrapping_parens(value),
+                line,
+            )?));
+        } else if let Some(value) = part.strip_prefix("line-height-px=") {
+            options.line_height = Some(TextLineHeight::Absolute(parse_expr(
+                strip_wrapping_parens(value),
+                line,
+            )?));
+        } else if let Some(value) = part.strip_prefix("padding=") {
+            options.padding = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("wrapping=") {
+            options.wrapping = Some(parse_text_wrapping(value, line, "E099")?);
+        } else if let Some(value) = part.strip_prefix("font=") {
+            options.font = Some(match value {
+                "default" => FontPreset::Default,
+                "mono" => FontPreset::Monospace,
+                _ => return Err(error("E099", line, "editor font must be default or mono")),
+            });
+        } else if let Some(value) = part.strip_prefix("highlight=") {
+            options.highlight = Some(string_literal(value, line)?);
+        } else if let Some(value) = part.strip_prefix("highlight-theme=") {
+            options.highlight_theme = Some(match value {
+                "solarized-dark" => HighlightTheme::SolarizedDark,
+                "base16-mocha" => HighlightTheme::Base16Mocha,
+                "base16-ocean" => HighlightTheme::Base16Ocean,
+                "base16-eighties" => HighlightTheme::Base16Eighties,
+                "inspired-github" => HighlightTheme::InspiredGithub,
+                _ => return Err(error("E099", line, "unknown editor highlight theme")),
+            });
+        } else if let Some(value) = part.strip_prefix("disabled=") {
+            disabled = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else {
+            return Err(error(
+                "E099",
+                line,
+                format!("unknown editor property `{part}`"),
+            ));
+        }
+        index += 1;
+    }
+    if options.highlight.is_none() && options.highlight_theme.is_some() {
+        return Err(error("E099", line, "highlight-theme requires highlight"));
+    }
+    Ok(ViewNode::TextEditor {
+        binding: binding.ok_or_else(|| error("E099", line, "editor requires `<-> state`"))?,
+        id,
+        disabled,
+        options,
+        span: Span::line(line.number),
+    })
 }
 
 fn parse_table(parts: &[String], styles: Vec<String>, line: &Line) -> Result<ViewNode, Error> {
@@ -2910,6 +3003,7 @@ fn parse_type(source: &str, line: &Line) -> Result<Type, Error> {
         "f64" => Type::F64,
         "str" => Type::Str,
         "markdown" => Type::Markdown,
+        "editor" => Type::Editor,
         "unit" => Type::Unit,
         value if value.chars().next().is_some_and(char::is_uppercase) => {
             Type::Named(identifier(value, line)?)
