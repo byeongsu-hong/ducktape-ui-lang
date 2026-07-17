@@ -2056,6 +2056,7 @@ fn infer_subscriptions(
                 MouseEvent::Pressed | MouseEvent::Released => vec![Type::Str],
                 MouseEvent::Wheel => vec![Type::F64, Type::F64, Type::Bool],
             }),
+            SubscriptionSource::Touch(_) => Some(vec![Type::Str, Type::F64, Type::F64]),
             SubscriptionSource::Window(event) => Some(match event {
                 WindowEvent::Frame
                 | WindowEvent::Closed
@@ -2078,6 +2079,7 @@ fn infer_subscriptions(
         if let Some(payloads) = ordered_payloads {
             let label = match &subscription.source {
                 SubscriptionSource::Mouse(_) => "mouse subscription",
+                SubscriptionSource::Touch(_) => "touch subscription",
                 SubscriptionSource::Window(_) => "window subscription",
                 _ => unreachable!("only ordered subscription sources reach this branch"),
             };
@@ -2107,6 +2109,7 @@ fn infer_subscriptions(
             SubscriptionSource::Keyboard(KeyboardEvent::Modifiers) => Type::KeyModifiers,
             SubscriptionSource::Mouse(_) => unreachable!("handled above"),
             SubscriptionSource::SystemTheme => Type::Str,
+            SubscriptionSource::Touch(_) => unreachable!("handled above"),
             SubscriptionSource::Window(_) => unreachable!("handled above"),
         };
         if subscription
@@ -3167,6 +3170,34 @@ mod tests {
             analyze(&source.replace("mouse left -> left", "mouse dragged -> left")).unwrap_err();
         assert_eq!(error.code, "E084");
         assert!(error.message.contains("mouse event must be"));
+    }
+
+    #[test]
+    fn checks_all_native_touch_subscription_payloads() {
+        let source = include_str!("../../../examples/iced-app/src/ui/touch_events.ice");
+        let document = analyze(source).unwrap();
+        for handler in &document.handlers {
+            assert_eq!(
+                handler
+                    .params
+                    .iter()
+                    .map(|param| param.ty.display())
+                    .collect::<Vec<_>>(),
+                ["str", "f64", "f64"]
+            );
+        }
+
+        let error =
+            analyze(&source.replace("touch moved -> moved _ _ _", "touch moved -> moved _ _"))
+                .unwrap_err();
+        assert_eq!(error.code, "E129");
+        assert!(error.message.contains("expects 3 payloads"));
+
+        let error =
+            analyze(&source.replace("touch lost -> lost _ _ _", "touch ended -> lost _ _ _"))
+                .unwrap_err();
+        assert_eq!(error.code, "E084");
+        assert!(error.message.contains("touch event must be"));
     }
 
     #[test]

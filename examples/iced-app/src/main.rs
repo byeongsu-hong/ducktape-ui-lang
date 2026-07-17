@@ -138,3 +138,8 @@ mod window_events {
 mod mouse_events {
     ui_lang::include_app!("src/ui/mouse_events.ice");
 }
+
+#[cfg(test)]
+mod touch_events {
+    ui_lang::include_app!("src/ui/touch_events.ice");
+}
