@@ -3037,6 +3037,7 @@ fn check_handler(
                     | PaneOperation::Move { pane, .. } => vec![pane],
                     PaneOperation::Swap { first, second } => vec![first, second],
                     PaneOperation::Drop { pane, target, .. } => vec![pane, target],
+                    PaneOperation::Split { target, pane, .. } => vec![target, pane],
                     PaneOperation::Restore
                     | PaneOperation::Maximized
                     | PaneOperation::Resize { .. } => Vec::new(),
@@ -3056,6 +3057,9 @@ fn check_handler(
                 ) || matches!(
                     operation,
                     PaneOperation::Drop { pane, target, .. } if pane == target
+                ) || matches!(
+                    operation,
+                    PaneOperation::Split { target, pane, .. } if target == pane
                 ) {
                     return Err(Error::new(
                         "E188",
@@ -3087,7 +3091,9 @@ fn check_handler(
                     }
                     _ => {}
                 }
-                if let PaneOperation::Resize { ratio } = operation {
+                if let PaneOperation::Resize { ratio } | PaneOperation::Split { ratio, .. } =
+                    operation
+                {
                     require_type(&expr_type(ratio, &env, document, span)?, &Type::F64, span)?;
                     require_literal_range(ratio, 0.0, Some(1.0), "pane split ratio", span)?;
                 }
@@ -3708,7 +3714,7 @@ fn type_error(span: &Span, expected: &Type, actual: &Type) -> Error {
 
 #[cfg(test)]
 mod tests {
-    use crate::analyze;
+    use crate::{PaneConfiguration, ViewNode, analyze};
 
     #[test]
     fn checks_native_timer_subscription() {
@@ -4586,7 +4592,56 @@ view
         let bad_panes = source.replace("pane editor", "panel editor");
         let error = analyze(&bad_panes).unwrap_err();
         assert_eq!(error.code, "E187");
-        assert!(error.message.contains("pane-grid children"));
+        assert!(error.message.contains("pane configuration"));
+    }
+
+    #[test]
+    fn checks_nested_pane_configurations_and_closed_templates() {
+        let source = r#"app Workspace
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+on open_preview
+  pane #work split editor preview horizontal ratio=0.4
+view
+  pane-grid #work width=fill height=fill
+    split vertical ratio=0.7
+      pane files
+        text "Files"
+      split horizontal ratio=0.6
+        pane editor
+          text "Editor"
+        pane terminal
+          text "Terminal"
+    pane preview closed
+      text "Preview"
+"#;
+        let document = analyze(source).unwrap();
+        let ViewNode::PaneGrid {
+            configuration,
+            panes,
+            ..
+        } = &document.view
+        else {
+            panic!("pane-grid view")
+        };
+        assert_eq!(panes.len(), 4);
+        assert!(matches!(configuration, PaneConfiguration::Split { .. }));
+
+        let error = analyze(&source.replace("ratio=0.6", "ratio=1.1")).unwrap_err();
+        assert_eq!(error.code, "E187");
+        assert!(error.message.contains("ratio"));
+
+        let error = analyze(&source.replace("pane terminal", "pane editor")).unwrap_err();
+        assert_eq!(error.code, "E187");
+        assert!(error.message.contains("duplicate pane `editor`"));
+
+        let error =
+            analyze(&source.replace("pane preview closed", "pane preview hidden")).unwrap_err();
+        assert_eq!(error.code, "E187");
+        assert!(error.message.contains("pane name closed"));
     }
 
     #[test]
@@ -4604,6 +4659,7 @@ on arrange
   pane #work move editor left
   pane #work resize 0.6
   pane #work drop editor files center
+  pane #work split editor preview horizontal ratio=0.4
   pane #work close editor
 on inspect
   pane #work maximized -> observed _
@@ -4616,6 +4672,8 @@ view
       text "Files"
     pane editor
       text "Editor"
+    pane preview closed
+      text "Preview"
 "#;
         let document = analyze(source).unwrap();
         assert_eq!(document.handlers[3].params[0].ty.display(), "str?");
@@ -4624,9 +4682,9 @@ view
         assert_eq!(error.code, "E188");
         assert!(error.message.contains("unknown pane-grid"));
 
-        let error = analyze(&source.replace("maximize editor", "maximize preview")).unwrap_err();
+        let error = analyze(&source.replace("maximize editor", "maximize missing")).unwrap_err();
         assert_eq!(error.code, "E188");
-        assert!(error.message.contains("has no pane `preview`"));
+        assert!(error.message.contains("has no pane `missing`"));
 
         let error = analyze(&source.replace("swap files editor", "swap files files")).unwrap_err();
         assert_eq!(error.code, "E188");

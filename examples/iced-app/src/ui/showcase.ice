@@ -379,6 +379,12 @@ on read_system_theme
 on system_theme_changed(next)
   system_theme = next
 
+on open_nested_preview
+  pane #nested_workspace split nested_editor nested_preview horizontal ratio=0.4
+
+on close_nested_preview
+  pane #nested_workspace close nested_preview
+
 subscribe
   app_events() -> external_event _
   keyboard press status=ignored -> key_pressed _
@@ -505,6 +511,20 @@ view
           text "Stack underlay" @text-sm text-muted
           text "Stack base" @text-sm text-muted
           text "Stack overlay" @text-sm text-foreground
+
+    pane-grid #nested_workspace width=fill height=180.0 spacing=4.0 resize=4.0 drag
+      split vertical ratio=0.65
+        pane nested_files
+          text "Nested files" @text-sm text-muted
+        split horizontal ratio=0.6
+          pane nested_editor
+            button "Open nested preview" -> open_nested_preview
+          pane nested_terminal
+            text "Nested terminal" @text-sm text-muted
+      pane nested_preview closed
+        col @gap-2
+          text "Dynamic preview" @text-sm text-foreground
+          button "Close nested preview" -> close_nested_preview
 
     scroll #task-list direction=vertical width=fill height=fill bar=visible bar-width=8.0 bar-margin=2.0 scroller-width=6.0 bar-spacing=2.0 anchor-y=start auto=true scroll=task_list_scrolled
       keyed task in tasks by=task.id width=fill height=shrink spacing=8.0 padding=4.0 padding-left=8.0 max-width=720.0 align=center

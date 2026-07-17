@@ -60,6 +60,13 @@ view
                   button "Restore" -> restore_workspace
                   button "Swap" -> swap_workspace
                   button "Move left" -> move_details_left
+                  button "Open preview" -> open_preview
+          pane preview closed
+            container width=fill height=fill padding=16.0 @bg-surface border border-border rounded-lg
+              col @gap-3
+                text "Preview" @text-lg font-bold text-foreground
+                text "This pane was opened dynamically." @text-sm text-muted
+                button "Close preview" -> close_preview
     layer
       Dialog
         header:

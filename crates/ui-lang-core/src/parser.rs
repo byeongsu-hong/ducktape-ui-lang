@@ -1030,6 +1030,19 @@ fn parse_pane_operation(source: &str, line: &Line) -> Result<Statement, Error> {
             }
         })
     };
+    let axis = |index: usize| {
+        Ok(match parts.get(index).map(String::as_str) {
+            Some("horizontal") => PaneAxis::Horizontal,
+            Some("vertical") => PaneAxis::Vertical,
+            _ => {
+                return Err(error(
+                    "E188",
+                    line,
+                    "pane split axis must be horizontal or vertical",
+                ));
+            }
+        })
+    };
     let operation = match parts.get(1).map(String::as_str) {
         Some("maximize") if parts.len() == 3 => PaneOperation::Maximize { pane: pane(2)? },
         Some("restore") if parts.len() == 2 => PaneOperation::Restore,
@@ -1057,6 +1070,17 @@ fn parse_pane_operation(source: &str, line: &Line) -> Result<Statement, Error> {
                 "center" => None,
                 _ => Some(edge(4)?),
             },
+        },
+        Some("split") if (5..=6).contains(&parts.len()) => PaneOperation::Split {
+            target: pane(2)?,
+            pane: pane(3)?,
+            axis: axis(4)?,
+            ratio: parts.get(5).map_or(Ok(Expr::F64(0.5)), |part| {
+                let value = part
+                    .strip_prefix("ratio=")
+                    .ok_or_else(|| error("E188", line, "pane split ratio uses `ratio=value`"))?;
+                parse_expr(strip_wrapping_parens(value), line)
+            })?,
         },
         _ => {
             return Err(error(
@@ -1595,6 +1619,118 @@ fn parse_overlay(parts: &[String], styles: Vec<String>, line: &Line) -> Result<V
     })
 }
 
+fn parse_pane_ratio(value: &str, line: &Line) -> Result<f32, Error> {
+    let ratio = value.parse::<f32>().map_err(|_| {
+        error(
+            "E187",
+            line,
+            "pane split ratio must be a number from 0 to 1",
+        )
+    })?;
+    if !(0.0..=1.0).contains(&ratio) {
+        return Err(error(
+            "E187",
+            line,
+            "pane split ratio must be a number from 0 to 1",
+        ));
+    }
+    Ok(ratio)
+}
+
+fn parse_pane_view(
+    name: &str,
+    line: &Line,
+    names: &mut std::collections::HashSet<String>,
+    panes: &mut Vec<PaneView>,
+) -> Result<String, Error> {
+    let name = identifier(name, line)?;
+    if !names.insert(name.clone()) {
+        return Err(error("E187", line, format!("duplicate pane `{name}`")));
+    }
+    if line.children.len() != 1 {
+        return Err(error(
+            "E187",
+            line,
+            "pane requires exactly one child; wrap siblings in row or col",
+        ));
+    }
+    panes.push(PaneView {
+        name: name.clone(),
+        content: Box::new(parse_view(&line.children[0])?),
+        span: Span::line(line.number),
+    });
+    Ok(name)
+}
+
+fn parse_pane_configuration(
+    line: &Line,
+    names: &mut std::collections::HashSet<String>,
+    panes: &mut Vec<PaneView>,
+) -> Result<PaneConfiguration, Error> {
+    let parts = split_words(&line.text);
+    match parts.first().map(String::as_str) {
+        Some("pane") if parts.len() == 2 => Ok(PaneConfiguration::Pane(parse_pane_view(
+            &parts[1], line, names, panes,
+        )?)),
+        Some("split") if (2..=3).contains(&parts.len()) => {
+            let axis = match parts[1].as_str() {
+                "horizontal" => PaneAxis::Horizontal,
+                "vertical" => PaneAxis::Vertical,
+                _ => {
+                    return Err(error(
+                        "E187",
+                        line,
+                        "nested pane split must be horizontal or vertical",
+                    ));
+                }
+            };
+            let ratio = parts.get(2).map_or(Ok(0.5), |part| {
+                parse_pane_ratio(
+                    part.strip_prefix("ratio=").ok_or_else(|| {
+                        error("E187", line, "nested pane split ratio uses `ratio=value`")
+                    })?,
+                    line,
+                )
+            })?;
+            if line.children.len() != 2 {
+                return Err(error(
+                    "E187",
+                    line,
+                    "nested pane split requires exactly two pane or split children",
+                ));
+            }
+            Ok(PaneConfiguration::Split {
+                axis,
+                ratio,
+                a: Box::new(parse_pane_configuration(&line.children[0], names, panes)?),
+                b: Box::new(parse_pane_configuration(&line.children[1], names, panes)?),
+            })
+        }
+        _ => Err(error(
+            "E187",
+            line,
+            "pane configuration uses `pane name` or `split axis ratio=value`",
+        )),
+    }
+}
+
+fn parse_closed_pane(
+    line: &Line,
+    names: &mut std::collections::HashSet<String>,
+    panes: &mut Vec<PaneView>,
+) -> Result<(), Error> {
+    let parts = split_words(&line.text);
+    if parts.len() != 3 || parts[0] != "pane" || parts[2] != "closed" {
+        return Err(error(
+            "E187",
+            line,
+            "extra pane templates use `pane name closed`",
+        ));
+    }
+    parse_pane_view(&parts[1], line, names, panes)?;
+    Ok(())
+}
+
 fn parse_pane_grid(parts: &[String], styles: Vec<String>, line: &Line) -> Result<ViewNode, Error> {
     if !styles.is_empty() {
         return Err(error(
@@ -1608,12 +1744,13 @@ fn parse_pane_grid(parts: &[String], styles: Vec<String>, line: &Line) -> Result
         .filter(|part| part.starts_with('#'))
         .ok_or_else(|| error("E187", line, "pane-grid requires a static `#id`"))?;
     let name = identifier(name.trim_start_matches('#'), line)?;
-    let mut axis = None;
-    let mut ratio = 0.5_f32;
+    let mut legacy_axis = None;
+    let mut legacy_ratio = 0.5_f32;
+    let mut legacy_ratio_set = false;
     let mut options = PaneGridOptions::default();
     for part in &parts[2..] {
         if let Some(value) = part.strip_prefix("split=") {
-            axis = Some(match value {
+            legacy_axis = Some(match value {
                 "horizontal" => PaneAxis::Horizontal,
                 "vertical" => PaneAxis::Vertical,
                 _ => {
@@ -1625,16 +1762,8 @@ fn parse_pane_grid(parts: &[String], styles: Vec<String>, line: &Line) -> Result
                 }
             });
         } else if let Some(value) = part.strip_prefix("ratio=") {
-            ratio = value
-                .parse::<f32>()
-                .map_err(|_| error("E187", line, "pane-grid ratio must be a number from 0 to 1"))?;
-            if !(0.0..=1.0).contains(&ratio) {
-                return Err(error(
-                    "E187",
-                    line,
-                    "pane-grid ratio must be a number from 0 to 1",
-                ));
-            }
+            legacy_ratio = parse_pane_ratio(value, line)?;
+            legacy_ratio_set = true;
         } else if let Some(value) = part.strip_prefix("width=") {
             options.width = Some(parse_length(value, line)?);
         } else if let Some(value) = part.strip_prefix("height=") {
@@ -1657,44 +1786,59 @@ fn parse_pane_grid(parts: &[String], styles: Vec<String>, line: &Line) -> Result
             ));
         }
     }
-    let axis = axis.ok_or_else(|| error("E187", line, "pane-grid requires `split=`"))?;
-    if line.children.len() != 2 {
-        return Err(error(
-            "E187",
-            line,
-            "pane-grid currently requires exactly two `pane name` sections",
-        ));
-    }
     let mut names = std::collections::HashSet::new();
-    let panes = line
-        .children
-        .iter()
-        .map(|pane| {
-            let Some(name) = pane.text.strip_prefix("pane ") else {
-                return Err(error("E187", pane, "pane-grid children use `pane name`"));
-            };
-            let name = identifier(name.trim(), pane)?;
-            if !names.insert(name.clone()) {
-                return Err(error("E187", pane, format!("duplicate pane `{name}`")));
-            }
-            if pane.children.len() != 1 {
-                return Err(error(
-                    "E187",
-                    pane,
-                    "pane requires exactly one child; wrap siblings in row or col",
-                ));
-            }
-            Ok(PaneView {
-                name,
-                content: Box::new(parse_view(&pane.children[0])?),
-                span: Span::line(pane.number),
-            })
-        })
-        .collect::<Result<Vec<_>, Error>>()?;
+    let mut panes = Vec::new();
+    let configuration = if let Some(axis) = legacy_axis {
+        if line.children.len() < 2 {
+            return Err(error(
+                "E187",
+                line,
+                "pane-grid shorthand requires two open `pane name` children",
+            ));
+        }
+        let open = &line.children[..2];
+        let a = parse_pane_configuration(&open[0], &mut names, &mut panes)?;
+        let b = parse_pane_configuration(&open[1], &mut names, &mut panes)?;
+        if !matches!(&a, PaneConfiguration::Pane(_)) || !matches!(&b, PaneConfiguration::Pane(_)) {
+            return Err(error(
+                "E187",
+                line,
+                "pane-grid shorthand accepts two open panes; use a nested split tree instead",
+            ));
+        }
+        for pane in &line.children[2..] {
+            parse_closed_pane(pane, &mut names, &mut panes)?;
+        }
+        PaneConfiguration::Split {
+            axis,
+            ratio: legacy_ratio,
+            a: Box::new(a),
+            b: Box::new(b),
+        }
+    } else {
+        if legacy_ratio_set {
+            return Err(error(
+                "E187",
+                line,
+                "pane-grid `ratio=` requires legacy `split=` or a nested split node",
+            ));
+        }
+        let (configuration, closed) = line.children.split_first().ok_or_else(|| {
+            error(
+                "E187",
+                line,
+                "pane-grid requires an initial pane or split configuration",
+            )
+        })?;
+        let configuration = parse_pane_configuration(configuration, &mut names, &mut panes)?;
+        for pane in closed {
+            parse_closed_pane(pane, &mut names, &mut panes)?;
+        }
+        configuration
+    };
     Ok(ViewNode::PaneGrid {
         name,
-        axis,
-        ratio,
+        configuration,
         options,
         panes,
         span: Span::line(line.number),

@@ -41,6 +41,12 @@ on swap_workspace
 on move_details_left
   pane #workspace move details left
 
+on open_preview
+  pane #workspace split details preview horizontal ratio=0.35
+
+on close_preview
+  pane #workspace close preview
+
 on resize_workspace
   pane #workspace resize 0.5
 
