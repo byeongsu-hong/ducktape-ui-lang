@@ -254,6 +254,7 @@ pub struct ExternFn {
 pub enum ExternKind {
     Future,
     Component,
+    Shader,
     Task,
     Subscription,
 }
@@ -775,6 +776,14 @@ pub enum ViewNode {
     ExternComponent {
         function: String,
         args: Vec<Expr>,
+        route: Option<Route>,
+        span: Span,
+    },
+    Shader {
+        function: String,
+        args: Vec<Expr>,
+        width: Option<LengthValue>,
+        height: Option<LengthValue>,
         route: Option<Route>,
         span: Span,
     },
