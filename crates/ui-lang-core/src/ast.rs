@@ -628,6 +628,7 @@ pub enum ViewNode {
         checked: Expr,
         disabled: Option<Expr>,
         options: BoolControlOptions,
+        style: Box<CheckboxStyleSet>,
         styles: Vec<String>,
         route: Route,
         span: Span,
@@ -1030,6 +1031,41 @@ pub struct BoolControlOptions {
     pub icon_size: Option<Expr>,
     pub icon_line_height: Option<Expr>,
     pub icon_shaping: Option<TextShaping>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct CheckboxStyleSet {
+    pub preset: CheckboxStylePreset,
+    pub active_checked: Option<CheckboxStatusStyle>,
+    pub active_unchecked: Option<CheckboxStatusStyle>,
+    pub hovered_checked: Option<CheckboxStatusStyle>,
+    pub hovered_unchecked: Option<CheckboxStatusStyle>,
+    pub disabled_checked: Option<CheckboxStatusStyle>,
+    pub disabled_unchecked: Option<CheckboxStatusStyle>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CheckboxStylePreset {
+    #[default]
+    Primary,
+    Secondary,
+    Success,
+    Danger,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct CheckboxStatusStyle {
+    pub background: Option<BackgroundValue>,
+    pub icon_color: Option<String>,
+    pub text_color: Option<String>,
+    pub border_color: Option<String>,
+    pub border_width: Option<Expr>,
+    pub radius: Option<Expr>,
+    pub radius_top_left: Option<Expr>,
+    pub radius_top_right: Option<Expr>,
+    pub radius_bottom_right: Option<Expr>,
+    pub radius_bottom_left: Option<Expr>,
+    pub span: Option<Span>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

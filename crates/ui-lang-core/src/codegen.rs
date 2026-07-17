@@ -1782,6 +1782,7 @@ fn render_node(
             checked,
             disabled,
             options,
+            style,
             route,
             ..
         } => {
@@ -1800,6 +1801,7 @@ fn render_node(
             } else {
                 write!(code, ".on_toggle(move |__value| {message_code})").unwrap();
             }
+            code.push_str(&checkbox_style_code(style, env, document)?);
             Ok(format!("{code}.into()"))
         }
         ViewNode::Toggler {
@@ -5208,6 +5210,102 @@ fn append_bool_control_options(
     Ok(())
 }
 
+fn checkbox_style_code(
+    styles: &CheckboxStyleSet,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<String, Error> {
+    let preset = match styles.preset {
+        CheckboxStylePreset::Primary => "primary",
+        CheckboxStylePreset::Secondary => "secondary",
+        CheckboxStylePreset::Success => "success",
+        CheckboxStylePreset::Danger => "danger",
+    };
+    let overrides = [
+        ("Active", true, &styles.active_checked),
+        ("Active", false, &styles.active_unchecked),
+        ("Hovered", true, &styles.hovered_checked),
+        ("Hovered", false, &styles.hovered_unchecked),
+        ("Disabled", true, &styles.disabled_checked),
+        ("Disabled", false, &styles.disabled_unchecked),
+    ];
+    if overrides.iter().all(|(_, _, style)| style.is_none()) {
+        return Ok(if styles.preset == CheckboxStylePreset::Primary {
+            String::new()
+        } else {
+            format!(".style(::iced::widget::checkbox::{preset})")
+        });
+    }
+
+    let mut code = format!(
+        ".style(move |__theme, __status| {{ let mut __style = ::iced::widget::checkbox::{preset}(__theme, __status); match __status {{"
+    );
+    for (status, checked, style) in overrides {
+        let Some(style) = style else { continue };
+        write!(
+            code,
+            " ::iced::widget::checkbox::Status::{status} {{ is_checked: {checked} }} => {{"
+        )
+        .unwrap();
+        if let Some(background) = &style.background {
+            write!(
+                code,
+                " __style.background = {};",
+                background_code(background, env, document)?
+            )
+            .unwrap();
+        }
+        if let Some(color) = &style.icon_color {
+            write!(
+                code,
+                " __style.icon_color = {};",
+                theme_color(document, color)
+            )
+            .unwrap();
+        }
+        if let Some(color) = &style.text_color {
+            write!(
+                code,
+                " __style.text_color = ::std::option::Option::Some({});",
+                theme_color(document, color)
+            )
+            .unwrap();
+        }
+        if let Some(color) = &style.border_color {
+            write!(
+                code,
+                " __style.border.color = {};",
+                theme_color(document, color)
+            )
+            .unwrap();
+        }
+        if let Some(width) = &style.border_width {
+            write!(
+                code,
+                " __style.border.width = {} as f32;",
+                expr_code(width, env, document, ValueMode::Owned)?
+            )
+            .unwrap();
+        }
+        if let Some(radius) = radius_code(
+            style.radius.as_ref(),
+            [
+                style.radius_top_left.as_ref(),
+                style.radius_top_right.as_ref(),
+                style.radius_bottom_right.as_ref(),
+                style.radius_bottom_left.as_ref(),
+            ],
+            env,
+            document,
+        )? {
+            write!(code, " __style.border.radius = {radius};").unwrap();
+        }
+        code.push_str(" }");
+    }
+    code.push_str(" _ => {} } __style })");
+    Ok(code)
+}
+
 fn text_shaping_code(shaping: TextShaping) -> &'static str {
     match shaping {
         TextShaping::Auto => "Auto",
@@ -6785,7 +6883,7 @@ view
     }
 
     #[test]
-    fn lowers_checkbox_and_toggler_typography() {
+    fn lowers_complete_checkbox_styles_and_toggler_typography() {
         let source = r#"app Preferences
 theme
   background #000000
@@ -6798,7 +6896,13 @@ on changed(next)
   enabled = next
 view
   col
-    checkbox "Checkbox" checked=enabled size=20.0 width=fill spacing=8.0 text-size=14.0 line-height=1.2 shaping=advanced wrapping=word-or-glyph font=mono icon="✓" icon-size=12.0 icon-line-height=1.0 icon-shaping=basic -> changed _
+    checkbox "Checkbox" checked=enabled style=success size=20.0 width=fill spacing=8.0 text-size=14.0 line-height=1.2 shaping=advanced wrapping=word-or-glyph font=mono icon="✓" icon-size=12.0 icon-line-height=1.0 icon-shaping=basic -> changed _
+      active checked background=linear(1.57, primary@0.0, background@1.0) icon=foreground text=foreground border=primary border-width=1.0 radius=4.0 radius-tl=2.0 radius-tr=3.0 radius-br=5.0 radius-bl=6.0
+      active unchecked background=background icon=primary text=foreground border=foreground
+      hovered checked background=primary icon=foreground text=foreground border=primary
+      hovered unchecked background=foreground icon=background text=primary border=primary
+      disabled checked background=background icon=foreground text=foreground border=foreground
+      disabled unchecked background=background icon=primary text=foreground border=primary
     toggler "Toggler" checked=enabled size=20.0 width=fill spacing=8.0 text-size=14.0 line-height=1.2 shaping=auto wrapping=glyph font=default align=right -> changed _
 "#;
         let generated = compile(source, "preferences.ice").unwrap();
@@ -6809,6 +6913,32 @@ view
         assert!(generated.contains("checkbox::Icon"));
         assert!(generated.contains("code_point: '✓'"));
         assert!(generated.contains(".text_alignment(::iced::widget::text::Alignment::Right)"));
+        assert!(generated.contains("checkbox::success(__theme, __status)"));
+        for (status, checked) in [
+            ("Active", true),
+            ("Active", false),
+            ("Hovered", true),
+            ("Hovered", false),
+            ("Disabled", true),
+            ("Disabled", false),
+        ] {
+            assert!(generated.contains(&format!(
+                "checkbox::Status::{status} {{ is_checked: {checked} }}"
+            )));
+        }
+        assert!(generated.contains("::iced::gradient::Linear::new(1.57 as f32)"));
+        assert!(generated.contains("__style.icon_color ="));
+        assert!(generated.contains("__style.text_color = ::std::option::Option::Some"));
+        assert!(generated.contains("__style.border.width = 1.0 as f32"));
+        assert!(generated.contains("top_left: 2.0 as f32"));
+        for preset in ["primary", "secondary", "success", "danger"] {
+            let generated = compile(
+                &source.replace("style=success", &format!("style={preset}")),
+                "preferences.ice",
+            )
+            .unwrap();
+            assert!(generated.contains(&format!("checkbox::{preset}(__theme, __status)")));
+        }
     }
 
     #[test]
