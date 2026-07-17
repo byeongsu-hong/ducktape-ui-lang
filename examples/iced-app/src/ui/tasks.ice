@@ -198,6 +198,9 @@ view
         text "Controls" width=fill height=30.0 size=18.0 line-height-px=22.0 font=default align-x=left align-y=center shaping=advanced wrapping=word @font-bold text-foreground
         toggler "Notifications" checked=notifications size=20.0 width=fill spacing=8.0 text-size=14.0 line-height=1.2 shaping=auto wrapping=word font=default align=left -> notifications_changed _
         slider volume min=0.0 max=100.0 step=5.0 default=50.0 shift-step=1.0 width=fill(2) height=20.0 release=volume_committed -> volume_changed _
+          active rail-start=primary rail-end=border rail-width=4.0 rail-radius=2.0 handle=circle(7.0) handle-color=primary
+          hovered rail-start=foreground rail-end=border rail-width=5.0 handle=rect(12) handle-color=foreground handle-radius=3.0
+          dragged rail-start=danger rail-end=border handle=circle(8.0) handle-color=danger handle-border=foreground handle-border-width=1.0
         slider volume min=0.0 max=100.0 step=5.0 default=50.0 shift-step=1.0 vertical width=20.0 height=120.0 release=volume_committed -> volume_changed _
         progress volume
         extern native_help(external_hover) -> external_hover_changed _
