@@ -1469,12 +1469,16 @@ fn infer_view(
             for (value, label) in [
                 (&options_config.padding, "pick padding"),
                 (&options_config.text_size, "pick text size"),
+                (&options_config.line_height, "pick line height"),
             ] {
                 if let Some(value) = value {
                     require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
                     require_literal_range(value, 0.0, None, label, span)?;
                 }
             }
+            check_font(options_config.font.as_ref(), document, span)?;
+            check_pick_list_handle(options_config.handle.as_ref(), env, document, span)?;
+            check_pick_list_styles(options_config, env, document, span)?;
             infer_route(route, Some(*option_type), env, document, signatures)?;
             for route in [&options_config.open, &options_config.close]
                 .into_iter()
@@ -2808,6 +2812,102 @@ fn check_radio_styles(
         if let Some(width) = &style.border_width {
             require_type(&expr_type(width, env, document, span)?, &Type::F64, span)?;
             require_literal_range(width, 0.0, None, "radio border width", span)?;
+        }
+    }
+    Ok(())
+}
+
+fn check_pick_list_handle(
+    handle: Option<&PickListHandle>,
+    env: &HashMap<String, Type>,
+    document: &Document,
+    span: &Span,
+) -> Result<(), Error> {
+    let Some(handle) = handle else { return Ok(()) };
+    let icons = match handle {
+        PickListHandle::Arrow { size } => {
+            if let Some(size) = size {
+                require_type(&expr_type(size, env, document, span)?, &Type::F64, span)?;
+                require_literal_range(size, 0.0, None, "pick handle size", span)?;
+            }
+            return Ok(());
+        }
+        PickListHandle::Static(icon) => [Some(icon), None],
+        PickListHandle::Dynamic { closed, open } => [Some(closed), Some(open)],
+        PickListHandle::None => return Ok(()),
+    };
+    for icon in icons.into_iter().flatten() {
+        check_font(icon.font.as_ref(), document, &icon.span)?;
+        for (value, label) in [
+            (&icon.size, "pick handle icon size"),
+            (&icon.line_height, "pick handle icon line height"),
+        ] {
+            if let Some(value) = value {
+                require_type(
+                    &expr_type(value, env, document, &icon.span)?,
+                    &Type::F64,
+                    &icon.span,
+                )?;
+                require_literal_range(value, 0.0, None, label, &icon.span)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn check_pick_list_styles(
+    options: &PickListOptions,
+    env: &HashMap<String, Type>,
+    document: &Document,
+    span: &Span,
+) -> Result<(), Error> {
+    for style in [
+        &options.style.active,
+        &options.style.hovered,
+        &options.style.opened,
+        &options.style.opened_hovered,
+    ]
+    .into_iter()
+    .flatten()
+    {
+        let style_span = style.span.as_ref().unwrap_or(span);
+        check_container_style_options(&style.options, env, document, style_span, "E129")?;
+        for (color, label) in [
+            (&style.placeholder_color, "pick placeholder"),
+            (&style.handle_color, "pick handle"),
+        ] {
+            if let Some(color) = color
+                && !valid_theme_color(color, document)
+            {
+                return Err(Error::new(
+                    "E129",
+                    style_span,
+                    format!("unknown {label} color `{color}`"),
+                ));
+            }
+        }
+    }
+    if let Some(style) = options.menu_style.as_deref() {
+        let style_span = style.span.as_ref().unwrap_or(span);
+        check_container_style_options(&style.options, env, document, style_span, "E129")?;
+        if let Some(color) = &style.selected_text_color
+            && !valid_theme_color(color, document)
+        {
+            return Err(Error::new(
+                "E129",
+                style_span,
+                format!("unknown pick selected text color `{color}`"),
+            ));
+        }
+        if let Some(background) = &style.selected_background {
+            check_background_value(
+                background,
+                env,
+                document,
+                style_span,
+                "E129",
+                "pick selected background",
+            )?;
         }
     }
     Ok(())
@@ -4342,6 +4442,7 @@ view
     #[test]
     fn checks_optional_selection_values() {
         let source = r#"app Demo
+font ui family=sans
 theme
   background #000000
   foreground #ffffff
@@ -4354,12 +4455,24 @@ on selected(next)
   selected = some(next)
 on opened
 view
-  pick choices selected placeholder="Choose" open=opened -> selected _
+  pick choices selected placeholder="Choose" line-height=1.2 shaping=advanced font=ui open=opened -> selected _
+    active text=foreground placeholder=danger handle=primary background=background border=foreground border-width=1.0 radius=4.0
+    hovered text=foreground
+    opened text=foreground
+    opened-hovered text=foreground
+    menu text=foreground selected-text=background selected-background=primary background=background border=foreground shadow=danger shadow-y=2.0
+    handle dynamic
+      closed code="⌄" font=ui size=12.0 line-height=1.0 shaping=basic
+      open code="⌃" font=ui size=12.0 line-height=1.0 shaping=advanced
 "#;
         let document = analyze(source).unwrap();
         assert_eq!(document.states[0].ty.display(), "[str]");
         assert_eq!(document.states[1].ty.display(), "str?");
         assert_eq!(document.handlers[0].params[0].ty.display(), "str");
+
+        let error = analyze(&source.replace("size=12.0", "size=-1.0")).unwrap_err();
+        assert_eq!(error.code, "E128");
+        assert!(error.message.contains("icon size"));
     }
 
     #[test]

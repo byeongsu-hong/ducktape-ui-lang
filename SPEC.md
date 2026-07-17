@@ -1,4 +1,4 @@
-# Ice Language Specification 0.69
+# Ice Language Specification 0.70
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.69 syntax.
+marked “planned” is a design constraint, not accepted 0.70 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.69.
+  block comments are not part of 0.70.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -488,9 +488,37 @@ radio_style_property = "background=" background_value
                      | ("dot=" | "border=" | "text=") color_ref
                      | "border-width=" expr
 pick_list      = "pick" expr expr pick_property* "->" route
+                 (INDENT pick_child*)?
 pick_property  = "placeholder=" expr | "width=" length
                | "menu-height=" length | "padding=" expr
-               | "text-size=" expr | "open=" route | "close=" route
+               | ("text-size=" | "line-height=") expr
+               | "shaping=" ("auto" | "basic" | "advanced")
+               | "font=" font_ref | "open=" route | "close=" route
+pick_child     = pick_status | pick_menu | pick_handle
+pick_status    = ("active" | "hovered" | "opened" | "opened-hovered")
+                 pick_status_property*
+pick_status_property
+               = "background=" background_value
+               | ("text=" | "placeholder=" | "handle=" | "border=") color_ref
+               | ("border-width=" | "radius=" | "radius-tl="
+                 | "radius-tr=" | "radius-br=" | "radius-bl=") expr
+pick_menu      = "menu" pick_menu_property*
+pick_menu_property
+               = ("background=" | "selected-background=") background_value
+               | ("text=" | "selected-text=" | "border=" | "shadow=") color_ref
+               | ("border-width=" | "radius=" | "radius-tl="
+                 | "radius-tr=" | "radius-br=" | "radius-bl="
+                 | "shadow-x=" | "shadow-y=" | "shadow-blur=") expr
+pick_handle    = "handle" ("arrow" ("size=" expr)?
+               | "static" pick_icon_property+
+               | "dynamic" INDENT pick_closed_icon pick_open_icon
+               | "none")
+pick_closed_icon = "closed" pick_icon_property+
+pick_open_icon = "open" pick_icon_property+
+pick_icon_property
+               = "code=" string | "font=" font_ref
+               | ("size=" | "line-height=") expr
+               | "shaping=" ("auto" | "basic" | "advanced")
 combo_box      = "combo" name expr string combo_property* "->" route
 combo_property = "width=" length | "menu-height=" length
                | "padding=" expr | "text-size=" expr
@@ -600,7 +628,7 @@ default/centered/fixed position, visibility, resizability, close/minimize
 buttons, decorations, transparency, blur, level, and close-request behavior.
 Sizes, text size, and scale factor must be positive; minimum size cannot exceed
 maximum size. Window icons and platform-specific settings are not part of
-0.69.
+0.70.
 
 Media fixed lengths, rotation, opacity, scale, and radius are `f64`; rotation
 is radians, opacity is `0.0..=1.0`, scale is positive, and sizes/radius are
@@ -757,7 +785,26 @@ separate from the tooltip overlay's viewport `snap=` behavior.
 `pick` requires a homogeneous `[T]` options expression and a matching optional
 `T?` selection. Its main route carries `T`; `open=` and `close=` routes carry no
 payload. Pick values may be bool, i64, f64, str, or an extern type. Fixed
-width/menu height, padding, and text size are non-negative `f64` values.
+width/menu height, padding, text size, relative line height, complete font
+descriptors, and shaping map directly to iced's setters. All concrete field
+styles are structured children: `active`, `hovered`, `opened`, and
+`opened-hovered` cover the field statuses, while `menu` covers its overlay.
+Each starts from iced's status default and accepts checked solid/linear
+backgrounds, colors, border/per-corner radius, and menu shadow fields.
+
+```ice
+pick modes mode placeholder="Choose" font=ui shaping=advanced -> changed _
+  active text=foreground placeholder=muted handle=primary background=surface border=border radius=6.0
+  opened-hovered text=foreground background=background border=primary
+  menu text=foreground selected-text=foreground selected-background=primary background=surface shadow=black/50 shadow-y=4.0
+  handle dynamic
+    closed code="⌄" font=ui size=12.0
+    open code="⌃" font=ui size=12.0 shaping=advanced
+```
+
+Handles support iced's arrow with optional size, one static icon, distinct
+closed/open dynamic icons, or no handle. Icon code points contain exactly one
+Unicode scalar; icon size and relative line height are non-negative `f64`.
 
 `combo` requires a `combo[T]` search state and matching `T?` selection. Its
 main and `hover=` routes carry `T`; `input=` carries str; `open=` and `close=`
@@ -917,7 +964,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.69 message payloads.
+`Clone` for 0.70 message payloads.
 
 Three typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
@@ -1055,7 +1102,7 @@ The implemented native nodes are:
 | `slider` | `f64` value/range/default/normal+shift steps, direction-aware sizing, change/release routes and nested status styles |
 | `progress` | `f64` value/range, all length/girth variants, vertical axis, five presets and color/border/radius style overrides |
 | `radio` | string label, bool/i64/f64/str/extern value route, bool selection, complete sizing/typography/font and selected-aware status styles |
-| `pick` | `[T]` options, `T?` selection, placeholder/size/open/close properties, `T`-payload route |
+| `pick` | `[T]` options, `T?` selection, complete typography/handle/status/menu configuration, `T`-payload route |
 | `combo` | searchable `combo[T]` state, `T?` selection, input/hover/open/close routes and sizing |
 | `float` | one child with positive scale and x/y translation |
 | `pin` | one child with typed width/height and fixed x/y position |
@@ -1459,7 +1506,7 @@ weight, stretch, and style variant is accepted. At most one declaration may be
 the application default. `font=default` and `font=mono` remain built-ins;
 declared fonts also work on text, rich text and spans, input, editor, checkbox,
 and toggler. Font
-byte loading is not part of 0.69.
+byte loading is not part of 0.70.
 
 Widget operation tasks target checked static IDs in the app view:
 
@@ -1479,7 +1526,7 @@ snap/end; and absolute scroll-to/scroll-by. Effects have no route and
 non-negative `i64`; relative offsets are `f64` in `0.0..=1.0`; absolute
 offsets are unrestricted `f64`. Targets must be real static IDs in the app
 scope. Repeated/component scopes and the feature-gated selector API remain
-outside 0.69.
+outside 0.70.
 
 Persistent pane grids expose their native layout-state operations directly in
 handlers:
@@ -1526,7 +1573,7 @@ and constraints, resizability, maximize/minimize state, position and movement,
 all modes, decorations, user attention, focus, level, system menu, mouse
 passthrough, monitor size, and automatic tabbing. Positive sizes and bool
 arguments are checked before Rust generation. New-window IDs, open/oldest/latest,
-icons, raw handles, screenshots, and callbacks remain outside 0.69.
+icons, raw handles, screenshots, and callbacks remain outside 0.70.
 
 Every iced window event has a direct subscription form:
 
@@ -1679,7 +1726,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 0.69 does not claim that remapping.
+extern line; 0.70 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -1700,7 +1747,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 0.69 native backend is enough for CRUD/settings-style screens, selection,
+The 0.70 native backend is enough for CRUD/settings-style screens, selection,
 media, hover
 overlays, and common pointer events, not all of iced. It still lacks direct
 syntax for canvas, arbitrary custom overlays, multiple

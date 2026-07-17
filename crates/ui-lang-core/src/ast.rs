@@ -1259,8 +1259,61 @@ pub struct PickListOptions {
     pub menu_height: Option<LengthValue>,
     pub padding: Option<Expr>,
     pub text_size: Option<Expr>,
+    pub line_height: Option<Expr>,
+    pub shaping: Option<TextShaping>,
+    pub font: Option<FontPreset>,
+    pub handle: Option<PickListHandle>,
     pub open: Option<Route>,
     pub close: Option<Route>,
+    pub style: Box<PickListStyleSet>,
+    pub menu_style: Option<Box<PickListMenuStyle>>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct PickListStyleSet {
+    pub active: Option<PickListStatusStyle>,
+    pub hovered: Option<PickListStatusStyle>,
+    pub opened: Option<PickListStatusStyle>,
+    pub opened_hovered: Option<PickListStatusStyle>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct PickListStatusStyle {
+    pub options: ContainerStyleOptions,
+    pub placeholder_color: Option<String>,
+    pub handle_color: Option<String>,
+    pub span: Option<Span>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct PickListMenuStyle {
+    pub options: ContainerStyleOptions,
+    pub selected_text_color: Option<String>,
+    pub selected_background: Option<BackgroundValue>,
+    pub span: Option<Span>,
+}
+
+#[derive(Clone, Debug)]
+pub enum PickListHandle {
+    Arrow {
+        size: Option<Expr>,
+    },
+    Static(PickListIcon),
+    Dynamic {
+        closed: PickListIcon,
+        open: PickListIcon,
+    },
+    None,
+}
+
+#[derive(Clone, Debug)]
+pub struct PickListIcon {
+    pub code_point: char,
+    pub font: Option<FontPreset>,
+    pub size: Option<Expr>,
+    pub line_height: Option<Expr>,
+    pub shaping: Option<TextShaping>,
+    pub span: Span,
 }
 
 #[derive(Clone, Debug, Default)]

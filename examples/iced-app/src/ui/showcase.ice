@@ -471,7 +471,23 @@ view
         text "View mode" @text-lg font-bold text-foreground
         markdown help text-size=14.0 h1-size=28.0 h2-size=24.0 h3-size=20.0 h4-size=18.0 h5-size=16.0 h6-size=14.0 code-size=12.0 spacing=10.0 -> docs_link _
         editor #notes <-> notes placeholder="Write notes" width=640.0 height=120.0 min-height=80.0 max-height=240.0 size=14.0 line-height=1.3 padding=8.0 wrapping=word font=ui highlight="rs" highlight-theme=base16-ocean disabled=loading
-        pick display_modes display_mode placeholder="Choose a view" width=fill menu-height=160.0 padding=8.0 text-size=14.0 open=picker_opened close=picker_closed -> display_mode_changed _
+        pick display_modes display_mode placeholder="Choose a view" width=fill menu-height=160.0 padding=8.0 text-size=14.0 line-height=1.2 shaping=advanced font=ui open=picker_opened close=picker_closed -> display_mode_changed _
+          active text=foreground placeholder=muted handle=primary background=surface border=border border-width=1.0 radius=6.0
+          hovered text=foreground placeholder=muted handle=foreground background=background border=primary border-width=1.0 radius=6.0
+          opened text=foreground placeholder=muted handle=primary background=surface border=primary border-width=1.0 radius=6.0
+          opened-hovered text=foreground placeholder=muted handle=foreground background=background border=primary border-width=2.0 radius=6.0
+          menu text=foreground selected-text=foreground selected-background=linear(1.57, primary@0.0, surface@1.0) background=surface border=border border-width=1.0 radius=6.0 shadow=black/50 shadow-y=4.0 shadow-blur=12.0
+          handle dynamic
+            closed code="⌄" font=ui size=12.0 line-height=1.0 shaping=basic
+            open code="⌃" font=ui size=12.0 line-height=1.0 shaping=advanced
+        if false
+          col
+            pick display_modes display_mode -> display_mode_changed _
+              handle arrow size=12.0
+            pick display_modes display_mode -> display_mode_changed _
+              handle static code="◆" font=ui size=12.0 line-height=1.0 shaping=basic
+            pick display_modes display_mode -> display_mode_changed _
+              handle none
         combo searchable_modes display_mode "Search views" width=fill menu-height=160.0 padding=8.0 text-size=14.0 input=mode_searched hover=mode_hovered open=picker_opened close=picker_closed -> display_mode_changed _
         if picker_open
           text "Picker is open" @text-xs text-muted
