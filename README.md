@@ -95,7 +95,8 @@ main-window effect/query task. Compile fixtures cover every native window,
 mouse, touch, input-method, and timer subscription without adding continuous
 event loops to the demo, plus structured parallel and sequential native task
 composition, abortable task handles, typed native task streams, synchronous
-typed Rust calls, and result-preserving task flows with error mapping.
+typed Rust calls, result-preserving task flows with error mapping, and the
+complete native iced time API.
 The native Tasks app separately exercises fully styled checked-aware checkboxes,
 togglers, and generic-value radios.
 
@@ -129,7 +130,7 @@ cargo fmt --all
 
 ## Status
 
-This is an executable v0.89 language slice, not yet a complete iced replacement.
+This is an executable v0.90 language slice, not yet a complete iced replacement.
 It implements typed extern data/actions, state, handlers, async tasks, pure
 components with named props, default children, named structural slots, and
 React-like qualified compound children, scoped IDs, relative
@@ -137,7 +138,7 @@ multi-file `use`,
 `if`/`for`, six layouts including identity-preserving keyed columns,
 thirty-two native widget forms,
 dependency-keyed lazy subtrees, checked style utilities, formatting, analysis,
-direct typed keyboard, mouse, touch, input-method, conditional timer, event
+direct typed keyboard, mouse, touch, input-method, complete typed time, event
 status filtering, structured parallel/sequential tasks, system and clipboard
 operations, native task cancellation, typed repeated task streams, typed
 progress-and-completion sippers, output-dependent typed task flows, and iced

@@ -1,4 +1,4 @@
-# Ice Language Specification 0.89
+# Ice Language Specification 0.90
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.89 syntax.
+marked “planned” is a design constraint, not accepted 0.90 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.89.
+  block comments are not part of 0.90.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -150,7 +150,8 @@ struct_sig     = PascalName "(" field_list? ")"
 field_list     = field ("," field)*
 field          = name ":" type
 type           = "bool" | "i64" | "f64" | "str" | "bytes" | "image"
-               | "markdown" | "editor" | "task-handle" | "unit" | PascalName
+               | "markdown" | "editor" | "instant" | "task-handle" | "unit"
+               | PascalName
                | "[" type "]" | type "?" | "result[" type "," type "]"
                | "combo[" type "]"
 function_sig   = name "(" field_list? ")" "->" type ("!" type)?
@@ -203,6 +204,7 @@ statement      = name "=" expr
                | "stream" call "->" route ("|" route)?
                | sip_task
                | task_flow
+               | "task time now" "->" route
                | "task system" ("info" | "theme") "->" route
                | "task clipboard" ("read" | "read-primary") "->" route
                | "task clipboard" ("write" | "write-primary") expr
@@ -221,6 +223,7 @@ task_flow      = "flow" INDENT flow_source flow_item+
 flow_source    = "from" task_source
 task_source    = ("run" | "task" | "stream") call
                | "done" expr | "none" type
+               | "task time now"
                | "task system" ("info" | "theme")
                | "task clipboard" ("read" | "read-primary")
                | "task font load" expr
@@ -235,7 +238,8 @@ task_member    = task_group | abortable_task
                | sip_task
                | task_flow
                | native_task
-native_task    = "task system" ("info" | "theme") "->" route
+native_task    = "task time now" "->" route
+               | "task system" ("info" | "theme") "->" route
                | "task clipboard" ("read" | "read-primary") "->" route
                | "task clipboard" ("write" | "write-primary") expr
                | "task font load" expr "->" route
@@ -278,6 +282,7 @@ subscription_use = subscription_source ("status=" event_status)?
 subscription_source
                = call
                | "every" duration
+               | "repeat" call "every" duration
                | "input-method" input_method_event
                | "keyboard" ("press" | "release" | "modifiers")
                | "mouse" mouse_event
@@ -818,7 +823,7 @@ default/centered/fixed position, visibility, resizability, close/minimize
 buttons, decorations, transparency, blur, level, and close-request behavior.
 Sizes, text size, and scale factor must be positive; minimum size cannot exceed
 maximum size. Window icons and platform-specific settings are not part of
-0.89.
+0.90.
 
 Media fixed lengths, rotation, opacity, scale, and radius are `f64`; rotation
 is radians and defaults to floating layout behavior, while `solid(angle)` makes
@@ -1208,6 +1213,7 @@ button "Add" disabled=(loading || empty(trim(draft))) -> submit
 | `T?` | `Option<T>` |
 | `result[T,E]` | `Result<T, E>` |
 | `combo[T]` | `iced::widget::combo_box::State<T>` |
+| `instant` | `iced::time::Instant` |
 | `markdown` | `iced::widget::markdown::Content` |
 | `editor` | `iced::widget::text_editor::Content` |
 | `task-handle` | `iced::task::Handle` |
@@ -1236,7 +1242,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.89 message payloads.
+`Clone` for 0.90 message payloads.
 
 Declared `sync` functions are checked, synchronous Rust calls available in
 Ice expressions. They are the small escape hatch for pure domain conversions
@@ -2014,18 +2020,35 @@ raw window frames have no iced event status and reject it. For compatibility,
 an omitted keyboard status keeps iced's ignored-only listener while the other
 direct input sources keep their previous any-status behavior.
 
-Timers use compact whole-number durations and do not leak Rust `Instant`
-values into handlers:
+Ice covers all three public iced time operations with its native monotonic
+`instant` type:
 
 ```ice
+extern crate::backend
+  refresh_status() -> i64
+
+state
+  last:instant? = none
+
+on read_time
+  task time now -> tick _
+
+on tick(now)
+  last = some(now)
+
 subscribe
-  every 500ms -> poll
-  every 2s -> autosave
+  every 500ms -> tick _
+  repeat refresh_status() every 2s -> refreshed _
 ```
 
-The handler receives no payload. Durations must be positive and use `ms` or
-`s`. Native builds require iced's `tokio` or `smol` Cargo feature; the
-reference app uses `tokio`.
+`task time now` lowers to `iced::time::now`. `every` forwards each native
+`Instant`; the route may omit `_` when it does not need the tick value.
+`repeat` accepts a declared zero-argument async extern and lowers its function
+item directly to `iced::time::repeat`. A fallible extern produces
+`result[T,E]` values instead of splitting the subscription into success/error
+routes. Durations must be positive whole numbers using `ms` or `s`. `every`
+requires iced's `tokio` or `smol` Cargo feature; `repeat` requires `tokio`,
+which the reference app uses.
 
 Native keyboard subscriptions infer structured payloads. Press events expose
 `key`, `modified_key`, `physical_key`, `location`, `modifiers`, optional `text`,
@@ -2131,7 +2154,7 @@ snap/end; and absolute scroll-to/scroll-by. Effects have no route and
 non-negative `i64`; relative offsets are `f64` in `0.0..=1.0`; absolute
 offsets are unrestricted `f64`. Targets must be real static IDs in the app
 scope. Repeated/component scopes and the feature-gated selector API remain
-outside 0.89.
+outside 0.90.
 
 Persistent pane grids expose their native layout-state operations directly in
 handlers:
@@ -2178,7 +2201,7 @@ and constraints, resizability, maximize/minimize state, position and movement,
 all modes, decorations, user attention, focus, level, system menu, mouse
 passthrough, monitor size, and automatic tabbing. Positive sizes and bool
 arguments are checked before Rust generation. New-window IDs, open/oldest/latest,
-icons, raw handles, screenshots, and callbacks remain outside 0.89.
+icons, raw handles, screenshots, and callbacks remain outside 0.90.
 
 Every iced window event has a direct subscription form:
 
@@ -2331,7 +2354,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 0.89 does not claim that remapping.
+extern line; 0.90 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -2352,7 +2375,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 0.89 native backend is enough for CRUD/settings-style screens, selection,
+The 0.90 native backend is enough for CRUD/settings-style screens, selection,
 media, hover overlays, declarative canvas geometry, and common pointer events,
 not all of iced. It still lacks direct syntax for arbitrary custom overlays,
 multiple windows, and custom widgets. [`COVERAGE.md`](COVERAGE.md) is
@@ -2389,7 +2412,7 @@ compile-tested widget example is
 [`examples/iced-app/src/ui/showcase.ice`](examples/iced-app/src/ui/showcase.ice).
 Together they exercise
 state inference, typed extern structs/functions, mount and result handlers,
-direct input/editor binding, typed conditional timer/keyboard/mouse/touch/input-method/system subscriptions with status filters, system tasks, clipboard effects, `if`, `for`, native keyed columns and lazy subtrees, parsed Markdown, structured tables, pure components, structured and compound component composition,
+direct input/editor binding, complete typed time tasks/subscriptions, typed conditional keyboard/mouse/touch/input-method/system subscriptions with status filters, system tasks, clipboard effects, `if`, `for`, native keyed columns and lazy subtrees, parsed Markdown, structured tables, pure components, structured and compound component composition,
 dynamic component IDs,
 theme utilities, disabled controls, fallible asynchronous tasks, complete
 wrapping row/column layouts, grids and fully sized underlay stacks, toggles,

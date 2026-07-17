@@ -678,7 +678,7 @@ fn parse_subscription(line: &Line) -> Result<Subscription, Error> {
         return Err(error(
             "E084",
             line,
-            "subscription uses `name(args)`, `every duration`, `input-method event`, `keyboard event`, `mouse event`, `touch event`, `window event`, or `system theme` before `-> handler _`",
+            "subscription uses `name(args)`, `every duration`, `repeat name() every duration`, `input-method event`, `keyboard event`, `mouse event`, `touch event`, `window event`, or `system theme` before `-> handler _`",
         ));
     };
     let call = call.trim();
@@ -704,6 +704,26 @@ fn parse_subscription(line: &Line) -> Result<Subscription, Error> {
         })?;
     let source = if call == "system theme" {
         SubscriptionSource::SystemTheme
+    } else if let Some(source) = call.strip_prefix("repeat ") {
+        let Some((call, duration)) = split_top_marker(source, " every ") else {
+            return Err(error(
+                "E084",
+                line,
+                "repeat uses `repeat name() every duration`",
+            ));
+        };
+        let (function, args) = parse_signature(call.trim(), line)?;
+        if !args.trim().is_empty() {
+            return Err(error(
+                "E084",
+                line,
+                "repeated async functions cannot take arguments",
+            ));
+        }
+        SubscriptionSource::Repeat {
+            function,
+            milliseconds: parse_duration(duration.trim(), line)?,
+        }
     } else if let Some(duration) = call.strip_prefix("every ") {
         SubscriptionSource::Every {
             milliseconds: parse_duration(duration.trim(), line)?,
@@ -1266,6 +1286,8 @@ fn parse_effect_call(
         Ok(("__ice_system_info".into(), Vec::new()))
     } else if kind == EffectKind::Task && call == "system theme" {
         Ok(("__ice_system_theme".into(), Vec::new()))
+    } else if kind == EffectKind::Task && call == "time now" {
+        Ok(("__ice_time_now".into(), Vec::new()))
     } else if kind == EffectKind::Task && call == "clipboard read" {
         Ok(("__ice_clipboard_read".into(), Vec::new()))
     } else if kind == EffectKind::Task && call == "clipboard read-primary" {
@@ -1298,6 +1320,8 @@ fn parse_effect_call(
             line,
             "font task must be `task font load bytes -> loaded`",
         ))
+    } else if call.starts_with("time ") {
+        Err(error("E050", line, "time task must be `task time now`"))
     } else {
         let (function, args_source) = parse_signature(call, line)?;
         Ok((function, parse_expr_list(&args_source, line)?))
@@ -7274,6 +7298,7 @@ fn parse_type(source: &str, line: &Line) -> Result<Type, Error> {
         "image" => Type::Image,
         "markdown" => Type::Markdown,
         "editor" => Type::Editor,
+        "instant" => Type::Instant,
         "task-handle" => Type::TaskHandle,
         "unit" => Type::Unit,
         value if value.chars().next().is_some_and(char::is_uppercase) => {
@@ -7902,6 +7927,33 @@ view
             document.qr_codes[0].data,
             QrPayload::Text("https://example.com/ice docs".into())
         );
+    }
+
+    #[test]
+    fn parses_all_native_time_operations() {
+        let source = include_str!("../../../examples/iced-app/src/ui/timer.ice");
+        let document = parse(source).unwrap();
+        assert_eq!(document.states[1].ty, Type::Option(Box::new(Type::Instant)));
+        assert!(matches!(
+            &document.handlers[0].statements[0],
+            Statement::Run { function, .. } if function == "__ice_time_now"
+        ));
+        assert!(matches!(
+            document.subscriptions[0].source,
+            SubscriptionSource::Every { milliseconds: 250 }
+        ));
+        assert!(matches!(
+            &document.subscriptions[1].source,
+            SubscriptionSource::Repeat {
+                function,
+                milliseconds: 1000
+            } if function == "refresh_time"
+        ));
+
+        let error =
+            parse(&source.replace("refresh_time() every", "refresh_time(1) every")).unwrap_err();
+        assert_eq!(error.code, "E084");
+        assert!(error.message.contains("cannot take arguments"));
     }
 
     #[test]

@@ -237,6 +237,11 @@ mod backend {
     }
 
     #[cfg(test)]
+    pub async fn refresh_time() -> i64 {
+        1
+    }
+
+    #[cfg(test)]
     pub fn network_task(value: i64) -> iced::Task<Result<i64, NetworkError>> {
         iced::Task::done(if value >= 0 {
             Ok(value)
@@ -378,6 +383,13 @@ mod task_flow {
 #[cfg(test)]
 mod timer {
     ui_lang::include_app!("src/ui/timer.ice");
+
+    #[test]
+    fn constructs_all_native_time_operations() {
+        let (mut app, _) = TimerEvents::__boot();
+        assert_eq!(app.__subscription().units(), 2);
+        assert_eq!(app.__update(__TimerEventsMessage::Start).units(), 1);
+    }
 }
 
 #[cfg(test)]
