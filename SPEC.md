@@ -1,4 +1,4 @@
-# Ice Language Specification 0.82
+# Ice Language Specification 0.83
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.82 syntax.
+marked “planned” is a design constraint, not accepted 0.83 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.82.
+  block comments are not part of 0.83.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -130,7 +130,7 @@ document       = app_decl extern_decl? theme_decl qr_decl* state_decl?
                  component_decl* handler_decl* subscribe_decl? view_decl
 
 app_decl       = "app" PascalName (INDENT app_setting*)?
-app_setting    = "title" string | "id" string
+app_setting    = "title" string | "id" string | "font" string
                | ("default-text-size" | "scale-factor") number
                | ("antialiasing" | "vsync") bool
                | window_decl
@@ -194,6 +194,7 @@ statement      = name "=" expr
                | "task system" ("info" | "theme") "->" route
                | "task clipboard" ("read" | "read-primary") "->" route
                | "task clipboard" ("write" | "write-primary") expr
+               | "task font load" expr "->" route
                | "task widget" widget_operation ("->" route)?
                | "pane" "#" name pane_operation ("->" route)?
                | "task window" window_operation ("->" route)?
@@ -748,6 +749,8 @@ Application configuration is static and lives under the app declaration:
 app Tasks
   title "Ice Tasks"
   id "dev.ducktape.ice.tasks"
+  font "assets/Inter-Regular.ttf"
+  font "assets/Inter-Bold.ttf"
   default-text-size 16
   antialiasing true
   vsync true
@@ -761,13 +764,17 @@ app Tasks
 ```
 
 The application values lower to iced `Settings` and builder configuration.
+Each `font` path is relative to the root `.ice` file, must name an existing
+file during `cargo ice check`, and lowers to iced's startup
+`.font(include_bytes!(...))` builder. Repeating the same path is rejected;
+different files may be loaded in declaration order.
 The window block covers every cross-platform `window::Settings` field except
 the binary icon: initial/minimum/maximum size, maximized/fullscreen state,
 default/centered/fixed position, visibility, resizability, close/minimize
 buttons, decorations, transparency, blur, level, and close-request behavior.
 Sizes, text size, and scale factor must be positive; minimum size cannot exceed
 maximum size. Window icons and platform-specific settings are not part of
-0.82.
+0.83.
 
 Media fixed lengths, rotation, opacity, scale, and radius are `f64`; rotation
 is radians and defaults to floating layout behavior, while `solid(angle)` makes
@@ -1183,7 +1190,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.82 message payloads.
+`Clone` for 0.83 message payloads.
 
 Four typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
@@ -1868,8 +1875,19 @@ The family may be a named family or any of iced's five generic families. Every
 weight, stretch, and style variant is accepted. At most one declaration may be
 the application default. `font=default` and `font=mono` remain built-ins;
 declared fonts also work on text, rich text and spans, input, editor, checkbox,
-toggler, radio, pick, combo, and their custom icons. Font
-byte loading is not part of 0.82.
+toggler, radio, pick, combo, and their custom icons. App-level `font "path"`
+settings embed and preload the corresponding bytes before iced starts; a
+descriptor's named family selects the family exposed by those bytes.
+
+Runtime bytes use iced's native font Task directly:
+
+```ice
+on load_font
+  task font load downloaded_font_bytes -> font_loaded _
+```
+
+The expression must be `bytes`, the success payload is `unit`, and the task is
+treated as infallible because iced's current `font::Error` has no variants.
 
 Widget operation tasks target checked static IDs in the app view:
 
@@ -1889,7 +1907,7 @@ snap/end; and absolute scroll-to/scroll-by. Effects have no route and
 non-negative `i64`; relative offsets are `f64` in `0.0..=1.0`; absolute
 offsets are unrestricted `f64`. Targets must be real static IDs in the app
 scope. Repeated/component scopes and the feature-gated selector API remain
-outside 0.82.
+outside 0.83.
 
 Persistent pane grids expose their native layout-state operations directly in
 handlers:
@@ -1936,7 +1954,7 @@ and constraints, resizability, maximize/minimize state, position and movement,
 all modes, decorations, user attention, focus, level, system menu, mouse
 passthrough, monitor size, and automatic tabbing. Positive sizes and bool
 arguments are checked before Rust generation. New-window IDs, open/oldest/latest,
-icons, raw handles, screenshots, and callbacks remain outside 0.82.
+icons, raw handles, screenshots, and callbacks remain outside 0.83.
 
 Every iced window event has a direct subscription form:
 
@@ -2089,7 +2107,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 0.82 does not claim that remapping.
+extern line; 0.83 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -2110,7 +2128,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 0.82 native backend is enough for CRUD/settings-style screens, selection,
+The 0.83 native backend is enough for CRUD/settings-style screens, selection,
 media, hover overlays, declarative canvas geometry, and common pointer events,
 not all of iced. It still lacks direct syntax for arbitrary custom overlays,
 multiple windows, and custom widgets. [`COVERAGE.md`](COVERAGE.md) is

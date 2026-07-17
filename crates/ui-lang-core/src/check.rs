@@ -4309,7 +4309,7 @@ fn infer_runs(
                     return Err(Error::new(
                         "E131",
                         span,
-                        "system tasks are infallible and cannot have an error route",
+                        "built-in tasks are infallible and cannot have an error route",
                     ));
                 }
                 continue;
@@ -4492,6 +4492,13 @@ fn check_handler(
                     ));
                 }
                 if builtin_task_output(*kind, function, args, span)?.is_some() {
+                    if function == "__ice_font_load" {
+                        require_type(
+                            &expr_type(&args[0], &env, document, span)?,
+                            &Type::Bytes,
+                            span,
+                        )?;
+                    }
                     continue;
                 }
                 let action = extern_function(document, function, (*kind).into(), span)?;
@@ -4821,10 +4828,18 @@ fn builtin_task_output(
         (EffectKind::Task, "__ice_clipboard_read" | "__ice_clipboard_read_primary") => {
             Some(Type::Option(Box::new(Type::Str)))
         }
+        (EffectKind::Task, "__ice_font_load") => Some(Type::Unit),
         _ => None,
     };
-    if output.is_some() && !args.is_empty() {
-        return Err(Error::new("E142", span, "system tasks take no arguments"));
+    if function == "__ice_font_load" && args.len() != 1 {
+        return Err(Error::new("E142", span, "font load expects one argument"));
+    }
+    if output.is_some() && function != "__ice_font_load" && !args.is_empty() {
+        return Err(Error::new(
+            "E142",
+            span,
+            "this built-in task takes no arguments",
+        ));
     }
     Ok(output)
 }
@@ -7544,6 +7559,35 @@ view
         .unwrap_err();
         assert_eq!(error.code, "E101");
         assert!(error.message.contains("expected `str`"));
+    }
+
+    #[test]
+    fn checks_native_runtime_font_loading() {
+        let source = r#"app Fonts
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  font_bytes:bytes = bytes(00 01)
+on load
+  task font load font_bytes -> loaded _
+on loaded(result)
+view
+  text "Fonts"
+"#;
+        let document = analyze(source).unwrap();
+        assert_eq!(document.handlers[1].params[0].ty.display(), "unit");
+
+        let error = analyze(&source.replace("font load font_bytes", "font load true")).unwrap_err();
+        assert_eq!(error.code, "E101");
+        assert!(error.message.contains("expected `bytes`"));
+
+        let error =
+            analyze(&source.replace(" -> loaded _", " -> loaded _ | loaded _")).unwrap_err();
+        assert_eq!(error.code, "E131");
+        assert!(error.message.contains("infallible"));
     }
 
     #[test]

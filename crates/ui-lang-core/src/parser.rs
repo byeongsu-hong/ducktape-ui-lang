@@ -174,6 +174,26 @@ fn parse_app_settings(line: &Line) -> Result<AppSettings, Error> {
         match name {
             "title" => set!(title, string_literal(value, item)?),
             "id" => set!(id, string_literal(value, item)?),
+            "font" => {
+                let path = string_literal(value, item)?;
+                if path.is_empty()
+                    || path.contains('\\')
+                    || std::path::Path::new(&path).is_absolute()
+                {
+                    return Err(error(
+                        "E015",
+                        item,
+                        "font paths must be non-empty relative `/` paths",
+                    ));
+                }
+                if settings.fonts.iter().any(|font| font.path == path) {
+                    return Err(error("E014", item, format!("duplicate app font `{path}`")));
+                }
+                settings.fonts.push(FontAsset {
+                    path,
+                    span: Span::line(item.number),
+                });
+            }
             "default-text-size" => set!(default_text_size, config_positive_number(value, item)?),
             "antialiasing" => set!(antialiasing, config_bool(value, item)?),
             "vsync" => set!(vsync, config_bool(value, item)?),
@@ -950,6 +970,16 @@ fn parse_statement(line: &Line) -> Result<Statement, Error> {
             ("__ice_clipboard_read".into(), Vec::new())
         } else if kind == EffectKind::Task && call == "clipboard read-primary" {
             ("__ice_clipboard_read_primary".into(), Vec::new())
+        } else if kind == EffectKind::Task
+            && let Some(value) = call.strip_prefix("font load ")
+        {
+            if value.trim().is_empty() {
+                return Err(error("E050", line, "font load requires bytes"));
+            }
+            (
+                "__ice_font_load".into(),
+                vec![parse_expr(value.trim(), line)?],
+            )
         } else if call.starts_with("system ") {
             return Err(error(
                 "E050",
@@ -961,6 +991,12 @@ fn parse_statement(line: &Line) -> Result<Statement, Error> {
                 "E050",
                 line,
                 "clipboard task must read, read-primary, write, or write-primary",
+            ));
+        } else if call.starts_with("font ") {
+            return Err(error(
+                "E050",
+                line,
+                "font task must be `task font load bytes -> loaded`",
             ));
         } else {
             let (function, args_source) = parse_signature(call, line)?;
@@ -7525,6 +7561,8 @@ view
             r#"app Demo
   title "Configured"
   id "dev.example.demo"
+  font "assets/Brand.ttf"
+  font "assets/Icons.otf"
   default-text-size 15
   antialiasing false
   vsync false
@@ -7540,6 +7578,8 @@ view
         let document = parse(&source).unwrap();
         assert_eq!(document.settings.title.as_deref(), Some("Configured"));
         assert_eq!(document.settings.scale_factor, Some(1.25));
+        assert_eq!(document.settings.fonts.len(), 2);
+        assert_eq!(document.settings.fonts[0].path, "assets/Brand.ttf");
         let window = document.settings.window.unwrap();
         assert_eq!(window.size, Some((960.0, 720.0)));
         assert!(matches!(window.position, Some(WindowPosition::Centered)));
@@ -7560,6 +7600,23 @@ view
         .unwrap_err();
         assert_eq!(error.code, "E014");
         assert!(error.message.contains("duplicate"));
+
+        let duplicate_font =
+            source.replace("  font \"assets/Icons.otf\"", "  font \"assets/Brand.ttf\"");
+        let error = parse(&duplicate_font).unwrap_err();
+        assert_eq!(error.code, "E014");
+        assert!(error.message.contains("duplicate app font"));
+
+        let error =
+            parse(&source.replace("  font \"assets/Brand.ttf\"", "  font \"\"")).unwrap_err();
+        assert_eq!(error.code, "E015");
+        assert!(error.message.contains("relative `/` paths"));
+
+        let error =
+            parse(&source.replace("  font \"assets/Brand.ttf\"", "  font \"/tmp/Brand.ttf\""))
+                .unwrap_err();
+        assert_eq!(error.code, "E015");
+        assert!(error.message.contains("relative `/` paths"));
     }
 
     #[test]

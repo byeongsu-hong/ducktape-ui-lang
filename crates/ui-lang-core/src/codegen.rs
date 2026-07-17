@@ -3,6 +3,7 @@ use crate::ast::*;
 use crate::check::expr_type;
 use std::collections::HashMap;
 use std::fmt::Write;
+use std::path::Path;
 
 pub fn generate(document: &Document, source_path: &str) -> Result<String, Error> {
     let message = format!("__{}Message", document.app);
@@ -127,6 +128,7 @@ pub fn generate(document: &Document, source_path: &str) -> Result<String, Error>
             format!(".title({})", rust_string(title))
         });
     let settings = app_settings_code(&document.settings);
+    let fonts = font_assets_code(&document.settings, source_path);
     let window = window_settings_code(document.settings.window.as_ref());
     let scale_factor = document
         .settings
@@ -134,7 +136,7 @@ pub fn generate(document: &Document, source_path: &str) -> Result<String, Error>
         .map_or_else(String::new, |scale| {
             format!(".scale_factor(|_| {scale} as f32)")
         });
-    writeln!(out, "::iced::application(Self::__boot, Self::__update, Self::__view){title}{subscription}.theme(Self::__theme){settings}{default_font}{window}{scale_factor}.run()").unwrap();
+    writeln!(out, "::iced::application(Self::__boot, Self::__update, Self::__view){title}{subscription}.theme(Self::__theme){settings}{default_font}{fonts}{window}{scale_factor}.run()").unwrap();
     writeln!(out, "}}").unwrap();
 
     generate_theme(&mut out, document);
@@ -144,6 +146,22 @@ pub fn generate(document: &Document, source_path: &str) -> Result<String, Error>
     generate_view(&mut out, document, &message)?;
     writeln!(out, "}}").unwrap();
     Ok(out)
+}
+
+fn font_assets_code(settings: &AppSettings, source_path: &str) -> String {
+    let parent = Path::new(source_path)
+        .parent()
+        .unwrap_or_else(|| Path::new("."));
+    settings
+        .fonts
+        .iter()
+        .map(|font| {
+            format!(
+                ".font(include_bytes!({}).as_slice())",
+                rust_string(&parent.join(&font.path).display().to_string())
+            )
+        })
+        .collect()
 }
 
 fn app_settings_code(settings: &AppSettings) -> String {
@@ -1121,8 +1139,21 @@ fn generate_statements(
                             | "__ice_system_theme"
                             | "__ice_clipboard_read"
                             | "__ice_clipboard_read_primary"
+                            | "__ice_font_load"
                     )
                 {
+                    if function == "__ice_font_load" {
+                        let bytes = expr_code(&args[0], env, document, ValueMode::Owned)?;
+                        let success_message = route_code(success, "value", env, document, message)?;
+                        writeln!(
+                            out,
+                            "{}::iced::font::load({bytes}).map(move |result| match result {{ ::std::result::Result::Ok(value) => {success_message}, ::std::result::Result::Err(error) => match error {{}} }}){}",
+                            if return_task { "return " } else { "" },
+                            if return_task { ";" } else { "" }
+                        )
+                        .unwrap();
+                        continue;
+                    }
                     let task = match function.as_str() {
                         "__ice_system_info" => {
                             "::iced::system::information().map(__ice_system_info)"
@@ -8235,6 +8266,8 @@ mod tests {
         let source = r#"app Configured
   title "Configured app"
   id "dev.example.configured"
+  font "fonts/Brand.ttf"
+  font "fonts/Icons.otf"
   default-text-size 15
   antialiasing false
   vsync false
@@ -8267,6 +8300,8 @@ view
         for expected in [
             ".title(\"Configured app\")",
             "id: ::std::option::Option::Some(\"dev.example.configured\".to_owned())",
+            ".font(include_bytes!(\"fonts/Brand.ttf\").as_slice())",
+            ".font(include_bytes!(\"fonts/Icons.otf\").as_slice())",
             "default_text_size: ::iced::Pixels(15 as f32)",
             "antialiasing: false",
             "vsync: false",
@@ -9788,6 +9823,28 @@ view
         assert!(generated.contains("::iced::clipboard::read_primary().map"));
         assert!(generated.contains("::iced::clipboard::write::<__ClipboardMessage>"));
         assert!(generated.contains("::iced::clipboard::write_primary::<__ClipboardMessage>"));
+    }
+
+    #[test]
+    fn lowers_native_runtime_font_loading() {
+        let source = r#"app Fonts
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  font_bytes:bytes = bytes(00 01)
+on load
+  task font load font_bytes -> loaded _
+on loaded(result)
+view
+  text "Fonts"
+"#;
+        let generated = compile(source, "fonts.ice").unwrap();
+        assert!(generated.contains("::iced::font::load(self.font_bytes.clone()).map"));
+        assert!(generated.contains("Result::Ok(value) => __FontsMessage::Loaded(value)"));
+        assert!(generated.contains("Result::Err(error) => match error {}"));
     }
 
     #[test]
