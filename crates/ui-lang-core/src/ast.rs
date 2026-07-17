@@ -668,6 +668,8 @@ pub enum ViewNode {
         label: Expr,
         value: Expr,
         selected: Expr,
+        options: BoolControlOptions,
+        style: Box<RadioStyleSet>,
         styles: Vec<String>,
         route: Route,
         span: Span,
@@ -1094,6 +1096,24 @@ pub struct TogglerStatusStyle {
     pub radius_bottom_right: Option<Expr>,
     pub radius_bottom_left: Option<Expr>,
     pub padding_ratio: Option<Expr>,
+    pub span: Option<Span>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct RadioStyleSet {
+    pub active_selected: Option<RadioStatusStyle>,
+    pub active_unselected: Option<RadioStatusStyle>,
+    pub hovered_selected: Option<RadioStatusStyle>,
+    pub hovered_unselected: Option<RadioStatusStyle>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct RadioStatusStyle {
+    pub background: Option<BackgroundValue>,
+    pub dot_color: Option<String>,
+    pub border_color: Option<String>,
+    pub border_width: Option<Expr>,
+    pub text_color: Option<String>,
     pub span: Option<Span>,
 }
 

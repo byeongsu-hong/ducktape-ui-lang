@@ -82,6 +82,12 @@ view
                 col @gap-3
                   text "Drag, resize, or arrange this pane." @text-sm text-muted
                   row wrap @gap-2
+                    radio "Summary" value="summary" selected=(detail_mode == "summary") size=16.0 spacing=6.0 text-size=14.0 line-height=1.2 shaping=advanced wrapping=word font=default -> detail_mode_changed _
+                      active selected background=linear(1.57, primary@0.0, surface@1.0) dot=foreground border=primary border-width=2.0 text=foreground
+                      active unselected background=surface dot=primary border=border text=muted
+                      hovered selected background=primary dot=foreground border=foreground text=foreground
+                      hovered unselected background=background dot=primary border=primary text=foreground
+                    radio "Activity" value="activity" selected=(detail_mode == "activity") -> detail_mode_changed _
                     button "Restore" -> restore_workspace
                     button "Swap" -> swap_workspace
                     button "Move left" -> move_details_left

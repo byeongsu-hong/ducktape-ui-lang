@@ -25,6 +25,9 @@ on open_about
 on about_toggled(next)
   about_open = next
 
+on detail_mode_changed(next)
+  detail_mode = next
+
 on close_about
   about_open = false
 

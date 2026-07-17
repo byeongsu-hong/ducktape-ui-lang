@@ -1394,17 +1394,22 @@ fn infer_view(
             label,
             value,
             selected,
+            options,
+            style,
             styles,
             route,
             span,
         } => {
             require_type(&expr_type(label, env, document, span)?, &Type::Str, span)?;
             let value_type = expr_type(value, env, document, span)?;
-            if !matches!(value_type, Type::I64 | Type::Bool) {
+            if !matches!(
+                value_type,
+                Type::Bool | Type::I64 | Type::F64 | Type::Str | Type::Named(_)
+            ) {
                 return Err(Error::new(
                     "E125",
                     span,
-                    "radio values must be i64 or bool in Ice 0.2",
+                    "radio values must be bool, i64, f64, str, or an extern type",
                 ));
             }
             require_type(
@@ -1412,6 +1417,8 @@ fn infer_view(
                 &Type::Bool,
                 span,
             )?;
+            check_bool_control_options(options, env, document, span)?;
+            check_radio_styles(style, env, document, span)?;
             infer_route(route, Some(value_type), env, document, signatures)?;
             check_styles(styles, document, span, StyleTarget::Radio)?;
         }
@@ -2759,6 +2766,48 @@ fn check_toggler_styles(
         if let Some(ratio) = &style.padding_ratio {
             require_type(&expr_type(ratio, env, document, span)?, &Type::F64, span)?;
             require_literal_range(ratio, 0.0, Some(0.5), "toggler padding ratio", span)?;
+        }
+    }
+    Ok(())
+}
+
+fn check_radio_styles(
+    styles: &RadioStyleSet,
+    env: &HashMap<String, Type>,
+    document: &Document,
+    parent_span: &Span,
+) -> Result<(), Error> {
+    for style in [
+        &styles.active_selected,
+        &styles.active_unselected,
+        &styles.hovered_selected,
+        &styles.hovered_unselected,
+    ]
+    .into_iter()
+    .flatten()
+    {
+        let span = style.span.as_ref().unwrap_or(parent_span);
+        if let Some(background) = &style.background {
+            check_background_value(background, env, document, span, "E129", "radio background")?;
+        }
+        for (color, label) in [
+            (&style.dot_color, "radio dot"),
+            (&style.border_color, "radio border"),
+            (&style.text_color, "radio text"),
+        ] {
+            if let Some(color) = color
+                && !valid_theme_color(color, document)
+            {
+                return Err(Error::new(
+                    "E129",
+                    span,
+                    format!("unknown {label} color `{color}`"),
+                ));
+            }
+        }
+        if let Some(width) = &style.border_width {
+            require_type(&expr_type(width, env, document, span)?, &Type::F64, span)?;
+            require_literal_range(width, 0.0, None, "radio border width", span)?;
         }
     }
     Ok(())
@@ -5743,6 +5792,62 @@ view
         .unwrap_err();
         assert_eq!(error.code, "E075");
         assert!(error.message.contains("duplicate toggler active checked"));
+    }
+
+    #[test]
+    fn checks_complete_radio_api_and_generic_values() {
+        let source = r#"app Choices
+extern crate::backend
+  Item(id:i64)
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  choice = "list"
+  items:[Item] = []
+on changed(next)
+  choice = next
+on float_changed(next)
+on item_changed(next)
+view
+  col
+    radio "List" value="list" selected=(choice == "list") size=20.0 width=fill spacing=8.0 text-size=14.0 line-height=1.2 shaping=advanced wrapping=word-or-glyph font=mono -> changed _
+      active selected background=linear(1.57, primary@0.0, background@1.0) dot=foreground border=primary border-width=2.0 text=foreground
+      active unselected background=background dot=primary border=foreground text=foreground
+      hovered selected background=primary dot=foreground border=foreground text=foreground
+      hovered unselected background=foreground dot=background border=primary text=primary
+    radio "Float" value=1.5 selected=false -> float_changed _
+    for item in items
+      radio "Item" value=item selected=false -> item_changed _
+"#;
+        let document = analyze(source).unwrap();
+        assert_eq!(document.handlers[0].params[0].ty.display(), "str");
+        assert_eq!(document.handlers[1].params[0].ty.display(), "f64");
+        assert_eq!(document.handlers[2].params[0].ty.display(), "Item");
+
+        let error =
+            analyze(&source.replace("border=primary border-width", "border=missing border-width"))
+                .unwrap_err();
+        assert_eq!(error.code, "E129");
+        assert!(error.message.contains("radio border color `missing`"));
+
+        let error = analyze(&source.replace("border-width=2.0", "border-width=-1.0")).unwrap_err();
+        assert_eq!(error.code, "E128");
+        assert!(error.message.contains("radio border width"));
+
+        let error = analyze(&source.replace("value=\"list\"", "value=[\"list\"]")).unwrap_err();
+        assert_eq!(error.code, "E125");
+        assert!(error.message.contains("radio values must be"));
+
+        let error = analyze(&source.replace(
+            "      active unselected background=background",
+            "      active selected background=background\n      active unselected background=background",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E078");
+        assert!(error.message.contains("duplicate radio active selected"));
     }
 
     #[test]

@@ -94,8 +94,8 @@ subscriptions, standard/primary clipboard reads and writes, and every checked
 main-window effect/query task. Compile fixtures cover every native window,
 mouse, touch, input-method, and timer subscription without adding continuous
 event loops to the demo.
-The native Tasks app separately exercises fully styled checked-aware checkboxes
-and togglers.
+The native Tasks app separately exercises fully styled checked-aware checkboxes,
+togglers, and generic-value radios.
 
 Key files:
 
@@ -127,7 +127,7 @@ cargo fmt --all
 
 ## Status
 
-This is an executable v0.68 language slice, not yet a complete iced replacement.
+This is an executable v0.69 language slice, not yet a complete iced replacement.
 It implements typed extern data/actions, state, handlers, async tasks, pure
 components with named props, default children, named structural slots, and
 React-like qualified compound children, scoped IDs, relative
