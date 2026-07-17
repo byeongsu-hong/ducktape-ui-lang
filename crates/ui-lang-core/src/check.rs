@@ -2030,6 +2030,43 @@ fn infer_view(
                 }
             }
         }
+        ViewNode::Shader {
+            function,
+            args,
+            width,
+            height,
+            route,
+            span,
+        } => {
+            let shader = extern_function(document, function, ExternKind::Shader, span)?;
+            check_call_args(shader, args, env, document, span)?;
+            for length in [width, height].into_iter().flatten() {
+                if let LengthValue::Fixed(value) = length {
+                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+                    require_literal_range(value, 0.0, None, "shader size", span)?;
+                }
+            }
+            match (&shader.output, route) {
+                (Type::Unit, None) => {}
+                (_, Some(route)) => infer_route(
+                    route,
+                    Some(shader.output.clone()),
+                    env,
+                    document,
+                    signatures,
+                )?,
+                (_, None) => {
+                    return Err(Error::new(
+                        "E191",
+                        span,
+                        format!(
+                            "shader `{function}` emits `{}` and requires a route",
+                            shader.output.display()
+                        ),
+                    ));
+                }
+            }
+        }
         ViewNode::Media {
             kind,
             source,
@@ -4683,6 +4720,7 @@ fn extern_function<'a>(
             let label = match kind {
                 ExternKind::Future => "function",
                 ExternKind::Component => "component",
+                ExternKind::Shader => "shader",
                 ExternKind::Task => "task",
                 ExternKind::Subscription => "subscription",
             };
@@ -7244,6 +7282,51 @@ view
         let error = analyze(source).unwrap_err();
         assert_eq!(error.code, "E126");
         assert!(error.message.contains("requires a route"));
+    }
+
+    #[test]
+    fn checks_native_shader_programs() {
+        let source = r#"app Demo
+extern crate::backend
+  shader native_shader(value:f64) -> bool
+  shader passive_shader() -> unit
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  amount = 1.0
+on shaded(active)
+view
+  col
+    shader native_shader(amount) width=fill height=64.0 -> shaded _
+    shader passive_shader()
+"#;
+        analyze(source).unwrap();
+
+        let error = analyze(&source.replace(" -> shaded _", "")).unwrap_err();
+        assert_eq!(error.code, "E191");
+        assert!(error.message.contains("requires a route"));
+
+        let error = analyze(&source.replace("height=64.0", "height=-1.0")).unwrap_err();
+        assert_eq!(error.code, "E128");
+        assert!(error.message.contains("shader size"));
+
+        let error =
+            analyze(&source.replace("native_shader(amount)", "native_shader(true)")).unwrap_err();
+        assert!(error.message.contains("expected `f64`"));
+
+        let error = analyze(&source.replace("height=64.0", "depth=64.0")).unwrap_err();
+        assert_eq!(error.code, "E191");
+        assert!(error.message.contains("unknown shader property"));
+
+        let error = analyze(&source.replace(
+            "shader native_shader(value:f64) -> bool",
+            "shader native_shader(value:f64) -> bool ! bool",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E023");
     }
 
     #[test]

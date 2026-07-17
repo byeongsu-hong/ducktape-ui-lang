@@ -555,6 +555,12 @@ fn generate_extern_probes(out: &mut String, document: &Document) {
                 item.name, item.rust_path
             )
             .unwrap(),
+            ExternKind::Shader => writeln!(
+                out,
+                "#[allow(dead_code)] fn __ui_lang_check_shader_{}({params}) {{ let __program = {}({args}); fn __accept<P: ::iced::widget::shader::Program<{output}>>(_: &P) {{}} __accept(&__program); let _: ::iced::Element<'static, {output}> = ::iced::widget::Shader::new(__program).into(); }}",
+                item.name, item.rust_path
+            )
+            .unwrap(),
             ExternKind::Task => writeln!(
                 out,
                 "#[allow(dead_code)] fn __ui_lang_check_task_{}({params}) {{ let _: ::iced::Task<{output}> = {}({args}); }}",
@@ -2437,6 +2443,41 @@ fn render_node(
             Ok(format!(
                 "{}({args}).map(move |__value| {mapped}).into()",
                 component.rust_path
+            ))
+        }
+        ViewNode::Shader {
+            function,
+            args,
+            width,
+            height,
+            route,
+            span,
+        } => {
+            let shader = document
+                .functions
+                .iter()
+                .find(|item| item.name == *function && item.kind == ExternKind::Shader)
+                .ok_or_else(|| Error::new("E191", span, format!("unknown shader `{function}`")))?;
+            let args = args
+                .iter()
+                .map(|arg| expr_code(arg, env, document, ValueMode::Owned))
+                .collect::<Result<Vec<_>, _>>()?
+                .join(", ");
+            let mut code = format!("::iced::widget::Shader::new({}({args}))", shader.rust_path);
+            if let Some(width) = width {
+                write!(code, ".width({})", length_code(width, env, document)?).unwrap();
+            }
+            if let Some(height) = height {
+                write!(code, ".height({})", length_code(height, env, document)?).unwrap();
+            }
+            let output = shader.output.rust(&document.structs);
+            let mapped = if let Some(route) = route {
+                route_code(route, "__value", env, document, message)?
+            } else {
+                format!("{message}::__ExternNoop")
+            };
+            Ok(format!(
+                "{{ let __shader: ::iced::Element<'_, {output}> = {code}.into(); __shader.map(move |__value| {mapped}).into() }}"
             ))
         }
         ViewNode::Media {
@@ -6100,7 +6141,8 @@ fn canvas_group_symbol(group: &str) -> String {
 fn needs_extern_noop(document: &Document) -> bool {
     fn contains(node: &ViewNode) -> bool {
         match node {
-            ViewNode::ExternComponent { route: None, .. } => true,
+            ViewNode::ExternComponent { route: None, .. }
+            | ViewNode::Shader { route: None, .. } => true,
             ViewNode::Layout { children, .. }
             | ViewNode::If { children, .. }
             | ViewNode::For { children, .. } => children.iter().any(contains),
@@ -9430,6 +9472,8 @@ extern crate::backend
   Failure(code:i64)
   component native_meter(value:f64) -> f64
   component passive() -> unit
+  shader native_shader(value:f64) -> bool
+  shader passive_shader() -> unit
   task focus_next() -> unit
   task save() -> i64 ! Failure
   subscription events() -> bool
@@ -9455,12 +9499,16 @@ on failed(error)
   count = error.code
 on event(next)
   seen = next
+on shaded(next)
+  seen = next
 subscribe
   events() -> event _
 view
   col
     extern native_meter(amount) -> changed _
     extern passive()
+    shader native_shader(amount) width=fill height=64.0 -> shaded _
+    shader passive_shader()
     button "Focus" -> focus
     button "Save" -> save
 "#;
@@ -9468,6 +9516,14 @@ view
         assert!(generated.contains("::iced::Element<'static, f64>"));
         assert!(generated.contains("::iced::Task<()>"));
         assert!(generated.contains("::iced::Subscription<bool>"));
+        assert!(generated.contains("fn __ui_lang_check_shader_native_shader"));
+        assert!(generated.contains("::iced::widget::shader::Program<bool>"));
+        assert!(
+            generated.contains(
+                "::iced::widget::Shader::new(crate::backend::native_shader(self.amount))"
+            )
+        );
+        assert!(generated.contains(".width(::iced::Fill).height(64.0 as f32)"));
         assert!(generated.contains(".subscription(Self::__subscription)"));
         assert!(generated.contains("native_meter(self.amount).map"));
         assert!(generated.contains("passive().map(move |__value| __InteropMessage::__ExternNoop)"));

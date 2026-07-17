@@ -39,6 +39,8 @@ on canvas_button(button)
 
 on canvas_key(value)
 
+on shader_hovered(active)
+
 on maximize_details
   pane #workspace maximize details
 

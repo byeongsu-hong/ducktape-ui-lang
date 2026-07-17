@@ -108,6 +108,7 @@ view
                     text hits x=112.0 y=136.0 color=primary size=14.0 font=default
                     image "examples/iced-app/assets/checker.ppm" x=256.0 y=16.0 width=48.0 height=48.0 filter=nearest opacity=0.9 snap=true radius=6.0
                     svg "examples/iced-app/assets/ice.svg" x=312.0 y=16.0 width=48.0 height=48.0 color=primary opacity=0.9
+                  shader status_shader(1.0) width=fill height=32.0 -> shader_hovered _
                   row wrap @gap-2
                     radio "Summary" value="summary" selected=(detail_mode == "summary") size=16.0 spacing=6.0 text-size=14.0 line-height=1.2 shaping=advanced wrapping=word font=default -> detail_mode_changed _
                       active selected background=linear(1.57, primary@0.0, surface@1.0) dot=foreground border=primary border-width=2.0 text=foreground

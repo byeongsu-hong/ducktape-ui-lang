@@ -45,6 +45,8 @@ pub fn parse(source: &str) -> Result<Document, Error> {
             for item in &line.children {
                 if let Some(source) = item.text.strip_prefix("component ") {
                     functions.push(parse_extern_fn(source, item, &path, ExternKind::Component)?);
+                } else if let Some(source) = item.text.strip_prefix("shader ") {
+                    functions.push(parse_extern_fn(source, item, &path, ExternKind::Shader)?);
                 } else if let Some(source) = item.text.strip_prefix("task ") {
                     functions.push(parse_extern_fn(source, item, &path, ExternKind::Task)?);
                 } else if let Some(source) = item.text.strip_prefix("subscription ") {
@@ -598,11 +600,16 @@ fn parse_extern_fn(
         ),
         None => (parse_type(rest.trim(), line)?, None),
     };
-    if error_ty.is_some() && matches!(kind, ExternKind::Component | ExternKind::Subscription) {
+    if error_ty.is_some()
+        && matches!(
+            kind,
+            ExternKind::Component | ExternKind::Shader | ExternKind::Subscription
+        )
+    {
         return Err(error(
             "E023",
             line,
-            "extern components and subscriptions cannot declare an error type",
+            "extern components, shaders, and subscriptions cannot declare an error type",
         ));
     }
     Ok(ExternFn {
@@ -1329,6 +1336,7 @@ fn parse_view(line: &Line) -> Result<ViewNode, Error> {
                 | "markdown"
                 | "rich-text"
                 | "extern"
+                | "shader"
         )
     {
         return Err(error(
@@ -1411,6 +1419,7 @@ fn parse_view(line: &Line) -> Result<ViewNode, Error> {
         "qr" => parse_qr_code(&parts, styles, line),
         "space" => parse_space(&parts, styles, line),
         "extern" => parse_extern_component(&parts, styles, route_source, line),
+        "shader" => parse_shader(&parts, styles, route_source, line),
         "image" | "svg" | "viewer" => parse_media(kind, &parts, styles, line),
         "tooltip" => parse_tooltip(&parts, styles, line),
         "mouse" => parse_mouse_area(&parts, styles, line),
@@ -4980,6 +4989,55 @@ fn parse_extern_component(
     Ok(ViewNode::ExternComponent {
         function,
         args: parse_expr_list(&args, line)?,
+        route: route.map(|route| parse_route(route, line)).transpose()?,
+        span: Span::line(line.number),
+    })
+}
+
+fn parse_shader(
+    parts: &[String],
+    styles: Vec<String>,
+    route: Option<&str>,
+    line: &Line,
+) -> Result<ViewNode, Error> {
+    ensure_leaf(line)?;
+    if !styles.is_empty() {
+        return Err(error("E191", line, "shader does not accept `@` utilities"));
+    }
+    if parts.len() < 2 {
+        return Err(error(
+            "E191",
+            line,
+            "shader uses `shader name(args) width=fill height=120.0 -> handler _`",
+        ));
+    }
+    let (function, args) = parse_signature(&parts[1], line)?;
+    let mut width = None;
+    let mut height = None;
+    for part in &parts[2..] {
+        if let Some(value) = part.strip_prefix("width=") {
+            if width.is_some() {
+                return Err(error("E191", line, "duplicate shader width"));
+            }
+            width = Some(parse_length(value, line)?);
+        } else if let Some(value) = part.strip_prefix("height=") {
+            if height.is_some() {
+                return Err(error("E191", line, "duplicate shader height"));
+            }
+            height = Some(parse_length(value, line)?);
+        } else {
+            return Err(error(
+                "E191",
+                line,
+                format!("unknown shader property `{part}`"),
+            ));
+        }
+    }
+    Ok(ViewNode::Shader {
+        function,
+        args: parse_expr_list(&args, line)?,
+        width,
+        height,
         route: route.map(|route| parse_route(route, line)).transpose()?,
         span: Span::line(line.number),
     })

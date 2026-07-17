@@ -15,11 +15,12 @@ counts toward the row below.
 
 ## Typed system reachability
 
-Ice 0.80 has three checked Rust boundaries:
+Ice 0.81 has four checked Rust boundaries:
 
 | Boundary | Rust ABI | Covers |
 | --- | --- | --- |
 | `extern name(args)` | `fn(...) -> Element<'static, Event>` | any owned default-renderer widget tree, including custom widgets |
+| `shader name(args)` | `fn(...) -> impl shader::Program<Event>` | native wgpu primitives, pipeline/storage, state, events, redraw, capture, and mouse interaction |
 | `task name(args)` | `fn(...) -> Task<Event>` or `Task<Result<Event, Error>>` | widget/window/clipboard/font/system operations and arbitrary task composition |
 | `subscribe` | `fn(...) -> Subscription<Event>` | event, keyboard, mouse, window, system, channel, timer, stream, and custom recipe sources |
 
@@ -57,7 +58,7 @@ public behavior has direct documented Ice syntax and tests.
 | `rule` | native | axis/thickness, every fill mode, default/weak presets, checked color/opacity, per-corner radius and snap cover all concrete style fields; advanced classes are an alternate extension mechanism |
 | `scrollable` | partial | native content/ID, every concrete builder setter, all Viewport getters, every Status field through ordered selectors, and every concrete Style field for container, rails, scrollers, gap and auto-scroll overlay; advanced classes remain |
 | `sensor` | native | show/resize dimensions, hide, comparable owned keys, anticipation and delay; owned keys provide the same continuity behavior as `key_ref` without borrowed lifetimes |
-| `shader` | missing | custom GPU primitive/program |
+| `shader` | native | typed factory for any concrete native `shader::Program<Event>`, complete width/height builder API, checked message routing, and generated Program/Element probes; the Rust program retains complete State, Primitive, Pipeline/Storage, update/action, draw and mouse-interaction behavior |
 | `slider` | partial | native f64 behavior/sizing plus nested active/hovered/dragged styles covering solid/linear rail and handle backgrounds, border/radius and circle/rectangle handles; generic numeric values, arbitrary runtime closures and advanced classes missing |
 | `space` | native | optional fixed/fill/fill-portion/shrink width and height cover the complete widget API |
 | `stack` | native | ordered children, all `Length` widths/heights, clipping and `push_under` base-layer behavior via `under=N` |
