@@ -16,6 +16,7 @@ pub fn generate(document: &Document, source_path: &str) -> Result<String, Error>
     generate_keyboard_types(&mut out, document);
     generate_mouse_types(&mut out, document);
     generate_system_types(&mut out, document);
+    generate_canvas_types(&mut out, document);
 
     writeln!(out, "#[derive(Debug)]\npub struct {} {{", document.app).unwrap();
     for qr in &document.qr_codes {
@@ -375,6 +376,94 @@ fn __ice_system_info(value: ::iced::system::Information) -> __IceSystemInfo {
 "#,
         );
     }
+}
+
+fn generate_canvas_types(out: &mut String, document: &Document) {
+    if !uses_canvas(document) {
+        return;
+    }
+    out.push_str(
+        r#"struct __IceCanvasState {
+    cache: ::iced::widget::canvas::Cache,
+    cache_key: ::std::cell::Cell<::std::option::Option<u64>>,
+    inside: bool,
+}
+impl ::std::default::Default for __IceCanvasState {
+    fn default() -> Self {
+        Self {
+            cache: ::iced::widget::canvas::Cache::new(),
+            cache_key: ::std::cell::Cell::new(::std::option::Option::None),
+            inside: false,
+        }
+    }
+}
+struct __IceCanvasProgram<Message, Draw, Update> {
+    draw: Draw,
+    update: Update,
+    interaction: ::iced::mouse::Interaction,
+    cache_key: ::std::option::Option<u64>,
+    use_cache: bool,
+    message: ::std::marker::PhantomData<fn() -> Message>,
+}
+impl<Message, Draw, Update> ::iced::widget::canvas::Program<Message>
+    for __IceCanvasProgram<Message, Draw, Update>
+where
+    Draw: Fn(
+        &__IceCanvasState,
+        &::iced::Renderer,
+        &::iced::Theme,
+        ::iced::Rectangle,
+        ::iced::mouse::Cursor,
+    ) -> ::std::vec::Vec<::iced::widget::canvas::Geometry>,
+    Update: Fn(
+        &mut __IceCanvasState,
+        &::iced::widget::canvas::Event,
+        ::iced::Rectangle,
+        ::iced::mouse::Cursor,
+    ) -> ::std::option::Option<::iced::widget::canvas::Action<Message>>,
+{
+    type State = __IceCanvasState;
+
+    fn update(
+        &self,
+        state: &mut Self::State,
+        event: &::iced::widget::canvas::Event,
+        bounds: ::iced::Rectangle,
+        cursor: ::iced::mouse::Cursor,
+    ) -> ::std::option::Option<::iced::widget::canvas::Action<Message>> {
+        (self.update)(state, event, bounds, cursor)
+    }
+
+    fn draw(
+        &self,
+        state: &Self::State,
+        renderer: &::iced::Renderer,
+        theme: &::iced::Theme,
+        bounds: ::iced::Rectangle,
+        cursor: ::iced::mouse::Cursor,
+    ) -> ::std::vec::Vec<::iced::widget::canvas::Geometry> {
+        if self.use_cache && state.cache_key.get() != self.cache_key {
+            state.cache.clear();
+            state.cache_key.set(self.cache_key);
+        }
+        (self.draw)(state, renderer, theme, bounds, cursor)
+    }
+
+    fn mouse_interaction(
+        &self,
+        _state: &Self::State,
+        bounds: ::iced::Rectangle,
+        cursor: ::iced::mouse::Cursor,
+    ) -> ::iced::mouse::Interaction {
+        if cursor.is_over(bounds) {
+            self.interaction
+        } else {
+            ::iced::mouse::Interaction::default()
+        }
+    }
+}
+"#,
+    );
 }
 
 fn uses_system_task(document: &Document, name: &str) -> bool {
@@ -2574,6 +2663,9 @@ fn render_node(
             }
             Ok(format!("{code}.into() }}"))
         }
+        ViewNode::Canvas {
+            options, commands, ..
+        } => render_canvas(options, commands, document, message, env),
         ViewNode::Theme {
             preset,
             text,
@@ -4176,6 +4268,768 @@ fn append_scroll_surface_style(
     Ok(())
 }
 
+fn render_canvas(
+    options: &CanvasOptions,
+    commands: &[CanvasCommand],
+    document: &Document,
+    message: &str,
+    env: &HashMap<String, Binding>,
+) -> Result<String, Error> {
+    let mut canvas_env = env.clone();
+    canvas_env.insert(
+        "canvas_width".into(),
+        Binding {
+            code: "(__bounds.width as f64)".into(),
+            ty: Type::F64,
+            local: true,
+        },
+    );
+    canvas_env.insert(
+        "canvas_height".into(),
+        Binding {
+            code: "(__bounds.height as f64)".into(),
+            ty: Type::F64,
+            local: true,
+        },
+    );
+    let draw_commands = canvas_commands_code(commands, &canvas_env, document)?;
+    let use_cache = options.cache.is_some();
+    let cache_key = if let Some(dependency) = &options.cache {
+        let dependency = expr_code(dependency, env, document, ValueMode::Owned)?;
+        format!(
+            "::std::option::Option::Some({{ let mut __hasher = ::std::hash::DefaultHasher::new(); ::std::hash::Hash::hash(&({dependency}), &mut __hasher); ::std::hash::Hasher::finish(&__hasher) }})"
+        )
+    } else {
+        "::std::option::Option::None".into()
+    };
+    let capture = options
+        .capture
+        .as_ref()
+        .map(|value| expr_code(value, env, document, ValueMode::Owned))
+        .transpose()?
+        .unwrap_or_else(|| "false".into());
+    let update = canvas_update_code(options, env, document, message, &capture)?;
+    let interaction = options
+        .interaction
+        .map(mouse_interaction_code)
+        .unwrap_or("None");
+    let mut code = format!(
+        "{{ let __program = __IceCanvasProgram::<{message}, _, _> {{ draw: move |__state: &__IceCanvasState, __renderer: &::iced::Renderer, __theme: &::iced::Theme, __bounds: ::iced::Rectangle, __cursor: ::iced::mouse::Cursor| {{ let __paint = move |__frame: &mut ::iced::widget::canvas::Frame| {{ {draw_commands} }}; let __geometry = if {use_cache} {{ __state.cache.draw(__renderer, __bounds.size(), __paint) }} else {{ let mut __frame = ::iced::widget::canvas::Frame::new(__renderer, __bounds.size()); __paint(&mut __frame); __frame.into_geometry() }}; ::std::vec![__geometry] }}, update: {update}, interaction: ::iced::mouse::Interaction::{interaction}, cache_key: {cache_key}, use_cache: {use_cache}, message: ::std::marker::PhantomData }}; let __canvas = ::iced::widget::canvas(__program)"
+    );
+    if let Some(width) = &options.width {
+        write!(code, ".width({})", length_code(width, env, document)?).unwrap();
+    }
+    if let Some(height) = &options.height {
+        write!(code, ".height({})", length_code(height, env, document)?).unwrap();
+    }
+    code.push_str("; __canvas.into() }");
+    Ok(code)
+}
+
+fn canvas_update_code(
+    options: &CanvasOptions,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+    message: &str,
+    capture: &str,
+) -> Result<String, Error> {
+    let action = |message: String| {
+        format!(
+            "::std::option::Option::Some(if __capture {{ ::iced::widget::canvas::Action::publish({message}).and_capture() }} else {{ ::iced::widget::canvas::Action::publish({message}) }})"
+        )
+    };
+    let mut code = format!(
+        "move |__state: &mut __IceCanvasState, __event: &::iced::widget::canvas::Event, __bounds: ::iced::Rectangle, __cursor: ::iced::mouse::Cursor| {{ let __capture = {capture};"
+    );
+    if options.enter.is_some() || options.exit.is_some() {
+        code.push_str(" let __inside = __cursor.is_over(__bounds); if __inside != __state.inside { __state.inside = __inside;");
+        if let Some(route) = &options.enter {
+            let route = route_code(route, "", env, document, message)?;
+            write!(code, " if __inside {{ return {}; }}", action(route)).unwrap();
+        }
+        if let Some(route) = &options.exit {
+            let route = route_code(route, "", env, document, message)?;
+            write!(code, " if !__inside {{ return {}; }}", action(route)).unwrap();
+        }
+        code.push_str(" }");
+    }
+    let has_pointer_routes = options.press.is_some()
+        || options.release.is_some()
+        || options.right_press.is_some()
+        || options.right_release.is_some()
+        || options.middle_press.is_some()
+        || options.middle_release.is_some()
+        || options.move_route.is_some()
+        || options.scroll.is_some();
+    if has_pointer_routes {
+        code.push_str(" let __point = __cursor.position_in(__bounds)?; match __event {");
+        for (route, event) in [
+            (
+                &options.press,
+                "::iced::widget::canvas::Event::Mouse(::iced::mouse::Event::ButtonPressed(::iced::mouse::Button::Left))",
+            ),
+            (
+                &options.release,
+                "::iced::widget::canvas::Event::Mouse(::iced::mouse::Event::ButtonReleased(::iced::mouse::Button::Left))",
+            ),
+            (
+                &options.right_press,
+                "::iced::widget::canvas::Event::Mouse(::iced::mouse::Event::ButtonPressed(::iced::mouse::Button::Right))",
+            ),
+            (
+                &options.right_release,
+                "::iced::widget::canvas::Event::Mouse(::iced::mouse::Event::ButtonReleased(::iced::mouse::Button::Right))",
+            ),
+            (
+                &options.middle_press,
+                "::iced::widget::canvas::Event::Mouse(::iced::mouse::Event::ButtonPressed(::iced::mouse::Button::Middle))",
+            ),
+            (
+                &options.middle_release,
+                "::iced::widget::canvas::Event::Mouse(::iced::mouse::Event::ButtonReleased(::iced::mouse::Button::Middle))",
+            ),
+        ] {
+            if let Some(route) = route {
+                let route = ordered_route_code(
+                    route,
+                    &["__point.x as f64", "__point.y as f64"],
+                    env,
+                    document,
+                    message,
+                )?;
+                write!(code, " {event} => {},", action(route)).unwrap();
+            }
+        }
+        if let Some(route) = &options.move_route {
+            let route = ordered_route_code(
+                route,
+                &["__point.x as f64", "__point.y as f64"],
+                env,
+                document,
+                message,
+            )?;
+            write!(
+                code,
+                " ::iced::widget::canvas::Event::Mouse(::iced::mouse::Event::CursorMoved {{ .. }}) => {},",
+                action(route)
+            )
+            .unwrap();
+        }
+        if let Some(route) = &options.scroll {
+            let lines = ordered_route_code(
+                route,
+                &["__x as f64", "__y as f64", "false"],
+                env,
+                document,
+                message,
+            )?;
+            let pixels = ordered_route_code(
+                route,
+                &["__x as f64", "__y as f64", "true"],
+                env,
+                document,
+                message,
+            )?;
+            write!(
+                code,
+                " ::iced::widget::canvas::Event::Mouse(::iced::mouse::Event::WheelScrolled {{ delta }}) => match delta {{ ::iced::mouse::ScrollDelta::Lines {{ x: __x, y: __y }} => {}, ::iced::mouse::ScrollDelta::Pixels {{ x: __x, y: __y }} => {} }},",
+                action(lines),
+                action(pixels)
+            )
+            .unwrap();
+        }
+        code.push_str(" _ => ::std::option::Option::None } }");
+    } else {
+        code.push_str(" ::std::option::Option::None }");
+    }
+    Ok(code)
+}
+
+fn canvas_commands_code(
+    commands: &[CanvasCommand],
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<String, Error> {
+    let mut code = String::new();
+    for command in commands {
+        match command {
+            CanvasCommand::Rectangle {
+                x,
+                y,
+                width,
+                height,
+                radius,
+                paint,
+                ..
+            } => {
+                let point = canvas_point_code(x, y, env, document)?;
+                let size = canvas_size_code(width, height, env, document)?;
+                if canvas_radius_is_empty(radius) {
+                    if let Some(fill) = &paint.fill {
+                        write!(
+                            code,
+                            " __frame.fill_rectangle({point}, {size}, {});",
+                            canvas_fill_code(fill, paint.fill_rule, env, document)?
+                        )
+                        .unwrap();
+                    }
+                    if let Some(stroke) = &paint.stroke {
+                        write!(
+                            code,
+                            " __frame.stroke_rectangle({point}, {size}, {});",
+                            canvas_stroke_code(stroke, env, document)?
+                        )
+                        .unwrap();
+                    }
+                } else {
+                    let radius = canvas_radius_code(radius, env, document)?;
+                    write!(
+                        code,
+                        " {{ let __path = ::iced::widget::canvas::Path::rounded_rectangle({point}, {size}, {radius}); {} }}",
+                        canvas_paint_code(paint, "&__path", env, document)?
+                    )
+                    .unwrap();
+                }
+            }
+            CanvasCommand::Circle {
+                x,
+                y,
+                radius,
+                paint,
+                ..
+            } => {
+                let point = canvas_point_code(x, y, env, document)?;
+                let radius = canvas_expr_code(radius, env, document)?;
+                write!(
+                    code,
+                    " {{ let __path = ::iced::widget::canvas::Path::circle({point}, {radius} as f32); {} }}",
+                    canvas_paint_code(paint, "&__path", env, document)?
+                )
+                .unwrap();
+            }
+            CanvasCommand::Line {
+                x1,
+                y1,
+                x2,
+                y2,
+                stroke,
+                ..
+            } => {
+                let from = canvas_point_code(x1, y1, env, document)?;
+                let to = canvas_point_code(x2, y2, env, document)?;
+                write!(
+                    code,
+                    " {{ let __path = ::iced::widget::canvas::Path::line({from}, {to}); __frame.stroke(&__path, {}); }}",
+                    canvas_stroke_code(stroke, env, document)?
+                )
+                .unwrap();
+            }
+            CanvasCommand::Text {
+                value,
+                x,
+                y,
+                max_width,
+                color,
+                size,
+                line_height,
+                font,
+                align_x,
+                align_y,
+                shaping,
+                span,
+            } => {
+                let ty = expr_type(
+                    value,
+                    &env.iter()
+                        .map(|(name, binding)| (name.clone(), binding.ty.clone()))
+                        .collect(),
+                    document,
+                    span,
+                )?;
+                let value = expr_code(value, env, document, ValueMode::Owned)?;
+                let content = if ty == Type::Str {
+                    value
+                } else {
+                    format!("::std::format!(\"{{}}\", {value})")
+                };
+                let position = canvas_point_code(x, y, env, document)?;
+                let max_width = max_width
+                    .as_ref()
+                    .map(|value| canvas_expr_code(value, env, document))
+                    .transpose()?
+                    .map_or_else(|| "f32::INFINITY".into(), |value| format!("{value} as f32"));
+                let color = color.as_ref().map_or_else(
+                    || theme_color(document, "foreground"),
+                    |color| theme_color(document, color),
+                );
+                let size = size
+                    .as_ref()
+                    .map(|value| canvas_expr_code(value, env, document))
+                    .transpose()?
+                    .unwrap_or_else(|| "16.0".into());
+                let line_height = match line_height {
+                    Some(TextLineHeight::Relative(value)) => format!(
+                        "::iced::widget::text::LineHeight::Relative({} as f32)",
+                        canvas_expr_code(value, env, document)?
+                    ),
+                    Some(TextLineHeight::Absolute(value)) => format!(
+                        "::iced::widget::text::LineHeight::Absolute(::iced::Pixels({} as f32))",
+                        canvas_expr_code(value, env, document)?
+                    ),
+                    None => "::iced::widget::text::LineHeight::default()".into(),
+                };
+                let font = font
+                    .as_ref()
+                    .map(|font| font_preset_code(font, document))
+                    .transpose()?
+                    .unwrap_or_else(|| "::iced::Font::DEFAULT".into());
+                let align_x = align_x.map_or("Default", |value| text_alignment_code(value));
+                let align_y = match align_y {
+                    None | Some(VerticalAlignment::Top) => "Top",
+                    Some(VerticalAlignment::Center) => "Center",
+                    Some(VerticalAlignment::Bottom) => "Bottom",
+                };
+                let shaping = shaping.map_or("Auto", text_shaping_code);
+                write!(
+                    code,
+                    " __frame.fill_text(::iced::widget::canvas::Text {{ content: {content}, position: {position}, max_width: {max_width}, color: {color}, size: ::iced::Pixels({size} as f32), line_height: {line_height}, font: {font}, align_x: ::iced::widget::text::Alignment::{align_x}, align_y: ::iced::alignment::Vertical::{align_y}, shaping: ::iced::widget::text::Shaping::{shaping} }});"
+                )
+                .unwrap();
+            }
+            CanvasCommand::Path {
+                segments, paint, ..
+            } => {
+                let path = canvas_path_code(segments, env, document)?;
+                write!(
+                    code,
+                    " {{ let __path = {path}; {} }}",
+                    canvas_paint_code(paint, "&__path", env, document)?
+                )
+                .unwrap();
+            }
+            CanvasCommand::Group {
+                transform,
+                commands,
+                ..
+            } => {
+                let inner = canvas_commands_code(commands, env, document)?;
+                let mut body = String::new();
+                if transform.x.is_some() || transform.y.is_some() {
+                    let x = transform
+                        .x
+                        .as_ref()
+                        .map(|value| canvas_expr_code(value, env, document))
+                        .transpose()?
+                        .unwrap_or_else(|| "0.0".into());
+                    let y = transform
+                        .y
+                        .as_ref()
+                        .map(|value| canvas_expr_code(value, env, document))
+                        .transpose()?
+                        .unwrap_or_else(|| "0.0".into());
+                    write!(
+                        body,
+                        " __frame.translate(::iced::Vector::new({x} as f32, {y} as f32));"
+                    )
+                    .unwrap();
+                }
+                if let Some(value) = &transform.rotate {
+                    write!(
+                        body,
+                        " __frame.rotate({} as f32);",
+                        canvas_expr_code(value, env, document)?
+                    )
+                    .unwrap();
+                }
+                if let Some(value) = &transform.scale {
+                    write!(
+                        body,
+                        " __frame.scale({} as f32);",
+                        canvas_expr_code(value, env, document)?
+                    )
+                    .unwrap();
+                }
+                if transform.scale_x.is_some() || transform.scale_y.is_some() {
+                    let x = transform
+                        .scale_x
+                        .as_ref()
+                        .map(|value| canvas_expr_code(value, env, document))
+                        .transpose()?
+                        .unwrap_or_else(|| "1.0".into());
+                    let y = transform
+                        .scale_y
+                        .as_ref()
+                        .map(|value| canvas_expr_code(value, env, document))
+                        .transpose()?
+                        .unwrap_or_else(|| "1.0".into());
+                    write!(
+                        body,
+                        " __frame.scale_nonuniform(::iced::Vector::new({x} as f32, {y} as f32));"
+                    )
+                    .unwrap();
+                }
+                if let Some([x, y, width, height]) = &transform.clip {
+                    let point = canvas_point_code(x, y, env, document)?;
+                    let size = canvas_size_code(width, height, env, document)?;
+                    write!(
+                        body,
+                        " __frame.with_clip(::iced::Rectangle {{ x: {point}.x, y: {point}.y, width: {size}.width, height: {size}.height }}, |__frame| {{ {inner} }});"
+                    )
+                    .unwrap();
+                } else {
+                    body.push_str(&inner);
+                }
+                write!(code, " __frame.with_save(|__frame| {{ {body} }});").unwrap();
+            }
+            CanvasCommand::If {
+                condition,
+                commands,
+                ..
+            } => {
+                let condition = expr_code(condition, env, document, ValueMode::Owned)?;
+                write!(
+                    code,
+                    " if {condition} {{ {} }}",
+                    canvas_commands_code(commands, env, document)?
+                )
+                .unwrap();
+            }
+            CanvasCommand::For {
+                item,
+                items,
+                commands,
+                span,
+            } => {
+                let Type::List(inner) = expr_type(
+                    items,
+                    &env.iter()
+                        .map(|(name, binding)| (name.clone(), binding.ty.clone()))
+                        .collect(),
+                    document,
+                    span,
+                )?
+                else {
+                    return Err(Error::new("E190", span, "canvas for expects a list"));
+                };
+                let items = expr_code(items, env, document, ValueMode::Borrowed)?;
+                let mut child_env = env.clone();
+                child_env.insert(
+                    item.clone(),
+                    Binding {
+                        code: item.clone(),
+                        ty: *inner,
+                        local: false,
+                    },
+                );
+                write!(
+                    code,
+                    " for {item} in {items}.iter() {{ {} }}",
+                    canvas_commands_code(commands, &child_env, document)?
+                )
+                .unwrap();
+            }
+        }
+    }
+    Ok(code)
+}
+
+fn canvas_path_code(
+    segments: &[CanvasPathSegment],
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<String, Error> {
+    let mut code = String::from("::iced::widget::canvas::Path::new(|__path| {");
+    for segment in segments {
+        match segment {
+            CanvasPathSegment::Move(x, y) => write!(
+                code,
+                " __path.move_to({});",
+                canvas_point_code(x, y, env, document)?
+            )
+            .unwrap(),
+            CanvasPathSegment::Line(x, y) => write!(
+                code,
+                " __path.line_to({});",
+                canvas_point_code(x, y, env, document)?
+            )
+            .unwrap(),
+            CanvasPathSegment::Arc {
+                x,
+                y,
+                radius,
+                start,
+                end,
+            } => write!(
+                code,
+                " __path.arc(::iced::widget::canvas::path::Arc {{ center: {}, radius: {} as f32, start_angle: ::iced::Radians({} as f32), end_angle: ::iced::Radians({} as f32) }});",
+                canvas_point_code(x, y, env, document)?,
+                canvas_expr_code(radius, env, document)?,
+                canvas_expr_code(start, env, document)?,
+                canvas_expr_code(end, env, document)?
+            )
+            .unwrap(),
+            CanvasPathSegment::ArcTo {
+                ax,
+                ay,
+                bx,
+                by,
+                radius,
+            } => write!(
+                code,
+                " __path.arc_to({}, {}, {} as f32);",
+                canvas_point_code(ax, ay, env, document)?,
+                canvas_point_code(bx, by, env, document)?,
+                canvas_expr_code(radius, env, document)?
+            )
+            .unwrap(),
+            CanvasPathSegment::Ellipse {
+                x,
+                y,
+                radius_x,
+                radius_y,
+                rotation,
+                start,
+                end,
+            } => write!(
+                code,
+                " __path.ellipse(::iced::widget::canvas::path::arc::Elliptical {{ center: {}, radii: ::iced::Vector::new({} as f32, {} as f32), rotation: ::iced::Radians({} as f32), start_angle: ::iced::Radians({} as f32), end_angle: ::iced::Radians({} as f32) }});",
+                canvas_point_code(x, y, env, document)?,
+                canvas_expr_code(radius_x, env, document)?,
+                canvas_expr_code(radius_y, env, document)?,
+                canvas_expr_code(rotation, env, document)?,
+                canvas_expr_code(start, env, document)?,
+                canvas_expr_code(end, env, document)?
+            )
+            .unwrap(),
+            CanvasPathSegment::Bezier {
+                control_ax,
+                control_ay,
+                control_bx,
+                control_by,
+                x,
+                y,
+            } => write!(
+                code,
+                " __path.bezier_curve_to({}, {}, {});",
+                canvas_point_code(control_ax, control_ay, env, document)?,
+                canvas_point_code(control_bx, control_by, env, document)?,
+                canvas_point_code(x, y, env, document)?
+            )
+            .unwrap(),
+            CanvasPathSegment::Quadratic {
+                control_x,
+                control_y,
+                x,
+                y,
+            } => write!(
+                code,
+                " __path.quadratic_curve_to({}, {});",
+                canvas_point_code(control_x, control_y, env, document)?,
+                canvas_point_code(x, y, env, document)?
+            )
+            .unwrap(),
+            CanvasPathSegment::Rectangle {
+                x,
+                y,
+                width,
+                height,
+            } => write!(
+                code,
+                " __path.rectangle({}, {});",
+                canvas_point_code(x, y, env, document)?,
+                canvas_size_code(width, height, env, document)?
+            )
+            .unwrap(),
+            CanvasPathSegment::RoundedRectangle {
+                x,
+                y,
+                width,
+                height,
+                radius,
+            } => write!(
+                code,
+                " __path.rounded_rectangle({}, {}, {});",
+                canvas_point_code(x, y, env, document)?,
+                canvas_size_code(width, height, env, document)?,
+                canvas_radius_code(radius, env, document)?
+            )
+            .unwrap(),
+            CanvasPathSegment::Circle { x, y, radius } => write!(
+                code,
+                " __path.circle({}, {} as f32);",
+                canvas_point_code(x, y, env, document)?,
+                canvas_expr_code(radius, env, document)?
+            )
+            .unwrap(),
+            CanvasPathSegment::Close => code.push_str(" __path.close();"),
+        }
+    }
+    code.push_str(" })");
+    Ok(code)
+}
+
+fn canvas_paint_code(
+    paint: &CanvasPaint,
+    path: &str,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<String, Error> {
+    let mut code = String::new();
+    if let Some(fill) = &paint.fill {
+        write!(
+            code,
+            " __frame.fill({path}, {});",
+            canvas_fill_code(fill, paint.fill_rule, env, document)?
+        )
+        .unwrap();
+    }
+    if let Some(stroke) = &paint.stroke {
+        write!(
+            code,
+            " __frame.stroke({path}, {});",
+            canvas_stroke_code(stroke, env, document)?
+        )
+        .unwrap();
+    }
+    Ok(code)
+}
+
+fn canvas_fill_code(
+    fill: &BackgroundValue,
+    rule: CanvasFillRule,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<String, Error> {
+    let rule = match rule {
+        CanvasFillRule::NonZero => "NonZero",
+        CanvasFillRule::EvenOdd => "EvenOdd",
+    };
+    Ok(format!(
+        "::iced::widget::canvas::Fill {{ style: {}, rule: ::iced::widget::canvas::fill::Rule::{rule} }}",
+        canvas_style_code(fill, env, document)?
+    ))
+}
+
+fn canvas_stroke_code(
+    stroke: &CanvasStroke,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<String, Error> {
+    let cap = match stroke.cap {
+        CanvasLineCap::Butt => "Butt",
+        CanvasLineCap::Square => "Square",
+        CanvasLineCap::Round => "Round",
+    };
+    let join = match stroke.join {
+        CanvasLineJoin::Miter => "Miter",
+        CanvasLineJoin::Round => "Round",
+        CanvasLineJoin::Bevel => "Bevel",
+    };
+    let dash = stroke
+        .dash
+        .iter()
+        .map(|value| canvas_expr_code(value, env, document).map(|value| format!("{value} as f32")))
+        .collect::<Result<Vec<_>, _>>()?
+        .join(", ");
+    Ok(format!(
+        "::iced::widget::canvas::Stroke {{ style: {}, width: {} as f32, line_cap: ::iced::widget::canvas::LineCap::{cap}, line_join: ::iced::widget::canvas::LineJoin::{join}, line_dash: ::iced::widget::canvas::LineDash {{ segments: &[{dash}], offset: usize::try_from({}).unwrap_or(usize::MAX) }} }}",
+        canvas_style_code(&stroke.style, env, document)?,
+        canvas_expr_code(&stroke.width, env, document)?,
+        canvas_expr_code(&stroke.dash_offset, env, document)?
+    ))
+}
+
+fn canvas_style_code(
+    style: &BackgroundValue,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<String, Error> {
+    Ok(match style {
+        BackgroundValue::Color(color) => format!(
+            "::iced::widget::canvas::Style::Solid({})",
+            theme_color(document, color)
+        ),
+        BackgroundValue::Linear { angle, stops } => {
+            let mut gradient =
+                String::from("::iced::widget::canvas::gradient::Linear::new(__start, __end)");
+            for stop in stops {
+                write!(
+                    gradient,
+                    ".add_stop({} as f32, {})",
+                    canvas_expr_code(&stop.offset, env, document)?,
+                    theme_color(document, &stop.color)
+                )
+                .unwrap();
+            }
+            format!(
+                "{{ let __angle = {} as f32; let __direction = ::iced::Vector::new(__angle.cos(), __angle.sin()); let __center = ::iced::Point::new(__bounds.width / 2.0, __bounds.height / 2.0); let __extent = (__bounds.width * __direction.x.abs() + __bounds.height * __direction.y.abs()) / 2.0; let __start = ::iced::Point::new(__center.x - __direction.x * __extent, __center.y - __direction.y * __extent); let __end = ::iced::Point::new(__center.x + __direction.x * __extent, __center.y + __direction.y * __extent); ::iced::widget::canvas::Style::Gradient(::iced::widget::canvas::Gradient::Linear({gradient})) }}",
+                canvas_expr_code(angle, env, document)?
+            )
+        }
+    })
+}
+
+fn canvas_radius_is_empty(radius: &CanvasRadius) -> bool {
+    radius.all.is_none()
+        && radius.top_left.is_none()
+        && radius.top_right.is_none()
+        && radius.bottom_right.is_none()
+        && radius.bottom_left.is_none()
+}
+
+fn canvas_radius_code(
+    radius: &CanvasRadius,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<String, Error> {
+    radius_code(
+        radius.all.as_ref(),
+        [
+            radius.top_left.as_ref(),
+            radius.top_right.as_ref(),
+            radius.bottom_right.as_ref(),
+            radius.bottom_left.as_ref(),
+        ],
+        env,
+        document,
+    )
+    .map(|radius| radius.unwrap_or_else(|| "::iced::border::Radius::default()".into()))
+}
+
+fn canvas_point_code(
+    x: &Expr,
+    y: &Expr,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<String, Error> {
+    Ok(format!(
+        "::iced::Point::new({} as f32, {} as f32)",
+        canvas_expr_code(x, env, document)?,
+        canvas_expr_code(y, env, document)?
+    ))
+}
+
+fn canvas_size_code(
+    width: &Expr,
+    height: &Expr,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<String, Error> {
+    Ok(format!(
+        "::iced::Size::new({} as f32, {} as f32)",
+        canvas_expr_code(width, env, document)?,
+        canvas_expr_code(height, env, document)?
+    ))
+}
+
+fn canvas_expr_code(
+    value: &Expr,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<String, Error> {
+    expr_code(value, env, document, ValueMode::Owned)
+}
+
 fn render_children(
     out: &mut String,
     children: &[ViewNode],
@@ -4709,6 +5563,46 @@ fn input_bindings(root: &ViewNode) -> Vec<String> {
 
 fn editor_bindings(root: &ViewNode) -> Vec<String> {
     state_bindings(root, true)
+}
+
+fn uses_canvas(document: &Document) -> bool {
+    fn contains(node: &ViewNode) -> bool {
+        match node {
+            ViewNode::Canvas { .. } => true,
+            ViewNode::Layout { children, .. }
+            | ViewNode::If { children, .. }
+            | ViewNode::For { children, .. } => children.iter().any(contains),
+            ViewNode::Tooltip { content, tip, .. } => contains(content) || contains(tip),
+            ViewNode::Overlay { content, layer, .. } => contains(content) || contains(layer),
+            ViewNode::PaneGrid { panes, .. } => {
+                panes.iter().flat_map(PaneView::nodes).any(contains)
+            }
+            ViewNode::Table { columns, .. } => columns
+                .iter()
+                .any(|column| contains(&column.header) || contains(&column.cell)),
+            ViewNode::MouseArea { content, .. }
+            | ViewNode::Container { content, .. }
+            | ViewNode::Theme { content, .. }
+            | ViewNode::Float { content, .. }
+            | ViewNode::Pin { content, .. }
+            | ViewNode::Sensor { content, .. }
+            | ViewNode::KeyedColumn { child: content, .. }
+            | ViewNode::Lazy { child: content, .. } => contains(content),
+            ViewNode::Component { slots, .. } => slots.iter().any(|slot| contains(&slot.content)),
+            ViewNode::Button {
+                content: Some(content),
+                ..
+            } => contains(content),
+            ViewNode::Responsive { content, .. } => match content {
+                ResponsiveContent::Breakpoint { narrow, wide, .. } => {
+                    contains(narrow) || contains(wide)
+                }
+                ResponsiveContent::Size { content, .. } => contains(content),
+            },
+            _ => false,
+        }
+    }
+    contains(&document.view) || document.components.iter().any(|item| contains(&item.root))
 }
 
 fn needs_extern_noop(document: &Document) -> bool {
@@ -8452,6 +9346,73 @@ view
         )
         .unwrap_err();
         assert_eq!(error.code, "E129");
+    }
+
+    #[test]
+    fn lowers_native_canvas_geometry_cache_and_events() {
+        let source = r#"app Drawing
+theme
+  background #0f172a
+  foreground #f8fafc
+  primary #7c3aed
+  danger #dc2626
+state
+  cached = true
+on pressed(x, y)
+on released(x, y)
+on moved(x, y)
+on scrolled(x, y, pixels)
+on entered
+on exited
+view
+  canvas width=fill height=240.0 cache=cached capture=true cursor=crosshair press=pressed release=released move=moved scroll=scrolled enter=entered exit=exited
+    rect x=0.0 y=0.0 width=canvas_width height=canvas_height fill=linear(1.57, background@0.0, primary@1.0) stroke=foreground
+    rect x=8.0 y=8.0 width=72.0 height=40.0 radius=8.0 radius-tl=4.0 stroke=foreground stroke-width=2.0 dash=(4.0, 2.0) dash-offset=1 cap=round join=bevel
+    circle x=120.0 y=60.0 radius=24.0 fill=primary fill-rule=even-odd stroke=foreground
+    line x1=16.0 y1=120.0 x2=200.0 y2=120.0 stroke=foreground stroke-width=3.0 cap=square
+    text "Canvas" x=16.0 y=150.0 max-width=180.0 color=foreground size=18.0 line-height=1.2 font=default align-x=left align-y=top shaping=advanced
+    path fill=primary stroke=foreground stroke-width=1.0
+      move x=220.0 y=20.0
+      line x=260.0 y=20.0
+      arc x=260.0 y=40.0 radius=20.0 start=0.0 end=3.14
+      arc-to ax=280.0 ay=60.0 bx=300.0 by=40.0 radius=8.0
+      ellipse x=320.0 y=40.0 radius-x=20.0 radius-y=10.0 rotation=0.2 start=0.0 end=6.28
+      bezier ax=340.0 ay=10.0 bx=360.0 by=70.0 x=380.0 y=40.0
+      quadratic cx=400.0 cy=10.0 x=420.0 y=40.0
+      rect x=220.0 y=80.0 width=30.0 height=20.0
+      rounded x=260.0 y=80.0 width=30.0 height=20.0 radius=4.0
+      circle x=320.0 y=90.0 radius=10.0
+      close
+    group x=10.0 y=10.0 rotate=0.1 scale=1.1 scale-x=1.0 scale-y=0.9 clip=(0.0, 0.0, 100.0, 100.0)
+      circle x=20.0 y=20.0 radius=10.0 fill=foreground
+    if cached
+      circle x=360.0 y=180.0 radius=12.0 fill=primary
+    for value in [12.0, 24.0]
+      circle x=value y=210.0 radius=4.0 fill=foreground
+"#;
+        let generated = compile(source, "drawing.ice").unwrap();
+        for expected in [
+            "impl<Message, Draw, Update> ::iced::widget::canvas::Program<Message>",
+            "__state.cache.draw",
+            "::std::hash::Hash::hash",
+            "::iced::widget::canvas::Path::rounded_rectangle",
+            "__frame.fill_rectangle",
+            "__frame.stroke_rectangle",
+            "__frame.fill_text",
+            "__path.arc(",
+            "__path.arc_to(",
+            "__path.ellipse(",
+            "__path.bezier_curve_to(",
+            "__path.quadratic_curve_to(",
+            "__frame.with_save",
+            "__frame.with_clip",
+            "__frame.scale_nonuniform",
+            "::iced::mouse::Interaction::Crosshair",
+            "::iced::widget::canvas::Action::publish",
+            ".and_capture()",
+        ] {
+            assert!(generated.contains(expected), "missing {expected}");
+        }
     }
 
     #[test]

@@ -1,4 +1,4 @@
-# Ice Language Specification 0.76
+# Ice Language Specification 0.77
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.76 syntax.
+marked “planned” is a design constraint, not accepted 0.77 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.76.
+  block comments are not part of 0.77.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -253,7 +253,7 @@ view_decl      = "view" INDENT node
 node           = layout | text | input | button | checkbox | toggler
                | slider | progress | radio | pick_list | combo_box
                | rule | qr_code | space | float | pin | sensor | responsive
-               | media | tooltip | mouse_area | theme_boundary
+               | media | tooltip | mouse_area | canvas | theme_boundary
                | component_call | slot | extern_component_call | if_node | for_node
                | keyed_column | lazy_node | markdown_view | table_view
                | editor_view | container | overlay | rich_text | pane_grid
@@ -637,6 +637,55 @@ mouse_property = ("press=" | "release=" | "double=" | "right_press="
                | "right_release=" | "middle_press=" | "middle_release="
                | "enter=" | "move=" | "scroll=" | "exit=") route
                | "cursor=" mouse_cursor
+canvas         = "canvas" canvas_property* INDENT canvas_command*
+canvas_property = ("width=" | "height=") length
+                | ("cache=" | "capture=") expr
+                | ("press=" | "release=" | "right_press=" | "right_release="
+                  | "middle_press=" | "middle_release=" | "enter=" | "move="
+                  | "scroll=" | "exit=") route
+                | "cursor=" mouse_cursor
+canvas_command = canvas_rect | canvas_circle | canvas_line | canvas_text
+               | canvas_path | canvas_group | canvas_if | canvas_for
+canvas_rect    = "rect" point size canvas_radius* canvas_paint+
+canvas_circle  = "circle" point "radius=" expr canvas_paint+
+canvas_line    = "line" "x1=" expr "y1=" expr "x2=" expr "y2=" expr
+                 canvas_stroke
+canvas_text    = "text" expr "x=" expr "y=" expr canvas_text_property*
+canvas_text_property = ("max-width=" | "size=" | "line-height="
+                       | "line-height-px=") expr
+                     | "color=" color_ref | "font=" name
+                     | "align-x=" ("default" | "left" | "center" | "right"
+                       | "justified")
+                     | "align-y=" ("top" | "center" | "bottom")
+                     | "shaping=" ("auto" | "basic" | "advanced")
+canvas_path    = "path" canvas_paint+ INDENT canvas_path_segment+
+canvas_group   = "group" canvas_transform* INDENT canvas_command*
+canvas_if      = "if" expr INDENT canvas_command*
+canvas_for     = "for" name "in" expr INDENT canvas_command*
+point          = "x=" expr "y=" expr
+size           = "width=" expr "height=" expr
+canvas_radius  = ("radius=" | "radius-tl=" | "radius-tr="
+                 | "radius-br=" | "radius-bl=") expr
+canvas_paint   = "fill=" background_value | "fill-rule=" ("non-zero" | "even-odd")
+               | canvas_stroke
+canvas_stroke  = "stroke=" background_value ("stroke-width=" expr)?
+                 ("cap=" ("butt" | "square" | "round"))?
+                 ("join=" ("miter" | "round" | "bevel"))?
+                 ("dash=" "(" expr_list ")")? ("dash-offset=" expr)?
+canvas_transform = ("x=" | "y=" | "rotate=" | "scale="
+                   | "scale-x=" | "scale-y=") expr
+                 | "clip=(" expr "," expr "," expr "," expr ")"
+canvas_path_segment = "move" point | "line" point
+                    | "arc" point "radius=" expr "start=" expr "end=" expr
+                    | "arc-to" "ax=" expr "ay=" expr "bx=" expr "by=" expr
+                      "radius=" expr
+                    | "ellipse" point "radius-x=" expr "radius-y=" expr
+                      "rotation=" expr "start=" expr "end=" expr
+                    | "bezier" "ax=" expr "ay=" expr "bx=" expr "by=" expr point
+                    | "quadratic" "cx=" expr "cy=" expr point
+                    | "rect" point size
+                    | "rounded" point size canvas_radius+
+                    | "circle" point "radius=" expr | "close"
 theme_boundary = "theme" theme_preset? theme_property* INDENT node
 theme_preset   = "default" | "app" | built_in_iced_theme
 built_in_iced_theme
@@ -693,7 +742,7 @@ default/centered/fixed position, visibility, resizability, close/minimize
 buttons, decorations, transparency, blur, level, and close-request behavior.
 Sizes, text size, and scale factor must be positive; minimum size cannot exceed
 maximum size. Window icons and platform-specific settings are not part of
-0.76.
+0.77.
 
 Media fixed lengths, rotation, opacity, scale, and radius are `f64`; rotation
 is radians and defaults to floating layout behavior, while `solid(angle)` makes
@@ -1097,7 +1146,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.76 message payloads.
+`Clone` for 0.77 message payloads.
 
 Three typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
@@ -1264,6 +1313,7 @@ The implemented native nodes are:
 | `svg` | SVG path or UTF-8/raw-byte memory expression with typed layout and idle/hover color properties |
 | `tooltip` | exactly two children (content then tip), full positioning/timing plus preset, color, border, radius, shadow and pixel-snap styles |
 | `mouse` | one child; all button/enter/move/scroll/exit events and every iced cursor interaction |
+| `canvas` | declarative native geometry, path building, transforms, clipping, typed control flow, dependency cache and pointer events |
 | `theme` | one child with default/app/all built-in iced themes and checked text color plus solid/linear background |
 | `if` | includes its children when a bool expression is true |
 | `for` | iterates a list and adds one typed item binding |
@@ -1400,6 +1450,44 @@ is shared with pane surfaces instead of being a pane-grid-only special case.
 Pane grids may only live in the app view because component/repeated instances
 need separately keyed persistent state. Click routes receive the stable pane
 name as `str`.
+
+Canvas is a checked declarative layer over iced's native `Canvas`, `Program`,
+`Frame`, `Path`, and `Cache`. Its body is drawing code, not a widget subtree:
+
+```ice
+canvas width=fill height=220.0 cache=chart_version capture=true cursor=crosshair press=chart_pressed
+  rect x=0.0 y=0.0 width=canvas_width height=canvas_height fill=background
+  circle x=64.0 y=64.0 radius=28.0 fill=primary stroke=foreground stroke-width=2.0
+  path fill=primary/25 stroke=primary stroke-width=2.0 cap=round join=round
+    move x=96.0 y=160.0
+    bezier ax=140.0 ay=20.0 bx=180.0 by=200.0 x=240.0 y=80.0
+    line x=240.0 y=160.0
+    close
+  text "Drag me" x=16.0 y=196.0 color=foreground size=14.0
+```
+
+`canvas_width` and `canvas_height` are scoped `f64` bindings containing the
+current frame dimensions. Commands accept app state and these bindings in any
+numeric expression. Nested `if` and `for` commands draw conditional or repeated
+geometry. `group` applies translation, rotation, uniform/non-uniform scale and
+an optional `(x, y, width, height)` clip while restoring the previous transform
+after its body.
+
+`rect`, `circle`, and `path` accept a checked solid or `linear(...)` fill,
+`non-zero` or `even-odd` fill rule, and an optional stroke. Strokes expose
+width, butt/square/round caps, miter/round/bevel joins, dash segments and dash
+offset. Path bodies map directly to move, line, arc, arc-to, ellipse, cubic
+Bézier, quadratic, rectangle, per-corner rounded rectangle, circle, and close
+builder calls. Canvas text accepts string/numeric content, position, maximum
+width, color, size, relative/absolute line height, font, alignment and shaping.
+
+`cache=dependency` uses iced's geometry cache and clears it when the checked
+hashable dependency changes or the bounds change. Include every state value
+that affects drawing in that dependency; omit `cache=` for always-fresh
+geometry. Pointer press/release variants and move emit local `(x, y)` values;
+scroll emits `(x, y, pixels)`. `enter`/`exit` have no payload. `capture=true`
+marks emitted pointer events captured. Native consumers must enable iced's
+`canvas` Cargo feature.
 
 ### Components
 
@@ -1655,7 +1743,7 @@ weight, stretch, and style variant is accepted. At most one declaration may be
 the application default. `font=default` and `font=mono` remain built-ins;
 declared fonts also work on text, rich text and spans, input, editor, checkbox,
 toggler, radio, pick, combo, and their custom icons. Font
-byte loading is not part of 0.76.
+byte loading is not part of 0.77.
 
 Widget operation tasks target checked static IDs in the app view:
 
@@ -1675,7 +1763,7 @@ snap/end; and absolute scroll-to/scroll-by. Effects have no route and
 non-negative `i64`; relative offsets are `f64` in `0.0..=1.0`; absolute
 offsets are unrestricted `f64`. Targets must be real static IDs in the app
 scope. Repeated/component scopes and the feature-gated selector API remain
-outside 0.76.
+outside 0.77.
 
 Persistent pane grids expose their native layout-state operations directly in
 handlers:
@@ -1722,7 +1810,7 @@ and constraints, resizability, maximize/minimize state, position and movement,
 all modes, decorations, user attention, focus, level, system menu, mouse
 passthrough, monitor size, and automatic tabbing. Positive sizes and bool
 arguments are checked before Rust generation. New-window IDs, open/oldest/latest,
-icons, raw handles, screenshots, and callbacks remain outside 0.76.
+icons, raw handles, screenshots, and callbacks remain outside 0.77.
 
 Every iced window event has a direct subscription form:
 
@@ -1875,7 +1963,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 0.76 does not claim that remapping.
+extern line; 0.77 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -1896,12 +1984,11 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 0.76 native backend is enough for CRUD/settings-style screens, selection,
-media, hover
-overlays, and common pointer events, not all of iced. It still lacks direct
-syntax for canvas, arbitrary custom overlays, multiple
-windows, and custom widgets. [`COVERAGE.md`](COVERAGE.md) is the exact versioned
-ledger.
+The 0.77 native backend is enough for CRUD/settings-style screens, selection,
+media, hover overlays, declarative canvas geometry, and common pointer events,
+not all of iced. It still lacks direct syntax for shaders, arbitrary custom
+overlays, multiple windows, and custom widgets. [`COVERAGE.md`](COVERAGE.md) is
+the exact versioned ledger.
 
 The language must not grow one ad-hoc syntax form for every iced API. The next
 layer is therefore implemented as three typed Rust adapters: component, task,
