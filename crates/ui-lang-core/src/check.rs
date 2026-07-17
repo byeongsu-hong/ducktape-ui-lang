@@ -42,7 +42,7 @@ pub fn check(document: &mut Document) -> Result<(), Error> {
         }
     }
     for handler in &document.handlers {
-        check_task_groups(handler)?;
+        check_structured_tasks(handler)?;
     }
 
     let mut signatures: HashMap<String, Vec<Option<Type>>> = document
@@ -2777,6 +2777,7 @@ fn lazy_hashable(ty: &Type) -> bool {
         | Type::KeyRelease
         | Type::KeyModifiers
         | Type::SystemInfo
+        | Type::TaskHandle
         | Type::Image
         | Type::Unit
         | Type::Unknown => false,
@@ -4228,10 +4229,15 @@ fn infer_runs(
         .map(|param| (param.name.clone(), Type::Unknown))
         .collect();
     for statement in &handler.statements {
-        if let Statement::TaskGroup { statements, .. } = statement {
+        let nested = match statement {
+            Statement::TaskGroup { statements, .. } => Some(statements.clone()),
+            Statement::Abortable { task, .. } => Some(vec![(**task).clone()]),
+            _ => None,
+        };
+        if let Some(statements) = nested {
             infer_runs(
                 &Handler {
-                    statements: statements.clone(),
+                    statements,
                     ..handler.clone()
                 },
                 document,
@@ -4532,6 +4538,24 @@ fn check_handler(
                     )?;
                 }
             }
+            Statement::Abortable {
+                handle, task, span, ..
+            } => {
+                require_task_handle_state(handle, states, span)?;
+                check_handler(
+                    &Handler {
+                        statements: vec![(**task).clone()],
+                        ..handler.clone()
+                    },
+                    states,
+                    document,
+                    operation_ids,
+                    pane_grids,
+                )?;
+            }
+            Statement::Abort { handle, span } => {
+                require_task_handle_state(handle, states, span)?;
+            }
             Statement::ClipboardWrite { value, span, .. } => {
                 if index + 1 != handler.statements.len() {
                     return Err(Error::new(
@@ -4787,33 +4811,50 @@ fn check_handler(
     Ok(())
 }
 
-fn check_task_groups(handler: &Handler) -> Result<(), Error> {
+fn check_structured_tasks(handler: &Handler) -> Result<(), Error> {
     for (index, statement) in handler.statements.iter().enumerate() {
-        let Statement::TaskGroup {
-            statements, span, ..
-        } = statement
-        else {
-            continue;
-        };
-        if index + 1 != handler.statements.len() {
-            return Err(Error::new(
-                "E141",
-                span,
-                "task group must be the final statement in a handler",
-            ));
-        }
-        if let Some(span) = statements.iter().find_map(invalid_task_group_member) {
-            return Err(Error::new(
-                "E143",
-                span,
-                "task groups only accept task-producing statements",
-            ));
+        match statement {
+            Statement::TaskGroup {
+                statements, span, ..
+            } => {
+                if index + 1 != handler.statements.len() {
+                    return Err(Error::new(
+                        "E141",
+                        span,
+                        "task group must be the final statement in a handler",
+                    ));
+                }
+                if let Some(span) = statements.iter().find_map(invalid_task_producer) {
+                    return Err(Error::new(
+                        "E143",
+                        span,
+                        "task groups only accept task-producing statements",
+                    ));
+                }
+            }
+            Statement::Abortable { task, span, .. } => {
+                if index + 1 != handler.statements.len() {
+                    return Err(Error::new(
+                        "E141",
+                        span,
+                        "abortable task must be the final statement in a handler",
+                    ));
+                }
+                if let Some(span) = invalid_task_producer(task) {
+                    return Err(Error::new(
+                        "E143",
+                        span,
+                        "abortable requires a task-producing statement",
+                    ));
+                }
+            }
+            _ => {}
         }
     }
     Ok(())
 }
 
-fn invalid_task_group_member(statement: &Statement) -> Option<&Span> {
+fn invalid_task_producer(statement: &Statement) -> Option<&Span> {
     match statement {
         Statement::Run { .. }
         | Statement::ClipboardWrite { .. }
@@ -4823,13 +4864,31 @@ fn invalid_task_group_member(statement: &Statement) -> Option<&Span> {
             operation: PaneOperation::Maximized | PaneOperation::Adjacent { .. },
             ..
         } => None,
+        Statement::Abortable { task, .. } => invalid_task_producer(task),
         Statement::TaskGroup { statements, .. } => {
-            statements.iter().find_map(invalid_task_group_member)
+            statements.iter().find_map(invalid_task_producer)
         }
-        Statement::Assign { .. } | Statement::ReturnIf { .. } | Statement::PaneOperation { .. } => {
-            Some(statement_span(statement))
-        }
+        Statement::Assign { .. }
+        | Statement::ReturnIf { .. }
+        | Statement::Abort { .. }
+        | Statement::PaneOperation { .. } => Some(statement_span(statement)),
     }
+}
+
+fn require_task_handle_state(
+    handle: &str,
+    states: &HashMap<String, Type>,
+    span: &Span,
+) -> Result<(), Error> {
+    let Some(actual) = states.get(handle) else {
+        return Err(Error::new(
+            "E143",
+            span,
+            format!("unknown task handle state `{handle}`"),
+        )
+        .hint(format!("declare `{handle}:task-handle? = none` in state")));
+    };
+    require_type(actual, &Type::Option(Box::new(Type::TaskHandle)), span)
 }
 
 fn statement_span(statement: &Statement) -> &Span {
@@ -4838,6 +4897,8 @@ fn statement_span(statement: &Statement) -> &Span {
         | Statement::ReturnIf { span, .. }
         | Statement::Run { span, .. }
         | Statement::TaskGroup { span, .. }
+        | Statement::Abortable { span, .. }
+        | Statement::Abort { span, .. }
         | Statement::ClipboardWrite { span, .. }
         | Statement::WidgetOperation { span, .. }
         | Statement::WindowOperation { span, .. }
@@ -5063,6 +5124,17 @@ pub(crate) fn expr_type(
                 }
                 Ok(Type::Image)
             }
+            "aborted" => {
+                if args.len() != 1 {
+                    return Err(Error::new("E152", span, "aborted expects one argument"));
+                }
+                require_type(
+                    &expr_type(&args[0], env, document, span)?,
+                    &Type::Option(Box::new(Type::TaskHandle)),
+                    span,
+                )?;
+                Ok(Type::Bool)
+            }
             _ => Err(Error::new(
                 "E152",
                 span,
@@ -5099,6 +5171,13 @@ pub(crate) fn expr_type(
                 | BinaryOp::LtEq
                 | BinaryOp::Gt
                 | BinaryOp::GtEq => {
+                    if contains_task_handle(&left) || contains_task_handle(&right) {
+                        return Err(Error::new(
+                            "E153",
+                            span,
+                            "task handles are opaque; use `aborted(handle)`",
+                        ));
+                    }
                     require_type(&left, &right, span)?;
                     Ok(Type::Bool)
                 }
@@ -5115,6 +5194,14 @@ pub(crate) fn expr_type(
                 }
             }
         }
+    }
+}
+
+fn contains_task_handle(ty: &Type) -> bool {
+    match ty {
+        Type::TaskHandle => true,
+        Type::List(inner) | Type::Option(inner) | Type::Combo(inner) => contains_task_handle(inner),
+        _ => false,
     }
 }
 
@@ -5705,6 +5792,68 @@ view
         .unwrap_err();
         assert_eq!(error.code, "E141");
         assert!(error.message.contains("final statement"));
+    }
+
+    #[test]
+    fn checks_native_task_cancellation() {
+        let source = r#"app Cancel
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  request:task-handle? = none
+  canceled = false
+on start
+  abortable request abort-on-drop
+    task system theme -> loaded _
+on loaded(next)
+on cancel
+  abort request
+  canceled = aborted(request)
+view
+  col
+    if aborted(request)
+      text "Canceled"
+"#;
+        let document = analyze(source).unwrap();
+        assert_eq!(document.states[0].ty.display(), "task-handle?");
+
+        let error = analyze(&source.replace("request:task-handle?", "request:str?")).unwrap_err();
+        assert_eq!(error.code, "E101");
+        assert!(error.message.contains("task-handle?"));
+
+        let error = analyze(&source.replace("abort request", "abort missing")).unwrap_err();
+        assert_eq!(error.code, "E143");
+        assert!(error.message.contains("unknown task handle"));
+
+        let error =
+            analyze(&source.replace("    task system theme -> loaded _", "    canceled = false"))
+                .unwrap_err();
+        assert_eq!(error.code, "E143");
+        assert!(error.message.contains("task-producing"));
+
+        let error = analyze(&source.replace(
+            "  abortable request abort-on-drop\n    task system theme -> loaded _",
+            "  parallel\n    abortable request\n      canceled = false\n    task system theme -> loaded _",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E143");
+        assert_eq!(error.line, 13);
+
+        let error =
+            analyze(&source.replace("on loaded(next)", "  canceled = false\non loaded(next)"))
+                .unwrap_err();
+        assert_eq!(error.code, "E141");
+        assert!(error.message.contains("final statement"));
+
+        let error = analyze(&source.replace("aborted(request)", "aborted(true)")).unwrap_err();
+        assert_eq!(error.code, "E101");
+
+        let error = analyze(&source.replace("aborted(request)", "request == none")).unwrap_err();
+        assert_eq!(error.code, "E153");
+        assert!(error.message.contains("opaque"));
     }
 
     #[test]

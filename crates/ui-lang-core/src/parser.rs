@@ -934,10 +934,45 @@ fn parse_statement(line: &Line) -> Result<Statement, Error> {
             span: Span::line(line.number),
         });
     }
+    if let Some(source) = line.text.strip_prefix("abortable ") {
+        let parts = split_words(source);
+        if parts.len() > 2
+            || parts.is_empty()
+            || parts.get(1).is_some_and(|value| value != "abort-on-drop")
+        {
+            return Err(error(
+                "E050",
+                line,
+                "abortable uses `abortable handle [abort-on-drop]`",
+            ));
+        }
+        if line.children.len() != 1 {
+            return Err(error(
+                "E050",
+                line,
+                "abortable requires exactly one indented task",
+            ));
+        }
+        return Ok(Statement::Abortable {
+            handle: identifier(&parts[0], line)?,
+            abort_on_drop: parts.len() == 2,
+            task: Box::new(parse_statement(&line.children[0])?),
+            span: Span::line(line.number),
+        });
+    }
+    if line.text == "abortable" {
+        return Err(error("E050", line, "abortable requires a handle state"));
+    }
     ensure_leaf(line)?;
     if let Some(condition) = line.text.strip_prefix("return if ") {
         return Ok(Statement::ReturnIf {
             condition: parse_expr(condition, line)?,
+            span: Span::line(line.number),
+        });
+    }
+    if let Some(handle) = line.text.strip_prefix("abort ") {
+        return Ok(Statement::Abort {
+            handle: identifier(handle.trim(), line)?,
             span: Span::line(line.number),
         });
     }
@@ -6948,6 +6983,7 @@ fn parse_type(source: &str, line: &Line) -> Result<Type, Error> {
         "image" => Type::Image,
         "markdown" => Type::Markdown,
         "editor" => Type::Editor,
+        "task-handle" => Type::TaskHandle,
         "unit" => Type::Unit,
         value if value.chars().next().is_some_and(char::is_uppercase) => {
             Type::Named(identifier(value, line)?)
@@ -7605,6 +7641,49 @@ view
             .unwrap_err();
         assert_eq!(error.code, "E050");
         assert!(error.message.contains("at least one"));
+    }
+
+    #[test]
+    fn parses_abortable_tasks_and_handles() {
+        let source = SOURCE
+            .replace(
+                "  query = \"\"",
+                "  query = \"\"\n  request:task-handle? = none",
+            )
+            .replace(
+                "  run load() -> loaded _ | failed _",
+                "  abortable request abort-on-drop\n    run load() -> loaded _ | failed _",
+            );
+        let document = parse(&source).unwrap();
+        assert_eq!(
+            document.states[2].ty,
+            Type::Option(Box::new(Type::TaskHandle))
+        );
+        assert!(matches!(
+            &document.handlers[0].statements[0],
+            Statement::Abortable {
+                handle,
+                abort_on_drop: true,
+                task,
+                ..
+            } if handle == "request" && matches!(task.as_ref(), Statement::Run { .. })
+        ));
+
+        let error = parse(&SOURCE.replace(
+            "  run load() -> loaded _ | failed _",
+            "  abortable request later\n    run load() -> loaded _ | failed _",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E050");
+        assert!(error.message.contains("abort-on-drop"));
+
+        let error = parse(&SOURCE.replace(
+            "  run load() -> loaded _ | failed _",
+            "  abortable request\n    run load() -> loaded _ | failed _\n    run load() -> loaded _ | failed _",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E050");
+        assert!(error.message.contains("exactly one"));
     }
 
     #[test]

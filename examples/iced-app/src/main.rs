@@ -241,6 +241,22 @@ mod task_groups {
 }
 
 #[cfg(test)]
+mod task_cancel {
+    ui_lang::include_app!("src/ui/task_cancel.ice");
+
+    #[test]
+    fn aborts_native_task_handle() {
+        let (mut app, _) = TaskCancel::__boot();
+        let task = app.__update(__TaskCancelMessage::Start);
+        assert!(!app.request.as_ref().unwrap().is_aborted());
+
+        let _ = app.__update(__TaskCancelMessage::Cancel);
+        assert!(app.request.as_ref().unwrap().is_aborted());
+        drop(task);
+    }
+}
+
+#[cfg(test)]
 mod timer {
     ui_lang::include_app!("src/ui/timer.ice");
 }

@@ -15,7 +15,7 @@ counts toward the row below.
 
 ## Typed system reachability
 
-Ice 0.84 has four checked Rust boundaries:
+Ice 0.85 has four checked Rust boundaries:
 
 | Boundary | Rust ABI | Covers |
 | --- | --- | --- |
@@ -77,7 +77,7 @@ public behavior has direct documented Ice syntax and tests.
 | --- | --- | --- |
 | application settings | partial | static title, application ID, ordered checked font byte preloads, default text size/font, antialiasing, vsync, scale factor, theme and run; executor and presets missing |
 | `Theme` and styles | partial | checked color tokens and a Tailwind-like subset; native theme/style catalogs and custom closures missing |
-| `Task` | partial | async externs, typed arbitrary iced `Task` adapters, direct system/clipboard/font/widget/main-window tasks, and nested structured `parallel`/`sequential` groups lowering to native batch/chain; direct stream, cancellation and progress syntax missing |
+| `Task` | partial | async externs, typed arbitrary iced `Task` adapters, direct system/clipboard/font/widget/main-window tasks, nested structured batch/chain groups, and complete native abortable handle creation/manual abort/abort-on-drop/status behavior; direct stream and progress syntax missing |
 | `Subscription` | partial | typed arbitrary iced `Subscription` adapters, batching, checked conditional activation/status filters, direct timer/input-method/keyboard/mouse/touch/window sources and system theme changes; other combinators missing |
 | widget operations | partial | all 13 core focus/cursor/selection/scroll operations with checked static app IDs and typed focus query; scoped repeated/component IDs and feature-gated selectors remain |
 | clipboard | native | standard and primary read/write tasks; reads preserve iced's optional string payload and writes are checked fire-and-forget effects |
