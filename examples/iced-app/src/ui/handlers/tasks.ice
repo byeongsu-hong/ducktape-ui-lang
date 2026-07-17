@@ -25,6 +25,8 @@ on open_about
 on close_about
   about_open = false
 
+on about_link(url)
+
 on loaded(next)
   tasks = next
   loading = false

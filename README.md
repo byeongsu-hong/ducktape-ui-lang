@@ -124,12 +124,12 @@ cargo fmt --all
 
 ## Status
 
-This is an executable v0.49 language slice, not yet a complete iced replacement.
+This is an executable v0.50 language slice, not yet a complete iced replacement.
 It implements typed extern data/actions, state, handlers, async tasks, pure
 components with named props and structured child slots, scoped IDs, relative
 multi-file `use`,
 `if`/`for`, six layouts including identity-preserving keyed columns,
-twenty-seven native widget forms,
+twenty-eight native widget forms,
 dependency-keyed lazy subtrees, checked style utilities, formatting, analysis,
 direct typed keyboard, mouse, touch, input-method, conditional timer, event
 status filtering, system and clipboard operations, and iced code generation,

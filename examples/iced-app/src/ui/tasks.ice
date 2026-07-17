@@ -51,5 +51,8 @@ view
       container width=480.0 height=shrink max-width=720.0 padding=24.0 @bg-surface border border-border rounded-lg
         col @w-full gap-4
           text "About Ice Tasks" @text-xl font-bold text-foreground
-          text "This dialog is a structured overlay written entirely in .ice." @text-sm text-muted
+          rich-text width=fill wrapping=word @text-sm text-muted -> about_link _
+            span "This dialog is a structured overlay written entirely in "
+            span ".ice" link="https://github.com/byeongsu-hong/ducktape-ui-lang" underline @font-bold text-primary
+            span "."
           button "Close" @px-4 py-2 bg-primary text-white rounded-md -> close_about
