@@ -15,7 +15,7 @@ counts toward the row below.
 
 ## Typed system reachability
 
-Ice 0.62 has three checked Rust boundaries:
+Ice 0.63 has three checked Rust boundaries:
 
 | Boundary | Rust ABI | Covers |
 | --- | --- | --- |
@@ -65,7 +65,7 @@ public behavior has direct documented Ice syntax and tests.
 | `text` | partial | native string/numeric text plus structured rich spans; Rich bounds, size, relative/absolute line height, font, alignment, wrapping, color and str link events; every concrete Span field including highlight border/per-corner radius/padding/underline/strike; arbitrary style classes and gradient span backgrounds remain |
 | `text_editor` | partial | owned/replaced app state, generated action application, ID, placeholder, width/height/min/max, typography, padding, wrapping, disabled mode and all five built-in highlight themes; component-owned bindings, custom key binding/highlighter and full status styles remain |
 | `text_input` | partial | native binding, hint, disabled/secure, ID, submit/paste, typed width/padding/size/line-height, alignment, complete font descriptors, icon and basic style; full style catalog missing |
-| `themer` | partial | native default/app/all 22 built-in themes, checked default text color and solid background; gradient backgrounds and arbitrary alternate Theme types missing |
+| `themer` | partial | native default/app/all 22 built-in themes, checked default text color and solid/linear background; arbitrary alternate Theme types missing |
 | `toggler` | partial | native label/value/disabled event, size/width/spacing, text typography/wrapping/alignment and complete font descriptors; full style catalog missing |
 | `tooltip` | partial | native two-child content, all positions, gap, padding, viewport snap, delay, nine container presets, checked solid/linear background, text, border/per-corner radius, shadow and pixel snap; arbitrary runtime closures and advanced classes missing |
 

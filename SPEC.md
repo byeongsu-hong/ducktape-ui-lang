@@ -1,4 +1,4 @@
-# Ice Language Specification 0.62
+# Ice Language Specification 0.63
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.62 syntax.
+marked “planned” is a design constraint, not accepted 0.63 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.62.
+  block comments are not part of 0.63.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -565,7 +565,7 @@ default/centered/fixed position, visibility, resizability, close/minimize
 buttons, decorations, transparency, blur, level, and close-request behavior.
 Sizes, text size, and scale factor must be positive; minimum size cannot exceed
 maximum size. Window icons and platform-specific settings are not part of
-0.62.
+0.63.
 
 Media fixed lengths, rotation, opacity, scale, and radius are `f64`; rotation
 is radians, opacity is `0.0..=1.0`, scale is positive, and sizes/radius are
@@ -682,7 +682,8 @@ conditions and component inputs can depend on either dimension.
 `default`, iced chooses the default theme for the outer light/dark mode; `app`
 reuses the app's generated custom palette. Every iced built-in theme is accepted
 in kebab case, such as `dark`, `catppuccin-mocha`, or `tokyo-night-storm`.
-Checked `text=` and solid `background=` colors override the subtree defaults.
+Checked `text=` and solid or linear `background=` values override the subtree
+defaults.
 
 `stack` accepts every iced `Length` for width and height. Its first rendered
 child normally determines intrinsic size. `under=N` places the first N rendered
@@ -817,7 +818,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.62 message payloads.
+`Clone` for 0.63 message payloads.
 
 Three typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
@@ -968,7 +969,7 @@ The implemented native nodes are:
 | `svg` | SVG path expression with typed length/fit/rotation/opacity properties |
 | `tooltip` | exactly two children (content then tip), full positioning/timing plus preset, color, border, radius, shadow and pixel-snap styles |
 | `mouse` | one child; all button/enter/move/scroll/exit events and every iced cursor interaction |
-| `theme` | one child with default/app/all built-in iced themes and checked text/background colors |
+| `theme` | one child with default/app/all built-in iced themes and checked text color plus solid/linear background |
 | `if` | includes its children when a bool expression is true |
 | `for` | iterates a list and adds one typed item binding |
 | `keyed` | repeats one child template with a bool/i64/f64 identity key and native column sizing/alignment |
@@ -1359,7 +1360,7 @@ weight, stretch, and style variant is accepted. At most one declaration may be
 the application default. `font=default` and `font=mono` remain built-ins;
 declared fonts also work on text, rich text and spans, input, editor, checkbox,
 and toggler. Font
-byte loading is not part of 0.62.
+byte loading is not part of 0.63.
 
 Widget operation tasks target checked static IDs in the app view:
 
@@ -1379,7 +1380,7 @@ snap/end; and absolute scroll-to/scroll-by. Effects have no route and
 non-negative `i64`; relative offsets are `f64` in `0.0..=1.0`; absolute
 offsets are unrestricted `f64`. Targets must be real static IDs in the app
 scope. Repeated/component scopes and the feature-gated selector API remain
-outside 0.62.
+outside 0.63.
 
 Persistent pane grids expose their native layout-state operations directly in
 handlers:
@@ -1426,7 +1427,7 @@ and constraints, resizability, maximize/minimize state, position and movement,
 all modes, decorations, user attention, focus, level, system menu, mouse
 passthrough, monitor size, and automatic tabbing. Positive sizes and bool
 arguments are checked before Rust generation. New-window IDs, open/oldest/latest,
-icons, raw handles, screenshots, and callbacks remain outside 0.62.
+icons, raw handles, screenshots, and callbacks remain outside 0.63.
 
 Every iced window event has a direct subscription form:
 
@@ -1579,7 +1580,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 0.62 does not claim that remapping.
+extern line; 0.63 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -1600,7 +1601,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 0.62 native backend is enough for CRUD/settings-style screens, selection,
+The 0.63 native backend is enough for CRUD/settings-style screens, selection,
 media, hover
 overlays, and common pointer events, not all of iced. It still lacks direct
 syntax for canvas, arbitrary custom overlays, multiple

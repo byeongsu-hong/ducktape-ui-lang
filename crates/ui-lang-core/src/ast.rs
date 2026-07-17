@@ -788,7 +788,7 @@ pub enum ViewNode {
     Theme {
         preset: ThemePreset,
         text: Option<String>,
-        background: Option<String>,
+        background: Option<BackgroundValue>,
         content: Box<ViewNode>,
         span: Span,
     },
