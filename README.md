@@ -81,7 +81,7 @@ The showcase also contains a typed structured table with arbitrary header and
 cell subtrees, an automatically bound syntax-highlighted text editor, and
 structured keyboard press/release/modifier subscriptions.
 It also exercises native system information/theme tasks and theme-change
-subscriptions.
+subscriptions, plus standard/primary clipboard reads and writes.
 
 Key files:
 
@@ -113,13 +113,14 @@ cargo fmt --all
 
 ## Status
 
-This is an executable v0.34 language slice, not yet a complete iced replacement.
+This is an executable v0.35 language slice, not yet a complete iced replacement.
 It implements typed extern data/actions, state, handlers, async tasks, pure
 components with structured child slots, scoped IDs, relative multi-file `use`,
 `if`/`for`, six layouts including identity-preserving keyed columns,
 twenty-five native widget forms,
 dependency-keyed lazy subtrees, checked style utilities, formatting, analysis,
-direct typed keyboard and system events, and iced code generation. Typed
+direct typed keyboard, system, and clipboard operations, and iced code
+generation. Typed
 `Element`, `Task`, and `Subscription` adapters expose advanced iced features
 without embedding Rust inside `.ice`. Unsupported syntax is rejected instead
 of silently ignored.

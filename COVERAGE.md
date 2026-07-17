@@ -15,7 +15,7 @@ container API, so container remains partial.
 
 ## Typed system reachability
 
-Ice 0.34 has three checked Rust boundaries:
+Ice 0.35 has three checked Rust boundaries:
 
 | Boundary | Rust ABI | Covers |
 | --- | --- | --- |
@@ -75,10 +75,10 @@ public behavior has direct documented Ice syntax and tests.
 | --- | --- | --- |
 | application settings | partial | generated title/theme/run; window, fonts, antialiasing, executor, scale and presets missing |
 | `Theme` and styles | partial | checked color tokens and a Tailwind-like subset; native theme/style catalogs and custom closures missing |
-| `Task` | partial | async externs, typed arbitrary iced `Task` adapters, and direct system information/theme queries; direct batch, chain, stream, cancellation and progress syntax missing |
+| `Task` | partial | async externs, typed arbitrary iced `Task` adapters, direct system queries and standard/primary clipboard effects; direct batch, chain, stream, cancellation and progress syntax missing |
 | `Subscription` | partial | typed arbitrary iced `Subscription` adapters, batching, direct keyboard sources and system theme changes; other direct sources and combinators missing |
 | widget operations | missing | focus, cursor selection, scroll and selector operations |
-| clipboard | partial | typed Task adapter with write exercised; direct read/write syntax and `Option` payload missing |
+| clipboard | native | standard and primary read/write tasks; reads preserve iced's optional string payload and writes are checked fire-and-forget effects |
 | fonts | missing | font loading and discovery |
 | system | native | current theme task, theme-change subscription, and every information field with optionality preserved; information requires iced's `sysinfo` feature |
 | window | missing | settings, open/close, multiple windows, resize/move/mode/focus/screenshot/monitor operations |

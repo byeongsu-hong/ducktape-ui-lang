@@ -2166,6 +2166,16 @@ fn check_handler(
                 let action = extern_function(document, function, (*kind).into(), span)?;
                 check_call_args(action, args, &env, document, span)?;
             }
+            Statement::ClipboardWrite { value, span, .. } => {
+                if index + 1 != handler.statements.len() {
+                    return Err(Error::new(
+                        "E141",
+                        span,
+                        "clipboard write must be the final statement in a handler",
+                    ));
+                }
+                require_type(&expr_type(value, &env, document, span)?, &Type::Str, span)?;
+            }
         }
     }
     Ok(())
@@ -2236,6 +2246,9 @@ fn builtin_task_output(
     let output = match (kind, function) {
         (EffectKind::Task, "__ice_system_info") => Some(Type::SystemInfo),
         (EffectKind::Task, "__ice_system_theme") => Some(Type::Str),
+        (EffectKind::Task, "__ice_clipboard_read" | "__ice_clipboard_read_primary") => {
+            Some(Type::Option(Box::new(Type::Str)))
+        }
         _ => None,
     };
     if output.is_some() && !args.is_empty() {
@@ -3818,6 +3831,45 @@ view
         ))
         .unwrap_err();
         assert_eq!(error.code, "E131");
+    }
+
+    #[test]
+    fn checks_native_clipboard_tasks() {
+        let source = r#"app Clipboard
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  standard:str? = none
+  primary:str? = none
+on read
+  task clipboard read -> standard_read _
+on standard_read(value)
+  standard = value
+on read_primary
+  task clipboard read-primary -> primary_read _
+on primary_read(value)
+  primary = value
+on write
+  task clipboard write "copied"
+on write_primary
+  task clipboard write-primary "selected"
+view
+  text "Clipboard"
+"#;
+        let document = analyze(source).unwrap();
+        assert_eq!(document.handlers[1].params[0].ty.display(), "str?");
+        assert_eq!(document.handlers[3].params[0].ty.display(), "str?");
+
+        let error = analyze(&source.replace(
+            "task clipboard write \"copied\"",
+            "task clipboard write true",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E101");
+        assert!(error.message.contains("expected `str`"));
     }
 
     #[test]

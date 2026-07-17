@@ -493,6 +493,18 @@ fn parse_statement(line: &Line) -> Result<Statement, Error> {
             span: Span::line(line.number),
         });
     }
+    for (prefix, primary) in [
+        ("task clipboard write-primary ", true),
+        ("task clipboard write ", false),
+    ] {
+        if let Some(value) = line.text.strip_prefix(prefix) {
+            return Ok(Statement::ClipboardWrite {
+                primary,
+                value: parse_expr(value, line)?,
+                span: Span::line(line.number),
+            });
+        }
+    }
     let effect = line
         .text
         .strip_prefix("run ")
@@ -520,11 +532,21 @@ fn parse_statement(line: &Line) -> Result<Statement, Error> {
             ("__ice_system_info".into(), Vec::new())
         } else if kind == EffectKind::Task && call == "system theme" {
             ("__ice_system_theme".into(), Vec::new())
+        } else if kind == EffectKind::Task && call == "clipboard read" {
+            ("__ice_clipboard_read".into(), Vec::new())
+        } else if kind == EffectKind::Task && call == "clipboard read-primary" {
+            ("__ice_clipboard_read_primary".into(), Vec::new())
         } else if call.starts_with("system ") {
             return Err(error(
                 "E050",
                 line,
                 "system task must be `task system info` or `task system theme`",
+            ));
+        } else if call.starts_with("clipboard ") {
+            return Err(error(
+                "E050",
+                line,
+                "clipboard task must read, read-primary, write, or write-primary",
             ));
         } else {
             let (function, args_source) = parse_signature(call, line)?;

@@ -222,6 +222,11 @@ pub enum Statement {
         error: Option<Route>,
         span: Span,
     },
+    ClipboardWrite {
+        primary: bool,
+        value: Expr,
+        span: Span,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
