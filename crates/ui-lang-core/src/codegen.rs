@@ -1487,6 +1487,56 @@ fn render_layout(
             body.push_str(".align_y(::iced::Center)");
         }
     }
+    if kind == Layout::Grid {
+        if let Some(spacing) = &options.spacing {
+            write!(
+                body,
+                ".spacing({} as f32)",
+                expr_code(spacing, env, document, ValueMode::Owned)?
+            )
+            .unwrap();
+        }
+        if let Some(width) = &options.width {
+            let LengthValue::Fixed(width) = width else {
+                unreachable!("grid widths are always fixed")
+            };
+            write!(
+                body,
+                ".width({} as f32)",
+                expr_code(width, env, document, ValueMode::Owned)?
+            )
+            .unwrap();
+        }
+        if let Some(height) = &options.grid_height {
+            match height {
+                GridSizing::AspectRatio { width, height } => write!(
+                    body,
+                    ".height(::iced::widget::grid::aspect_ratio({} as f32, {} as f32))",
+                    expr_code(width, env, document, ValueMode::Owned)?,
+                    expr_code(height, env, document, ValueMode::Owned)?
+                )
+                .unwrap(),
+                GridSizing::EvenlyDistribute(length) => {
+                    write!(body, ".height({})", length_code(length, env, document)?).unwrap();
+                }
+            }
+        }
+        if let Some(fluid) = &options.fluid {
+            write!(
+                body,
+                ".fluid({} as f32)",
+                expr_code(fluid, env, document, ValueMode::Owned)?
+            )
+            .unwrap();
+        } else if let Some(columns) = &options.columns {
+            write!(
+                body,
+                ".columns({} as usize)",
+                expr_code(columns, env, document, ValueMode::Owned)?
+            )
+            .unwrap();
+        }
+    }
     if matches!(kind, Layout::Column | Layout::Row) {
         if let Some(spacing) = &options.spacing {
             write!(
@@ -1568,16 +1618,6 @@ fn render_layout(
                 write!(body, ".align_x({alignment})").unwrap();
             }
         }
-    }
-    if kind == Layout::Grid
-        && let Some(columns) = &options.columns
-    {
-        write!(
-            body,
-            ".columns({} as usize)",
-            expr_code(columns, env, document, ValueMode::Owned)?
-        )
-        .unwrap();
     }
     if kind == Layout::Stack {
         if let Some(clip) = &options.clip {
@@ -3059,31 +3099,37 @@ on enabled_changed(next)
 on choice_changed(next)
   choice = next
 view
-  grid columns=2 @gap-2
-    toggler "Enabled" checked=enabled -> enabled_changed _
-    slider amount min=0.0 max=100.0 step=0.5 default=50.0 shift-step=0.1 vertical width=20.0 height=fill(2) release=released -> amount_changed _
-      active rail-start=primary rail-end=background rail-width=4.0 rail-border=transparent rail-border-width=1.0 rail-radius=2.0 rail-radius-tl=1.0 handle=circle(7.0) handle-color=primary handle-border=foreground handle-border-width=1.0
-      hovered rail-start=foreground rail-end=background handle=rect(12) handle-color=foreground handle-radius=3.0 handle-radius-tl=1.0
-      dragged rail-start=danger handle=circle(8.0) handle-color=danger
-    slider amount min=0.0 max=100.0 step=1.0 width=fill height=18.0 -> amount_changed _
-    progress amount vertical length=fill(2) girth=20.0 style=secondary background=background bar=primary/75 border=foreground border-width=1.0 radius=4.0 radius-tl=2.0
-    progress amount style=success
-    progress amount style=warning
-    progress amount style=danger
-    radio "First" value=0 selected=(choice == 0) -> choice_changed _
-    rule horizontal thickness=2.0 style=weak fill=full color=primary/50 radius=4.0 radius-tl=2.0 snap=false
-    rule horizontal fill=percent(75.0)
-    rule horizontal fill=pad(4)
-    rule horizontal fill=pad(4,8)
-    space width=fill(2) height=shrink
-    stack clip=true width=fill(2) height=120.0 under=1
-      text "base"
-      text "overlay"
+  col
+    grid columns=2 width=640.0 spacing=12.0 height=aspect(16.0,9.0) @gap-2
+      toggler "Enabled" checked=enabled -> enabled_changed _
+      slider amount min=0.0 max=100.0 step=0.5 default=50.0 shift-step=0.1 vertical width=20.0 height=fill(2) release=released -> amount_changed _
+        active rail-start=primary rail-end=background rail-width=4.0 rail-border=transparent rail-border-width=1.0 rail-radius=2.0 rail-radius-tl=1.0 handle=circle(7.0) handle-color=primary handle-border=foreground handle-border-width=1.0
+        hovered rail-start=foreground rail-end=background handle=rect(12) handle-color=foreground handle-radius=3.0 handle-radius-tl=1.0
+        dragged rail-start=danger handle=circle(8.0) handle-color=danger
+      slider amount min=0.0 max=100.0 step=1.0 width=fill height=18.0 -> amount_changed _
+      progress amount vertical length=fill(2) girth=20.0 style=secondary background=background bar=primary/75 border=foreground border-width=1.0 radius=4.0 radius-tl=2.0
+      progress amount style=success
+      progress amount style=warning
+      progress amount style=danger
+      radio "First" value=0 selected=(choice == 0) -> choice_changed _
+      rule horizontal thickness=2.0 style=weak fill=full color=primary/50 radius=4.0 radius-tl=2.0 snap=false
+      rule horizontal fill=percent(75.0)
+      rule horizontal fill=pad(4)
+      rule horizontal fill=pad(4,8)
+      space width=fill(2) height=shrink
+      stack clip=true width=fill(2) height=120.0 under=1
+        text "base"
+        text "overlay"
+    grid fluid=240.0 height=fill(2)
+      text "fluid"
 "#;
         let generated = compile(source, "controls.ice").unwrap();
         assert!(
-            generated.contains("::iced::widget::grid(__children).spacing(8).columns(2 as usize)")
+            generated.contains("::iced::widget::grid(__children).spacing(8).spacing(12.0 as f32).width(640.0 as f32).height(::iced::widget::grid::aspect_ratio(16.0 as f32, 9.0 as f32)).columns(2 as usize)")
         );
+        assert!(generated.contains(
+            "::iced::widget::grid(__children).height(::iced::Length::FillPortion(2)).fluid(240.0 as f32)"
+        ));
         assert!(generated.contains("::iced::widget::vertical_slider"));
         assert!(generated.contains(".default(50.0).shift_step(0.1).width(20.0 as f32).height(::iced::Length::FillPortion(2))"));
         assert!(generated.contains("::iced::widget::slider"));

@@ -217,6 +217,31 @@ fn infer_view(
                     return Err(Error::new("E124", span, "grid columns must be positive"));
                 }
             }
+            if let Some(fluid) = &options.fluid {
+                require_type(&expr_type(fluid, env, document, span)?, &Type::F64, span)?;
+                require_literal_range(fluid, f64::EPSILON, None, "grid fluid width", span)?;
+            }
+            if let Some(height) = &options.grid_height {
+                match height {
+                    GridSizing::AspectRatio { width, height } => {
+                        for (value, label) in
+                            [(width, "grid aspect width"), (height, "grid aspect height")]
+                        {
+                            require_type(
+                                &expr_type(value, env, document, span)?,
+                                &Type::F64,
+                                span,
+                            )?;
+                            require_literal_range(value, f64::EPSILON, None, label, span)?;
+                        }
+                    }
+                    GridSizing::EvenlyDistribute(LengthValue::Fixed(value)) => {
+                        require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+                        require_literal_range(value, 0.0, None, "grid height", span)?;
+                    }
+                    GridSizing::EvenlyDistribute(_) => {}
+                }
+            }
             if let Some(clip) = &options.clip {
                 require_type(&expr_type(clip, env, document, span)?, &Type::Bool, span)?;
             }
@@ -2245,6 +2270,39 @@ view
         let error = analyze(&wrong_property).unwrap_err();
         assert_eq!(error.code, "E074");
         assert!(error.message.contains("unknown layout property"));
+    }
+
+    #[test]
+    fn checks_complete_grid_sizing() {
+        let source = r#"app Layouts
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+view
+  col
+    grid columns=2 width=640.0 spacing=12.0 height=aspect(16.0,9.0)
+      text "Fixed"
+    grid fluid=240.0 height=fill(2)
+      text "Fluid"
+"#;
+        analyze(source).unwrap();
+
+        let conflicting = source.replace("columns=2", "columns=2 fluid=240.0");
+        let error = analyze(&conflicting).unwrap_err();
+        assert_eq!(error.code, "E074");
+        assert!(error.message.contains("mutually exclusive"));
+
+        let zero_fluid = source.replace("fluid=240.0", "fluid=0.0");
+        let error = analyze(&zero_fluid).unwrap_err();
+        assert_eq!(error.code, "E128");
+        assert!(error.message.contains("grid fluid width"));
+
+        let zero_aspect = source.replace("aspect(16.0,9.0)", "aspect(16.0,0.0)");
+        let error = analyze(&zero_aspect).unwrap_err();
+        assert_eq!(error.code, "E128");
+        assert!(error.message.contains("grid aspect height"));
     }
 
     #[test]

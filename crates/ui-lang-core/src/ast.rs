@@ -769,6 +769,8 @@ pub struct LayoutOptions {
     pub wrap: bool,
     pub wrap_spacing: Option<Expr>,
     pub wrap_align: Option<FlexAlignment>,
+    pub fluid: Option<Expr>,
+    pub grid_height: Option<GridSizing>,
     pub under: u16,
     pub scroll: Option<ScrollOptions>,
 }
@@ -789,6 +791,12 @@ pub enum FlexAlignment {
     Start,
     Center,
     End,
+}
+
+#[derive(Clone, Debug)]
+pub enum GridSizing {
+    AspectRatio { width: Expr, height: Expr },
+    EvenlyDistribute(LengthValue),
 }
 
 #[derive(Clone, Debug)]

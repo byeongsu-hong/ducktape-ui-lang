@@ -1248,6 +1248,31 @@ fn parse_layout_options(kind: &str, parts: &[String], line: &Line) -> Result<Lay
                 ));
             }
             options.height = Some(parse_length(value, line)?);
+        } else if kind == "grid"
+            && let Some(value) = part.strip_prefix("width=")
+        {
+            if options.width.is_some() {
+                return Err(error(
+                    "E074",
+                    line,
+                    format!("invalid layout property `{part}`"),
+                ));
+            }
+            options.width = Some(LengthValue::Fixed(parse_expr(
+                strip_wrapping_parens(value),
+                line,
+            )?));
+        } else if kind == "grid"
+            && let Some(value) = part.strip_prefix("height=")
+        {
+            if options.grid_height.is_some() {
+                return Err(error(
+                    "E074",
+                    line,
+                    format!("invalid layout property `{part}`"),
+                ));
+            }
+            options.grid_height = Some(parse_grid_sizing(value, line)?);
         } else if kind == "stack"
             && let Some(value) = part.strip_prefix("under=")
         {
@@ -1258,8 +1283,28 @@ fn parse_layout_options(kind: &str, parts: &[String], line: &Line) -> Result<Lay
                     "stack under must be an integer from 0 to 65535",
                 )
             })?;
-        } else if is_flex && let Some(value) = part.strip_prefix("spacing=") {
+        } else if (is_flex || kind == "grid")
+            && let Some(value) = part.strip_prefix("spacing=")
+        {
+            if options.spacing.is_some() {
+                return Err(error(
+                    "E074",
+                    line,
+                    format!("invalid layout property `{part}`"),
+                ));
+            }
             options.spacing = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if kind == "grid"
+            && let Some(value) = part.strip_prefix("fluid=")
+        {
+            if options.fluid.is_some() {
+                return Err(error(
+                    "E074",
+                    line,
+                    format!("invalid layout property `{part}`"),
+                ));
+            }
+            options.fluid = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else if is_flex && let Some(value) = part.strip_prefix("padding=") {
             options.padding.all = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else if is_flex && let Some(value) = part.strip_prefix("padding-x=") {
@@ -1349,7 +1394,31 @@ fn parse_layout_options(kind: &str, parts: &[String], line: &Line) -> Result<Lay
             "wrap-spacing and wrap-align require `wrap`",
         ));
     }
+    if options.columns.is_some() && options.fluid.is_some() {
+        return Err(error(
+            "E074",
+            line,
+            "grid columns and fluid are mutually exclusive",
+        ));
+    }
     Ok(options)
+}
+
+fn parse_grid_sizing(source: &str, line: &Line) -> Result<GridSizing, Error> {
+    if let Some(values) = source
+        .strip_prefix("aspect(")
+        .and_then(|value| value.strip_suffix(')'))
+    {
+        let values = parse_expr_list(values, line)?;
+        return match values.as_slice() {
+            [width, height] => Ok(GridSizing::AspectRatio {
+                width: width.clone(),
+                height: height.clone(),
+            }),
+            _ => Err(error("E074", line, "grid aspect expects width and height")),
+        };
+    }
+    Ok(GridSizing::EvenlyDistribute(parse_length(source, line)?))
 }
 
 fn parse_flex_alignment(source: &str, line: &Line) -> Result<FlexAlignment, Error> {

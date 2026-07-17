@@ -1,4 +1,4 @@
-# Ice Language Specification 0.22
+# Ice Language Specification 0.23
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.22 syntax.
+marked “planned” is a design constraint, not accepted 0.23 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.22.
+  block comments are not part of 0.23.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -173,7 +173,7 @@ node           = layout | text | input | button | checkbox | toggler
 layout         = "col" id? column_property* styles? INDENT node+
                | "row" id? flex_property* styles? INDENT node+
                | "scroll" id? scroll_property* styles? INDENT node
-               | "grid" id? ("columns=" expr)? styles? INDENT node+
+               | "grid" id? grid_property* styles? INDENT node+
                | "stack" id? stack_property* styles? INDENT node+
 column_property = flex_property | "max-width=" expr
 flex_property  = ("width=" | "height=") length | "spacing=" expr
@@ -185,6 +185,9 @@ flex_property  = ("width=" | "height=") length | "spacing=" expr
                | "wrap-align=" ("start" | "center" | "end")
 stack_property = ("width=" | "height=") length | "clip=" expr
                | "under=" u16
+grid_property  = "columns=" expr | "fluid=" expr | "width=" expr
+               | "spacing=" expr | "height=" grid_sizing
+grid_sizing    = length | "aspect(" expr "," expr ")"
 scroll_property = "direction=" ("vertical" | "horizontal" | "both")
                 | ("width=" | "height=") length
                 | "bar=" ("visible" | "hidden")
@@ -473,7 +476,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.22 message payloads.
+`Clone` for 0.23 message payloads.
 
 Three typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
@@ -597,7 +600,7 @@ The implemented native nodes are:
 | `col` | vertical children with full sizing, padding, spacing, alignment, clipping and wrapping behavior |
 | `row` | horizontal children with full sizing, padding, spacing, alignment, clipping and wrapping behavior |
 | `scroll` | one child; direction, bounds, scrollbar, anchors, auto-scroll and absolute/relative offset route |
-| `grid` | responsive grid; optional positive `i64` `columns` (default 3) |
+| `grid` | responsive children with pixel width/spacing, fixed columns or fluid max-cell width, and aspect-ratio or evenly distributed `Length` height |
 | `stack` | overlays children with typed width/height, optional clipping and `under=N` intrinsic-base control |
 | `text` | one `str`, `i64`, or `f64` expression with bounds, size/line-height, font, alignment, shaping, wrapping and checked color/weight styles |
 | `input` | required `str` binding; ID, hint, disabled/secure, submit/paste, sizing, alignment, default/mono font and icon properties |
@@ -625,6 +628,12 @@ The implemented native nodes are:
 `if` and `for` are child control-flow nodes inside a layout. There is no virtual
 DOM or runtime reconciliation layer; the iced backend constructs the current
 element tree from state.
+
+Grid `columns=` and `fluid=` are mutually exclusive. `columns=` is a positive
+`i64`; `fluid=` and both dimensions of `height=aspect(W,H)` are positive `f64`
+values. `width=` and `spacing=` are non-negative `f64` pixels. A non-aspect
+`height=` accepts `fill`, `fill(N)`, `shrink`, or a non-negative `f64` pixel
+expression and maps to iced's evenly distributed sizing.
 
 ### Components
 
@@ -764,7 +773,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 0.22 does not claim that remapping.
+extern line; 0.23 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -785,7 +794,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 0.22 native backend is enough for CRUD/settings-style screens, selection,
+The 0.23 native backend is enough for CRUD/settings-style screens, selection,
 media, hover
 overlays, and common pointer events, not all of iced. It still lacks direct
 syntax for canvas, general overlays/modals, rich text
