@@ -905,6 +905,47 @@ fn infer_view(
                 &Type::Bool,
                 span,
             )?;
+            for color in [
+                &options.background,
+                &options.text_color,
+                &options.border_color,
+                &options.shadow_color,
+            ]
+            .into_iter()
+            .flatten()
+            {
+                if !valid_theme_color(color, document) {
+                    return Err(Error::new(
+                        "E129",
+                        span,
+                        format!("unknown tooltip color `{color}`"),
+                    ));
+                }
+            }
+            for (value, label) in [
+                (&options.border_width, "tooltip border width"),
+                (&options.radius, "tooltip radius"),
+                (&options.radius_top_left, "tooltip radius"),
+                (&options.radius_top_right, "tooltip radius"),
+                (&options.radius_bottom_right, "tooltip radius"),
+                (&options.radius_bottom_left, "tooltip radius"),
+                (&options.shadow_blur, "tooltip shadow blur"),
+            ] {
+                if let Some(value) = value {
+                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+                    require_literal_range(value, 0.0, None, label, span)?;
+                }
+            }
+            for value in [&options.shadow_x, &options.shadow_y].into_iter().flatten() {
+                require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+            }
+            if let Some(pixel_snap) = &options.pixel_snap {
+                require_type(
+                    &expr_type(pixel_snap, env, document, span)?,
+                    &Type::Bool,
+                    span,
+                )?;
+            }
             infer_view(content, env, document, signatures, ids)?;
             infer_view(tip, env, document, signatures, ids)?;
         }
@@ -2234,6 +2275,38 @@ view
         let error = analyze(&bad_radius).unwrap_err();
         assert_eq!(error.code, "E128");
         assert!(error.message.contains("progress radius"));
+    }
+
+    #[test]
+    fn checks_tooltip_style_and_rejects_invalid_values() {
+        let source = r#"app Hints
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+view
+  tooltip position=bottom style=rounded background=background text=foreground border=primary/75 border-width=1.0 radius=5.0 radius-tl=2.0 radius-tr=3.0 radius-br=4.0 radius-bl=5.0 shadow=black/50 shadow-x=-1.0 shadow-y=2.0 shadow-blur=8.0 pixel-snap=true
+    text "Hover"
+    text "Tip"
+"#;
+        analyze(source).unwrap();
+
+        let bad_color = source.replace("shadow=black/50", "shadow=missing");
+        let error = analyze(&bad_color).unwrap_err();
+        assert_eq!(error.code, "E129");
+        assert!(error.message.contains("unknown tooltip color"));
+
+        let bad_blur = source.replace("shadow-blur=8.0", "shadow-blur=-1.0");
+        let error = analyze(&bad_blur).unwrap_err();
+        assert_eq!(error.code, "E128");
+        assert!(error.message.contains("tooltip shadow blur"));
+
+        let bad_style = source.replace("style=rounded", "style=unknown");
+        let error = analyze(&bad_style).unwrap_err();
+        assert_eq!(error.code, "E086");
+        assert!(error.message.contains("tooltip style must be"));
     }
 
     #[test]

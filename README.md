@@ -51,7 +51,8 @@ responsive view, float/pin positioning, visibility sensing, a clipboard task,
 configured scrolling with offset events, pointer movement/wheel events,
 formatted text, an extended text input and child-content buttons, plus an
 application event subscription, expanded boolean controls, configured rules,
-sliders with nested status styles, and configured progress bars:
+sliders with nested status styles, configured progress bars, and configured
+native tooltip styles:
 
 - [`tasks.ice`](examples/iced-app/src/ui/tasks.ice) owns UI state, events,
   layout, and style;
@@ -82,7 +83,7 @@ cargo fmt --all
 
 ## Status
 
-This is an executable v0.18 language slice, not yet a complete iced replacement.
+This is an executable v0.19 language slice, not yet a complete iced replacement.
 It implements typed extern data/actions, state, handlers, async tasks, pure
 components, scoped IDs, `if`/`for`, five layouts, twenty native widget forms,
 checked style utilities, formatting, analysis, and iced code generation. Typed

@@ -15,7 +15,7 @@ container API, so container remains partial.
 
 ## Typed system reachability
 
-Ice 0.18 has three checked Rust boundaries:
+Ice 0.19 has three checked Rust boundaries:
 
 | Boundary | Rust ABI | Covers |
 | --- | --- | --- |
@@ -67,7 +67,7 @@ public behavior has direct documented Ice syntax and tests.
 | `text_input` | partial | native binding, hint, disabled/secure, ID, submit/paste, typed width/padding/size/line-height, alignment, default/mono font, icon and basic style; arbitrary fonts and full style catalog missing |
 | `themer` | missing | nested theme boundary |
 | `toggler` | partial | native label/value/disabled event, size/width/spacing, text typography/wrapping/alignment and default-mono font; arbitrary fonts and full style catalog missing |
-| `tooltip` | partial | native two-child content, all positions, gap, padding, snap and delay; custom tooltip style missing |
+| `tooltip` | partial | native two-child content, all positions, gap, padding, viewport snap, delay, nine container presets, checked color/background/border/per-corner radius/shadow/pixel-snap styles; gradient backgrounds, arbitrary runtime closures and advanced classes missing |
 
 ## Application and runtime
 
