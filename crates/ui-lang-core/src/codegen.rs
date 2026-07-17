@@ -602,19 +602,55 @@ fn render_node(
         }
         ViewNode::Button {
             label,
+            content,
+            id,
             disabled,
+            options,
             styles,
             route,
             ..
         } => {
             let style = Style::parse(styles, document);
             let message_code = route_code(route, "", env, document, message)?;
+            let content = if let Some(content) = content {
+                let child_scope = id.as_ref().map_or_else(
+                    || Ok(scope.to_owned()),
+                    |id| id_code(id, scope, env, document),
+                )?;
+                render_node(content, document, message, env, &child_scope)?
+            } else {
+                format!(
+                    "::iced::widget::text({}).into()",
+                    rust_string(label.as_ref().expect("button label"))
+                )
+            };
             let mut code = format!(
-                "::iced::widget::button(::iced::widget::text({}))",
-                rust_string(label)
+                "{{ let __button_content: ::iced::Element<'_, {message}> = {content}; ::iced::widget::button(__button_content)"
             );
             if let Some(padding) = style.padding_code() {
                 write!(code, ".padding({padding})").unwrap();
+            }
+            if let Some(width) = &options.width {
+                write!(code, ".width({})", length_code(width, env, document)?).unwrap();
+            }
+            if let Some(height) = &options.height {
+                write!(code, ".height({})", length_code(height, env, document)?).unwrap();
+            }
+            if let Some(padding) = &options.padding {
+                write!(
+                    code,
+                    ".padding({} as f32)",
+                    expr_code(padding, env, document, ValueMode::Owned)?
+                )
+                .unwrap();
+            }
+            if let Some(clip) = &options.clip {
+                write!(
+                    code,
+                    ".clip({})",
+                    expr_code(clip, env, document, ValueMode::Owned)?
+                )
+                .unwrap();
             }
             if let Some(disabled) = disabled {
                 let disabled = expr_code(disabled, env, document, ValueMode::Owned)?;
@@ -627,7 +663,7 @@ fn render_node(
                 write!(code, ".on_press({message_code})").unwrap();
             }
             code.push_str(&button_style_code(&style, document));
-            Ok(format!("{code}.into()"))
+            Ok(format!("{code}.into() }}"))
         }
         ViewNode::Checkbox {
             label,
@@ -1793,6 +1829,10 @@ fn input_bindings(root: &ViewNode) -> Vec<String> {
                 collect(tip, output);
             }
             ViewNode::MouseArea { content, .. } => collect(content, output),
+            ViewNode::Button {
+                content: Some(content),
+                ..
+            } => collect(content, output),
             ViewNode::Float { content, .. }
             | ViewNode::Pin { content, .. }
             | ViewNode::Sensor { content, .. } => collect(content, output),
@@ -1817,6 +1857,10 @@ fn needs_extern_noop(document: &Document) -> bool {
             | ViewNode::For { children, .. } => children.iter().any(contains),
             ViewNode::Tooltip { content, tip, .. } => contains(content) || contains(tip),
             ViewNode::MouseArea { content, .. } => contains(content),
+            ViewNode::Button {
+                content: Some(content),
+                ..
+            } => contains(content),
             ViewNode::Float { content, .. }
             | ViewNode::Pin { content, .. }
             | ViewNode::Sensor { content, .. } => contains(content),
@@ -2437,6 +2481,31 @@ view
         assert!(generated.contains("code_point: '•'"));
         assert!(generated.contains(".on_submit_maybe(if self.disabled"));
         assert!(generated.contains(".on_paste_maybe(if self.disabled"));
+    }
+
+    #[test]
+    fn lowers_button_children_and_typed_properties() {
+        let source = r#"app Actions
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  disabled = false
+on pressed
+view
+  button #action disabled=disabled width=fill height=48.0 padding=8.0 clip=true -> pressed
+    row
+      text "Save"
+      text "⌘S"
+"#;
+        let generated = compile(source, "actions.ice").unwrap();
+        assert!(generated.contains("let __button_content: ::iced::Element"));
+        assert!(generated.contains("::iced::widget::row(__children)"));
+        assert!(generated.contains(".width(::iced::Fill).height(48.0 as f32)"));
+        assert!(generated.contains(".padding(8.0 as f32).clip(true)"));
+        assert!(generated.contains(".on_press_maybe(if self.disabled"));
     }
 
     #[test]

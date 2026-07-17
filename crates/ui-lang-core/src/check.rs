@@ -337,6 +337,8 @@ fn infer_view(
         ViewNode::Button {
             id,
             disabled,
+            options,
+            content,
             styles,
             route,
             span,
@@ -347,8 +349,24 @@ fn infer_view(
                 let ty = expr_type(disabled, env, document, span)?;
                 require_type(&ty, &Type::Bool, span)?;
             }
+            for length in [&options.width, &options.height].into_iter().flatten() {
+                if let LengthValue::Fixed(value) = length {
+                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+                    require_literal_range(value, 0.0, None, "button size", span)?;
+                }
+            }
+            if let Some(padding) = &options.padding {
+                require_type(&expr_type(padding, env, document, span)?, &Type::F64, span)?;
+                require_literal_range(padding, 0.0, None, "button padding", span)?;
+            }
+            if let Some(clip) = &options.clip {
+                require_type(&expr_type(clip, env, document, span)?, &Type::Bool, span)?;
+            }
             infer_route(route, None, env, document, signatures)?;
             check_styles(styles, document, span, StyleTarget::Button)?;
+            if let Some(content) = content {
+                infer_view(content, env, document, signatures, ids)?;
+            }
         }
         ViewNode::Checkbox {
             label,
@@ -1980,6 +1998,44 @@ view
         let error = analyze(source).unwrap_err();
         assert_eq!(error.code, "E129");
         assert!(error.message.contains("require `icon="));
+    }
+
+    #[test]
+    fn checks_button_child_and_typed_properties() {
+        let source = r#"app Actions
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  disabled = false
+on pressed
+view
+  button #action disabled=disabled width=fill height=48.0 padding=8.0 clip=true -> pressed
+    row
+      text "Save"
+      text "⌘S"
+"#;
+        analyze(source).unwrap();
+    }
+
+    #[test]
+    fn rejects_button_label_and_child_together() {
+        let source = r#"app Actions
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+on pressed
+view
+  button "Save" -> pressed
+    text "Duplicate"
+"#;
+        let error = analyze(source).unwrap_err();
+        assert_eq!(error.code, "E066");
+        assert!(error.message.contains("not both"));
     }
 
     #[test]

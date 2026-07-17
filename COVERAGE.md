@@ -15,7 +15,7 @@ container API, so container remains partial.
 
 ## Typed system reachability
 
-Ice 0.10 has three checked Rust boundaries:
+Ice 0.11 has three checked Rust boundaries:
 
 | Boundary | Rust ABI | Covers |
 | --- | --- | --- |
@@ -31,7 +31,7 @@ public behavior has direct documented Ice syntax and tests.
 
 | iced surface | Ice status | Current representation / missing work |
 | --- | --- | --- |
-| `button` | partial | native label, disabled route, basic styles; icon/content and full style API missing |
+| `button` | partial | native string or arbitrary child content, disabled route, typed size/padding/clip and basic styles; full style catalog missing |
 | `canvas` | missing | drawing program, geometry, cache, events |
 | `checkbox` | partial | native label/value/disabled event; size/spacing/icon/style API missing |
 | `column` | partial | native children, spacing, padding, size/alignment/basic decoration; full sizing API missing |

@@ -1339,18 +1339,41 @@ fn parse_button(
     route: Option<&str>,
     line: &Line,
 ) -> Result<ViewNode, Error> {
-    ensure_leaf(line)?;
+    if line.children.len() > 1 {
+        return Err(error("E066", line, "button accepts at most one child"));
+    }
     let label = parts
         .get(1)
-        .ok_or_else(|| error("E066", line, "button needs a label"))?;
-    let label = string_literal(label, line)?;
+        .filter(|part| part.starts_with('"'))
+        .map(|part| string_literal(part, line))
+        .transpose()?;
+    if label.is_some() && !line.children.is_empty() {
+        return Err(error(
+            "E066",
+            line,
+            "button uses either a string label or one child, not both",
+        ));
+    }
+    if label.is_none() && line.children.is_empty() {
+        return Err(error("E066", line, "button needs a label or one child"));
+    }
     let mut id = None;
     let mut disabled = None;
-    for part in &parts[2..] {
+    let mut options = ButtonOptions::default();
+    let option_start = if label.is_some() { 2 } else { 1 };
+    for part in &parts[option_start..] {
         if part.starts_with('#') {
             id = Some(parse_id(part, line)?);
         } else if let Some(value) = part.strip_prefix("disabled=") {
             disabled = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("width=") {
+            options.width = Some(parse_length(value, line)?);
+        } else if let Some(value) = part.strip_prefix("height=") {
+            options.height = Some(parse_length(value, line)?);
+        } else if let Some(value) = part.strip_prefix("padding=") {
+            options.padding = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("clip=") {
+            options.clip = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else {
             return Err(error(
                 "E066",
@@ -1361,8 +1384,15 @@ fn parse_button(
     }
     Ok(ViewNode::Button {
         label,
+        content: line
+            .children
+            .first()
+            .map(parse_view)
+            .transpose()?
+            .map(Box::new),
         id,
         disabled,
+        options,
         styles,
         route: parse_route(
             route.ok_or_else(|| error("E066", line, "button requires `-> handler`"))?,
