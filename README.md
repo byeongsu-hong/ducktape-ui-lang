@@ -45,8 +45,8 @@ cargo run -p iced-app
 ```
 
 The complete task app is split at the intended boundary and includes grid and
-stack layouts, native controls, an extern tooltip/mouse area, a clipboard task,
-and an application event subscription:
+stack layouts, native controls and media, native and extern tooltip/mouse areas,
+a clipboard task, and an application event subscription:
 
 - [`tasks.ice`](examples/iced-app/src/ui/tasks.ice) owns UI state, events,
   layout, and style;
@@ -77,9 +77,9 @@ cargo fmt --all
 
 ## Status
 
-This is an executable v0.3 language slice, not yet a complete iced replacement.
+This is an executable v0.4 language slice, not yet a complete iced replacement.
 It implements typed extern data/actions, state, handlers, async tasks, pure
-components, scoped IDs, `if`/`for`, five layouts, ten native widget forms,
+components, scoped IDs, `if`/`for`, five layouts, fourteen native widget forms,
 checked style utilities, formatting, analysis, and iced code generation. Typed
 `Element`, `Task`, and `Subscription` adapters expose advanced iced features
 without embedding Rust inside `.ice`. Unsupported syntax is rejected instead

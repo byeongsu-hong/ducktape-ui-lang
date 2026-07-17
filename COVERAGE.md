@@ -15,7 +15,7 @@ container API, so container remains partial.
 
 ## Typed system reachability
 
-Ice 0.3 has three checked Rust boundaries:
+Ice 0.4 has three checked Rust boundaries:
 
 | Boundary | Rust ABI | Covers |
 | --- | --- | --- |
@@ -39,11 +39,11 @@ public behavior has direct documented Ice syntax and tests.
 | `container` | partial | generated around layouts; explicit alignment, clipping, sizing, style API missing |
 | `float` | missing | floating element and translation |
 | `grid` | partial | native children, fixed column count, spacing; fluid columns and height sizing missing |
-| `image` | missing | raster handle, fit, filter, rotation, opacity |
+| `image` | partial | native path, fixed/fill/shrink length, fit, filter, rotation, opacity, scale, expand and radius; memory handles and crop missing |
 | `keyed` | partial | scoped IDs exist; keyed column diffing is not exposed |
 | `lazy` | missing | lazy/cache boundary |
 | `markdown` | missing | parsing/settings/link events |
-| `mouse_area` | missing | pointer/button/enter/exit/scroll events; extern component exercised in sample |
+| `mouse_area` | partial | native button/enter/exit routes and all cursor interactions; move and scroll payload routes missing |
 | `overlay` | missing | modal/overlay positioning and dismissal |
 | `pane_grid` | missing | pane state, resizing, dragging, focus |
 | `pick_list` | missing | choices, selection, open/close events |
@@ -60,14 +60,14 @@ public behavior has direct documented Ice syntax and tests.
 | `slider` | partial | native f64 range/value/step/change/release and horizontal/vertical; shift-step/style API missing |
 | `space` | partial | native fixed width/height; fill and shrink lengths missing |
 | `stack` | partial | native children, clip, size/basic decoration; alignment and full sizing API missing |
-| `svg` | missing | handle, fit, rotation, opacity, style |
+| `svg` | partial | native path, fixed/fill/shrink length, fit, rotation and opacity; memory handles and status style missing |
 | `table` | missing | columns, headers, rows, sizing |
 | `text` | partial | native string/numeric value, size/color/bold; wrapping, shaping, alignment, font and rich spans missing |
 | `text_editor` | missing | content state, actions, highlight, key bindings |
 | `text_input` | partial | native string binding, hint, disabled, ID and basic style; submit/paste/secure/icon/alignment missing |
 | `themer` | missing | nested theme boundary |
 | `toggler` | partial | native label/value/disabled event; size/spacing/style API missing |
-| `tooltip` | missing | position, gap, padding, snap and delay; extern component exercised in sample |
+| `tooltip` | partial | native two-child content, all positions, gap, padding, snap and delay; custom tooltip style missing |
 
 ## Application and runtime
 
@@ -84,7 +84,7 @@ public behavior has direct documented Ice syntax and tests.
 | window | missing | settings, open/close, multiple windows, resize/move/mode/focus/screenshot/monitor operations |
 | event routing | partial | raw event subscription adapter exercised; native event/status types missing |
 | keyboard | missing | key/modifier events and subscriptions |
-| mouse/touch | missing | pointer, wheel, touch and interaction APIs |
+| mouse/touch | partial | native mouse button/enter/exit and all cursor interactions; move/scroll payloads, raw mouse and touch types missing |
 | custom widget | partial | typed owned `Element<'static, Event>` adapter; borrowed elements and custom Theme/Renderer missing |
 | custom renderer | missing | renderer/graphics backend escape hatch |
 

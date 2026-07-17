@@ -29,6 +29,7 @@ state
   view_mode = 0
   external_hover = false
   event_seen = false
+  native_hover = false
 
 component TaskRow(task:Task, loading:bool)
   row #root @w-full items-center p-4 bg-surface border border-border rounded-lg
@@ -95,6 +96,15 @@ on external_hover_changed(next)
 on external_event(next)
   event_seen = next
 
+on native_enter
+  native_hover = true
+
+on native_exit
+  native_hover = false
+
+on native_press
+  native_hover = !native_hover
+
 subscribe
   app_events() -> external_event _
 
@@ -132,6 +142,16 @@ view
         extern native_help(external_hover) -> external_hover_changed _
         if event_seen
           text "External subscription active" @text-xs text-muted
+        row @gap-3 items-center
+          image "examples/iced-app/assets/checker.ppm" width=48.0 height=48.0 fit=cover filter=nearest radius=8.0
+          svg "examples/iced-app/assets/ice.svg" width=48.0 height=48.0 fit=contain opacity=0.9
+          tooltip position=bottom gap=4.0 padding=8.0 delay=100 snap=true
+            mouse enter=native_enter exit=native_exit press=native_press cursor=pointer
+              text "Native pointer area" @text-sm text-foreground
+            col @p-2 bg-surface rounded-md
+              text "Native tooltip" @text-sm text-foreground
+              if native_hover
+                text "Pointer is inside" @text-xs text-muted
       col @w-full gap-2 p-4 bg-surface rounded-lg
         text "View mode" @text-lg font-bold text-foreground
         radio "List" value=0 selected=(view_mode == 0) -> view_mode_changed _

@@ -731,6 +731,147 @@ fn render_node(
                 component.rust_path
             ))
         }
+        ViewNode::Media {
+            kind,
+            source,
+            options,
+            ..
+        } => {
+            let helper = match kind {
+                MediaKind::Image => "image",
+                MediaKind::Svg => "svg",
+            };
+            let source = expr_code(source, env, document, ValueMode::Owned)?;
+            let mut code = format!("::iced::widget::{helper}({source})");
+            if let Some(width) = &options.width {
+                write!(code, ".width({})", length_code(width, env, document)?).unwrap();
+            }
+            if let Some(height) = &options.height {
+                write!(code, ".height({})", length_code(height, env, document)?).unwrap();
+            }
+            if let Some(fit) = options.fit {
+                let fit = match fit {
+                    ContentFit::Contain => "Contain",
+                    ContentFit::Cover => "Cover",
+                    ContentFit::Fill => "Fill",
+                    ContentFit::None => "None",
+                    ContentFit::ScaleDown => "ScaleDown",
+                };
+                write!(code, ".content_fit(::iced::ContentFit::{fit})").unwrap();
+            }
+            if let Some(rotation) = &options.rotation {
+                write!(
+                    code,
+                    ".rotation({} as f32)",
+                    expr_code(rotation, env, document, ValueMode::Owned)?
+                )
+                .unwrap();
+            }
+            if let Some(opacity) = &options.opacity {
+                write!(
+                    code,
+                    ".opacity({} as f32)",
+                    expr_code(opacity, env, document, ValueMode::Owned)?
+                )
+                .unwrap();
+            }
+            if let Some(filter) = options.filter {
+                let filter = match filter {
+                    ImageFilter::Linear => "Linear",
+                    ImageFilter::Nearest => "Nearest",
+                };
+                write!(
+                    code,
+                    ".filter_method(::iced::widget::image::FilterMethod::{filter})"
+                )
+                .unwrap();
+            }
+            if let Some(scale) = &options.scale {
+                write!(
+                    code,
+                    ".scale({} as f32)",
+                    expr_code(scale, env, document, ValueMode::Owned)?
+                )
+                .unwrap();
+            }
+            if let Some(expand) = &options.expand {
+                write!(
+                    code,
+                    ".expand({})",
+                    expr_code(expand, env, document, ValueMode::Owned)?
+                )
+                .unwrap();
+            }
+            if let Some(radius) = &options.radius {
+                write!(
+                    code,
+                    ".border_radius({} as f32)",
+                    expr_code(radius, env, document, ValueMode::Owned)?
+                )
+                .unwrap();
+            }
+            Ok(format!("{code}.into()"))
+        }
+        ViewNode::Tooltip {
+            options,
+            content,
+            tip,
+            ..
+        } => {
+            let content = render_node(content, document, message, env, scope)?;
+            let tip = render_node(tip, document, message, env, scope)?;
+            let position = match options.position {
+                TooltipPosition::Top => "Top",
+                TooltipPosition::Bottom => "Bottom",
+                TooltipPosition::Left => "Left",
+                TooltipPosition::Right => "Right",
+                TooltipPosition::FollowCursor => "FollowCursor",
+            };
+            let gap = expr_code(&options.gap, env, document, ValueMode::Owned)?;
+            let padding = expr_code(&options.padding, env, document, ValueMode::Owned)?;
+            let delay = expr_code(&options.delay_ms, env, document, ValueMode::Owned)?;
+            let snap = expr_code(&options.snap, env, document, ValueMode::Owned)?;
+            Ok(format!(
+                "{{ let __tooltip_content: ::iced::Element<'_, {message}> = {content}; let __tooltip_tip: ::iced::Element<'_, {message}> = {tip}; ::iced::widget::tooltip(__tooltip_content, __tooltip_tip, ::iced::widget::tooltip::Position::{position}).gap({gap} as f32).padding({padding} as f32).delay(::std::time::Duration::from_millis({delay} as u64)).snap_within_viewport({snap}).into() }}"
+            ))
+        }
+        ViewNode::MouseArea {
+            options, content, ..
+        } => {
+            let content = render_node(content, document, message, env, scope)?;
+            let mut code = format!(
+                "{{ let __mouse_content: ::iced::Element<'_, {message}> = {content}; ::iced::widget::mouse_area(__mouse_content)"
+            );
+            for (route, method) in [
+                (&options.press, "on_press"),
+                (&options.release, "on_release"),
+                (&options.double_click, "on_double_click"),
+                (&options.right_press, "on_right_press"),
+                (&options.right_release, "on_right_release"),
+                (&options.middle_press, "on_middle_press"),
+                (&options.middle_release, "on_middle_release"),
+                (&options.enter, "on_enter"),
+                (&options.exit, "on_exit"),
+            ] {
+                if let Some(route) = route {
+                    write!(
+                        code,
+                        ".{method}({})",
+                        route_code(route, "", env, document, message)?
+                    )
+                    .unwrap();
+                }
+            }
+            if let Some(interaction) = options.interaction {
+                write!(
+                    code,
+                    ".interaction(::iced::mouse::Interaction::{})",
+                    mouse_interaction_code(interaction)
+                )
+                .unwrap();
+            }
+            Ok(format!("{code}.into() }}"))
+        }
         ViewNode::If { span, .. } | ViewNode::For { span, .. } => Err(Error::new(
             "E170",
             span,
@@ -1094,6 +1235,11 @@ fn input_bindings(root: &ViewNode) -> Vec<String> {
                     collect(child, output);
                 }
             }
+            ViewNode::Tooltip { content, tip, .. } => {
+                collect(content, output);
+                collect(tip, output);
+            }
+            ViewNode::MouseArea { content, .. } => collect(content, output),
             _ => {}
         }
     }
@@ -1109,10 +1255,59 @@ fn needs_extern_noop(document: &Document) -> bool {
             ViewNode::Layout { children, .. }
             | ViewNode::If { children, .. }
             | ViewNode::For { children, .. } => children.iter().any(contains),
+            ViewNode::Tooltip { content, tip, .. } => contains(content) || contains(tip),
+            ViewNode::MouseArea { content, .. } => contains(content),
             _ => false,
         }
     }
     contains(&document.view) || document.components.iter().any(|item| contains(&item.root))
+}
+
+fn length_code(
+    length: &LengthValue,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<String, Error> {
+    Ok(match length {
+        LengthValue::Fill => "::iced::Fill".into(),
+        LengthValue::Shrink => "::iced::Shrink".into(),
+        LengthValue::Fixed(value) => format!(
+            "{} as f32",
+            expr_code(value, env, document, ValueMode::Owned)?
+        ),
+    })
+}
+
+fn mouse_interaction_code(interaction: MouseInteraction) -> &'static str {
+    match interaction {
+        MouseInteraction::None => "None",
+        MouseInteraction::Hidden => "Hidden",
+        MouseInteraction::Idle => "Idle",
+        MouseInteraction::ContextMenu => "ContextMenu",
+        MouseInteraction::Help => "Help",
+        MouseInteraction::Pointer => "Pointer",
+        MouseInteraction::Progress => "Progress",
+        MouseInteraction::Wait => "Wait",
+        MouseInteraction::Cell => "Cell",
+        MouseInteraction::Crosshair => "Crosshair",
+        MouseInteraction::Text => "Text",
+        MouseInteraction::Alias => "Alias",
+        MouseInteraction::Copy => "Copy",
+        MouseInteraction::Move => "Move",
+        MouseInteraction::NoDrop => "NoDrop",
+        MouseInteraction::NotAllowed => "NotAllowed",
+        MouseInteraction::Grab => "Grab",
+        MouseInteraction::Grabbing => "Grabbing",
+        MouseInteraction::ResizingHorizontally => "ResizingHorizontally",
+        MouseInteraction::ResizingVertically => "ResizingVertically",
+        MouseInteraction::ResizingDiagonallyUp => "ResizingDiagonallyUp",
+        MouseInteraction::ResizingDiagonallyDown => "ResizingDiagonallyDown",
+        MouseInteraction::ResizingColumn => "ResizingColumn",
+        MouseInteraction::ResizingRow => "ResizingRow",
+        MouseInteraction::AllScroll => "AllScroll",
+        MouseInteraction::ZoomIn => "ZoomIn",
+        MouseInteraction::ZoomOut => "ZoomOut",
+    }
 }
 
 fn binding_variant(binding: &str) -> String {
@@ -1554,5 +1749,35 @@ view
         assert!(generated.contains("focus_next().map(|value| __InteropMessage::Focused)"));
         assert!(generated.contains("save().map(|result| match result"));
         assert!(generated.contains("Result::Err(error) => __InteropMessage::Failed(error)"));
+    }
+
+    #[test]
+    fn lowers_media_tooltip_and_pointer_events() {
+        let source = r#"app Media
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+on entered
+on exited
+on pressed
+view
+  col
+    image "photo.ppm" width=fill height=64.0 fit=cover filter=nearest rotation=0.5 opacity=0.8 scale=1.2 expand=true radius=4.0
+    svg "icon.svg" width=48.0 height=shrink fit=scale-down rotation=0.1 opacity=0.9
+    tooltip position=cursor gap=2.0 padding=5.0 delay=100 snap=false
+      mouse enter=entered exit=exited press=pressed cursor=pointer
+        text "Hover"
+      text "Tip"
+"#;
+        let generated = compile(source, "media.ice").unwrap();
+        assert!(generated.contains("::iced::widget::image(\"photo.ppm\".to_owned())"));
+        assert!(generated.contains(".filter_method(::iced::widget::image::FilterMethod::Nearest)"));
+        assert!(generated.contains("::iced::widget::svg(\"icon.svg\".to_owned())"));
+        assert!(generated.contains("tooltip::Position::FollowCursor"));
+        assert!(generated.contains(".delay(::std::time::Duration::from_millis(100 as u64))"));
+        assert!(generated.contains(".on_enter(__MediaMessage::Entered)"));
+        assert!(generated.contains(".interaction(::iced::mouse::Interaction::Pointer)"));
     }
 }

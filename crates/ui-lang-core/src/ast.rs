@@ -291,6 +291,127 @@ pub enum ViewNode {
         route: Option<Route>,
         span: Span,
     },
+    Media {
+        kind: MediaKind,
+        source: Expr,
+        options: MediaOptions,
+        span: Span,
+    },
+    Tooltip {
+        options: TooltipOptions,
+        content: Box<ViewNode>,
+        tip: Box<ViewNode>,
+        span: Span,
+    },
+    MouseArea {
+        options: MouseAreaOptions,
+        content: Box<ViewNode>,
+        span: Span,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MediaKind {
+    Image,
+    Svg,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct MediaOptions {
+    pub width: Option<LengthValue>,
+    pub height: Option<LengthValue>,
+    pub fit: Option<ContentFit>,
+    pub rotation: Option<Expr>,
+    pub opacity: Option<Expr>,
+    pub filter: Option<ImageFilter>,
+    pub scale: Option<Expr>,
+    pub expand: Option<Expr>,
+    pub radius: Option<Expr>,
+}
+
+#[derive(Clone, Debug)]
+pub enum LengthValue {
+    Fill,
+    Shrink,
+    Fixed(Expr),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ContentFit {
+    Contain,
+    Cover,
+    Fill,
+    None,
+    ScaleDown,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ImageFilter {
+    Linear,
+    Nearest,
+}
+
+#[derive(Clone, Debug)]
+pub struct TooltipOptions {
+    pub position: TooltipPosition,
+    pub gap: Expr,
+    pub padding: Expr,
+    pub delay_ms: Expr,
+    pub snap: Expr,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TooltipPosition {
+    Top,
+    Bottom,
+    Left,
+    Right,
+    FollowCursor,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct MouseAreaOptions {
+    pub press: Option<Route>,
+    pub release: Option<Route>,
+    pub double_click: Option<Route>,
+    pub right_press: Option<Route>,
+    pub right_release: Option<Route>,
+    pub middle_press: Option<Route>,
+    pub middle_release: Option<Route>,
+    pub enter: Option<Route>,
+    pub exit: Option<Route>,
+    pub interaction: Option<MouseInteraction>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MouseInteraction {
+    None,
+    Hidden,
+    Idle,
+    ContextMenu,
+    Help,
+    Pointer,
+    Progress,
+    Wait,
+    Cell,
+    Crosshair,
+    Text,
+    Alias,
+    Copy,
+    Move,
+    NoDrop,
+    NotAllowed,
+    Grab,
+    Grabbing,
+    ResizingHorizontally,
+    ResizingVertically,
+    ResizingDiagonallyUp,
+    ResizingDiagonallyDown,
+    ResizingColumn,
+    ResizingRow,
+    AllScroll,
+    ZoomIn,
+    ZoomOut,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
