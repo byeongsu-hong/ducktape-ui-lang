@@ -1650,7 +1650,6 @@ fn parse_slider(
     route: Option<&str>,
     line: &Line,
 ) -> Result<ViewNode, Error> {
-    ensure_leaf(line)?;
     let value = parts
         .get(1)
         .ok_or_else(|| error("E076", line, "slider needs a value expression"))?;
@@ -1687,12 +1686,15 @@ fn parse_slider(
             ));
         }
     }
+    for child in &line.children {
+        parse_slider_style(child, &mut options.style)?;
+    }
     Ok(ViewNode::Slider {
         value: parse_expr(value, line)?,
         min: min.ok_or_else(|| error("E076", line, "slider requires `min=value`"))?,
         max: max.ok_or_else(|| error("E076", line, "slider requires `max=value`"))?,
         step,
-        options,
+        options: Box::new(options),
         vertical,
         styles,
         route: parse_route(
@@ -1702,6 +1704,108 @@ fn parse_slider(
         release,
         span: Span::line(line.number),
     })
+}
+
+fn parse_slider_style(line: &Line, styles: &mut SliderStyleSet) -> Result<(), Error> {
+    ensure_leaf(line)?;
+    let parts = split_words(&line.text);
+    let (slot, status) = match parts.first().map(String::as_str) {
+        Some("active") => (&mut styles.active, "active"),
+        Some("hovered") => (&mut styles.hovered, "hovered"),
+        Some("dragged") => (&mut styles.dragged, "dragged"),
+        _ => {
+            return Err(error(
+                "E076",
+                line,
+                "slider style block must be active, hovered, or dragged",
+            ));
+        }
+    };
+    if slot.is_some() {
+        return Err(error(
+            "E076",
+            line,
+            format!("duplicate slider {status} style"),
+        ));
+    }
+    let mut style = SliderStyle {
+        span: Some(Span::line(line.number)),
+        ..SliderStyle::default()
+    };
+    for part in &parts[1..] {
+        if let Some(value) = part.strip_prefix("rail-start=") {
+            style.rail_start = Some(value.to_owned());
+        } else if let Some(value) = part.strip_prefix("rail-end=") {
+            style.rail_end = Some(value.to_owned());
+        } else if let Some(value) = part.strip_prefix("rail-width=") {
+            style.rail_width = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("rail-border=") {
+            style.rail_border_color = Some(value.to_owned());
+        } else if let Some(value) = part.strip_prefix("rail-border-width=") {
+            style.rail_border_width = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("rail-radius=") {
+            style.rail_radius = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("rail-radius-tl=") {
+            style.rail_radius_top_left = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("rail-radius-tr=") {
+            style.rail_radius_top_right = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("rail-radius-br=") {
+            style.rail_radius_bottom_right = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("rail-radius-bl=") {
+            style.rail_radius_bottom_left = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("handle=") {
+            style.handle_shape = Some(parse_slider_handle(value, line)?);
+        } else if let Some(value) = part.strip_prefix("handle-color=") {
+            style.handle_color = Some(value.to_owned());
+        } else if let Some(value) = part.strip_prefix("handle-border=") {
+            style.handle_border_color = Some(value.to_owned());
+        } else if let Some(value) = part.strip_prefix("handle-border-width=") {
+            style.handle_border_width = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("handle-radius=") {
+            style.handle_radius = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("handle-radius-tl=") {
+            style.handle_radius_top_left = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("handle-radius-tr=") {
+            style.handle_radius_top_right = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("handle-radius-br=") {
+            style.handle_radius_bottom_right =
+                Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("handle-radius-bl=") {
+            style.handle_radius_bottom_left = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else {
+            return Err(error(
+                "E076",
+                line,
+                format!("unknown slider style property `{part}`"),
+            ));
+        }
+    }
+    *slot = Some(style);
+    Ok(())
+}
+
+fn parse_slider_handle(source: &str, line: &Line) -> Result<SliderHandleShape, Error> {
+    if let Some(value) = source
+        .strip_prefix("circle(")
+        .and_then(|value| value.strip_suffix(')'))
+    {
+        return Ok(SliderHandleShape::Circle(parse_expr(value, line)?));
+    }
+    if let Some(value) = source
+        .strip_prefix("rect(")
+        .and_then(|value| value.strip_suffix(')'))
+    {
+        return Ok(SliderHandleShape::Rectangle {
+            width: value
+                .parse()
+                .map_err(|_| error("E076", line, "slider rectangle width must be a u16"))?,
+        });
+    }
+    Err(error(
+        "E076",
+        line,
+        "slider handle must be circle(N) or rect(N)",
+    ))
 }
 
 fn parse_progress(parts: &[String], styles: Vec<String>, line: &Line) -> Result<ViewNode, Error> {

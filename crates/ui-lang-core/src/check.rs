@@ -482,6 +482,7 @@ fn infer_view(
                     }
                 }
             }
+            check_slider_styles(&options.style, env, document, span)?;
             infer_route(route, Some(Type::F64), env, document, signatures)?;
             if let Some(release) = release {
                 infer_route(release, None, env, document, signatures)?;
@@ -1100,6 +1101,80 @@ fn check_bool_control_options(
             span,
             "checkbox icon properties require `icon=\"x\"`",
         ));
+    }
+    Ok(())
+}
+
+fn check_slider_styles(
+    styles: &SliderStyleSet,
+    env: &HashMap<String, Type>,
+    document: &Document,
+    parent_span: &Span,
+) -> Result<(), Error> {
+    for style in [&styles.active, &styles.hovered, &styles.dragged]
+        .into_iter()
+        .flatten()
+    {
+        let span = style.span.as_ref().unwrap_or(parent_span);
+        for color in [
+            &style.rail_start,
+            &style.rail_end,
+            &style.rail_border_color,
+            &style.handle_color,
+            &style.handle_border_color,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if !valid_theme_color(color, document) {
+                return Err(Error::new(
+                    "E129",
+                    span,
+                    format!("unknown slider color `{color}`"),
+                ));
+            }
+        }
+        for (value, label) in [
+            (&style.rail_width, "slider rail width"),
+            (&style.rail_border_width, "slider rail border width"),
+            (&style.rail_radius, "slider rail radius"),
+            (&style.rail_radius_top_left, "slider rail radius"),
+            (&style.rail_radius_top_right, "slider rail radius"),
+            (&style.rail_radius_bottom_right, "slider rail radius"),
+            (&style.rail_radius_bottom_left, "slider rail radius"),
+            (&style.handle_border_width, "slider handle border width"),
+            (&style.handle_radius, "slider handle radius"),
+            (&style.handle_radius_top_left, "slider handle radius"),
+            (&style.handle_radius_top_right, "slider handle radius"),
+            (&style.handle_radius_bottom_right, "slider handle radius"),
+            (&style.handle_radius_bottom_left, "slider handle radius"),
+        ] {
+            if let Some(value) = value {
+                require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+                require_literal_range(value, 0.0, None, label, span)?;
+            }
+        }
+        if let Some(SliderHandleShape::Circle(radius)) = &style.handle_shape {
+            require_type(&expr_type(radius, env, document, span)?, &Type::F64, span)?;
+            require_literal_range(radius, 0.0, None, "slider handle radius", span)?;
+        }
+        let has_handle_radius = style.handle_radius.is_some()
+            || style.handle_radius_top_left.is_some()
+            || style.handle_radius_top_right.is_some()
+            || style.handle_radius_bottom_right.is_some()
+            || style.handle_radius_bottom_left.is_some();
+        if has_handle_radius
+            && !matches!(
+                &style.handle_shape,
+                Some(SliderHandleShape::Rectangle { .. })
+            )
+        {
+            return Err(Error::new(
+                "E129",
+                span,
+                "slider handle radius requires `handle=rect(N)` in the same status",
+            ));
+        }
     }
     Ok(())
 }
@@ -2053,6 +2128,9 @@ on changed(next)
 view
   col
     slider amount min=0.0 max=100.0 step=5.0 default=50.0 shift-step=1.0 width=fill(2) height=20.0 -> changed _
+      active rail-start=primary rail-end=background rail-width=4.0 rail-border=transparent rail-border-width=1.0 rail-radius=2.0 rail-radius-tl=1.0 handle=circle(7.0) handle-color=primary handle-border=foreground handle-border-width=1.0
+      hovered rail-start=foreground rail-end=background rail-radius-tr=3.0 rail-radius-br=3.0 rail-radius-bl=2.0 handle=rect(12) handle-color=foreground handle-radius=3.0 handle-radius-tl=1.0 handle-radius-tr=2.0 handle-radius-br=3.0 handle-radius-bl=4.0
+      dragged rail-start=danger handle=circle(8.0) handle-color=danger
     slider amount min=0.0 max=100.0 step=5.0 default=50.0 shift-step=1.0 vertical width=20.0 height=fill -> changed _
 "#;
         analyze(source).unwrap();
@@ -2071,6 +2149,21 @@ view
         let error = analyze(&bad_range).unwrap_err();
         assert_eq!(error.code, "E128");
         assert!(error.message.contains("min cannot exceed max"));
+
+        let bad_color = source.replace("rail-start=primary", "rail-start=missing");
+        let error = analyze(&bad_color).unwrap_err();
+        assert_eq!(error.code, "E129");
+        assert!(error.message.contains("unknown slider color"));
+
+        let bad_metric = source.replace("rail-width=4.0", "rail-width=-1.0");
+        let error = analyze(&bad_metric).unwrap_err();
+        assert_eq!(error.code, "E128");
+        assert!(error.message.contains("slider rail width"));
+
+        let bad_handle = source.replace("handle=rect(12)", "handle=circle(7.0)");
+        let error = analyze(&bad_handle).unwrap_err();
+        assert_eq!(error.code, "E129");
+        assert!(error.message.contains("requires `handle=rect"));
     }
 
     #[test]

@@ -248,7 +248,7 @@ pub enum ViewNode {
         min: Expr,
         max: Expr,
         step: Expr,
-        options: SliderOptions,
+        options: Box<SliderOptions>,
         vertical: bool,
         styles: Vec<String>,
         route: Route,
@@ -493,6 +493,44 @@ pub struct SliderOptions {
     pub shift_step: Option<Expr>,
     pub width: Option<LengthValue>,
     pub height: Option<LengthValue>,
+    pub style: SliderStyleSet,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct SliderStyleSet {
+    pub active: Option<SliderStyle>,
+    pub hovered: Option<SliderStyle>,
+    pub dragged: Option<SliderStyle>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct SliderStyle {
+    pub span: Option<Span>,
+    pub rail_start: Option<String>,
+    pub rail_end: Option<String>,
+    pub rail_width: Option<Expr>,
+    pub rail_border_color: Option<String>,
+    pub rail_border_width: Option<Expr>,
+    pub rail_radius: Option<Expr>,
+    pub rail_radius_top_left: Option<Expr>,
+    pub rail_radius_top_right: Option<Expr>,
+    pub rail_radius_bottom_right: Option<Expr>,
+    pub rail_radius_bottom_left: Option<Expr>,
+    pub handle_shape: Option<SliderHandleShape>,
+    pub handle_color: Option<String>,
+    pub handle_border_color: Option<String>,
+    pub handle_border_width: Option<Expr>,
+    pub handle_radius: Option<Expr>,
+    pub handle_radius_top_left: Option<Expr>,
+    pub handle_radius_top_right: Option<Expr>,
+    pub handle_radius_bottom_right: Option<Expr>,
+    pub handle_radius_bottom_left: Option<Expr>,
+}
+
+#[derive(Clone, Debug)]
+pub enum SliderHandleShape {
+    Circle(Expr),
+    Rectangle { width: u16 },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

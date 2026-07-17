@@ -756,6 +756,7 @@ fn render_node(
                     write!(code, ".{method}({})", length_code(length, env, document)?).unwrap();
                 }
             }
+            append_slider_styles(&mut code, &options.style, env, document)?;
             if let Some(release) = release {
                 write!(
                     code,
@@ -1908,6 +1909,136 @@ fn length_code(
     })
 }
 
+fn radius_code(
+    uniform: Option<&Expr>,
+    corners: [Option<&Expr>; 4],
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<Option<String>, Error> {
+    if uniform.is_none() && corners.iter().all(Option::is_none) {
+        return Ok(None);
+    }
+    let base = uniform
+        .map(|value| expr_code(value, env, document, ValueMode::Owned))
+        .transpose()?
+        .unwrap_or_else(|| "0.0".to_owned());
+    let mut values = Vec::with_capacity(4);
+    for corner in corners {
+        values.push(
+            corner
+                .map(|value| expr_code(value, env, document, ValueMode::Owned))
+                .transpose()?
+                .unwrap_or_else(|| base.clone()),
+        );
+    }
+    Ok(Some(format!(
+        "::iced::border::Radius {{ top_left: {} as f32, top_right: {} as f32, bottom_right: {} as f32, bottom_left: {} as f32 }}",
+        values[0], values[1], values[2], values[3]
+    )))
+}
+
+fn append_slider_styles(
+    code: &mut String,
+    styles: &SliderStyleSet,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<(), Error> {
+    if styles.active.is_none() && styles.hovered.is_none() && styles.dragged.is_none() {
+        return Ok(());
+    }
+    let complete = styles.active.is_some() && styles.hovered.is_some() && styles.dragged.is_some();
+    code.push_str(".style(move |__theme, __status| { let mut __style = ::iced::widget::slider::default(__theme, __status); match __status {");
+    for (status, style) in [
+        ("Active", &styles.active),
+        ("Hovered", &styles.hovered),
+        ("Dragged", &styles.dragged),
+    ] {
+        if let Some(style) = style {
+            write!(code, " ::iced::widget::slider::Status::{status} => {{").unwrap();
+            append_slider_style_fields(code, style, env, document)?;
+            code.push_str(" }");
+        }
+    }
+    if !complete {
+        code.push_str(" _ => {}");
+    }
+    code.push_str(" } __style })");
+    Ok(())
+}
+
+fn append_slider_style_fields(
+    code: &mut String,
+    style: &SliderStyle,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<(), Error> {
+    for (color, field) in [
+        (&style.rail_start, "__style.rail.backgrounds.0"),
+        (&style.rail_end, "__style.rail.backgrounds.1"),
+        (&style.rail_border_color, "__style.rail.border.color"),
+        (&style.handle_color, "__style.handle.background"),
+        (&style.handle_border_color, "__style.handle.border_color"),
+    ] {
+        if let Some(color) = color {
+            write!(code, " {field} = {}.into();", theme_color(document, color)).unwrap();
+        }
+    }
+    for (value, field) in [
+        (&style.rail_width, "__style.rail.width"),
+        (&style.rail_border_width, "__style.rail.border.width"),
+        (&style.handle_border_width, "__style.handle.border_width"),
+    ] {
+        if let Some(value) = value {
+            write!(
+                code,
+                " {field} = {} as f32;",
+                expr_code(value, env, document, ValueMode::Owned)?
+            )
+            .unwrap();
+        }
+    }
+    if let Some(radius) = radius_code(
+        style.rail_radius.as_ref(),
+        [
+            style.rail_radius_top_left.as_ref(),
+            style.rail_radius_top_right.as_ref(),
+            style.rail_radius_bottom_right.as_ref(),
+            style.rail_radius_bottom_left.as_ref(),
+        ],
+        env,
+        document,
+    )? {
+        write!(code, " __style.rail.border.radius = {radius};").unwrap();
+    }
+    if let Some(shape) = &style.handle_shape {
+        let shape = match shape {
+            SliderHandleShape::Circle(radius) => format!(
+                "::iced::widget::slider::HandleShape::Circle {{ radius: {} as f32 }}",
+                expr_code(radius, env, document, ValueMode::Owned)?
+            ),
+            SliderHandleShape::Rectangle { width } => {
+                let radius = radius_code(
+                    style.handle_radius.as_ref(),
+                    [
+                        style.handle_radius_top_left.as_ref(),
+                        style.handle_radius_top_right.as_ref(),
+                        style.handle_radius_bottom_right.as_ref(),
+                        style.handle_radius_bottom_left.as_ref(),
+                    ],
+                    env,
+                    document,
+                )?
+                .unwrap_or_else(|| "::iced::border::Radius::default()".to_owned());
+                format!(
+                    "::iced::widget::slider::HandleShape::Rectangle {{ width: {width}, border_radius: {radius} }}"
+                )
+            }
+        };
+        write!(code, " __style.handle.shape = {shape};").unwrap();
+    }
+    Ok(())
+}
+
 fn append_rule_options(
     code: &mut String,
     options: &RuleOptions,
@@ -1956,28 +2087,19 @@ fn append_rule_options(
         write!(code, " __style.color = {};", theme_color(document, color)).unwrap();
     }
     if has_radius {
-        let base = options
-            .radius
-            .as_ref()
-            .map(|value| expr_code(value, env, document, ValueMode::Owned))
-            .transpose()?
-            .unwrap_or_else(|| "0.0".to_owned());
-        let corner = |value: &Option<Expr>| -> Result<String, Error> {
-            value
-                .as_ref()
-                .map(|value| expr_code(value, env, document, ValueMode::Owned))
-                .transpose()
-                .map(|value| value.unwrap_or_else(|| base.clone()))
-        };
-        write!(
-            code,
-            " __style.radius = ::iced::border::Radius {{ top_left: {} as f32, top_right: {} as f32, bottom_right: {} as f32, bottom_left: {} as f32 }};",
-            corner(&options.radius_top_left)?,
-            corner(&options.radius_top_right)?,
-            corner(&options.radius_bottom_right)?,
-            corner(&options.radius_bottom_left)?,
-        )
-        .unwrap();
+        let radius = radius_code(
+            options.radius.as_ref(),
+            [
+                options.radius_top_left.as_ref(),
+                options.radius_top_right.as_ref(),
+                options.radius_bottom_right.as_ref(),
+                options.radius_bottom_left.as_ref(),
+            ],
+            env,
+            document,
+        )?
+        .expect("rule radius options were present");
+        write!(code, " __style.radius = {radius};").unwrap();
     }
     if let Some(snap) = &options.snap {
         write!(
@@ -2592,6 +2714,9 @@ view
   grid columns=2 @gap-2
     toggler "Enabled" checked=enabled -> enabled_changed _
     slider amount min=0.0 max=100.0 step=0.5 default=50.0 shift-step=0.1 vertical width=20.0 height=fill(2) release=released -> amount_changed _
+      active rail-start=primary rail-end=background rail-width=4.0 rail-border=transparent rail-border-width=1.0 rail-radius=2.0 rail-radius-tl=1.0 handle=circle(7.0) handle-color=primary handle-border=foreground handle-border-width=1.0
+      hovered rail-start=foreground rail-end=background handle=rect(12) handle-color=foreground handle-radius=3.0 handle-radius-tl=1.0
+      dragged rail-start=danger handle=circle(8.0) handle-color=danger
     slider amount min=0.0 max=100.0 step=1.0 width=fill height=18.0 -> amount_changed _
     progress amount vertical
     radio "First" value=0 selected=(choice == 0) -> choice_changed _
@@ -2612,6 +2737,13 @@ view
         assert!(generated.contains(".default(50.0).shift_step(0.1).width(20.0 as f32).height(::iced::Length::FillPortion(2))"));
         assert!(generated.contains("::iced::widget::slider"));
         assert!(generated.contains(".width(::iced::Fill).height(18.0 as f32)"));
+        assert!(generated.contains(".style(move |__theme, __status|"));
+        assert!(generated.contains("slider::Status::Active"));
+        assert!(generated.contains("slider::Status::Hovered"));
+        assert!(generated.contains("slider::Status::Dragged"));
+        assert!(generated.contains("slider::HandleShape::Circle"));
+        assert!(generated.contains("slider::HandleShape::Rectangle"));
+        assert!(generated.contains("__style.rail.backgrounds.0"));
         assert!(generated.contains("::iced::widget::progress_bar"));
         assert!(generated.contains(".vertical()"));
         assert!(generated.contains("::iced::widget::radio"));

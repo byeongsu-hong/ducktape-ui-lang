@@ -1,4 +1,4 @@
-# Ice Language Specification 0.16
+# Ice Language Specification 0.17
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.16 syntax.
+marked “planned” is a design constraint, not accepted 0.17 syntax.
 
 ## 1. Design contract
 
@@ -79,7 +79,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.16.
+  block comments are not part of 0.17.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -200,10 +200,22 @@ checkbox_icon_property = "icon=" string
                        | "icon-shaping=" ("auto" | "basic" | "advanced")
 text_alignment = "default" | "left" | "center" | "right" | "justified"
 slider         = "slider" expr "min=" expr "max=" expr slider_property*
-                 styles? "->" route
+                 styles? "->" route (INDENT slider_status+)?
 slider_property = ("step=" | "default=" | "shift-step=") expr
                 | ("width=" | "height=") length
                 | "vertical" | "release=" route
+slider_status  = ("active" | "hovered" | "dragged") slider_style_property*
+slider_style_property
+               = ("rail-start=" | "rail-end=" | "rail-border="
+                 | "handle-color=" | "handle-border=") name ("/" u8)?
+               | ("rail-width=" | "rail-border-width="
+                 | "handle-border-width=") expr
+               | ("rail-radius=" | "rail-radius-tl=" | "rail-radius-tr="
+                 | "rail-radius-br=" | "rail-radius-bl=") expr
+               | "handle=" ("circle(" expr ")" | "rect(" u16 ")")
+               | ("handle-radius=" | "handle-radius-tl="
+                 | "handle-radius-tr=" | "handle-radius-br="
+                 | "handle-radius-bl=") expr
 progress       = "progress" expr ("min=" expr)? ("max=" expr)?
                  "vertical"? styles?
 radio          = "radio" expr "value=" expr "selected=" expr
@@ -324,6 +336,13 @@ sliders accept any length for width and fixed height; vertical sliders accept
 fixed width and any length for height. Literal reversed ranges, invalid defaults,
 and fluid cross-axis sizes are rejected before code generation.
 
+A slider may own one nested `active`, `hovered`, and `dragged` style block.
+Each block starts from iced's default style for that status and overrides any
+listed rail colors/width/border/radius or handle shape/color/border/radius.
+Colors are checked theme tokens with optional opacity. Rectangle widths are
+`u16`; every other metric is a non-negative f64. Handle corner radii require a
+rectangle handle in the same status block.
+
 `pick` requires a homogeneous `[T]` options expression and a matching optional
 `T?` selection. Its main route carries `T`; `open=` and `close=` routes carry no
 payload. Pick values may be bool, i64, f64, str, or an extern type. Fixed
@@ -386,7 +405,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.16 message payloads.
+`Clone` for 0.17 message payloads.
 
 Three typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
@@ -517,7 +536,7 @@ The implemented native nodes are:
 | `button` | string label or one child; optional ID/disabled, typed size/padding/clip, required route |
 | `checkbox` | string label, bool value/route, disabled, sizing/typography/wrapping/font and custom icon properties |
 | `toggler` | string label, bool value/route, disabled, sizing/typography/wrapping/font/alignment properties |
-| `slider` | `f64` value/range/default/normal+shift steps, direction-aware sizing, change and release routes |
+| `slider` | `f64` value/range/default/normal+shift steps, direction-aware sizing, change/release routes and nested status styles |
 | `progress` | `f64` value/range, optional vertical axis |
 | `radio` | string label, `i64` or bool value, bool `selected`, value-payload route |
 | `pick` | `[T]` options, `T?` selection, placeholder/size/open/close properties, `T`-payload route |
@@ -675,7 +694,7 @@ The implemented families are:
 `cargo check` so rustc verifies extern items and generated iced types. A missing
 Rust item is named by its `crate::module::item` path in rustc's diagnostic. A
 future source-map layer may remap those rustc spans into the precise extern line;
-0.16 does not claim that remapping.
+0.17 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -695,7 +714,7 @@ skips `.git` and `target`.
 
 ## 12. Current coverage and escape hatches
 
-The 0.16 native backend is enough for CRUD/settings-style screens, selection,
+The 0.17 native backend is enough for CRUD/settings-style screens, selection,
 media, hover
 overlays, and common pointer events, not all of iced. It still lacks direct
 syntax for canvas, general overlays/modals, rich text
@@ -734,4 +753,4 @@ tooltip/mouse-area components including pointer movement and wheel payloads,
 raster and SVG media, configured scrolling with offset events,
 responsive/positioned content, visibility sensing, formatted text, extended
 text input, child-content buttons, configured boolean controls, rules and
-sliders, a clipboard task, and a raw-event subscription.
+status-styled sliders, a clipboard task, and a raw-event subscription.
