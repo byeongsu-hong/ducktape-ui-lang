@@ -442,7 +442,7 @@ view
     grid spacing=16.0 width=640.0 height=aspect(16.0,9.0) fluid=280.0 @w-full gap-4
       col @w-full gap-2 p-4 bg-surface rounded-lg
         text "Controls" width=fill height=30.0 size=18.0 line-height-px=22.0 font=default align-x=left align-y=center shaping=advanced wrapping=word @font-bold text-foreground
-        theme tokyo-night text=white background=background
+        theme tokyo-night text=white background=linear(1.57, background@0.0, surface@1.0)
           qr project_code total-size=112.0 cell=foreground background=surface
         toggler "Notifications" checked=notifications size=20.0 width=fill spacing=8.0 text-size=14.0 line-height=1.2 shaping=auto wrapping=word font=default align=left -> notifications_changed _
         slider volume min=0.0 max=100.0 step=5.0 default=50.0 shift-step=1.0 width=fill(2) height=20.0 release=volume_committed -> volume_changed _

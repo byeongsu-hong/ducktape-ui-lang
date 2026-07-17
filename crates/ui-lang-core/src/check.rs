@@ -2147,16 +2147,24 @@ fn infer_view(
             span,
             ..
         } => {
-            for (color, label) in [(text, "text"), (background, "background")] {
-                if let Some(color) = color
-                    && !valid_theme_color(color, document)
-                {
-                    return Err(Error::new(
-                        "E137",
-                        span,
-                        format!("unknown nested theme {label} color `{color}`"),
-                    ));
-                }
+            if let Some(color) = text
+                && !valid_theme_color(color, document)
+            {
+                return Err(Error::new(
+                    "E137",
+                    span,
+                    format!("unknown nested theme text color `{color}`"),
+                ));
+            }
+            if let Some(background) = background {
+                check_background_value(
+                    background,
+                    env,
+                    document,
+                    span,
+                    "E137",
+                    "nested theme background",
+                )?;
             }
             infer_view(content, env, document, signatures, ids)?;
         }
@@ -4199,6 +4207,14 @@ view
     text "Hello"
 "#;
         let error = analyze(source).unwrap_err();
+        assert_eq!(error.code, "E137");
+        assert!(error.message.contains("missing"));
+
+        let source = source.replace(
+            "theme dark text=missing",
+            "theme dark background=linear(1.57, background@0.0, missing@1.0)",
+        );
+        let error = analyze(&source).unwrap_err();
         assert_eq!(error.code, "E137");
         assert!(error.message.contains("missing"));
     }

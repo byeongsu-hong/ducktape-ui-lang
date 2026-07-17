@@ -2438,11 +2438,11 @@ fn render_node(
             if let Some(color) = text {
                 write!(code, ".text_color(|_| {})", theme_color(document, color)).unwrap();
             }
-            if let Some(color) = background {
+            if let Some(background) = background {
                 write!(
                     code,
-                    ".background(|_| ::iced::Background::Color({}))",
-                    theme_color(document, color)
+                    ".background(|_| {})",
+                    background_code(background, env, document)?
                 )
                 .unwrap();
             }
@@ -5801,8 +5801,10 @@ view
   col
     theme app
       text "App theme"
-    theme tokyo-night text=foreground background=surface
+    theme tokyo-night text=foreground background=linear(1.57, surface@0.0, background@1.0)
       text "Built-in theme"
+    theme dark background=surface
+      text "Solid background"
     theme
       text "Default mode"
 "#;
@@ -5813,6 +5815,7 @@ view
         );
         assert!(generated.contains(".text_color(|_| ::iced::Color"));
         assert!(generated.contains(".background(|_| ::iced::Background::Color"));
+        assert!(generated.contains(".background(|_| ::iced::Background::from(::iced::gradient::Linear::new(1.57 as f32).add_stop(0.0 as f32"));
         assert!(generated.contains("themer(::std::option::Option::None"));
     }
 

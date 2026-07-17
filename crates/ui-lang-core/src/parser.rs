@@ -2686,7 +2686,7 @@ fn parse_theme(parts: &[String], styles: Vec<String>, line: &Line) -> Result<Vie
         if let Some(value) = part.strip_prefix("text=") {
             text = Some(value.to_owned());
         } else if let Some(value) = part.strip_prefix("background=") {
-            background = Some(value.to_owned());
+            background = Some(parse_background_value(value, line)?);
         } else {
             return Err(error(
                 "E094",
