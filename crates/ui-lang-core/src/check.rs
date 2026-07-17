@@ -276,6 +276,7 @@ fn infer_view(
             id,
             binding,
             disabled,
+            options,
             styles,
             span,
             ..
@@ -292,6 +293,44 @@ fn infer_view(
             if let Some(disabled) = disabled {
                 let ty = expr_type(disabled, env, document, span)?;
                 require_type(&ty, &Type::Bool, span)?;
+            }
+            if let Some(secure) = &options.secure {
+                require_type(&expr_type(secure, env, document, span)?, &Type::Bool, span)?;
+            }
+            if let Some(route) = &options.submit {
+                infer_route(route, None, env, document, signatures)?;
+            }
+            if let Some(route) = &options.paste {
+                infer_route(route, Some(Type::Str), env, document, signatures)?;
+            }
+            if let Some(length) = &options.width
+                && let LengthValue::Fixed(value) = length
+            {
+                require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+                require_literal_range(value, 0.0, None, "input width", span)?;
+            }
+            for (value, label, min) in [
+                (&options.padding, "input padding", 0.0),
+                (&options.text_size, "input text size", f64::EPSILON),
+                (&options.line_height, "input line height", f64::EPSILON),
+                (&options.icon_size, "input icon size", f64::EPSILON),
+                (&options.icon_spacing, "input icon spacing", 0.0),
+            ] {
+                if let Some(value) = value {
+                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+                    require_literal_range(value, min, None, label, span)?;
+                }
+            }
+            if options.icon.is_none()
+                && (options.icon_side.is_some()
+                    || options.icon_size.is_some()
+                    || options.icon_spacing.is_some())
+            {
+                return Err(Error::new(
+                    "E129",
+                    span,
+                    "input icon properties require `icon=\"x\"`",
+                ));
             }
             check_styles(styles, document, span, StyleTarget::Input)?;
         }
@@ -1901,6 +1940,46 @@ view
         let error = analyze(source).unwrap_err();
         assert_eq!(error.code, "E128");
         assert!(error.message.contains("scroll bar width"));
+    }
+
+    #[test]
+    fn checks_extended_text_input_routes_and_properties() {
+        let source = r#"app Form
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  value = ""
+  disabled = false
+  secure = true
+on submitted
+on pasted(next)
+  value = next
+view
+  input "Secret" #secret <-> value hint="Paste token" disabled=disabled secure=secure submit=submitted paste=pasted width=240.0 padding=8.0 text-size=14.0 line-height=1.2 align=center font=mono icon="•" icon-side=right icon-size=12.0 icon-spacing=4.0
+"#;
+        let document = analyze(source).unwrap();
+        assert_eq!(document.handlers[1].params[0].ty.display(), "str");
+    }
+
+    #[test]
+    fn rejects_input_icon_options_without_an_icon() {
+        let source = r#"app Form
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  value = ""
+view
+  input "Value" <-> value icon-size=12.0
+"#;
+        let error = analyze(source).unwrap_err();
+        assert_eq!(error.code, "E129");
+        assert!(error.message.contains("require `icon="));
     }
 
     #[test]

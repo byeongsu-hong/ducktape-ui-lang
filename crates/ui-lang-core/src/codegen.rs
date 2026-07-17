@@ -458,6 +458,7 @@ fn render_node(
             binding,
             hint,
             disabled,
+            options,
             styles,
             ..
         } => {
@@ -481,6 +482,80 @@ fn render_node(
             if style.width_fill {
                 input.push_str(".width(::iced::Fill)");
             }
+            if let Some(secure) = &options.secure {
+                write!(
+                    input,
+                    ".secure({})",
+                    expr_code(secure, env, document, ValueMode::Owned)?
+                )
+                .unwrap();
+            }
+            if let Some(width) = &options.width {
+                write!(input, ".width({})", length_code(width, env, document)?).unwrap();
+            }
+            if let Some(padding) = &options.padding {
+                write!(
+                    input,
+                    ".padding({} as f32)",
+                    expr_code(padding, env, document, ValueMode::Owned)?
+                )
+                .unwrap();
+            }
+            if let Some(size) = &options.text_size {
+                write!(
+                    input,
+                    ".size({} as f32)",
+                    expr_code(size, env, document, ValueMode::Owned)?
+                )
+                .unwrap();
+            }
+            if let Some(height) = &options.line_height {
+                write!(
+                    input,
+                    ".line_height(::iced::widget::text::LineHeight::Relative({} as f32))",
+                    expr_code(height, env, document, ValueMode::Owned)?
+                )
+                .unwrap();
+            }
+            if let Some(align) = options.align {
+                let align = match align {
+                    InputAlignment::Left => "Left",
+                    InputAlignment::Center => "Center",
+                    InputAlignment::Right => "Right",
+                };
+                write!(input, ".align_x(::iced::alignment::Horizontal::{align})").unwrap();
+            }
+            if let Some(font) = options.font {
+                let font = match font {
+                    InputFont::Default => "DEFAULT",
+                    InputFont::Monospace => "MONOSPACE",
+                };
+                write!(input, ".font(::iced::Font::{font})").unwrap();
+            }
+            if let Some(icon) = options.icon {
+                let size = options.icon_size.as_ref().map_or_else(
+                    || Ok("None".to_owned()),
+                    |value| {
+                        Ok::<_, Error>(format!(
+                            "Some(({} as f32).into())",
+                            expr_code(value, env, document, ValueMode::Owned)?
+                        ))
+                    },
+                )?;
+                let spacing = options.icon_spacing.as_ref().map_or_else(
+                    || Ok("0.0".to_owned()),
+                    |value| expr_code(value, env, document, ValueMode::Owned),
+                )?;
+                let side = match options.icon_side.unwrap_or(IconSide::Left) {
+                    IconSide::Left => "Left",
+                    IconSide::Right => "Right",
+                };
+                write!(
+                    input,
+                    ".icon(::iced::widget::text_input::Icon {{ font: ::iced::Font::DEFAULT, code_point: {icon:?}, size: {size}, spacing: {spacing} as f32, side: ::iced::widget::text_input::Side::{side} }})"
+                )
+                .unwrap();
+            }
             let constructor =
                 format!("{message}::{variant} as fn(::std::string::String) -> {message}");
             if let Some(disabled) = disabled {
@@ -492,6 +567,32 @@ fn render_node(
                 .unwrap();
             } else {
                 write!(input, ".on_input({constructor})").unwrap();
+            }
+            if let Some(route) = &options.submit {
+                let submit = route_code(route, "", env, document, message)?;
+                if let Some(disabled) = disabled {
+                    write!(
+                        input,
+                        ".on_submit_maybe(if {} {{ None }} else {{ Some({submit}) }})",
+                        expr_code(disabled, env, document, ValueMode::Owned)?
+                    )
+                    .unwrap();
+                } else {
+                    write!(input, ".on_submit({submit})").unwrap();
+                }
+            }
+            if let Some(route) = &options.paste {
+                let paste = route_code(route, "__value", env, document, message)?;
+                if let Some(disabled) = disabled {
+                    write!(
+                        input,
+                        ".on_paste_maybe(if {} {{ None }} else {{ Some(move |__value| {paste}) }})",
+                        expr_code(disabled, env, document, ValueMode::Owned)?
+                    )
+                    .unwrap();
+                } else {
+                    write!(input, ".on_paste(move |__value| {paste})").unwrap();
+                }
             }
             input.push_str(&input_style_code(&style, document));
             Ok(format!(
@@ -2307,6 +2408,35 @@ view
         assert!(generated.contains(
             "__ScrollingMessage::Scrolled(__absolute.x as f64, __absolute.y as f64, __relative.x as f64, __relative.y as f64)"
         ));
+    }
+
+    #[test]
+    fn lowers_extended_text_input_behavior() {
+        let source = r#"app Form
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  value = ""
+  disabled = false
+  secure = true
+on submitted
+on pasted(next)
+  value = next
+view
+  input "Secret" #secret <-> value hint="Paste token" disabled=disabled secure=secure submit=submitted paste=pasted width=240.0 padding=8.0 text-size=14.0 line-height=1.2 align=center font=mono icon="•" icon-side=right icon-size=12.0 icon-spacing=4.0
+"#;
+        let generated = compile(source, "form.ice").unwrap();
+        assert!(generated.contains(".secure(self.secure)"));
+        assert!(generated.contains(".width(240.0 as f32).padding(8.0 as f32).size(14.0 as f32)"));
+        assert!(generated.contains("LineHeight::Relative(1.2 as f32)"));
+        assert!(generated.contains(".align_x(::iced::alignment::Horizontal::Center)"));
+        assert!(generated.contains(".font(::iced::Font::MONOSPACE)"));
+        assert!(generated.contains("code_point: '•'"));
+        assert!(generated.contains(".on_submit_maybe(if self.disabled"));
+        assert!(generated.contains(".on_paste_maybe(if self.disabled"));
     }
 
     #[test]

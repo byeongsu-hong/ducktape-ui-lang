@@ -1,4 +1,4 @@
-# Ice Language Specification 0.9
+# Ice Language Specification 0.10
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.9 syntax.
+marked “planned” is a design constraint, not accepted 0.10 syntax.
 
 ## 1. Design contract
 
@@ -79,7 +79,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.9.
+  block comments are not part of 0.10.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -167,7 +167,14 @@ scroll_property = "direction=" ("vertical" | "horizontal" | "both")
                 | ("anchor-x=" | "anchor-y=") ("start" | "end")
                 | "auto=" expr | "scroll=" route
 text           = "text" expr styles?
-input          = "input" string id? "<->" name property* styles?
+input          = "input" string id? "<->" name input_property* styles?
+input_property = "hint=" string | ("disabled=" | "secure=") expr
+               | ("submit=" | "paste=") route | "width=" length
+               | ("padding=" | "text-size=" | "line-height=") expr
+               | "align=" ("left" | "center" | "right")
+               | "font=" ("default" | "mono") | "icon=" string
+               | "icon-side=" ("left" | "right")
+               | ("icon-size=" | "icon-spacing=") expr
 button         = "button" string id? property* styles? "->" route
 checkbox       = "checkbox" expr id? property* styles? "->" route
 toggler        = "toggler" expr "checked=" expr ("disabled=" expr)?
@@ -256,6 +263,12 @@ hidden scrollbars, scrollbar dimensions/spacing, axis anchors, and bool
 auto-scroll. Its `scroll=` handler receives absolute x/y followed by relative
 x/y as four f64 payloads. Bare handler names receive all four automatically.
 
+`input` keeps its required `str` binding and additionally supports bool secure
+mode, submit routes, str-payload paste routes, typed width/padding/text size,
+relative line height, horizontal alignment, default/monospace font, and a
+single-character icon with side/size/spacing. A disabled input suppresses
+typing, submit, and paste messages together.
+
 `pick` requires a homogeneous `[T]` options expression and a matching optional
 `T?` selection. Its main route carries `T`; `open=` and `close=` routes carry no
 payload. Pick values may be bool, i64, f64, str, or an extern type. Fixed
@@ -318,7 +331,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.9 message payloads.
+`Clone` for 0.10 message payloads.
 
 Three typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
@@ -445,7 +458,7 @@ The implemented native nodes are:
 | `grid` | responsive grid; optional positive `i64` `columns` (default 3) |
 | `stack` | overlays children; optional bool `clip` |
 | `text` | one `str`, `i64`, or `f64` expression |
-| `input` | string label, optional ID/hint/disabled, required `str` binding |
+| `input` | required `str` binding; ID, hint, disabled/secure, submit/paste, sizing, alignment, default/mono font and icon properties |
 | `button` | literal label, optional ID/disabled, required route |
 | `checkbox` | string label expression, required bool `checked`, optional disabled, bool-payload route |
 | `toggler` | string label, bool `checked`, optional disabled, bool-payload route |
@@ -607,7 +620,7 @@ The implemented families are:
 `cargo check` so rustc verifies extern items and generated iced types. A missing
 Rust item is named by its `crate::module::item` path in rustc's diagnostic. A
 future source-map layer may remap those rustc spans into the precise extern line;
-0.9 does not claim that remapping.
+0.10 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -627,7 +640,7 @@ skips `.git` and `target`.
 
 ## 12. Current coverage and escape hatches
 
-The 0.9 native backend is enough for CRUD/settings-style screens, selection,
+The 0.10 native backend is enough for CRUD/settings-style screens, selection,
 media, hover
 overlays, and common pointer events, not all of iced. It still lacks direct
 syntax for canvas, general overlays/modals, rich text
@@ -664,5 +677,5 @@ layouts, toggles, sliders, progress, radio controls, rules, fixed spacing, an
 optional selection value, pick list and searchable combo box, extern and native
 tooltip/mouse-area components including pointer movement and wheel payloads,
 raster and SVG media, configured scrolling with offset events,
-responsive/positioned content, visibility sensing, a clipboard task, and a
-raw-event subscription.
+responsive/positioned content, visibility sensing, extended text input, a
+clipboard task, and a raw-event subscription.

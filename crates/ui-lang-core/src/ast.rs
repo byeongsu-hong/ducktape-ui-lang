@@ -209,6 +209,7 @@ pub enum ViewNode {
         binding: String,
         hint: String,
         disabled: Option<Expr>,
+        options: InputOptions,
         styles: Vec<String>,
         span: Span,
     },
@@ -359,6 +360,42 @@ pub enum ViewNode {
         wide: Box<ViewNode>,
         span: Span,
     },
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct InputOptions {
+    pub secure: Option<Expr>,
+    pub submit: Option<Route>,
+    pub paste: Option<Route>,
+    pub width: Option<LengthValue>,
+    pub padding: Option<Expr>,
+    pub text_size: Option<Expr>,
+    pub line_height: Option<Expr>,
+    pub align: Option<InputAlignment>,
+    pub font: Option<InputFont>,
+    pub icon: Option<char>,
+    pub icon_side: Option<IconSide>,
+    pub icon_size: Option<Expr>,
+    pub icon_spacing: Option<Expr>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InputAlignment {
+    Left,
+    Center,
+    Right,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InputFont {
+    Default,
+    Monospace,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IconSide {
+    Left,
+    Right,
 }
 
 #[derive(Clone, Debug, Default)]
