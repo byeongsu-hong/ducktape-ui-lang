@@ -1,4 +1,4 @@
-# Ice Language Specification 0.88
+# Ice Language Specification 0.89
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.88 syntax.
+marked “planned” is a design constraint, not accepted 0.89 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.88.
+  block comments are not part of 0.89.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -145,13 +145,14 @@ window_setting = ("size" | "min-size" | "max-size") number number
 extern_decl    = "extern" rust_path INDENT extern_item+
 extern_item    = struct_sig | function_sig | extern_component_sig
                | extern_shader_sig | extern_task_sig | extern_stream_sig
-               | extern_sip_sig | extern_subscription_sig
+               | extern_sip_sig | extern_sync_sig | extern_subscription_sig
 struct_sig     = PascalName "(" field_list? ")"
 field_list     = field ("," field)*
 field          = name ":" type
 type           = "bool" | "i64" | "f64" | "str" | "bytes" | "image"
                | "markdown" | "editor" | "task-handle" | "unit" | PascalName
-               | "[" type "]" | type "?" | "combo[" type "]"
+               | "[" type "]" | type "?" | "result[" type "," type "]"
+               | "combo[" type "]"
 function_sig   = name "(" field_list? ")" "->" type ("!" type)?
 extern_component_sig
                = "component" name "(" field_list? ")" "->" type
@@ -161,6 +162,7 @@ extern_task_sig = "task" name "(" field_list? ")" "->" type ("!" type)?
 extern_stream_sig = "stream" name "(" field_list? ")" "->" type ("!" type)?
 extern_sip_sig = "sip" name "(" field_list? ")" "progress=" type
                  "->" type ("!" type)?
+extern_sync_sig = "sync" name "(" field_list? ")" "->" type
 extern_subscription_sig
                = "subscription" name "(" field_list? ")" "->" type
 
@@ -218,10 +220,12 @@ sip_error      = "error" "->" route
 task_flow      = "flow" INDENT flow_source flow_item+
 flow_source    = "from" task_source
 task_source    = ("run" | "task" | "stream") call
+               | "done" expr | "none" type
                | "task system" ("info" | "theme")
                | "task clipboard" ("read" | "read-primary")
                | "task font load" expr
 flow_item      = ("then" | "and-then") name "->" task_source
+               | "map-error" name "->" expr
                | "collect" | "discard"
                | ("done" | "error" | "units") "->" route
 task_member    = task_group | abortable_task
@@ -814,7 +818,7 @@ default/centered/fixed position, visibility, resizability, close/minimize
 buttons, decorations, transparency, blur, level, and close-request behavior.
 Sizes, text size, and scale factor must be positive; minimum size cannot exceed
 maximum size. Window icons and platform-specific settings are not part of
-0.88.
+0.89.
 
 Media fixed lengths, rotation, opacity, scale, and radius are `f64`; rotation
 is radians and defaults to floating layout behavior, while `solid(angle)` makes
@@ -1202,6 +1206,7 @@ button "Add" disabled=(loading || empty(trim(draft))) -> submit
 | `str` | `String` |
 | `[T]` | `Vec<T>` |
 | `T?` | `Option<T>` |
+| `result[T,E]` | `Result<T, E>` |
 | `combo[T]` | `iced::widget::combo_box::State<T>` |
 | `markdown` | `iced::widget::markdown::Content` |
 | `editor` | `iced::widget::text_editor::Content` |
@@ -1231,7 +1236,23 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.88 message payloads.
+`Clone` for 0.89 message payloads.
+
+Declared `sync` functions are checked, synchronous Rust calls available in
+Ice expressions. They are the small escape hatch for pure domain conversions
+that do not justify a language builtin:
+
+```ice
+extern crate::backend
+  NetworkError(message:str)
+  AppError(message:str)
+  sync normalize_error(error:NetworkError) -> AppError
+```
+
+This declaration requires
+`fn normalize_error(NetworkError) -> AppError`; generated probes verify the
+actual Rust signature. A sync function cannot declare `! Error` because it
+returns its value directly.
 
 Six typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
@@ -1319,7 +1340,8 @@ The expression language contains:
 - built-ins: `len(list_or_str_or_bytes) -> i64`,
   `empty(list_or_str_or_bytes) -> bool`, `trim(str) -> str`, `some(T) -> T?`,
   `encoded(bytes) -> image`, `rgba(i64, i64, bytes) -> image`, and
-  `aborted(task-handle?) -> bool`.
+  `aborted(task-handle?) -> bool`;
+- calls to declared typed `sync` extern functions.
 
 Store `encoded` and `rgba` handles in state so they are created when state
 changes instead of on every view pass. Literal RGBA data is checked to contain
@@ -1477,15 +1499,42 @@ on start
 ```
 
 `from` accepts an extern `run`, `task`, or `stream` source and the built-in
-system, clipboard-read, and font-load tasks. `then name -> source` lowers to
-`Task::then` and binds each output only inside the next source call. Use
+system, clipboard-read, and font-load tasks. It also accepts `done expr` and
+`none Type`, which lower directly to `Task::done` and `Task::none`:
+
+```ice
+flow
+  from done 7
+  then value -> done value + 1
+  done -> finished _
+
+flow
+  from none i64
+  done -> finished _
+```
+
+`then name -> source` lowers to `Task::then` and binds each output only inside
+the next source call. Use
 `and-then` for `T?` output or a fallible task; fallible steps must keep the same
 error type required by iced's `Result` overload. A transform cannot capture UI
 state because the native closure is static; pass stable input to the first
 source or read current state in the destination handler.
 
-`collect` lowers to `Task::collect` and changes `T` into `[T]`; it currently
-requires an infallible flow because Ice has no first-class `Result<T, E>` value.
+`map-error error -> expr` lowers to `Task::map_err`, may read only its error
+binding, and replaces the flow's error type with the expression type. A sync
+extern is the normal way to translate one domain error into another:
+
+```ice
+flow
+  from task request()
+  map-error reason -> normalize_error(reason)
+  collect
+  done -> collected _
+```
+
+`collect` lowers to `Task::collect`. It changes an infallible `T` into `[T]`
+and a fallible `T ! E` into `[result[T,E]]`, preserving each failure as data
+and making the collected flow itself infallible.
 `discard` must be last, suppresses both output routes, and lowers to
 `Task::discard`. `units -> handler _` reads native `Task::units` during flow
 construction and emits an `i64` notification alongside the task. Non-discarded
@@ -2082,7 +2131,7 @@ snap/end; and absolute scroll-to/scroll-by. Effects have no route and
 non-negative `i64`; relative offsets are `f64` in `0.0..=1.0`; absolute
 offsets are unrestricted `f64`. Targets must be real static IDs in the app
 scope. Repeated/component scopes and the feature-gated selector API remain
-outside 0.88.
+outside 0.89.
 
 Persistent pane grids expose their native layout-state operations directly in
 handlers:
@@ -2129,7 +2178,7 @@ and constraints, resizability, maximize/minimize state, position and movement,
 all modes, decorations, user attention, focus, level, system menu, mouse
 passthrough, monitor size, and automatic tabbing. Positive sizes and bool
 arguments are checked before Rust generation. New-window IDs, open/oldest/latest,
-icons, raw handles, screenshots, and callbacks remain outside 0.88.
+icons, raw handles, screenshots, and callbacks remain outside 0.89.
 
 Every iced window event has a direct subscription form:
 
@@ -2282,7 +2331,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 0.88 does not claim that remapping.
+extern line; 0.89 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -2303,7 +2352,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 0.88 native backend is enough for CRUD/settings-style screens, selection,
+The 0.89 native backend is enough for CRUD/settings-style screens, selection,
 media, hover overlays, declarative canvas geometry, and common pointer events,
 not all of iced. It still lacks direct syntax for arbitrary custom overlays,
 multiple windows, and custom widgets. [`COVERAGE.md`](COVERAGE.md) is
@@ -2314,7 +2363,8 @@ layer is therefore implemented as six typed Rust adapters: component, shader,
 task, stream, sip, and subscription. They make advanced widgets and runtime operations
 reachable without admitting arbitrary Rust into expressions or duplicating
 iced in the core grammar. Direct native syntax remains preferable for common
-UI concepts.
+UI concepts. A seventh checked `sync` boundary supplies small synchronous
+domain conversions inside expressions without exposing arbitrary Rust syntax.
 
 Native language coverage and system coverage are therefore separate:
 
@@ -2326,6 +2376,7 @@ iced runtime operation  -> typed Rust Task adapter
 repeated task output     -> typed Rust Stream/Sipper adapter
 event/stream source      -> typed Rust Subscription adapter
 domain and I/O           -> typed Rust async extern
+pure domain conversion   -> typed Rust sync extern
 ```
 
 ## 13. Reference application

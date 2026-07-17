@@ -22,6 +22,7 @@ pub enum Type {
     Image,
     List(Box<Type>),
     Option(Box<Type>),
+    Result(Box<Type>, Box<Type>),
     Combo(Box<Type>),
     Markdown,
     Editor,
@@ -46,6 +47,11 @@ impl Type {
             Self::Image => "::iced::widget::image::Handle".into(),
             Self::List(inner) => format!("::std::vec::Vec<{}>", inner.rust(structs)),
             Self::Option(inner) => format!("::std::option::Option<{}>", inner.rust(structs)),
+            Self::Result(output, error) => format!(
+                "::std::result::Result<{}, {}>",
+                output.rust(structs),
+                error.rust(structs)
+            ),
             Self::Combo(inner) => {
                 format!("::iced::widget::combo_box::State<{}>", inner.rust(structs))
             }
@@ -75,6 +81,9 @@ impl Type {
             Self::Image => "image".into(),
             Self::List(inner) => format!("[{}]", inner.display()),
             Self::Option(inner) => format!("{}?", inner.display()),
+            Self::Result(output, error) => {
+                format!("result[{},{}]", output.display(), error.display())
+            }
             Self::Combo(inner) => format!("combo[{}]", inner.display()),
             Self::Markdown => "markdown".into(),
             Self::Editor => "editor".into(),
@@ -269,6 +278,7 @@ pub enum ExternKind {
     Task,
     Stream,
     Sip,
+    Sync,
     Subscription,
 }
 
@@ -453,11 +463,21 @@ pub enum Statement {
 }
 
 #[derive(Clone, Debug)]
-pub struct TaskSource {
-    pub kind: EffectKind,
-    pub function: String,
-    pub args: Vec<Expr>,
-    pub span: Span,
+pub enum TaskSource {
+    Effect {
+        kind: EffectKind,
+        function: String,
+        args: Vec<Expr>,
+        span: Span,
+    },
+    Done {
+        value: Expr,
+        span: Span,
+    },
+    None {
+        output: Type,
+        span: Span,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -470,6 +490,11 @@ pub enum TaskTransform {
     AndThen {
         binding: String,
         source: TaskSource,
+        span: Span,
+    },
+    MapError {
+        binding: String,
+        value: Expr,
         span: Span,
     },
     Collect {

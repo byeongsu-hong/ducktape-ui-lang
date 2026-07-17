@@ -1,9 +1,12 @@
 extern crate::backend
   AppError(message:str)
+  NetworkError(message:str)
+  sync normalize_error(error:NetworkError) -> AppError
   stream count_stream(limit:i64) -> i64
   task double_task(value:i64) -> i64
   task optional_task(value:i64) -> i64?
   task fallible_task(value:i64) -> i64 ! AppError
+  task network_task(value:i64) -> i64 ! NetworkError
 
 app TaskFlow
 
@@ -19,6 +22,7 @@ state
   error = ""
   planned = 0
   system_theme = ""
+  results:[result[i64,AppError]] = []
 
 on start
   parallel
@@ -43,6 +47,18 @@ on start
     flow
       from task system theme
       done -> themed _
+    flow
+      from task network_task(-1)
+      map-error reason -> normalize_error(reason)
+      collect
+      done -> collected_results _
+    flow
+      from done 7
+      then item -> done item + 1
+      done -> finished _
+    flow
+      from none i64
+      done -> finished _
 
 on collected(next)
   values = next
@@ -58,6 +74,9 @@ on failed(reason)
 
 on themed(next)
   system_theme = next
+
+on collected_results(next)
+  results = next
 
 view
   col

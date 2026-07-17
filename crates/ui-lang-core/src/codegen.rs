@@ -532,16 +532,22 @@ fn statements_use_system_task(statements: &[Statement], name: &str) -> bool {
         Statement::TaskFlow {
             source, transforms, ..
         } => {
-            source.function == name
+            task_source_uses_system(source, name)
                 || transforms.iter().any(|transform| match transform {
                     TaskTransform::Then { source, .. } | TaskTransform::AndThen { source, .. } => {
-                        source.function == name
+                        task_source_uses_system(source, name)
                     }
-                    TaskTransform::Collect { .. } | TaskTransform::Discard { .. } => false,
+                    TaskTransform::MapError { .. }
+                    | TaskTransform::Collect { .. }
+                    | TaskTransform::Discard { .. } => false,
                 })
         }
         _ => false,
     })
+}
+
+fn task_source_uses_system(source: &TaskSource, name: &str) -> bool {
+    matches!(source, TaskSource::Effect { function, .. } if function == name)
 }
 
 fn generate_extern_probes(out: &mut String, document: &Document) {
@@ -625,6 +631,12 @@ fn generate_extern_probes(out: &mut String, document: &Document) {
                     .as_ref()
                     .expect("sip extern has a progress type")
                     .rust(&document.structs)
+            )
+            .unwrap(),
+            ExternKind::Sync => writeln!(
+                out,
+                "#[allow(dead_code)] fn __ui_lang_check_sync_{}({params}) {{ let _: {output} = {}({args}); }}",
+                item.name, item.rust_path
             )
             .unwrap(),
             ExternKind::Subscription => writeln!(
@@ -1138,59 +1150,71 @@ fn task_source_code(
     document: &Document,
     env: &HashMap<String, Binding>,
 ) -> Result<String, Error> {
-    if source.kind == EffectKind::Task {
-        match source.function.as_str() {
-            "__ice_system_info" => {
-                return Ok("::iced::system::information().map(__ice_system_info)".into());
+    match source {
+        TaskSource::Done { value, .. } => Ok(format!(
+            "::iced::Task::done({})",
+            expr_code(value, env, document, ValueMode::Owned)?
+        )),
+        TaskSource::None { output, .. } => Ok(format!(
+            "::iced::Task::<{}>::none()",
+            output.rust(&document.structs)
+        )),
+        TaskSource::Effect {
+            kind,
+            function,
+            args,
+            span,
+        } => {
+            if *kind == EffectKind::Task {
+                match function.as_str() {
+                    "__ice_system_info" => {
+                        return Ok("::iced::system::information().map(__ice_system_info)".into());
+                    }
+                    "__ice_system_theme" => {
+                        return Ok("::iced::system::theme().map(__ice_system_theme)".into());
+                    }
+                    "__ice_clipboard_read" => return Ok("::iced::clipboard::read()".into()),
+                    "__ice_clipboard_read_primary" => {
+                        return Ok("::iced::clipboard::read_primary()".into());
+                    }
+                    "__ice_font_load" => {
+                        let bytes = expr_code(&args[0], env, document, ValueMode::Owned)?;
+                        return Ok(format!(
+                            "::iced::font::load({bytes}).map(|result| match result {{ ::std::result::Result::Ok(value) => value, ::std::result::Result::Err(error) => match error {{}} }})"
+                        ));
+                    }
+                    _ => {}
+                }
             }
-            "__ice_system_theme" => {
-                return Ok("::iced::system::theme().map(__ice_system_theme)".into());
-            }
-            "__ice_clipboard_read" => return Ok("::iced::clipboard::read()".into()),
-            "__ice_clipboard_read_primary" => {
-                return Ok("::iced::clipboard::read_primary()".into());
-            }
-            "__ice_font_load" => {
-                let bytes = expr_code(&source.args[0], env, document, ValueMode::Owned)?;
-                return Ok(format!(
-                    "::iced::font::load({bytes}).map(|result| match result {{ ::std::result::Result::Ok(value) => value, ::std::result::Result::Err(error) => match error {{}} }})"
-                ));
-            }
-            _ => {}
+            let action = document
+                .functions
+                .iter()
+                .find(|item| item.name == *function && item.kind == (*kind).into())
+                .ok_or_else(|| {
+                    Error::new(
+                        "E130",
+                        span,
+                        format!("unknown extern task source `{function}`"),
+                    )
+                })?;
+            let args = args
+                .iter()
+                .map(|arg| expr_code(arg, env, document, ValueMode::Owned))
+                .collect::<Result<Vec<_>, _>>()?
+                .join(", ");
+            Ok(match kind {
+                EffectKind::Future => format!(
+                    "::iced::Task::perform({}({args}), |value| value)",
+                    action.rust_path
+                ),
+                EffectKind::Task => format!("{}({args})", action.rust_path),
+                EffectKind::Stream => format!(
+                    "::iced::Task::run({}({args}), |value| value)",
+                    action.rust_path
+                ),
+            })
         }
     }
-    let action = document
-        .functions
-        .iter()
-        .find(|item| item.name == source.function && item.kind == source.kind.into())
-        .ok_or_else(|| {
-            Error::new(
-                "E130",
-                &source.span,
-                format!("unknown extern task source `{}`", source.function),
-            )
-        })?;
-    let args = source
-        .args
-        .iter()
-        .map(|arg| expr_code(arg, env, document, ValueMode::Owned))
-        .collect::<Result<Vec<_>, _>>()?
-        .join(", ");
-    Ok(match source.kind {
-        EffectKind::Future => {
-            format!(
-                "::iced::Task::perform({}({args}), |value| value)",
-                action.rust_path
-            )
-        }
-        EffectKind::Task => format!("{}({args})", action.rust_path),
-        EffectKind::Stream => {
-            format!(
-                "::iced::Task::run({}({args}), |value| value)",
-                action.rust_path
-            )
-        }
-    })
 }
 
 fn task_flow_code(
@@ -1201,6 +1225,10 @@ fn task_flow_code(
     env: &HashMap<String, Binding>,
 ) -> Result<String, Error> {
     let mut task = task_source_code(root, document, env)?;
+    let type_env = env
+        .iter()
+        .map(|(name, binding)| (name.clone(), binding.ty.clone()))
+        .collect::<HashMap<_, _>>();
     for (index, transform) in transforms.iter().enumerate() {
         match transform {
             TaskTransform::Then {
@@ -1210,7 +1238,7 @@ fn task_flow_code(
                 binding, source, ..
             } => {
                 let (output, error) =
-                    crate::check::task_flow_type(root, &transforms[..index], document, None)?;
+                    crate::check::task_flow_type(root, &transforms[..index], document, &type_env)?;
                 let output = output.expect("discard is the final transform");
                 let binding_ty =
                     if matches!(transform, TaskTransform::AndThen { .. }) && error.is_none() {
@@ -1236,6 +1264,21 @@ fn task_flow_code(
                     "and_then"
                 };
                 task = format!("({task}).{method}(move |{binding}| {next})");
+            }
+            TaskTransform::MapError { binding, value, .. } => {
+                let (_, error) =
+                    crate::check::task_flow_type(root, &transforms[..index], document, &type_env)?;
+                let error = error.expect("checked map-error input");
+                let map_env = HashMap::from([(
+                    binding.clone(),
+                    Binding {
+                        code: binding.clone(),
+                        ty: error,
+                        local: false,
+                    },
+                )]);
+                let value = expr_code(value, &map_env, document, ValueMode::Owned)?;
+                task = format!("({task}).map_err(move |{binding}| {value})");
             }
             TaskTransform::Collect { .. } => task = format!("({task}).collect()"),
             TaskTransform::Discard { .. } => task = format!("({task}).discard::<{message}>()"),
@@ -1421,8 +1464,12 @@ fn generate_statements(
                 ..
             } => {
                 has_task = true;
+                let type_env = env
+                    .iter()
+                    .map(|(name, binding)| (name.clone(), binding.ty.clone()))
+                    .collect::<HashMap<_, _>>();
                 let (output, error_ty) =
-                    crate::check::task_flow_type(source, transforms, document, None)?;
+                    crate::check::task_flow_type(source, transforms, document, &type_env)?;
                 let task = task_flow_code(source, transforms, document, message, env)?;
                 let mapped = if output.is_none() {
                     task
@@ -6093,7 +6140,19 @@ fn expr_code(
                 "({}).as_ref().is_some_and(::iced::task::Handle::is_aborted)",
                 expr_code(&args[0], env, document, ValueMode::Borrowed)?
             ),
-            _ => unreachable!("checker rejects unknown calls"),
+            _ => {
+                let function = document
+                    .functions
+                    .iter()
+                    .find(|function| function.name == *name && function.kind == ExternKind::Sync)
+                    .expect("checker accepts only declared sync calls");
+                let args = args
+                    .iter()
+                    .map(|arg| expr_code(arg, env, document, ValueMode::Owned))
+                    .collect::<Result<Vec<_>, _>>()?
+                    .join(", ");
+                format!("{}({args})", function.rust_path)
+            }
         },
         Expr::Unary { op, value } => format!(
             "({}{})",
@@ -8855,6 +8914,53 @@ view
         assert!(generated.contains(".collect()"));
         assert!(generated.contains(".discard::<__FlowsMessage>()"));
         assert!(generated.contains("i64::try_from(__task.units())"));
+    }
+
+    #[test]
+    fn lowers_task_error_mapping_and_native_sources() {
+        let source = r#"app Errors
+extern crate::backend
+  NetworkError(message:str)
+  AppError(message:str)
+  sync normalize(error:NetworkError) -> AppError
+  task request() -> i64 ! NetworkError
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  results:[result[i64,AppError]] = []
+on start
+  parallel
+    flow
+      from task request()
+      map-error reason -> normalize(reason)
+      collect
+      done -> collected _
+    flow
+      from done 1
+      then value -> done value + 1
+      done -> finished _
+    flow
+      from none i64
+      done -> finished _
+on collected(values)
+  results = values
+on finished(value)
+view
+  text len(results)
+"#;
+        let generated = compile(source, "errors.ice").unwrap();
+        assert!(generated.contains("fn __ui_lang_check_sync_normalize"));
+        assert!(
+            generated.contains(".map_err(move |reason| crate::backend::normalize(reason.clone()))")
+        );
+        assert!(generated.contains(".collect()"));
+        assert!(generated.contains("Task::done(1)"));
+        assert!(generated.contains("Task::done((value + 1))"));
+        assert!(generated.contains("Task::<i64>::none()"));
+        assert!(generated.contains("Vec<::std::result::Result<i64, crate::backend::AppError>>"));
     }
 
     #[test]

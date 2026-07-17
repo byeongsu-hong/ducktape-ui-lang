@@ -294,6 +294,10 @@ fn check_declared_type(ty: &Type, span: &Span, known: &HashSet<&str>) -> Result<
         Type::List(inner) | Type::Option(inner) | Type::Combo(inner) => {
             check_declared_type(inner, span, known)
         }
+        Type::Result(output, error) => {
+            check_declared_type(output, span, known)?;
+            check_declared_type(error, span, known)
+        }
         Type::Named(name) if !known.contains(name.as_str()) => {
             Err(
                 Error::new("E103", span, format!("unknown extern type `{name}`")).hint(format!(
@@ -2772,6 +2776,7 @@ fn lazy_hashable(ty: &Type) -> bool {
     match ty {
         Type::Bool | Type::I64 | Type::Str | Type::Bytes | Type::Named(_) => true,
         Type::List(inner) | Type::Option(inner) => lazy_hashable(inner),
+        Type::Result(output, error) => lazy_hashable(output) && lazy_hashable(error),
         Type::F64
         | Type::Combo(_)
         | Type::Markdown
@@ -4482,7 +4487,13 @@ fn infer_runs(
                     "flow routes accept at most one `_`; read other state in the handler",
                 ));
             }
-            let (output, error_ty) = task_flow_type(source, transforms, document, None)?;
+            let mut flow_env = document
+                .states
+                .iter()
+                .map(|state| (state.name.clone(), state.ty.clone()))
+                .collect::<HashMap<_, _>>();
+            flow_env.extend(unknown_env.clone());
+            let (output, error_ty) = task_flow_type(source, transforms, document, &flow_env)?;
             if let Some(route) = units {
                 infer_route(route, Some(Type::I64), &unknown_env, document, signatures)?;
             }
@@ -4714,7 +4725,7 @@ fn check_handler(
                         "flow must be the final statement in a handler",
                     ));
                 }
-                task_flow_type(source, transforms, document, Some(&env))?;
+                task_flow_type(source, transforms, document, &env)?;
             }
             Statement::TaskGroup { statements, .. } => {
                 for statement in statements {
@@ -5130,6 +5141,7 @@ fn extern_function<'a>(
                 ExternKind::Task => "task",
                 ExternKind::Stream => "stream",
                 ExternKind::Sip => "sip",
+                ExternKind::Sync => "sync function",
                 ExternKind::Subscription => "subscription",
             };
             Error::new("E130", span, format!("unknown extern {label} `{name}`"))
@@ -5193,34 +5205,47 @@ fn builtin_task_output(
 fn task_source_type(
     source: &TaskSource,
     document: &Document,
-    env: Option<&HashMap<String, Type>>,
+    env: &HashMap<String, Type>,
 ) -> Result<(Type, Option<Type>), Error> {
-    if let Some(output) =
-        builtin_task_output(source.kind, &source.function, &source.args, &source.span)?
-    {
-        if source.function == "__ice_font_load"
-            && let Some(env) = env
-        {
-            require_type(
-                &expr_type(&source.args[0], env, document, &source.span)?,
-                &Type::Bytes,
-                &source.span,
-            )?;
+    match source {
+        TaskSource::Done { value, span } => Ok((expr_type(value, env, document, span)?, None)),
+        TaskSource::None { output, span } => {
+            let known = document
+                .structs
+                .iter()
+                .map(|item| item.name.as_str())
+                .collect::<HashSet<_>>();
+            check_declared_type(output, span, &known)?;
+            Ok((output.clone(), None))
         }
-        return Ok((output, None));
+        TaskSource::Effect {
+            kind,
+            function,
+            args,
+            span,
+        } => {
+            if let Some(output) = builtin_task_output(*kind, function, args, span)? {
+                if function == "__ice_font_load" {
+                    require_type(
+                        &expr_type(&args[0], env, document, span)?,
+                        &Type::Bytes,
+                        span,
+                    )?;
+                }
+                return Ok((output, None));
+            }
+            let action = extern_function(document, function, (*kind).into(), span)?;
+            check_call_args(action, args, env, document, span)?;
+            Ok((action.output.clone(), action.error.clone()))
+        }
     }
-    let action = extern_function(document, &source.function, source.kind.into(), &source.span)?;
-    if let Some(env) = env {
-        check_call_args(action, &source.args, env, document, &source.span)?;
-    }
-    Ok((action.output.clone(), action.error.clone()))
 }
 
 pub(crate) fn task_flow_type(
     source: &TaskSource,
     transforms: &[TaskTransform],
     document: &Document,
-    root_env: Option<&HashMap<String, Type>>,
+    root_env: &HashMap<String, Type>,
 ) -> Result<(Option<Type>, Option<Type>), Error> {
     let (mut output, mut error_ty) = task_source_type(source, document, root_env)?;
     for (index, transform) in transforms.iter().enumerate() {
@@ -5238,7 +5263,7 @@ pub(crate) fn task_flow_type(
                     ));
                 }
                 let env = HashMap::from([(binding.clone(), output)]);
-                let next = task_source_type(source, document, Some(&env)).map_err(|error| {
+                let next = task_source_type(source, document, &env).map_err(|error| {
                     if error.code == "E150" {
                         error.hint(format!(
                             "a flow transform may only read its `{binding}` binding"
@@ -5267,7 +5292,7 @@ pub(crate) fn task_flow_type(
                     ));
                 };
                 let env = HashMap::from([(binding.clone(), binding_ty)]);
-                let next = task_source_type(source, document, Some(&env)).map_err(|error| {
+                let next = task_source_type(source, document, &env).map_err(|error| {
                     if error.code == "E150" {
                         error.hint(format!(
                             "a flow transform may only read its `{binding}` binding"
@@ -5291,14 +5316,34 @@ pub(crate) fn task_flow_type(
                 }
                 output = next.0;
             }
-            TaskTransform::Collect { span } => {
-                if error_ty.is_some() {
-                    return Err(
-                        Error::new("E144", span, "collect requires an infallible flow")
-                            .hint("use and-then to handle fallible output before collect"),
-                    );
-                }
-                output = Type::List(Box::new(output));
+            TaskTransform::MapError {
+                binding,
+                value,
+                span,
+            } => {
+                let Some(error) = error_ty.take() else {
+                    return Err(Error::new(
+                        "E144",
+                        span,
+                        "map-error requires a fallible flow",
+                    ));
+                };
+                let env = HashMap::from([(binding.clone(), error)]);
+                let mapped = expr_type(value, &env, document, span).map_err(|error| {
+                    if error.code == "E150" {
+                        error.hint(format!("map-error may only read its `{binding}` binding"))
+                    } else {
+                        error
+                    }
+                })?;
+                error_ty = Some(mapped);
+            }
+            TaskTransform::Collect { .. } => {
+                let item = match error_ty.take() {
+                    Some(error) => Type::Result(Box::new(output), Box::new(error)),
+                    None => output,
+                };
+                output = Type::List(Box::new(item));
             }
             TaskTransform::Discard { span } => {
                 if index + 1 != transforms.len() {
@@ -5459,11 +5504,11 @@ pub(crate) fn expr_type(
                 )?;
                 Ok(Type::Bool)
             }
-            _ => Err(Error::new(
-                "E152",
-                span,
-                format!("unknown function `{name}`"),
-            )),
+            _ => {
+                let function = extern_function(document, name, ExternKind::Sync, span)?;
+                check_call_args(function, args, env, document, span)?;
+                Ok(function.output.clone())
+            }
         },
         Expr::Unary { op, value } => {
             let actual = expr_type(value, env, document, span)?;
@@ -5525,6 +5570,7 @@ fn contains_task_handle(ty: &Type) -> bool {
     match ty {
         Type::TaskHandle => true,
         Type::List(inner) | Type::Option(inner) | Type::Combo(inner) => contains_task_handle(inner),
+        Type::Result(output, error) => contains_task_handle(output) || contains_task_handle(error),
         _ => false,
     }
 }
@@ -5844,6 +5890,9 @@ fn compatible(left: &Type, right: &Type) -> bool {
         || match (left, right) {
             (Type::List(left), Type::List(right)) | (Type::Option(left), Type::Option(right)) => {
                 compatible(left, right)
+            }
+            (Type::Result(left_output, left_error), Type::Result(right_output, right_error)) => {
+                compatible(left_output, right_output) && compatible(left_error, right_error)
             }
             _ => false,
         }
@@ -6353,14 +6402,6 @@ view
         );
 
         let error = analyze(&source.replace(
-            "from task fallible(2)",
-            "from task fallible(2)\n      collect",
-        ))
-        .unwrap_err();
-        assert_eq!(error.code, "E144");
-        assert!(error.message.contains("infallible"));
-
-        let error = analyze(&source.replace(
             "and-then value -> task fallible_double(value)",
             "then value -> task fallible_double(value)",
         ))
@@ -6382,6 +6423,70 @@ view
         .unwrap_err();
         assert_eq!(error.code, "E150");
         assert!(error.hint.unwrap().contains("only read its `value`"));
+    }
+
+    #[test]
+    fn checks_task_error_mapping_and_native_sources() {
+        let source = r#"app Errors
+extern crate::backend
+  NetworkError(message:str)
+  AppError(message:str)
+  sync normalize(error:NetworkError) -> AppError
+  task request() -> i64 ! NetworkError
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  results:[result[i64,AppError]] = []
+on start
+  parallel
+    flow
+      from task request()
+      map-error reason -> normalize(reason)
+      collect
+      done -> collected _
+    flow
+      from done 1
+      then value -> done value + 1
+      done -> finished _
+    flow
+      from none i64
+      done -> finished _
+on collected(values)
+  results = values
+on finished(value)
+view
+  text len(results)
+"#;
+        let document = analyze(source).unwrap();
+        assert_eq!(
+            document.handlers[1].params[0].ty,
+            Type::List(Box::new(Type::Result(
+                Box::new(Type::I64),
+                Box::new(Type::Named("AppError".into()))
+            )))
+        );
+        assert_eq!(document.handlers[2].params[0].ty, Type::I64);
+
+        let error = analyze(&source.replace(
+            "map-error reason -> normalize(reason)",
+            "map-error reason -> normalize(1)",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E101");
+
+        let error = analyze(&source.replace(
+            "from task request()\n      map-error reason -> normalize(reason)",
+            "from done 1\n      map-error reason -> normalize(reason)",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E144");
+        assert!(error.message.contains("fallible"));
+
+        let error = analyze(&source.replace("from none i64", "from none Missing")).unwrap_err();
+        assert_eq!(error.code, "E103");
     }
 
     #[test]

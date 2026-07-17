@@ -15,6 +15,12 @@ mod backend {
         pub message: String,
     }
 
+    #[cfg(test)]
+    #[derive(Clone, Debug, PartialEq)]
+    pub struct NetworkError {
+        pub message: String,
+    }
+
     // ponytail: a process-wide lock is enough for the sample; replace it when
     // persistence or concurrent write throughput becomes a real requirement.
     static TASKS: LazyLock<Mutex<Vec<Task>>> = LazyLock::new(|| {
@@ -231,6 +237,24 @@ mod backend {
     }
 
     #[cfg(test)]
+    pub fn network_task(value: i64) -> iced::Task<Result<i64, NetworkError>> {
+        iced::Task::done(if value >= 0 {
+            Ok(value)
+        } else {
+            Err(NetworkError {
+                message: "network failed".into(),
+            })
+        })
+    }
+
+    #[cfg(test)]
+    pub fn normalize_error(error: NetworkError) -> AppError {
+        AppError {
+            message: error.message,
+        }
+    }
+
+    #[cfg(test)]
     pub fn app_events() -> iced::Subscription<bool> {
         iced::event::listen_with(|event, _status, _window| focus_event(event))
     }
@@ -347,7 +371,7 @@ mod task_flow {
     #[test]
     fn constructs_native_task_combinators() {
         let (mut app, _) = TaskFlow::__boot();
-        assert_eq!(app.__update(__TaskFlowMessage::Start).units(), 6);
+        assert_eq!(app.__update(__TaskFlowMessage::Start).units(), 8);
     }
 }
 
