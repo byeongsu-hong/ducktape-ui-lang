@@ -951,7 +951,7 @@ pub struct RichSpanOptions {
     pub font: Option<FontPreset>,
     pub color: Option<String>,
     pub link: Option<Expr>,
-    pub background: Option<String>,
+    pub background: Option<BackgroundValue>,
     pub border: Option<String>,
     pub border_width: Option<Expr>,
     pub radius: Option<Expr>,

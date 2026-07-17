@@ -3928,7 +3928,7 @@ fn parse_rich_span(line: &Line) -> Result<RichSpan, Error> {
         } else if let Some(value) = part.strip_prefix("link=") {
             options.link = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else if let Some(value) = part.strip_prefix("background=") {
-            options.background = Some(value.to_owned());
+            options.background = Some(parse_background_value(value, line)?);
         } else if let Some(value) = part.strip_prefix("border=") {
             options.border = Some(value.to_owned());
         } else if let Some(value) = part.strip_prefix("border-width=") {

@@ -996,13 +996,9 @@ fn infer_view(
                 }
                 check_font(item.options.font.as_ref(), document, &item.span)?;
                 check_styles(&item.styles, document, &item.span, StyleTarget::Text)?;
-                for color in [
-                    &item.options.color,
-                    &item.options.background,
-                    &item.options.border,
-                ]
-                .into_iter()
-                .flatten()
+                for color in [&item.options.color, &item.options.border]
+                    .into_iter()
+                    .flatten()
                 {
                     if !valid_theme_color(color, document) {
                         return Err(Error::new(
@@ -1011,6 +1007,16 @@ fn infer_view(
                             format!("unknown span color `{color}`"),
                         ));
                     }
+                }
+                if let Some(background) = &item.options.background {
+                    check_background_value(
+                        background,
+                        env,
+                        document,
+                        &item.span,
+                        "E186",
+                        "span background",
+                    )?;
                 }
                 for (value, label, min) in [
                     (item.options.size.as_ref(), "span size", f64::EPSILON),
@@ -5553,7 +5559,7 @@ state
 on link(url)
 view
   rich-text width=fill height=48.0 size=16.0 line-height=1.2 font=ui align-x=justified align-y=center wrapping=word color=foreground @font-bold -> link _
-    span "Ice " size=18.0 line-height-px=22.0 font=ui color=primary background=background border=foreground border-width=1.0 radius=4.0 radius-tl=2.0 radius-tr=3.0 radius-br=5.0 radius-bl=6.0 padding=2.0 padding-left=4.0 underline strike=false
+    span "Ice " size=18.0 line-height-px=22.0 font=ui color=primary background=linear(1.57, background@0.0, primary@1.0) border=foreground border-width=1.0 radius=4.0 radius-tl=2.0 radius-tr=3.0 radius-br=5.0 radius-bl=6.0 padding=2.0 padding-left=4.0 underline strike=false
     span "language" link="https://example.com" @text-lg font-bold text-primary
 "#;
         analyze(source).unwrap();
@@ -5576,6 +5582,11 @@ view
         let error = analyze(&bad_padding).unwrap_err();
         assert_eq!(error.code, "E128");
         assert!(error.message.contains("span padding"));
+
+        let bad_background = source.replace("primary@1.0", "missing@1.0");
+        let error = analyze(&bad_background).unwrap_err();
+        assert_eq!(error.code, "E186");
+        assert!(error.message.contains("missing"));
     }
 
     #[test]

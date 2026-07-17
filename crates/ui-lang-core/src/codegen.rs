@@ -3278,8 +3278,8 @@ fn render_rich_span(
     if let Some(background) = &item.options.background {
         write!(
             code,
-            ".background(::iced::Background::Color({}))",
-            theme_color(document, background)
+            ".background({})",
+            background_code(background, env, document)?
         )
         .unwrap();
     }
@@ -6746,8 +6746,8 @@ state
 on link(url)
 view
   rich-text width=fill height=48.0 size=16.0 line-height=1.2 font=ui align-x=justified align-y=center wrapping=word color=foreground @font-bold -> link _
-    span "Ice " size=18.0 line-height-px=22.0 font=ui color=primary background=background border=foreground border-width=1.0 radius=4.0 radius-tl=2.0 radius-tr=3.0 radius-br=5.0 radius-bl=6.0 padding=2.0 padding-left=4.0 underline strike=false
-    span "language" link="https://example.com" @text-lg font-bold text-primary
+    span "Ice " size=18.0 line-height-px=22.0 font=ui color=primary background=linear(1.57, background@0.0, primary@1.0) border=foreground border-width=1.0 radius=4.0 radius-tl=2.0 radius-tr=3.0 radius-br=5.0 radius-bl=6.0 padding=2.0 padding-left=4.0 underline strike=false
+    span "language" link="https://example.com" background=background @text-lg font-bold text-primary
 "#;
         let generated = compile(source, "rich.ice").unwrap();
         assert!(generated.contains("::iced::widget::rich_text(__rich_spans)"));
@@ -6755,6 +6755,7 @@ view
         assert!(generated.contains(".size(18.0 as f32)"));
         assert!(generated.contains("LineHeight::Absolute((22.0 as f32).into())"));
         assert!(generated.contains(".background(::iced::Background::Color("));
+        assert!(generated.contains(".background(::iced::Background::from(::iced::gradient::Linear::new(1.57 as f32).add_stop(0.0 as f32"));
         assert!(generated.contains(".border(::iced::Border"));
         assert!(generated.contains(".padding(::iced::Padding"));
         assert!(generated.contains(".underline(true).strikethrough(false)"));
