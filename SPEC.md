@@ -1,562 +1,458 @@
-# UI Lang v0.1
+# Ice Language Specification 0.1
 
-Status: design draft
+Status: implemented reference slice
 
-UI Lang is a small, statically checked UI language for `iced`. Its source files
-use the `.rsx` extension. The `.rsx` file contains only UI Lang; one procedural
-macro call in Rust loads it into the normal Cargo build. There is no runtime
-parser or `build.rs` code generator.
+Ice is a small frontend language with an iced backend. It is not Rust syntax,
+JSX, or a token shortcut around a procedural macro. A frontend parses `.ice`
+source, resolves names and types, checks UI semantics, and lowers a typed tree
+to backend code.
+
+This document describes what the repository implements. A section explicitly
+marked “planned” is a design constraint, not accepted 0.1 syntax.
+
+## 1. Design contract
+
+Ice optimizes for two readers:
+
+- a person should understand the screen, state, and effects by scanning it;
+- an agent should see one canonical construct for each operation and receive a
+  local error instead of guessing framework conventions.
+
+The language therefore follows these rules:
+
+1. Structure is indentation, with no closing delimiters.
+2. UI state and transitions are explicit; generated messages and borrows are
+   not.
+3. Expressions are a small closed language, not embedded Rust.
+4. Style utilities are a checked vocabulary. Unknown or ineffective utilities
+   are errors.
+5. Domain work crosses a typed `extern` boundary.
+6. The compiler has one parser and checker shared by every frontend.
+
+Ice owns transient/display state, layout, style, event routing, and calls to
+actions. Rust owns validation, invariants, persistence, networking, security,
+observability, and platform-specific behavior.
+
+```text
+interaction -> handler -> extern async Rust fn -> result handler -> state -> view
+```
+
+UI validation such as disabling an empty submit button is only a convenience.
+The Rust action must still validate its input.
+
+## 2. Compiler model
+
+```text
+UTF-8 .ice source
+  -> indentation-aware parser
+  -> AST
+  -> name resolution + type inference + semantic checks
+  -> typed AST/IR
+  -> iced Rust backend
+  -> rustc
+```
+
+`ui-lang-core` owns the parser, AST, checker, formatter, and backend. The
+`ui-lang` proc macro and `cargo-ice` command are thin frontends over that core.
+There is no runtime parser and no `build.rs` generator.
+
+The Rust adapter is one manifest-relative include:
 
 ```rust
-// src/main.rs
-ui_lang::include_app!("src/ui/tasks.rsx");
+ui_lang::include_app!("src/ui/tasks.ice");
 
 fn main() -> iced::Result {
     Tasks::run()
 }
 ```
 
-```rust
-// src/ui/tasks.rsx
-app Tasks;
-// extern declarations, state, handlers, and one view
-```
+The macro emits `include_str!` so Cargo rebuilds after a `.ice` change. It also
+emits probes for every declared extern struct field and async function. Rustc
+therefore rejects missing, private, or shape-incompatible Rust items even when
+an extern declaration is not reached at runtime.
 
-`include_app!` resolves a manifest-relative literal path, checks UI semantics,
-and emits ordinary Rust. It also emits a hidden
-[`include_str!`](https://doc.rust-lang.org/std/macro.include_str.html) dependency
-so stable Cargo rebuilds when the `.rsx` file changes. `rustc` then checks
-referenced Rust items and `iced` types.
+## 3. Source rules
 
-## 1. Goals
+- Files are UTF-8 and use the `.ice` extension.
+- Tabs are errors. `cargo ice fmt` prints two spaces per indentation level.
+- A deeper indentation level makes the following lines children of the prior
+  line. Indentation may only return to an existing level.
+- Empty lines are ignored by the parser and normalized by the formatter.
+- A line whose first non-space characters are `//` is a comment. Inline and
+  block comments are not part of 0.1.
+- Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
+- App, extern-struct, and component names conventionally use `PascalCase`.
+- State, field, function, handler, and parameter names conventionally use
+  `snake_case`.
+- Static IDs use kebab case after `#`, for example `#task-list`.
+- Strings use double quotes and support `\n`, `\r`, `\t`, `\"`, and `\\`.
 
-- Remove ownership, lifetime, message-enum, update-match, and `iced::Task`
-  boilerplate from ordinary UI work.
-- Keep state transitions and asynchronous data flow explicit.
-- Keep business rules in Rust behind typed `extern` declarations.
-- Statically validate names, types, widget properties, handler routes, theme
-  tokens, and Tailwind-style utilities.
-- Preserve `.rsx` locations through explicit source maps and diagnostics.
-- Provide one canonical formatter and machine-readable diagnostics for agents.
-- Work with normal `cargo build`, `cargo check`, and `cargo clippy`.
-
-## 2. Non-goals
-
-Version 0.1 does not provide:
-
-- React, JSX, hooks, reconciliation, or DOM compatibility;
-- general Rust expressions inside the DSL;
-- CSS selectors, cascade, inheritance, or arbitrary CSS values;
-- runtime interpretation or hot-loaded source;
-- business-rule, persistence, networking, or validation primitives;
-- reusable components, animation, subscriptions, or custom widgets.
-
-## 3. Architecture
-
-There is one parser, one syntax tree, and one semantic checker. They are shared
-by three thin front ends:
+Top-level declarations are order-independent, but canonical source uses:
 
 ```text
-include_app! proc macro -> Rust expansion for cargo build/check/clippy
-cargo ui fmt            -> canonical .rsx printer
-cargo ui check          -> fast DSL checks + remapped rustc diagnostics
+app
+extern
+theme
+state
+component
+on
+view
 ```
 
-The macro and CLI must never implement separate grammars.
+A file has exactly one `app` and one `view`, with at most one `extern`
+namespace. It may have multiple components and handlers. The view and each
+component have exactly one root node.
 
-UI Lang checks what is knowable from `.rsx`: DSL syntax, state and handler
-types, declared extern shapes, widget contracts, and utilities. It cannot query
-rustc's symbol table. Instead, it emits a small Rust probe and source-map entry
-for every `extern`; `rustc` checks whether the item exists, is visible, and has
-the declared shape.
+## 4. Compact grammar
 
-## 4. UI and business boundary
-
-UI Lang owns:
-
-- input, selection, loading, and displayed-error state;
-- event routing and simple state assignments;
-- action invocation and result routing;
-- layout and appearance.
-
-Rust owns:
-
-- domain validation and invariants;
-- filesystem, database, network, and operating-system access;
-- authorization and security decisions;
-- shared calculations, logging, and observability.
-
-Data moves in one direction:
+The grammar below uses indentation (`INDENT`) as a block delimiter. `expr` is
+defined in section 6.
 
 ```text
-view interaction -> handler -> extern Rust fn -> result handler -> state -> view
+document       = app_decl extern_decl? theme_decl state_decl?
+                 component_decl* handler_decl* view_decl
+
+app_decl       = "app" PascalName
+
+extern_decl    = "extern" rust_path INDENT extern_item+
+extern_item    = struct_sig | function_sig
+struct_sig     = PascalName "(" field_list? ")"
+field_list     = field ("," field)*
+field          = name ":" type
+function_sig   = name "(" field_list? ")" "->" type ("!" type)?
+
+theme_decl     = "theme" INDENT color_entry+
+color_entry    = name color
+
+state_decl     = "state" INDENT state_entry+
+state_entry    = name (":" type)? "=" expr
+
+component_decl = "component" PascalName "(" field_list? ")"
+                 INDENT node
+
+handler_decl   = "on" name ("(" name_list? ")")?
+                 INDENT statement*
+statement      = name "=" expr
+               | "return if" expr
+               | "run" call "->" route ("|" route)?
+
+view_decl      = "view" INDENT node
+
+node           = layout | text | input | button | checkbox
+               | component_call | if_node | for_node
+layout         = ("col" | "row" | "scroll") id? styles? INDENT node+
+text           = "text" expr styles?
+input          = "input" string id? "<->" name property* styles?
+button         = "button" string id? property* styles? "->" route
+checkbox       = "checkbox" expr id? property* styles? "->" route
+component_call = PascalName "(" expr_list? ")" id?
+if_node        = "if" expr INDENT node+
+for_node       = "for" name "in" expr INDENT node+
+
+property       = "hint=" string | "disabled=" expr | "checked=" expr
+styles         = "@" utility+
+id             = "#" kebab_name | "#" name "(" expr ")"
+route          = name | name "(" route_arg_list? ")"
+route_arg      = expr | "_"
 ```
 
-UI checks such as disabling an empty submit button are conveniences. The Rust
-function must validate the input again.
+Spaces inside a compound expression should be wrapped in parentheses when the
+expression shares a line with widget properties:
 
-## 5. Source and lexical rules
-
-- File extension: `.rsx`.
-- A file starts with one `app Name;` declaration and contains no Rust wrapper.
-- The grammar uses Rust-like tokens; whitespace and indentation have no meaning.
-- Declarations and leaf widgets end in `;`.
-- Blocks use `{ ... }`; struct and theme entries end in `,`.
-- Identifiers use `snake_case`; app and struct aliases use `PascalCase`.
-- Strings use Rust string-literal escaping. Interpolation is not supported.
-- Comments use normal Rust `//` and `/* ... */` syntax.
-- Source must be UTF-8.
-
-Declaration order is fixed:
-
-```rust
-app AppName;
-
-extern struct ViewType = crate::path::Type { /* fields */ }
-extern fn action_name(/* args */) -> Success ! Error = crate::path::function;
-theme { /* colors */ }
-state state_name: Type = initial_value;
-
-on mount { /* statements */ }
-on event_name(/* args */) { /* statements */ }
-
-view { /* exactly one root node */ }
+```ice
+button "Add" disabled=(loading || empty(trim(draft))) -> submit
 ```
 
-Keywords are:
+## 5. Types and externs
 
-```text
-app extern struct fn theme state on mount view
-if else for in run return true false
-```
-
-## 6. Types
-
-| UI Lang | Rust at an extern boundary |
+| Ice | Rust extern type |
 | --- | --- |
 | `bool` | `bool` |
 | `i64` | `i64` |
 | `f64` | `f64` |
 | `str` | `String` |
 | `[T]` | `Vec<T>` |
-| extern struct alias | declared Rust struct path |
+| `Name` | the named struct in the extern namespace |
 | `unit` | `()` |
 
-Optionals, maps, enums, tuples, generics, and user-defined methods are deferred.
-An application needing a richer domain type should expose a small view-model
-struct at the UI boundary.
+One namespace keeps declarations short:
 
-UI Lang has value semantics. Numbers and Booleans are copied. Strings, lists,
-and structs are cloned only when they cross into a message or action. Generated
-views borrow where possible. `.rsx` source never spells Rust borrows, moves,
-lifetimes, or `.clone()`.
-
-## 7. Extern declarations
-
-Externs are declarations, not generated implementations.
-
-### 7.1 Structs
-
-```rust
-extern struct Task = crate::backend::Task {
-    id: i64,
-    title: str,
-    done: bool,
-}
+```ice
+extern crate::backend
+  Task(id:i64, title:str, done:bool)
+  AppError(message:str)
+  list_tasks() -> [Task] ! AppError
+  create_task(title:str) -> [Task] ! AppError
 ```
 
-The alias `Task` is used inside UI Lang. The right-hand Rust type must exist and
-be visible. Each declared field must be public and have the mapped Rust type.
-Extra Rust fields are allowed because the UI does not construct extern structs.
-
-The generated checker performs field-access probes equivalent to:
+This means:
 
 ```rust
-fn check(value: &crate::backend::Task) {
-    let _: &i64 = &value.id;
-    let _: &String = &value.title;
-    let _: &bool = &value.done;
-}
+crate::backend::Task
+crate::backend::AppError
+crate::backend::list_tasks
+crate::backend::create_task
 ```
 
-Extern structs used in state or messages must implement `Clone`. Comparison
-requires `PartialEq`; it is checked only when the DSL compares the value.
+Extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
+`A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
+messages must satisfy the traits required by generated iced code, notably
+`Clone` for 0.1 message payloads.
 
-### 7.2 Functions
+Struct declarations are read-only views of Rust data. Ice may read a declared
+field (`task.title`) but cannot construct or mutate the struct. Declaring a
+field or function does not create it; the generated Rust probes verify the
+actual item and type.
 
-```rust
-extern fn create_task(title: str) -> [Task] ! AppError = crate::backend::create;
+## 6. State and expressions
+
+Literal state types are inferred:
+
+```ice
+state
+  draft = ""
+  loading = false
+  retries = 0
 ```
 
-This declaration expects a function equivalent to:
+These infer to `str`, `bool`, and `i64`, respectively.
 
-```rust
-async fn create(title: String) -> Result<Vec<Task>, AppError>
+Empty lists need an annotation because their element type is unknowable:
+
+```ice
+tasks:[Task] = []
 ```
 
-The function may return any future with that output; it does not need to use
-`async fn` syntax. Arguments and results are owned values so the future can be
-`'static` for `iced::Task::perform`.
+The expression language contains:
 
-An infallible function omits `! Error`:
-
-```rust
-extern fn close_window() -> unit = crate::system::close;
-```
-
-Extern functions may only be called by `run`; ordinary expression calls are not
-allowed.
-
-## 8. State and expressions
-
-Every state declaration has an initial literal:
-
-```rust
-state tasks: [Task] = [];
-state draft: str = "";
-state loading: bool = false;
-```
-
-Handlers replace whole state values:
-
-```rust
-draft = value;
-loading = true;
-```
-
-Nested mutation, indexing assignment, and collection mutation are absent.
-
-Supported expressions are:
-
-- string, integer, float, Boolean, and empty-list literals;
-- state, handler parameter, loop variable, and extern-struct field references;
+- literals: strings, booleans, `i64`, `f64`, and `[]`;
+- paths: `state_name`, `parameter`, `item.field`;
+- unary operators: `!`, `-`;
+- arithmetic: `*`, `/`, `+`, `-`;
+- comparison: `==`, `!=`, `<`, `<=`, `>`, `>=`;
+- boolean operators: `&&`, `||`;
 - parentheses;
-- unary `!` and numeric `-`;
-- numeric `+`, `-`, `*`, and `/`;
-- `==`, `!=`, `<`, `<=`, `>`, and `>=`;
-- Boolean `&&` and `||`;
-- `len(value)`, `empty(value)`, and `trim(value)`.
+- built-ins: `len(list_or_str) -> i64`, `empty(list_or_str) -> bool`, and
+  `trim(str) -> str`.
 
-`len` accepts a list or string and returns `i64`. `empty` accepts a list or
-string. `trim` accepts and returns `str`.
+There is no arbitrary Rust expression, method call, closure, allocation API, or
+implicit truthiness. New operations either belong in a small universal builtin
+set or behind a typed extern function.
 
-There are no arbitrary calls, closures, assignment expressions, references,
-casts, `await`, or nested macros.
+## 7. Handlers and effects
 
-## 9. Handlers and async actions
+Handlers are the only place state changes:
 
-`mount` runs once after initial state creation:
-
-```rust
-on mount {
-    loading = true;
-    run list_tasks() -> loaded(_) | failed(_);
-}
+```ice
+on submit
+  return if loading || empty(trim(draft))
+  loading = true
+  run create_task(trim(draft)) -> created _ | failed _
 ```
 
-Named handlers declare parameter types:
+Rules:
 
-```rust
-on edit(value: str) {
-    draft = value;
-}
+- assignment targets must be declared state;
+- assigned expressions must have the state type;
+- `return if` requires `bool`;
+- `run` must be the final statement because it returns one iced `Task`;
+- fallible externs require both success and error routes;
+- infallible externs permit only the success route;
+- handler parameter types are inferred from every incoming route;
+- incompatible incoming payloads are a type error;
+- `_` means the payload produced by the current widget or action route.
+
+Examples of payload flow:
+
+```ice
+checkbox task.title checked=task.done -> toggle(task.id, _)
+run list_tasks() -> loaded _ | failed _
+
+on toggle(id, checked)
+  run set_task_done(id, checked) -> updated _ | failed _
 ```
 
-Handler statements are limited to state assignment, `if`/`else`, `run`, and
-`return;`. There are no handler-local variables or loops.
+`on mount` runs once during app initialization and has no parameters. Generated
+message enums, update matching, owned clones, lifetimes, and `iced::Task::perform`
+calls are backend details.
 
-`run` schedules an extern function and routes its output:
+## 8. View language
 
-```rust
-run set_task_done(id, checked) -> updated(_) | failed(_);
-```
+The implemented native nodes are deliberately small:
 
-`_` is a payload placeholder. The success route replaces it with the success
-value; the error route replaces it with the error value. Route arguments may
-also forward in-scope values:
-
-```rust
-run load_page(page) -> loaded(page, _) | failed(_);
-```
-
-`run` must be the final statement in its control-flow branch. Infallible externs
-have one route:
-
-```rust
-run close_window() -> closed(_);
-```
-
-Cancellation, progress, batching, and subscriptions are deferred.
-
-The generated update function uses the pinned target version's `iced::Task`
-model. See the official [`iced::Task` documentation](https://docs.iced.rs/iced/task/struct.Task.html).
-
-## 10. View language
-
-`view` is pure and contains exactly one root node.
-
-### 10.1 Structural nodes
-
-```rust
-col class="w-full gap-4" {
-    // zero or more children
-}
-
-row class="w-full items-center gap-2" {
-    // zero or more children
-}
-
-scroll class="w-full h-full" {
-    // exactly one child
-}
-```
-
-The compiler may insert iced containers when padding, backgrounds, borders, or
-maximum sizes cannot be applied directly to a structural widget.
-
-### 10.2 Leaf widgets
-
-```rust
-text "Tasks" class="text-2xl font-bold text-foreground";
-text len(tasks) class="text-sm text-muted";
-
-button "Add"
-    disabled=(loading || empty(trim(draft)))
-    class="px-4 py-2 bg-primary text-white rounded-lg"
-    -> submit;
-
-input
-    id="new-task"
-    label="New task"
-    value=draft
-    placeholder="What needs doing?"
-    disabled=loading
-    class="w-full px-4 py-2 bg-surface text-foreground border border-border rounded-lg"
-    -> edit(_);
-
-checkbox
-    label=task.title
-    checked=task.done
-    disabled=loading
-    class="w-full text-foreground"
-    -> toggle(task.id, _);
-```
-
-Properties containing operators must be parenthesized. `class` and `id` require
-string literals. The route payloads are:
-
-| Widget | Payload |
+| Node | Contract |
 | --- | --- |
-| `button` | none; `_` is forbidden |
-| `input` | new `str`; `_` is required once |
-| `checkbox` | new `bool`; `_` is required once |
+| `col` | vertical children |
+| `row` | horizontal children |
+| `scroll` | exactly one child |
+| `text` | one `str`, `i64`, or `f64` expression |
+| `input` | string label, optional ID/hint/disabled, required `str` binding |
+| `button` | literal label, optional ID/disabled, required route |
+| `checkbox` | string label expression, required bool `checked`, optional disabled, bool-payload route |
+| `if` | includes its children when a bool expression is true |
+| `for` | iterates a list and adds one typed item binding |
 
-### 10.3 Conditional and repeated nodes
+`if` and `for` are child control-flow nodes inside a layout. There is no virtual
+DOM or runtime reconciliation layer; the iced backend constructs the current
+element tree from state.
 
-```rust
-if loading {
-    text "Loading..." class="text-sm text-muted";
-} else {
-    text "Ready" class="text-sm text-foreground";
-}
+### Components
 
-for task in tasks {
-    checkbox label=task.title checked=task.done -> toggle(task.id, _);
-}
+Components are pure typed view templates:
+
+```ice
+component TaskRow(task:Task, loading:bool)
+  row #root @w-full items-center p-4 bg-surface rounded-lg
+    checkbox task.title checked=task.done disabled=loading -> toggle(task.id, _)
 ```
 
-There is no React-style `key`: v0.1 has no component-local state or
-reconciliation, so a key would have no semantics.
+They have one root, typed inputs, no local mutable state, no lifecycle, and no
+implicit capture of app state. They may route events to app handlers. The
+compiler expands them into the typed view IR; they are not runtime component
+objects.
 
-## 11. Accessibility
+### IDs
 
-- `button` requires a non-empty textual label.
-- `input` requires a non-empty literal `label`.
-- `checkbox` requires a `str` label expression.
-- `id`, when present, must be a unique string literal in the view.
-- Disabled controls expose iced's disabled semantics.
-- Keyboard focus and activation use native iced widget behavior.
+IDs are identities, not CSS selectors. Static IDs must be unique in their local
+view/component scope. Repeated instances use a stable typed key:
 
-Images are deferred until the language has an asset model and can require
-alternative text.
-
-## 12. Theme and Tailwind-style utilities
-
-Theme values are static color tokens:
-
-```rust
-theme {
-    background: "#0f172a",
-    surface: "#111827",
-    foreground: "#f8fafc",
-    muted: "#94a3b8",
-    primary: "#7c3aed",
-    danger: "#dc2626",
-    border: "#334155",
-}
+```ice
+for task in tasks
+  TaskRow(task, loading) #task(task.id)
 ```
 
-Values must be `#RRGGBB` or `#RRGGBBAA`. `white`, `black`, and `transparent`
-are built in. Unknown, unused, shadowing, and duplicate tokens are errors.
-
-`class` is a string literal containing a checked Tailwind-style subset. It is
-not CSS and has no runtime engine. Class concatenation and computed classes are
-errors.
-
-Spacing number `N` means `N * 4` iced logical pixels. Supported numbers are:
+The logical identity is hierarchical:
 
 ```text
-0 1 2 3 4 5 6 8 10 12 16 20 24
+App / component-instance / local-node
+Tasks/task(42)/root
 ```
 
-| Group | Utilities |
+A component call without an explicit ID receives its component name as the
+instance segment. Repeated component calls should therefore provide a dynamic
+ID. The iced backend lowers identities to native iced IDs on widgets that
+support them (currently input and scroll) and still uses layout/component IDs
+to build descendant scopes.
+
+## 9. Theme and style
+
+Theme colors are named tokens with `#RRGGBB` or `#RRGGBBAA` values:
+
+```ice
+theme
+  background #0f172a
+  foreground #f8fafc
+  primary    #7c3aed
+  danger     #dc2626
+```
+
+`background`, `foreground`, `primary`, and `danger` are required. Other names
+are app-defined. `white`, `black`, and `transparent` are built in. A color may
+carry opacity, such as `bg-primary/70`.
+
+`@` switches the remainder of a node to style utilities. Utilities are resolved
+at compile time; there is no CSS engine, selector matching, cascade, or runtime
+string parser.
+
+The implemented utility surface is:
+
+| Family | Values | Effective on |
+| --- | --- | --- |
+| size | `w-full`, `h-full` | layouts; `w-full` also input |
+| max width | `max-w-sm` through `max-w-2xl` | row, col |
+| alignment | `items-center`, `self-center` | row, col |
+| spacing | `p-*`, `px-*`, `py-*`, `gap-*` | row/col; padding also input/button |
+| text | `text-xs` through `text-2xl`, `font-bold` | text |
+| color | `bg-TOKEN`, `text-TOKEN`, `border-TOKEN` | checked per widget |
+| border | `border`, `border-2` | row, col, input |
+| radius | `rounded-sm`, `rounded`, `rounded-md`, `rounded-lg`, `rounded-full` | row, col, input, button |
+| states | `hover:bg-*`, `pressed:bg-*`, `disabled:opacity-*` | button |
+| focus | `focus:border-*` | input |
+
+Spacing values are `0 1 2 3 4 5 6 8 10 12 16 20 24` and map to four iced
+logical pixels per unit. Opacity values are `0 25 50 75 100`; color opacity may
+be any integer from 0 through 100.
+
+`border-TOKEN` and `focus:border-TOKEN` require `border` or `border-2` on the
+same node. A rounded row/column requires a background or border, because iced
+would otherwise have nothing to round.
+
+The checker rejects both an unknown utility (`E041`) and a known utility on a
+node where the iced backend would ignore it (`E042`/`E044`). Silent CSS-like
+no-ops are not allowed.
+
+## 10. Diagnostics
+
+Language errors have stable codes and source coordinates:
+
+```text
+E132 src/ui/tasks.ice:26:1: unknown handler `save`
+E041 src/ui/tasks.ice:61:1: unsupported utility `grid-cols-3`
+E042 src/ui/tasks.ice:61:1: utility `gap-4` has no effect on `text`
+```
+
+The implemented families are:
+
+| Range | Meaning |
 | --- | --- |
-| Size | `w-full`, `w-fit`, `h-full`, `h-fit`, `w-N`, `h-N` |
-| Maximum width | `max-w-sm`, `max-w-md`, `max-w-lg`, `max-w-xl`, `max-w-2xl` |
-| Spacing | `p-N`, `px-N`, `py-N`, `pt-N`, `pr-N`, `pb-N`, `pl-N`, `gap-N` |
-| Alignment | `items-start`, `items-center`, `items-end`, `justify-start`, `justify-center`, `justify-end`, `justify-between`, `self-start`, `self-center`, `self-end` |
-| Text size | `text-xs`, `text-sm`, `text-base`, `text-lg`, `text-xl`, `text-2xl` |
-| Weight | `font-normal`, `font-medium`, `font-semibold`, `font-bold` |
-| Text alignment | `text-left`, `text-center`, `text-right` |
-| Color | `bg-TOKEN`, `text-TOKEN`, `border-TOKEN` |
-| Border | `border`, `border-0`, `border-2` |
-| Radius | `rounded-none`, `rounded-sm`, `rounded`, `rounded-md`, `rounded-lg`, `rounded-full` |
-| Opacity | `opacity-0`, `opacity-25`, `opacity-50`, `opacity-75`, `opacity-100` |
-| Decoration | `line-through` |
+| `E000-E019` | document, indentation, theme |
+| `E020-E039` | extern, type, and state syntax |
+| `E040-E079` | component, statement, view, expression, and style rules |
+| `E100-E119` | duplicate declarations and theme semantics |
+| `E120-E139` | view, action, and route resolution |
+| `E140-E159` | handler and expression types |
+| `E160-E179` | IDs and backend lowering constraints |
 
-Maximum widths are 384, 448, 512, 576, and 672 logical pixels. Text sizes are
-12, 14, 16, 18, 20, and 24 logical pixels.
+`cargo ice check` first reports these language errors directly, then invokes
+`cargo check` so rustc verifies extern items and generated iced types. A missing
+Rust item is named by its `crate::module::item` path in rustc's diagnostic. A
+future source-map layer may remap those rustc spans into the precise extern line;
+0.1 does not claim that remapping.
 
-Colors accept opacity suffixes in multiples of ten, such as `bg-primary/90`.
-State variants are `hover:`, `pressed:`, `focus:`, and `disabled:`.
+## 11. Cargo commands
 
-The checker rejects unknown utilities, conflicting utilities in one variant,
-unsupported widget variants, arbitrary values such as `w-[13px]`, selectors,
-responsive prefixes, grid, positioning, transforms, animation, and margins.
-Parents use `gap`; containers use padding.
-
-## 13. Formatter
-
-`cargo ui fmt` is the authoritative `.rsx` formatter:
-
-```text
-cargo ui fmt
-cargo ui fmt --check
-```
-
-Formatting is an AST print, not token whitespace cleanup. It is idempotent and:
-
-- uses four-space indentation;
-- writes one declaration or statement per line;
-- expands multi-property widgets vertically when they exceed 100 columns;
-- orders declarations by the required source order;
-- orders utilities by size, spacing, alignment, typography, color, border,
-  opacity, then state variant;
-- preserves comments by attaching each comment to the next syntax node;
-- never changes expression or child order.
-
-`cargo fmt` continues to format Rust targets and leaves `.rsx` files alone. It
-cannot discover a foreign source format and is therefore not the `.rsx`
-formatter. `cargo ui fmt` first runs `cargo fmt`, then formats all referenced
-`.rsx` files, giving the project one command for both kinds of source.
-
-Cargo custom subcommands are ordinary `cargo-NAME` executables; `cargo ui` is
-implemented by a `cargo-ui` binary, following Cargo's
-[`custom subcommand` contract](https://doc.rust-lang.org/cargo/reference/external-tools.html#custom-subcommands).
-
-## 14. Analyzer and Cargo compatibility
-
-Commands are:
-
-```text
-cargo ui check             # DSL checks, then cargo check with diagnostic mapping
-cargo ui clippy            # DSL checks, then cargo clippy with diagnostic mapping
-cargo ui fmt [--check]     # cargo fmt, then .rsx formatting
-```
-
-The analyzer reports syntax, type, flow, accessibility, theme, and utility
-errors without compiling Rust. Output supports human text and Cargo-compatible
-JSON.
-
-Raw Cargo remains valid:
-
-| Command | Contract |
+| Command | Behavior |
 | --- | --- |
-| `cargo build` | expands `.rsx`, resolves externs, builds the app |
-| `cargo check` | same static checks without code generation output |
-| `cargo clippy` | lints handwritten Rust and the generated expansion |
-| `cargo fmt` | formats Rust and leaves `.rsx` files untouched |
+| `cargo build` / `cargo check` | expands each included `.ice` file and checks generated Rust |
+| `cargo fmt` | formats Rust; foreign `.ice` files are unchanged |
+| `cargo clippy` | lints generated Rust as part of the normal crate |
+| `cargo ice fmt` | runs Rust formatting and formats all discovered `.ice` files |
+| `cargo ice fmt --check` | checks both Rust and Ice formatting without changing `.ice` files |
+| `cargo ice check` | language analysis followed by workspace `cargo check` |
+| `cargo ice clippy` | language analysis followed by workspace clippy |
+| `cargo ice expand FILE` | prints generated Rust for debugging |
 
-`cargo ui check` and `cargo ui clippy` invoke Cargo with
-`--message-format=json`, then map generated probes back to extern declarations.
-They use Cargo's CLI and `cargo metadata`; they do not link Cargo as a library.
+`cargo-ice` discovers `.ice` files recursively below the current directory and
+skips `.git` and `target`.
 
-Generated code should be idiomatic. Narrow `#[allow(clippy::...)]` attributes
-may cover unavoidable expansion artifacts, but a blanket Clippy allow is
-forbidden.
+## 12. Current coverage and planned escape hatch
 
-## 15. Friendly extern diagnostics
+The 0.1 native backend is enough for a real CRUD/settings-style screen, not all
+of iced. It does not yet include radio, slider, pick list, image, SVG, canvas,
+tooltip, overlay/modal, text editor, subscription/stream, keyboard/mouse,
+clipboard, drag, focus operations, multiple windows, or custom widgets.
 
-The analyzer never scans Rust source text to guess whether an extern exists.
-Rust macros, re-exports, features, and generated modules make that unreliable.
-`rustc` is the authority; source maps and diagnostic codes make its result easy
-to understand.
+The language must not grow one ad-hoc syntax form for every iced API. The next
+extension is a typed extern-widget boundary: Ice declares typed properties and
+emitted events, while Rust supplies an iced `Element` adapter. That boundary
+will make advanced widgets available without admitting arbitrary Rust into
+expressions or duplicating iced in the core grammar. Its exact syntax and ABI
+are planned, not accepted by the 0.1 parser.
 
-Stable procedural macros cannot create rustc spans inside a separately read
-file. Raw `cargo build`, `check`, and `clippy` therefore point at the
-`include_app!` call while naming the failing extern probe. `cargo ui` uses the
-generated source map to point at the exact `.rsx` declaration and rewrites known
-rustc failures:
-
-```text
-E201 src/ui/tasks.rsx:3:26
-extern struct `crate::backend::Task` was not found
-hint: define `pub struct Task` or correct the extern path
-```
+Native language coverage and system coverage are therefore separate:
 
 ```text
-E202 src/ui/tasks.rsx:3:26
-extern struct `crate::backend::Task` has no public field `title: String`
-hint: expose that field or declare the view-model struct actually returned by the backend
+common screen structure -> small checked Ice vocabulary
+advanced/custom widget  -> typed Rust widget adapter (planned)
+domain and I/O           -> typed Rust async externs (implemented)
 ```
 
-```text
-E203 src/ui/tasks.rsx:14:69
-extern fn `crate::backend::create` has the wrong signature
-expected: async fn(String) -> Result<Vec<Task>, AppError>
-hint: change the function or its extern declaration
-```
+## 13. Reference application
 
-```text
-E041 src/ui/tasks.rsx:74:16
-unsupported utility `backdrop-blur-xl`
-hint: remove it; iced has no backdrop-blur utility
-```
-
-Stable UI Lang codes are used for mapped errors. The original rustc diagnostic
-is retained as structured `cause` data in JSON, not duplicated in human output.
-
-## 16. Generated Rust contract
-
-The macro generates:
-
-- a private state struct;
-- a private message enum from handlers and continuations;
-- `update` and `view` functions;
-- `iced::Task::perform` calls for `run`;
-- field and function probes for externs;
-- a public app type with `run() -> iced::Result`.
-
-Generated Rust is not written into `src/`, committed, or edited. The consuming
-crate pins one iced version; UI Lang does not carry several iced adapters in
-v0.1.
-
-## 17. Complete example
-
-- [`examples/tasks.rsx`](examples/tasks.rsx) is the complete UI source.
-- [`examples/main.rs`](examples/main.rs) loads it with `include_app!` and implements
-  the extern Rust structs and functions.
-
-The example uses only the standard library for its in-memory business layer.
-The compiler, formatter, analyzer, and Cargo subcommand are specified here but
-are intentionally not scaffolded by this design-only draft.
+The authoritative full example is
+[`examples/iced-app/src/ui/tasks.ice`](examples/iced-app/src/ui/tasks.ice), with
+its Rust boundary in
+[`examples/iced-app/src/main.rs`](examples/iced-app/src/main.rs). It exercises
+state inference, typed extern structs/functions, mount and result handlers,
+direct input binding, `if`, `for`, a pure component, dynamic component IDs,
+theme utilities, disabled controls, and fallible asynchronous tasks.

@@ -1,4 +1,4 @@
-ui_lang::include_app!("examples/tasks.rsx");
+ui_lang::include_app!("src/ui/tasks.ice");
 
 mod backend {
     use std::sync::{LazyLock, Mutex, MutexGuard};
@@ -15,8 +15,8 @@ mod backend {
         pub message: String,
     }
 
-    // ponytail: one global lock is enough for the example; use real storage when
-    // persistence or concurrent write throughput becomes a requirement.
+    // ponytail: a process-wide lock is enough for the sample; replace it when
+    // persistence or concurrent write throughput becomes a real requirement.
     static TASKS: LazyLock<Mutex<Vec<Task>>> = LazyLock::new(|| {
         Mutex::new(vec![Task {
             id: 1,
@@ -31,11 +31,11 @@ mod backend {
         })
     }
 
-    pub async fn list() -> Result<Vec<Task>, AppError> {
+    pub async fn list_tasks() -> Result<Vec<Task>, AppError> {
         Ok(tasks()?.clone())
     }
 
-    pub async fn create(title: String) -> Result<Vec<Task>, AppError> {
+    pub async fn create_task(title: String) -> Result<Vec<Task>, AppError> {
         let title = title.trim();
         if title.is_empty() {
             return Err(AppError {
@@ -53,7 +53,7 @@ mod backend {
         Ok(tasks.clone())
     }
 
-    pub async fn set_done(id: i64, done: bool) -> Result<Vec<Task>, AppError> {
+    pub async fn set_task_done(id: i64, done: bool) -> Result<Vec<Task>, AppError> {
         let mut tasks = tasks()?;
         let Some(task) = tasks.iter_mut().find(|task| task.id == id) else {
             return Err(AppError {

@@ -1,0 +1,1237 @@
+use crate::Error;
+use crate::ast::*;
+use std::collections::BTreeMap;
+
+#[derive(Clone, Debug)]
+struct Line {
+    number: usize,
+    indent: usize,
+    text: String,
+    children: Vec<Line>,
+}
+
+pub fn parse(source: &str) -> Result<Document, Error> {
+    let lines = line_tree(source)?;
+    let mut app = None;
+    let mut extern_path = None;
+    let mut structs = Vec::new();
+    let mut functions = Vec::new();
+    let mut theme = BTreeMap::new();
+    let mut states = Vec::new();
+    let mut components = Vec::new();
+    let mut handlers = Vec::new();
+    let mut view = None;
+
+    for line in &lines {
+        if let Some(name) = line.text.strip_prefix("app ") {
+            ensure_leaf(line)?;
+            if app.replace(identifier(name.trim(), line)?).is_some() {
+                return Err(error("E002", line, "an app may only be declared once"));
+            }
+        } else if let Some(path) = line.text.strip_prefix("extern ") {
+            if extern_path.is_some() {
+                return Err(error(
+                    "E003",
+                    line,
+                    "only one extern namespace is supported",
+                ));
+            }
+            let path = rust_path(path.trim(), line)?;
+            extern_path = Some(path.clone());
+            for item in &line.children {
+                if item.text.chars().next().is_some_and(char::is_uppercase) {
+                    structs.push(parse_extern_struct(item, &path)?);
+                } else {
+                    functions.push(parse_extern_fn(item, &path)?);
+                }
+            }
+        } else if line.text == "theme" {
+            for item in &line.children {
+                ensure_leaf(item)?;
+                let Some((name, value)) = item.text.split_once(char::is_whitespace) else {
+                    return Err(error("E010", item, "expected `name #RRGGBB`"));
+                };
+                let name = identifier(name, item)?;
+                let value = value.trim();
+                if !valid_color(value) {
+                    return Err(error("E011", item, "theme colors use #RRGGBB or #RRGGBBAA"));
+                }
+                if theme.insert(name.clone(), value.into()).is_some() {
+                    return Err(error(
+                        "E012",
+                        item,
+                        format!("duplicate theme token `{name}`"),
+                    ));
+                }
+            }
+        } else if line.text == "state" {
+            states.extend(
+                line.children
+                    .iter()
+                    .map(parse_state)
+                    .collect::<Result<Vec<_>, _>>()?,
+            );
+        } else if let Some(header) = line.text.strip_prefix("component ") {
+            components.push(parse_component(header, line)?);
+        } else if let Some(header) = line.text.strip_prefix("on ") {
+            handlers.push(parse_handler(header, line)?);
+        } else if line.text == "view" {
+            if view.is_some() {
+                return Err(error("E004", line, "an app may only have one view"));
+            }
+            if line.children.len() != 1 {
+                return Err(error(
+                    "E005",
+                    line,
+                    "view must contain exactly one root node",
+                ));
+            }
+            view = Some(parse_view(&line.children[0])?);
+        } else {
+            return Err(error(
+                "E001",
+                line,
+                format!("unknown declaration `{}`", line.text),
+            ));
+        }
+    }
+
+    let span = Span::line(1);
+    Ok(Document {
+        app: app.ok_or_else(|| Error::new("E006", &span, "missing `app Name` declaration"))?,
+        extern_path,
+        structs,
+        functions,
+        theme,
+        states,
+        components,
+        handlers,
+        view: view.ok_or_else(|| Error::new("E008", &span, "missing `view` block"))?,
+    })
+}
+
+fn line_tree(source: &str) -> Result<Vec<Line>, Error> {
+    let mut flat = Vec::new();
+    for (index, raw) in source.lines().enumerate() {
+        if raw.contains('\t') {
+            return Err(Error::new(
+                "E009",
+                &Span::line(index + 1),
+                "tabs are not allowed; use spaces",
+            ));
+        }
+        let trimmed = raw.trim();
+        if trimmed.is_empty() || trimmed.starts_with("//") {
+            continue;
+        }
+        let indent = raw.len() - raw.trim_start().len();
+        flat.push(Line {
+            number: index + 1,
+            indent,
+            text: trimmed.into(),
+            children: Vec::new(),
+        });
+    }
+    if flat.is_empty() {
+        return Err(Error::new("E000", &Span::line(1), "empty .ice file"));
+    }
+    if flat[0].indent != 0 {
+        return Err(error(
+            "E009",
+            &flat[0],
+            "the first declaration must not be indented",
+        ));
+    }
+    let mut index = 0;
+    parse_block(&flat, &mut index, 0)
+}
+
+fn parse_block(flat: &[Line], index: &mut usize, indent: usize) -> Result<Vec<Line>, Error> {
+    let mut output = Vec::new();
+    while *index < flat.len() {
+        if flat[*index].indent < indent {
+            break;
+        }
+        if flat[*index].indent > indent {
+            return Err(error("E009", &flat[*index], "unexpected indentation"));
+        }
+        let mut line = flat[*index].clone();
+        *index += 1;
+        if *index < flat.len() && flat[*index].indent > indent {
+            let child_indent = flat[*index].indent;
+            line.children = parse_block(flat, index, child_indent)?;
+        }
+        output.push(line);
+    }
+    Ok(output)
+}
+
+fn parse_extern_struct(line: &Line, namespace: &str) -> Result<ExternStruct, Error> {
+    ensure_leaf(line)?;
+    let (name, fields) = parse_signature(&line.text, line)?;
+    let mut parsed_fields = Vec::new();
+    for field in split_top(&fields, ',') {
+        let Some((name, ty)) = field.split_once(':') else {
+            return Err(error("E020", line, "struct fields use `name:type`"));
+        };
+        parsed_fields.push((identifier(name.trim(), line)?, parse_type(ty.trim(), line)?));
+    }
+    Ok(ExternStruct {
+        rust_path: format!("{namespace}::{name}"),
+        name,
+        fields: parsed_fields,
+        span: Span::line(line.number),
+    })
+}
+
+fn parse_extern_fn(line: &Line, namespace: &str) -> Result<ExternFn, Error> {
+    ensure_leaf(line)?;
+    let close = matching_paren(&line.text, line)?;
+    let name = identifier(line.text[..line.text.find('(').unwrap_or(0)].trim(), line)?;
+    let params_source = &line.text[line.text.find('(').unwrap_or(0) + 1..close];
+    let mut params = Vec::new();
+    if !params_source.trim().is_empty() {
+        for param in split_top(params_source, ',') {
+            let Some((name, ty)) = param.split_once(':') else {
+                return Err(error("E021", line, "function parameters use `name:type`"));
+            };
+            params.push((identifier(name.trim(), line)?, parse_type(ty.trim(), line)?));
+        }
+    }
+    let rest = line.text[close + 1..].trim();
+    let Some(rest) = rest.strip_prefix("->") else {
+        return Err(error(
+            "E022",
+            line,
+            "extern functions require `-> ReturnType`",
+        ));
+    };
+    let (output, error_ty) = match split_top_once(rest.trim(), '!') {
+        Some((output, error_ty)) => (
+            parse_type(output.trim(), line)?,
+            Some(parse_type(error_ty.trim(), line)?),
+        ),
+        None => (parse_type(rest.trim(), line)?, None),
+    };
+    Ok(ExternFn {
+        rust_path: format!("{namespace}::{name}"),
+        name,
+        params,
+        output,
+        error: error_ty,
+        span: Span::line(line.number),
+    })
+}
+
+fn parse_state(line: &Line) -> Result<State, Error> {
+    ensure_leaf(line)?;
+    let Some((left, right)) = split_top_once(&line.text, '=') else {
+        return Err(error(
+            "E030",
+            line,
+            "state entries use `name[:type] = value`",
+        ));
+    };
+    let (name, declared) = match left.split_once(':') {
+        Some((name, ty)) => (
+            identifier(name.trim(), line)?,
+            Some(parse_type(ty.trim(), line)?),
+        ),
+        None => (identifier(left.trim(), line)?, None),
+    };
+    let initial = parse_expr(right.trim(), line)?;
+    let inferred = literal_type(&initial);
+    let ty = declared.or(inferred).ok_or_else(|| {
+        error("E031", line, "state type cannot be inferred")
+            .hint("write an explicit type, for example `items:[Item] = []`")
+    })?;
+    Ok(State {
+        name,
+        ty,
+        initial,
+        span: Span::line(line.number),
+    })
+}
+
+fn parse_component(header: &str, line: &Line) -> Result<Component, Error> {
+    if line.children.len() != 1 {
+        return Err(error(
+            "E040",
+            line,
+            "component must have exactly one root node",
+        ));
+    }
+    let (name, params_source) = parse_signature(header, line)?;
+    let mut params = Vec::new();
+    if !params_source.trim().is_empty() {
+        for param in split_top(&params_source, ',') {
+            let Some((name, ty)) = param.split_once(':') else {
+                return Err(error(
+                    "E043",
+                    line,
+                    "component parameters require `name:type`",
+                ));
+            };
+            params.push((identifier(name.trim(), line)?, parse_type(ty.trim(), line)?));
+        }
+    }
+    Ok(Component {
+        name,
+        params,
+        root: parse_view(&line.children[0])?,
+        span: Span::line(line.number),
+    })
+}
+
+fn parse_handler(header: &str, line: &Line) -> Result<Handler, Error> {
+    let header = header.trim();
+    let (name, params) = if header.contains('(') {
+        let (name, params) = parse_signature(header, line)?;
+        let params = split_top(&params, ',')
+            .into_iter()
+            .filter(|value| !value.trim().is_empty())
+            .map(|value| {
+                Ok(HandlerParam {
+                    name: identifier(value.trim(), line)?,
+                    ty: Type::Unknown,
+                })
+            })
+            .collect::<Result<Vec<_>, Error>>()?;
+        (name, params)
+    } else {
+        (identifier(header, line)?, Vec::new())
+    };
+    let statements = line
+        .children
+        .iter()
+        .map(parse_statement)
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(Handler {
+        name,
+        params,
+        statements,
+        span: Span::line(line.number),
+    })
+}
+
+fn parse_statement(line: &Line) -> Result<Statement, Error> {
+    ensure_leaf(line)?;
+    if let Some(condition) = line.text.strip_prefix("return if ") {
+        return Ok(Statement::ReturnIf {
+            condition: parse_expr(condition, line)?,
+            span: Span::line(line.number),
+        });
+    }
+    if let Some(run) = line.text.strip_prefix("run ") {
+        let Some((call, routes)) = split_top_marker(run, "->") else {
+            return Err(error("E050", line, "run requires `-> success _ | error _`"));
+        };
+        let (function, args_source) = parse_signature(call.trim(), line)?;
+        let args = parse_expr_list(&args_source, line)?;
+        let (success, error_route) = match split_top_once(routes.trim(), '|') {
+            Some((success, failure)) => (
+                parse_route(success.trim(), line)?,
+                Some(parse_route(failure.trim(), line)?),
+            ),
+            None => (parse_route(routes.trim(), line)?, None),
+        };
+        return Ok(Statement::Run {
+            function,
+            args,
+            success,
+            error: error_route,
+            span: Span::line(line.number),
+        });
+    }
+    if let Some((target, value)) = split_top_once(&line.text, '=') {
+        return Ok(Statement::Assign {
+            target: identifier(target.trim(), line)?,
+            value: parse_expr(value.trim(), line)?,
+            span: Span::line(line.number),
+        });
+    }
+    Err(error(
+        "E051",
+        line,
+        format!("unknown statement `{}`", line.text),
+    ))
+}
+
+fn parse_view(line: &Line) -> Result<ViewNode, Error> {
+    if let Some(condition) = line.text.strip_prefix("if ") {
+        return Ok(ViewNode::If {
+            condition: parse_expr(condition, line)?,
+            children: line
+                .children
+                .iter()
+                .map(parse_view)
+                .collect::<Result<_, _>>()?,
+            span: Span::line(line.number),
+        });
+    }
+    if let Some(loop_source) = line.text.strip_prefix("for ") {
+        let Some((item, items)) = loop_source.split_once(" in ") else {
+            return Err(error("E060", line, "loops use `for item in items`"));
+        };
+        return Ok(ViewNode::For {
+            item: identifier(item.trim(), line)?,
+            items: parse_expr(items.trim(), line)?,
+            children: line
+                .children
+                .iter()
+                .map(parse_view)
+                .collect::<Result<_, _>>()?,
+            span: Span::line(line.number),
+        });
+    }
+
+    let (without_route, route_source) = split_top_marker(&line.text, "->")
+        .map_or((line.text.as_str(), None), |(left, right)| {
+            (left, Some(right))
+        });
+    let (core, styles) = split_top_marker(without_route, "@").map_or_else(
+        || (without_route.trim(), Vec::new()),
+        |(core, styles)| {
+            (
+                core.trim(),
+                styles.split_whitespace().map(str::to_owned).collect(),
+            )
+        },
+    );
+    let parts = split_words(core);
+    let Some(kind) = parts.first().map(String::as_str) else {
+        return Err(error("E061", line, "empty view node"));
+    };
+    let span = Span::line(line.number);
+
+    match kind {
+        "col" | "row" | "scroll" => {
+            let id = parts
+                .get(1)
+                .filter(|part| part.starts_with('#'))
+                .map(|part| parse_id(part, line))
+                .transpose()?;
+            if kind == "scroll" && line.children.len() != 1 {
+                return Err(error("E062", line, "scroll must have exactly one child"));
+            }
+            Ok(ViewNode::Layout {
+                kind: match kind {
+                    "col" => Layout::Column,
+                    "row" => Layout::Row,
+                    _ => Layout::Scroll,
+                },
+                id,
+                styles,
+                children: line
+                    .children
+                    .iter()
+                    .map(parse_view)
+                    .collect::<Result<_, _>>()?,
+                span,
+            })
+        }
+        "text" => {
+            if parts.len() != 2 {
+                return Err(error(
+                    "E063",
+                    line,
+                    "text expects one expression before `@`",
+                ));
+            }
+            ensure_leaf(line)?;
+            Ok(ViewNode::Text {
+                value: parse_expr(&parts[1], line)?,
+                styles,
+                span,
+            })
+        }
+        "input" => parse_input(&parts, styles, line),
+        "button" => parse_button(&parts, styles, route_source, line),
+        "checkbox" => parse_checkbox(&parts, styles, route_source, line),
+        _ if kind.chars().next().is_some_and(char::is_uppercase) => {
+            ensure_leaf(line)?;
+            let (name, args_source) = parse_signature(kind, line)?;
+            let id = parts
+                .get(1)
+                .filter(|part| part.starts_with('#'))
+                .map(|part| parse_id(part, line))
+                .transpose()?;
+            Ok(ViewNode::Component {
+                name,
+                args: parse_expr_list(&args_source, line)?,
+                id,
+                span,
+            })
+        }
+        _ => Err(error("E064", line, format!("unknown view node `{kind}`"))),
+    }
+}
+
+fn parse_input(parts: &[String], styles: Vec<String>, line: &Line) -> Result<ViewNode, Error> {
+    ensure_leaf(line)?;
+    if parts.len() < 4 {
+        return Err(error(
+            "E065",
+            line,
+            "input uses `input \"Label\" #id <-> state`",
+        ));
+    }
+    let label = string_literal(&parts[1], line)?;
+    let mut id = None;
+    let mut binding = None;
+    let mut hint = String::new();
+    let mut disabled = None;
+    let mut index = 2;
+    while index < parts.len() {
+        let part = &parts[index];
+        if part.starts_with('#') {
+            id = Some(parse_id(part, line)?);
+        } else if part == "<->" {
+            index += 1;
+            let value = parts
+                .get(index)
+                .ok_or_else(|| error("E065", line, "missing binding after `<->`"))?;
+            binding = Some(identifier(value, line)?);
+        } else if let Some(value) = part.strip_prefix("hint=") {
+            hint = string_literal(value, line)?;
+        } else if let Some(value) = part.strip_prefix("disabled=") {
+            disabled = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else {
+            return Err(error(
+                "E065",
+                line,
+                format!("unknown input property `{part}`"),
+            ));
+        }
+        index += 1;
+    }
+    Ok(ViewNode::Input {
+        label,
+        id,
+        binding: binding.ok_or_else(|| error("E065", line, "input requires `<-> state`"))?,
+        hint,
+        disabled,
+        styles,
+        span: Span::line(line.number),
+    })
+}
+
+fn parse_button(
+    parts: &[String],
+    styles: Vec<String>,
+    route: Option<&str>,
+    line: &Line,
+) -> Result<ViewNode, Error> {
+    ensure_leaf(line)?;
+    let label = parts
+        .get(1)
+        .ok_or_else(|| error("E066", line, "button needs a label"))?;
+    let label = string_literal(label, line)?;
+    let mut id = None;
+    let mut disabled = None;
+    for part in &parts[2..] {
+        if part.starts_with('#') {
+            id = Some(parse_id(part, line)?);
+        } else if let Some(value) = part.strip_prefix("disabled=") {
+            disabled = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else {
+            return Err(error(
+                "E066",
+                line,
+                format!("unknown button property `{part}`"),
+            ));
+        }
+    }
+    Ok(ViewNode::Button {
+        label,
+        id,
+        disabled,
+        styles,
+        route: parse_route(
+            route.ok_or_else(|| error("E066", line, "button requires `-> handler`"))?,
+            line,
+        )?,
+        span: Span::line(line.number),
+    })
+}
+
+fn parse_checkbox(
+    parts: &[String],
+    styles: Vec<String>,
+    route: Option<&str>,
+    line: &Line,
+) -> Result<ViewNode, Error> {
+    ensure_leaf(line)?;
+    let label = parts
+        .get(1)
+        .ok_or_else(|| error("E067", line, "checkbox needs a label expression"))?;
+    let mut id = None;
+    let mut checked = None;
+    let mut disabled = None;
+    for part in &parts[2..] {
+        if part.starts_with('#') {
+            id = Some(parse_id(part, line)?);
+        } else if let Some(value) = part.strip_prefix("checked=") {
+            checked = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("disabled=") {
+            disabled = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else {
+            return Err(error(
+                "E067",
+                line,
+                format!("unknown checkbox property `{part}`"),
+            ));
+        }
+    }
+    Ok(ViewNode::Checkbox {
+        label: parse_expr(label, line)?,
+        id,
+        checked: checked.ok_or_else(|| error("E067", line, "checkbox requires `checked=value`"))?,
+        disabled,
+        styles,
+        route: parse_route(
+            route.ok_or_else(|| error("E067", line, "checkbox requires `-> handler`"))?,
+            line,
+        )?,
+        span: Span::line(line.number),
+    })
+}
+
+fn parse_route(source: &str, line: &Line) -> Result<Route, Error> {
+    let source = source.trim();
+    if let Some(open) = source.find('(') {
+        let close = matching_paren(source, line)?;
+        let handler = identifier(source[..open].trim(), line)?;
+        let args = split_top(&source[open + 1..close], ',')
+            .into_iter()
+            .filter(|part| !part.trim().is_empty())
+            .map(|part| {
+                if part.trim() == "_" {
+                    Ok(RouteArg::Payload)
+                } else {
+                    Ok(RouteArg::Expr(parse_expr(part.trim(), line)?))
+                }
+            })
+            .collect::<Result<_, Error>>()?;
+        return Ok(Route {
+            handler,
+            args,
+            span: Span::line(line.number),
+        });
+    }
+    let mut words = source.split_whitespace();
+    let handler = identifier(
+        words
+            .next()
+            .ok_or_else(|| error("E052", line, "empty route"))?,
+        line,
+    )?;
+    let args = words
+        .map(|word| {
+            if word == "_" {
+                Ok(RouteArg::Payload)
+            } else {
+                Ok(RouteArg::Expr(parse_expr(word, line)?))
+            }
+        })
+        .collect::<Result<_, Error>>()?;
+    Ok(Route {
+        handler,
+        args,
+        span: Span::line(line.number),
+    })
+}
+
+fn parse_id(source: &str, line: &Line) -> Result<Id, Error> {
+    let source = source.strip_prefix('#').unwrap_or(source);
+    if let Some(open) = source.find('(') {
+        let close = matching_paren(source, line)?;
+        if close + 1 != source.len() {
+            return Err(error("E068", line, "unexpected text after dynamic id"));
+        }
+        Ok(Id {
+            name: kebab_identifier(&source[..open], line)?,
+            key: Some(parse_expr(&source[open + 1..close], line)?),
+        })
+    } else {
+        Ok(Id {
+            name: kebab_identifier(source, line)?,
+            key: None,
+        })
+    }
+}
+
+fn parse_type(source: &str, line: &Line) -> Result<Type, Error> {
+    let source = source.trim();
+    if source.starts_with('[') && source.ends_with(']') {
+        return Ok(Type::List(Box::new(parse_type(
+            &source[1..source.len() - 1],
+            line,
+        )?)));
+    }
+    Ok(match source {
+        "bool" => Type::Bool,
+        "i64" => Type::I64,
+        "f64" => Type::F64,
+        "str" => Type::Str,
+        "unit" => Type::Unit,
+        value if value.chars().next().is_some_and(char::is_uppercase) => {
+            Type::Named(identifier(value, line)?)
+        }
+        _ => return Err(error("E023", line, format!("unknown type `{source}`"))),
+    })
+}
+
+fn parse_expr(source: &str, line: &Line) -> Result<Expr, Error> {
+    ExprParser::new(source, line)?.parse()
+}
+
+fn parse_expr_list(source: &str, line: &Line) -> Result<Vec<Expr>, Error> {
+    if source.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    split_top(source, ',')
+        .into_iter()
+        .map(|part| parse_expr(part.trim(), line))
+        .collect()
+}
+
+#[derive(Clone, Debug, PartialEq)]
+enum Token {
+    Ident(String),
+    Str(String),
+    I64(i64),
+    F64(f64),
+    LParen,
+    RParen,
+    LBracket,
+    RBracket,
+    Comma,
+    Dot,
+    Not,
+    Neg,
+    Plus,
+    Star,
+    Slash,
+    EqEq,
+    NotEq,
+    Lt,
+    LtEq,
+    Gt,
+    GtEq,
+    And,
+    Or,
+}
+
+struct ExprParser<'a> {
+    tokens: Vec<Token>,
+    index: usize,
+    line: &'a Line,
+}
+
+impl<'a> ExprParser<'a> {
+    fn new(source: &str, line: &'a Line) -> Result<Self, Error> {
+        Ok(Self {
+            tokens: lex_expr(source, line)?,
+            index: 0,
+            line,
+        })
+    }
+
+    fn parse(mut self) -> Result<Expr, Error> {
+        let expr = self.binary(0)?;
+        if self.index != self.tokens.len() {
+            return Err(error("E070", self.line, "unexpected token in expression"));
+        }
+        Ok(expr)
+    }
+
+    fn binary(&mut self, min_precedence: u8) -> Result<Expr, Error> {
+        let mut left = self.unary()?;
+        while let Some((op, precedence)) = self.binary_op() {
+            if precedence < min_precedence {
+                break;
+            }
+            self.index += 1;
+            let right = self.binary(precedence + 1)?;
+            left = Expr::Binary {
+                left: Box::new(left),
+                op,
+                right: Box::new(right),
+            };
+        }
+        Ok(left)
+    }
+
+    fn unary(&mut self) -> Result<Expr, Error> {
+        if self.peek() == Some(&Token::Not) {
+            self.index += 1;
+            return Ok(Expr::Unary {
+                op: UnaryOp::Not,
+                value: Box::new(self.unary()?),
+            });
+        }
+        if self.peek() == Some(&Token::Neg) {
+            self.index += 1;
+            return Ok(Expr::Unary {
+                op: UnaryOp::Neg,
+                value: Box::new(self.unary()?),
+            });
+        }
+        self.primary()
+    }
+
+    fn primary(&mut self) -> Result<Expr, Error> {
+        let token = self
+            .next()
+            .ok_or_else(|| error("E070", self.line, "expected expression"))?;
+        match token {
+            Token::Str(value) => Ok(Expr::Str(value)),
+            Token::I64(value) => Ok(Expr::I64(value)),
+            Token::F64(value) => Ok(Expr::F64(value)),
+            Token::LBracket => {
+                if self.next() != Some(Token::RBracket) {
+                    return Err(error(
+                        "E070",
+                        self.line,
+                        "only an empty list literal is supported",
+                    ));
+                }
+                Ok(Expr::EmptyList)
+            }
+            Token::LParen => {
+                let value = self.binary(0)?;
+                if self.next() != Some(Token::RParen) {
+                    return Err(error("E070", self.line, "missing closing `)`"));
+                }
+                Ok(value)
+            }
+            Token::Ident(name) if name == "true" => Ok(Expr::Bool(true)),
+            Token::Ident(name) if name == "false" => Ok(Expr::Bool(false)),
+            Token::Ident(name) => {
+                if self.peek() == Some(&Token::LParen) {
+                    self.index += 1;
+                    let mut args = Vec::new();
+                    if self.peek() != Some(&Token::RParen) {
+                        loop {
+                            args.push(self.binary(0)?);
+                            if self.peek() == Some(&Token::Comma) {
+                                self.index += 1;
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+                    if self.next() != Some(Token::RParen) {
+                        return Err(error("E070", self.line, "missing closing `)`"));
+                    }
+                    return Ok(Expr::Call { name, args });
+                }
+                let mut path = vec![name];
+                while self.peek() == Some(&Token::Dot) {
+                    self.index += 1;
+                    match self.next() {
+                        Some(Token::Ident(field)) => path.push(field),
+                        _ => return Err(error("E070", self.line, "expected field after `.`")),
+                    }
+                }
+                Ok(Expr::Path(path))
+            }
+            _ => Err(error("E070", self.line, "invalid expression")),
+        }
+    }
+
+    fn binary_op(&self) -> Option<(BinaryOp, u8)> {
+        Some(match self.peek()? {
+            Token::Or => (BinaryOp::Or, 1),
+            Token::And => (BinaryOp::And, 2),
+            Token::EqEq => (BinaryOp::Eq, 3),
+            Token::NotEq => (BinaryOp::NotEq, 3),
+            Token::Lt => (BinaryOp::Lt, 4),
+            Token::LtEq => (BinaryOp::LtEq, 4),
+            Token::Gt => (BinaryOp::Gt, 4),
+            Token::GtEq => (BinaryOp::GtEq, 4),
+            Token::Plus => (BinaryOp::Add, 5),
+            Token::Neg => (BinaryOp::Sub, 5),
+            Token::Star => (BinaryOp::Mul, 6),
+            Token::Slash => (BinaryOp::Div, 6),
+            _ => return None,
+        })
+    }
+
+    fn peek(&self) -> Option<&Token> {
+        self.tokens.get(self.index)
+    }
+
+    fn next(&mut self) -> Option<Token> {
+        let value = self.tokens.get(self.index).cloned();
+        self.index += usize::from(value.is_some());
+        value
+    }
+}
+
+fn lex_expr(source: &str, line: &Line) -> Result<Vec<Token>, Error> {
+    let chars: Vec<char> = source.chars().collect();
+    let mut tokens = Vec::new();
+    let mut index = 0;
+    while index < chars.len() {
+        let ch = chars[index];
+        if ch.is_whitespace() {
+            index += 1;
+            continue;
+        }
+        if ch == '"' {
+            index += 1;
+            let mut value = String::new();
+            while index < chars.len() && chars[index] != '"' {
+                if chars[index] == '\\' {
+                    index += 1;
+                    let escaped = *chars
+                        .get(index)
+                        .ok_or_else(|| error("E070", line, "unfinished string escape"))?;
+                    value.push(match escaped {
+                        'n' => '\n',
+                        't' => '\t',
+                        'r' => '\r',
+                        '"' => '"',
+                        '\\' => '\\',
+                        _ => {
+                            return Err(error(
+                                "E070",
+                                line,
+                                format!("unsupported string escape `\\{escaped}`"),
+                            ));
+                        }
+                    });
+                } else {
+                    value.push(chars[index]);
+                }
+                index += 1;
+            }
+            if chars.get(index) != Some(&'"') {
+                return Err(error("E070", line, "unterminated string"));
+            }
+            index += 1;
+            tokens.push(Token::Str(value));
+            continue;
+        }
+        if ch.is_ascii_digit() {
+            let start = index;
+            index += 1;
+            while index < chars.len() && (chars[index].is_ascii_digit() || chars[index] == '.') {
+                index += 1;
+            }
+            let value: String = chars[start..index].iter().collect();
+            if value.contains('.') {
+                tokens.push(Token::F64(
+                    value
+                        .parse()
+                        .map_err(|_| error("E070", line, "invalid float"))?,
+                ));
+            } else {
+                tokens.push(Token::I64(
+                    value
+                        .parse()
+                        .map_err(|_| error("E070", line, "invalid integer"))?,
+                ));
+            }
+            continue;
+        }
+        if ch.is_ascii_alphabetic() || ch == '_' {
+            let start = index;
+            index += 1;
+            while index < chars.len()
+                && (chars[index].is_ascii_alphanumeric() || chars[index] == '_')
+            {
+                index += 1;
+            }
+            tokens.push(Token::Ident(chars[start..index].iter().collect()));
+            continue;
+        }
+        let next = chars.get(index + 1).copied();
+        let (token, width) = match (ch, next) {
+            ('=', Some('=')) => (Token::EqEq, 2),
+            ('!', Some('=')) => (Token::NotEq, 2),
+            ('<', Some('=')) => (Token::LtEq, 2),
+            ('>', Some('=')) => (Token::GtEq, 2),
+            ('&', Some('&')) => (Token::And, 2),
+            ('|', Some('|')) => (Token::Or, 2),
+            ('(', _) => (Token::LParen, 1),
+            (')', _) => (Token::RParen, 1),
+            ('[', _) => (Token::LBracket, 1),
+            (']', _) => (Token::RBracket, 1),
+            (',', _) => (Token::Comma, 1),
+            ('.', _) => (Token::Dot, 1),
+            ('!', _) => (Token::Not, 1),
+            ('-', _) => (Token::Neg, 1),
+            ('+', _) => (Token::Plus, 1),
+            ('*', _) => (Token::Star, 1),
+            ('/', _) => (Token::Slash, 1),
+            ('<', _) => (Token::Lt, 1),
+            ('>', _) => (Token::Gt, 1),
+            _ => return Err(error("E070", line, format!("unexpected character `{ch}`"))),
+        };
+        tokens.push(token);
+        index += width;
+    }
+    Ok(tokens)
+}
+
+fn parse_signature(source: &str, line: &Line) -> Result<(String, String), Error> {
+    let open = source
+        .find('(')
+        .ok_or_else(|| error("E024", line, "expected `(`"))?;
+    let close = matching_paren(source, line)?;
+    if !source[close + 1..].trim().is_empty() {
+        return Err(error("E024", line, "unexpected text after `)`"));
+    }
+    Ok((
+        identifier(source[..open].trim(), line)?,
+        source[open + 1..close].into(),
+    ))
+}
+
+fn matching_paren(source: &str, line: &Line) -> Result<usize, Error> {
+    let open = source
+        .find('(')
+        .ok_or_else(|| error("E024", line, "expected `(`"))?;
+    let mut depth = 0;
+    let mut string = false;
+    for (index, ch) in source.char_indices().skip_while(|(index, _)| *index < open) {
+        if ch == '"' {
+            string = !string;
+        } else if !string {
+            if ch == '(' {
+                depth += 1;
+            } else if ch == ')' {
+                depth -= 1;
+                if depth == 0 {
+                    return Ok(index);
+                }
+            }
+        }
+    }
+    Err(error("E024", line, "missing closing `)`"))
+}
+
+fn split_words(source: &str) -> Vec<String> {
+    let mut output = Vec::new();
+    let mut start = 0;
+    let mut depth = 0;
+    let mut string = false;
+    let chars: Vec<(usize, char)> = source.char_indices().collect();
+    for (byte, ch) in &chars {
+        match *ch {
+            '"' => string = !string,
+            '(' | '[' if !string => depth += 1,
+            ')' | ']' if !string => depth -= 1,
+            ch if ch.is_whitespace() && !string && depth == 0 => {
+                if start < *byte {
+                    output.push(source[start..*byte].into());
+                }
+                start = *byte + ch.len_utf8();
+            }
+            _ => {}
+        }
+    }
+    if start < source.len() {
+        output.push(source[start..].into());
+    }
+    output
+}
+
+fn split_top(source: &str, delimiter: char) -> Vec<&str> {
+    let mut output = Vec::new();
+    let mut start = 0;
+    let mut depth = 0;
+    let mut string = false;
+    for (index, ch) in source.char_indices() {
+        match ch {
+            '"' => string = !string,
+            '(' | '[' if !string => depth += 1,
+            ')' | ']' if !string => depth -= 1,
+            ch if ch == delimiter && !string && depth == 0 => {
+                output.push(source[start..index].trim());
+                start = index + ch.len_utf8();
+            }
+            _ => {}
+        }
+    }
+    output.push(source[start..].trim());
+    output
+}
+
+fn split_top_once(source: &str, delimiter: char) -> Option<(&str, &str)> {
+    let mut depth = 0;
+    let mut string = false;
+    for (index, ch) in source.char_indices() {
+        match ch {
+            '"' => string = !string,
+            '(' | '[' if !string => depth += 1,
+            ')' | ']' if !string => depth -= 1,
+            ch if ch == delimiter && !string && depth == 0 => {
+                return Some((&source[..index], &source[index + ch.len_utf8()..]));
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn split_top_marker<'a>(source: &'a str, marker: &str) -> Option<(&'a str, &'a str)> {
+    let mut depth = 0;
+    let mut string = false;
+    let bytes = source.as_bytes();
+    let mut index = 0;
+    while index + marker.len() <= bytes.len() {
+        let ch = source[index..].chars().next()?;
+        match ch {
+            '"' => string = !string,
+            '(' | '[' if !string => depth += 1,
+            ')' | ']' if !string => depth -= 1,
+            _ => {}
+        }
+        let part_of_binding = marker == "->" && index > 0 && bytes[index - 1] == b'<';
+        if !string && depth == 0 && !part_of_binding && source[index..].starts_with(marker) {
+            return Some((&source[..index], &source[index + marker.len()..]));
+        }
+        index += ch.len_utf8();
+    }
+    None
+}
+
+fn strip_wrapping_parens(source: &str) -> &str {
+    let source = source.trim();
+    if source.starts_with('(') && source.ends_with(')') {
+        &source[1..source.len() - 1]
+    } else {
+        source
+    }
+}
+
+fn string_literal(source: &str, line: &Line) -> Result<String, Error> {
+    match parse_expr(source, line)? {
+        Expr::Str(value) => Ok(value),
+        _ => Err(error("E071", line, "expected string literal")),
+    }
+}
+
+fn literal_type(expr: &Expr) -> Option<Type> {
+    Some(match expr {
+        Expr::Bool(_) => Type::Bool,
+        Expr::I64(_) => Type::I64,
+        Expr::F64(_) => Type::F64,
+        Expr::Str(_) => Type::Str,
+        Expr::EmptyList => return None,
+        _ => return None,
+    })
+}
+
+fn valid_color(value: &str) -> bool {
+    matches!(value.len(), 7 | 9)
+        && value.starts_with('#')
+        && value[1..].chars().all(|ch| ch.is_ascii_hexdigit())
+}
+
+fn identifier(source: &str, line: &Line) -> Result<String, Error> {
+    if !source.is_empty()
+        && source.chars().enumerate().all(|(index, ch)| {
+            ch == '_' || ch.is_ascii_alphanumeric() && (index > 0 || !ch.is_ascii_digit())
+        })
+    {
+        Ok(source.into())
+    } else {
+        Err(error(
+            "E072",
+            line,
+            format!("invalid identifier `{source}`"),
+        ))
+    }
+}
+
+fn kebab_identifier(source: &str, line: &Line) -> Result<String, Error> {
+    if !source.is_empty()
+        && source
+            .chars()
+            .all(|ch| ch == '-' || ch == '_' || ch.is_ascii_alphanumeric())
+    {
+        Ok(source.into())
+    } else {
+        Err(error("E072", line, format!("invalid id `{source}`")))
+    }
+}
+
+fn rust_path(source: &str, line: &Line) -> Result<String, Error> {
+    if source
+        .split("::")
+        .all(|part| part == "crate" || identifier(part, line).is_ok())
+    {
+        Ok(source.into())
+    } else {
+        Err(error("E073", line, format!("invalid Rust path `{source}`")))
+    }
+}
+
+fn ensure_leaf(line: &Line) -> Result<(), Error> {
+    if line.children.is_empty() {
+        Ok(())
+    } else {
+        Err(error(
+            "E009",
+            line,
+            "this line cannot have an indented block",
+        ))
+    }
+}
+
+fn error(code: &'static str, line: &Line, message: impl Into<String>) -> Error {
+    Error::new(code, &Span::line(line.number), message)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SOURCE: &str = r#"app Demo
+
+extern crate::backend
+  Item(id:i64, name:str)
+  load() -> [Item] ! Item
+
+theme
+  background #000000
+
+state
+  items:[Item] = []
+  query = ""
+
+on mount
+  run load() -> loaded _ | failed _
+
+on loaded(next)
+  items = next
+
+on failed(error)
+  query = error.name
+
+view
+  input "Query" #query <-> query @w-full
+"#;
+
+    #[test]
+    fn parses_compact_app() {
+        let document = parse(SOURCE).unwrap();
+        assert_eq!(document.app, "Demo");
+        assert_eq!(document.structs.len(), 1);
+        assert_eq!(document.handlers.len(), 3);
+    }
+
+    #[test]
+    fn accepts_an_input_without_an_id() {
+        let source = SOURCE.replace(
+            "input \"Query\" #query <-> query",
+            "input \"Query\" <-> query",
+        );
+        parse(&source).unwrap();
+    }
+}

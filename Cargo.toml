@@ -1,0 +1,16 @@
+[workspace]
+members = [
+    "crates/ui-lang-core",
+    "crates/ui-lang",
+    "crates/cargo-ice",
+    "examples/iced-app",
+]
+resolver = "3"
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
+rust-version = "1.88"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
