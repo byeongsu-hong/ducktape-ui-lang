@@ -10,12 +10,12 @@ resolved by this workspace: `iced 0.14.0` and `iced_widget 0.14.2`.
 - **missing**: there is no accepted Ice representation yet.
 
 An internal use of an iced widget does not count as coverage. For example, the
-backend wraps layouts in `container`, but Ice cannot yet express the full
-container API, so container remains partial.
+backend may wrap layouts in `container`, but only explicit accepted Ice syntax
+counts toward the row below.
 
 ## Typed system reachability
 
-Ice 0.47 has three checked Rust boundaries:
+Ice 0.48 has three checked Rust boundaries:
 
 | Boundary | Rust ABI | Covers |
 | --- | --- | --- |
@@ -36,7 +36,7 @@ public behavior has direct documented Ice syntax and tests.
 | `checkbox` | partial | native label/value/disabled event, size/width/spacing, text typography/wrapping, complete font descriptors and custom icon; full style catalog missing |
 | `column` | native | children, typed spacing/per-side padding, all `Length` bounds, max width, cross-axis alignment, clipping and wrapping column spacing/alignment |
 | `combo_box` | partial | native typed search state/selection, input, hover, open/close, sizing, padding and text size; dynamic option replacement, icon/font/shaping and style catalogs missing |
-| `container` | partial | generated around layouts; explicit alignment, clipping, sizing, style API missing |
+| `container` | partial | native one-child container with ID, complete concrete layout API and checked utility styles; full class/style catalog, gradients and shadow remain |
 | `float` | partial | native scale and fixed x/y translation; viewport-aware translation closure and style API missing |
 | `grid` | native | dynamic children, pixel spacing/width, fixed or fluid columns, aspect-ratio or all `Length` height modes |
 | `image` | partial | native path, all four iced length variants, fit, filter, rotation, opacity, scale, expand and radius; memory handles and crop missing |

@@ -1321,6 +1321,15 @@ fn render_node(
         } => render_layout(
             *kind, options, id, styles, children, document, message, env, scope, slot,
         ),
+        ViewNode::Container {
+            options,
+            id,
+            styles,
+            content,
+            ..
+        } => render_container(
+            options, id, styles, content, document, message, env, scope, slot,
+        ),
         ViewNode::Text {
             value,
             options,
@@ -2551,6 +2560,97 @@ fn render_node(
 }
 
 #[allow(clippy::too_many_arguments)]
+fn render_container(
+    options: &ContainerOptions,
+    id: &Option<Id>,
+    styles: &[String],
+    content: &ViewNode,
+    document: &Document,
+    message: &str,
+    env: &HashMap<String, Binding>,
+    scope: &str,
+    slot: Option<&SlotContext>,
+) -> Result<String, Error> {
+    let child_scope = id.as_ref().map_or_else(
+        || Ok(scope.to_owned()),
+        |id| id_code(id, scope, env, document),
+    )?;
+    let content = render_node(content, document, message, env, &child_scope, slot)?;
+    let style = Style::parse(styles, document);
+    let mut code = String::from("::iced::widget::container(__container_content)");
+    if let Some(id) = id {
+        write!(
+            code,
+            ".id(::iced::widget::Id::from({}))",
+            id_code(id, scope, env, document)?
+        )
+        .unwrap();
+    }
+    if let Some(padding) = style.padding_code() {
+        write!(code, ".padding({padding})").unwrap();
+    }
+    append_size(&mut code, &style);
+    if let Some(max_width) = style.max_width {
+        write!(code, ".max_width({max_width})").unwrap();
+    }
+    if let Some(padding) = typed_padding_code(&options.padding, env, document)? {
+        write!(code, ".padding({padding})").unwrap();
+    }
+    if let Some(width) = &options.width {
+        write!(code, ".width({})", length_code(width, env, document)?).unwrap();
+    }
+    if let Some(height) = &options.height {
+        write!(code, ".height({})", length_code(height, env, document)?).unwrap();
+    }
+    for (method, value) in [
+        ("max_width", &options.max_width),
+        ("max_height", &options.max_height),
+    ] {
+        if let Some(value) = value {
+            write!(
+                code,
+                ".{method}({} as f32)",
+                expr_code(value, env, document, ValueMode::Owned)?
+            )
+            .unwrap();
+        }
+    }
+    if let Some(align) = options.align_x {
+        let align = match align {
+            FlexAlignment::Start => "Left",
+            FlexAlignment::Center => "Center",
+            FlexAlignment::End => "Right",
+        };
+        write!(code, ".align_x(::iced::alignment::Horizontal::{align})").unwrap();
+    }
+    if let Some(align) = options.align_y {
+        let align = match align {
+            FlexAlignment::Start => "Top",
+            FlexAlignment::Center => "Center",
+            FlexAlignment::End => "Bottom",
+        };
+        write!(code, ".align_y(::iced::alignment::Vertical::{align})").unwrap();
+    }
+    if let Some(clip) = &options.clip {
+        write!(
+            code,
+            ".clip({})",
+            expr_code(clip, env, document, ValueMode::Owned)?
+        )
+        .unwrap();
+    }
+    code.push_str(&container_style_code(&style, document));
+    let code = if style.self_center {
+        format!("::iced::widget::container({code}).width(::iced::Fill).center_x(::iced::Fill)")
+    } else {
+        code
+    };
+    Ok(format!(
+        "{{ let __container_content: ::iced::Element<'_, {message}> = {content}; {code}.into() }}"
+    ))
+}
+
+#[allow(clippy::too_many_arguments)]
 fn render_table(
     item: &str,
     rows: &Expr,
@@ -3424,9 +3524,9 @@ fn state_bindings(root: &ViewNode, editors: bool) -> Vec<String> {
                     collect(&column.cell, editors, output);
                 }
             }
-            ViewNode::MouseArea { content, .. } | ViewNode::Theme { content, .. } => {
-                collect(content, editors, output)
-            }
+            ViewNode::MouseArea { content, .. }
+            | ViewNode::Container { content, .. }
+            | ViewNode::Theme { content, .. } => collect(content, editors, output),
             ViewNode::Component {
                 content: Some(content),
                 ..
@@ -3475,9 +3575,9 @@ fn needs_extern_noop(document: &Document) -> bool {
             ViewNode::Table { columns, .. } => columns
                 .iter()
                 .any(|column| contains(&column.header) || contains(&column.cell)),
-            ViewNode::MouseArea { content, .. } | ViewNode::Theme { content, .. } => {
-                contains(content)
-            }
+            ViewNode::MouseArea { content, .. }
+            | ViewNode::Container { content, .. }
+            | ViewNode::Theme { content, .. } => contains(content),
             ViewNode::Component {
                 content: Some(content),
                 ..
@@ -5081,6 +5181,29 @@ view
         assert!(generated.contains(
             ".align_y(::iced::alignment::Vertical::Bottom).clip(false).wrap().vertical_spacing(6.0 as f32).align_x(::iced::alignment::Horizontal::Left)"
         ));
+    }
+
+    #[test]
+    fn lowers_complete_container_layout() {
+        let source = r#"app Boxed
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+view
+  container #card width=fill height=80.0 max-width=640.0 max-height=120.0 align-x=center align-y=end clip=true padding=8.0 padding-left=12.0 @w-full bg-background border border-foreground rounded-lg
+    text "Card"
+"#;
+        let generated = compile(source, "boxed.ice").unwrap();
+        assert!(generated.contains("::iced::widget::container(__container_content)"));
+        assert!(generated.contains(".id(::iced::widget::Id::from("));
+        assert!(generated.contains(".width(::iced::Fill).height(80.0 as f32)"));
+        assert!(generated.contains(".max_width(640.0 as f32).max_height(120.0 as f32)"));
+        assert!(generated.contains(".align_x(::iced::alignment::Horizontal::Center)"));
+        assert!(generated.contains(".align_y(::iced::alignment::Vertical::Bottom)"));
+        assert!(generated.contains(".clip(true)"));
+        assert!(generated.contains("::iced::widget::container::Style"));
     }
 
     #[test]

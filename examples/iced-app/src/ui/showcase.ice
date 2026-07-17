@@ -428,6 +428,9 @@ view
       col @w-full items-center p-6 bg-surface border border-border rounded-lg
         text "No tasks yet." @text-sm text-muted
 
+    container #summary width=fill height=80.0 max-width=720.0 max-height=120.0 align-x=center align-y=center clip=true padding=8.0 padding-left=12.0 @w-full bg-surface border border-border rounded-lg
+      text "A native container owns one structured child tree." @text-sm text-muted
+
     rule horizontal thickness=1.0 style=weak fill=pad(12,4) color=border radius=2.0 snap=true
 
     grid spacing=16.0 width=640.0 height=aspect(16.0,9.0) fluid=280.0 @w-full gap-4
