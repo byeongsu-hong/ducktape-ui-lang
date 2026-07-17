@@ -1377,6 +1377,36 @@ pub enum PaneConfiguration {
 pub struct PaneView {
     pub name: String,
     pub content: Box<ViewNode>,
+    pub title: Option<PaneTitle>,
+    pub styles: Vec<String>,
+    pub span: Span,
+}
+
+impl PaneView {
+    pub fn nodes(&self) -> impl Iterator<Item = &ViewNode> {
+        [
+            Some(self.content.as_ref()),
+            self.title.as_ref().map(|title| title.content.as_ref()),
+            self.title
+                .as_ref()
+                .and_then(|title| title.controls.as_deref()),
+            self.title
+                .as_ref()
+                .and_then(|title| title.compact_controls.as_deref()),
+        ]
+        .into_iter()
+        .flatten()
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct PaneTitle {
+    pub content: Box<ViewNode>,
+    pub controls: Option<Box<ViewNode>>,
+    pub compact_controls: Option<Box<ViewNode>>,
+    pub padding: PaddingOptions,
+    pub always_show_controls: bool,
+    pub styles: Vec<String>,
     pub span: Span,
 }
 

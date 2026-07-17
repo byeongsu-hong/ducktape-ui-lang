@@ -141,7 +141,9 @@ fn static_widget_ids(root: &ViewNode) -> HashSet<String> {
             ViewNode::PaneGrid { name, panes, .. } => {
                 output.insert(name.clone());
                 for pane in panes {
-                    collect(&pane.content, output);
+                    for node in pane.nodes() {
+                        collect(node, output);
+                    }
                 }
             }
             ViewNode::MouseArea { content, .. }
@@ -188,7 +190,9 @@ fn static_pane_grids(root: &ViewNode) -> Result<HashMap<String, HashSet<String>>
                     ));
                 }
                 for pane in panes {
-                    collect(&pane.content, output)?;
+                    for node in pane.nodes() {
+                        collect(node, output)?;
+                    }
                 }
             }
             ViewNode::Layout { children, .. }
@@ -517,7 +521,7 @@ fn editor_span(node: &ViewNode) -> Option<&Span> {
             editor_span(content).or_else(|| editor_span(layer))
         }
         ViewNode::PaneGrid { panes, .. } => {
-            panes.iter().find_map(|pane| editor_span(&pane.content))
+            panes.iter().flat_map(PaneView::nodes).find_map(editor_span)
         }
         ViewNode::Table { columns, .. } => columns
             .iter()
@@ -603,7 +607,8 @@ fn repeated_pane_grid_span(node: &ViewNode) -> Option<&Span> {
         }
         ViewNode::PaneGrid { panes, .. } => panes
             .iter()
-            .find_map(|pane| repeated_pane_grid_span(&pane.content)),
+            .flat_map(PaneView::nodes)
+            .find_map(repeated_pane_grid_span),
         ViewNode::Component { slots, .. } => slots
             .iter()
             .find_map(|slot| repeated_pane_grid_span(&slot.content)),
@@ -871,7 +876,32 @@ fn infer_view(
                 infer_route(click, Some(Type::Str), env, document, signatures)?;
             }
             for pane in panes {
-                infer_view(&pane.content, env, document, signatures, ids)?;
+                check_styles(&pane.styles, document, &pane.span, StyleTarget::PaneContent)?;
+                if let Some(title) = &pane.title {
+                    for value in [
+                        &title.padding.all,
+                        &title.padding.x,
+                        &title.padding.y,
+                        &title.padding.top,
+                        &title.padding.right,
+                        &title.padding.bottom,
+                        &title.padding.left,
+                    ]
+                    .into_iter()
+                    .flatten()
+                    {
+                        require_type(
+                            &expr_type(value, env, document, &title.span)?,
+                            &Type::F64,
+                            &title.span,
+                        )?;
+                        require_literal_range(value, 0.0, None, "pane title padding", &title.span)?;
+                    }
+                    check_styles(&title.styles, document, &title.span, StyleTarget::PaneTitle)?;
+                }
+                for node in pane.nodes() {
+                    infer_view(node, env, document, signatures, ids)?;
+                }
             }
         }
         ViewNode::Text {
@@ -3480,6 +3510,8 @@ fn check_id(
 enum StyleTarget {
     Layout(Layout),
     Container,
+    PaneContent,
+    PaneTitle,
     Text,
     Input,
     Button,
@@ -3515,6 +3547,8 @@ fn check_styles(
         StyleTarget::Layout(Layout::Column | Layout::Row | Layout::Grid | Layout::Stack)
             | StyleTarget::Container
     );
+    let is_visual_box =
+        is_box || matches!(target, StyleTarget::PaneContent | StyleTarget::PaneTitle);
     let target_name = match target {
         StyleTarget::Layout(Layout::Column) => "col",
         StyleTarget::Layout(Layout::Row) => "row",
@@ -3522,6 +3556,8 @@ fn check_styles(
         StyleTarget::Layout(Layout::Grid) => "grid",
         StyleTarget::Layout(Layout::Stack) => "stack",
         StyleTarget::Container => "container",
+        StyleTarget::PaneContent => "pane",
+        StyleTarget::PaneTitle => "pane title",
         StyleTarget::Text => "text",
         StyleTarget::Input => "input",
         StyleTarget::Button => "button",
@@ -3609,9 +3645,9 @@ fn check_styles(
                 "items-center" => is_linear,
                 "text-xs" | "text-sm" | "text-base" | "text-lg" | "text-xl" | "text-2xl"
                 | "font-bold" => matches!(target, StyleTarget::Text),
-                "border" | "border-2" => is_box || matches!(target, StyleTarget::Input),
+                "border" | "border-2" => is_visual_box || matches!(target, StyleTarget::Input),
                 "rounded-sm" | "rounded" | "rounded-md" | "rounded-lg" | "rounded-full" => {
-                    is_box || matches!(target, StyleTarget::Input | StyleTarget::Button)
+                    is_visual_box || matches!(target, StyleTarget::Input | StyleTarget::Button)
                 }
                 _ if utility.starts_with("gap-") => {
                     is_linear || matches!(target, StyleTarget::Layout(Layout::Grid))
@@ -3623,13 +3659,13 @@ fn check_styles(
                     is_box || matches!(target, StyleTarget::Input | StyleTarget::Button)
                 }
                 _ if utility.starts_with("bg-") => {
-                    is_box || matches!(target, StyleTarget::Input | StyleTarget::Button)
+                    is_visual_box || matches!(target, StyleTarget::Input | StyleTarget::Button)
                 }
                 _ if utility.starts_with("text-") => {
-                    is_box || matches!(target, StyleTarget::Text | StyleTarget::Button)
+                    is_visual_box || matches!(target, StyleTarget::Text | StyleTarget::Button)
                 }
                 _ if utility.starts_with("border-") => {
-                    is_box || matches!(target, StyleTarget::Input)
+                    is_visual_box || matches!(target, StyleTarget::Input)
                 }
                 _ => false,
             },
@@ -3651,7 +3687,7 @@ fn check_styles(
         .iter()
         .map(|style| base_utility(style))
         .any(|utility| utility.starts_with("border-") && utility != "border-2");
-    if (is_box || matches!(target, StyleTarget::Input)) && has_border_color && !has_border {
+    if (is_visual_box || matches!(target, StyleTarget::Input)) && has_border_color && !has_border {
         return Err(Error::new(
             "E044",
             span,
@@ -3666,7 +3702,7 @@ fn check_styles(
         .iter()
         .map(|style| base_utility(style))
         .any(|utility| utility.starts_with("bg-"));
-    if is_box && has_radius && !has_background && !has_border {
+    if is_visual_box && has_radius && !has_background && !has_border {
         return Err(Error::new(
             "E044",
             span,
@@ -4694,6 +4730,67 @@ view
             analyze(&source.replace("pane preview closed", "pane preview hidden")).unwrap_err();
         assert_eq!(error.code, "E187");
         assert!(error.message.contains("pane name closed"));
+    }
+
+    #[test]
+    fn checks_structured_pane_titles_and_controls() {
+        let source = r#"app Workspace
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  filter = ""
+on close
+view
+  pane-grid #work split=vertical
+    pane files @bg-background border border-primary rounded
+      title padding=4.0 padding-x=8.0 padding-top=6.0 always-controls @bg-primary text-white
+        text "Files"
+      controls
+        button "Close" -> close
+      compact-controls
+        button "×" -> close
+      content
+        input "Filter" #filter <-> filter
+    pane editor
+      title
+        text "Editor"
+      controls
+        button "Close" -> close
+      content
+        text "Editor body"
+"#;
+        analyze(source).unwrap();
+
+        let error = analyze(&source.replace("padding-top=6.0", "padding-top=-1.0")).unwrap_err();
+        assert_eq!(error.code, "E128");
+        assert!(error.message.contains("pane title padding"));
+
+        let error =
+            analyze(&source.replace("      controls\n        button \"Close\" -> close\n", ""))
+                .unwrap_err();
+        assert_eq!(error.code, "E187");
+        assert!(
+            error
+                .message
+                .contains("compact-controls require a `controls`")
+        );
+
+        let error = analyze(&source.replace("      content\n", "      body\n")).unwrap_err();
+        assert_eq!(error.code, "E187");
+        assert!(
+            error
+                .message
+                .contains("title, controls, compact-controls, or content")
+        );
+
+        let error =
+            analyze(&source.replace("pane files @bg-background", "pane files @p-4 bg-background"))
+                .unwrap_err();
+        assert_eq!(error.code, "E042");
+        assert!(error.message.contains("has no effect on `pane`"));
     }
 
     #[test]

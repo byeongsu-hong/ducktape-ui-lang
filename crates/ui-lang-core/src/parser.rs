@@ -1320,15 +1320,7 @@ fn parse_view(line: &Line) -> Result<ViewNode, Error> {
         .map_or((line.text.as_str(), None), |(left, right)| {
             (left, Some(right))
         });
-    let (core, styles) = split_top_marker(without_route, "@").map_or_else(
-        || (without_route.trim(), Vec::new()),
-        |(core, styles)| {
-            (
-                core.trim(),
-                styles.split_whitespace().map(str::to_owned).collect(),
-            )
-        },
-    );
+    let (core, styles) = split_style_utilities(without_route);
     let parts = split_words(core);
     let Some(kind) = parts.first().map(String::as_str) else {
         return Err(error("E061", line, "empty view node"));
@@ -1439,6 +1431,18 @@ fn parse_view(line: &Line) -> Result<ViewNode, Error> {
         }
         _ => Err(error("E064", line, format!("unknown view node `{kind}`"))),
     }
+}
+
+fn split_style_utilities(source: &str) -> (&str, Vec<String>) {
+    split_top_marker(source, "@").map_or_else(
+        || (source.trim(), Vec::new()),
+        |(core, styles)| {
+            (
+                core.trim(),
+                styles.split_whitespace().map(str::to_owned).collect(),
+            )
+        },
+    )
 }
 
 fn parse_component_slots(component: &str, line: &Line) -> Result<Vec<ComponentSlot>, Error> {
@@ -1677,6 +1681,7 @@ fn parse_pane_ratio(value: &str, line: &Line) -> Result<f32, Error> {
 
 fn parse_pane_view(
     name: &str,
+    styles: Vec<String>,
     line: &Line,
     names: &mut std::collections::HashSet<String>,
     panes: &mut Vec<PaneView>,
@@ -1685,19 +1690,175 @@ fn parse_pane_view(
     if !names.insert(name.clone()) {
         return Err(error("E187", line, format!("duplicate pane `{name}`")));
     }
-    if line.children.len() != 1 {
-        return Err(error(
-            "E187",
-            line,
-            "pane requires exactly one child; wrap siblings in row or col",
-        ));
-    }
+    let structured = line.children.iter().any(|child| {
+        let (core, _) = split_style_utilities(&child.text);
+        split_words(core).first().is_some_and(|kind| {
+            matches!(
+                kind.as_str(),
+                "title" | "controls" | "compact-controls" | "content"
+            )
+        })
+    });
+    let (content, title) = if structured {
+        parse_structured_pane(line)?
+    } else {
+        if line.children.len() != 1 {
+            return Err(error(
+                "E187",
+                line,
+                "pane requires exactly one child; wrap siblings in row or col",
+            ));
+        }
+        (Box::new(parse_view(&line.children[0])?), None)
+    };
     panes.push(PaneView {
         name: name.clone(),
-        content: Box::new(parse_view(&line.children[0])?),
+        content,
+        title,
+        styles,
         span: Span::line(line.number),
     });
     Ok(name)
+}
+
+fn parse_structured_pane(line: &Line) -> Result<(Box<ViewNode>, Option<PaneTitle>), Error> {
+    let mut content = None;
+    let mut title = None;
+    let mut controls = None;
+    let mut compact_controls = None;
+    for section in &line.children {
+        let (core, styles) = split_style_utilities(&section.text);
+        let parts = split_words(core);
+        let kind = parts.first().map(String::as_str).unwrap_or("");
+        if section.children.len() != 1 {
+            return Err(error(
+                "E187",
+                section,
+                format!("pane `{kind}` section requires exactly one child"),
+            ));
+        }
+        let node = || parse_view(&section.children[0]).map(Box::new);
+        match kind {
+            "content" if parts.len() == 1 && styles.is_empty() => {
+                if content.is_some() {
+                    return Err(error("E187", section, "duplicate pane `content` section"));
+                }
+                content = Some(node()?);
+            }
+            "title" => {
+                if title.is_some() {
+                    return Err(error("E187", section, "duplicate pane `title` section"));
+                }
+                title = Some(parse_pane_title(&parts[1..], styles, section)?);
+            }
+            "controls" if parts.len() == 1 && styles.is_empty() => {
+                if controls.is_some() {
+                    return Err(error("E187", section, "duplicate pane `controls` section"));
+                }
+                controls = Some(node()?);
+            }
+            "compact-controls" if parts.len() == 1 && styles.is_empty() => {
+                if compact_controls.is_some() {
+                    return Err(error(
+                        "E187",
+                        section,
+                        "duplicate pane `compact-controls` section",
+                    ));
+                }
+                compact_controls = Some(node()?);
+            }
+            "content" | "controls" | "compact-controls" => {
+                return Err(error(
+                    "E187",
+                    section,
+                    format!("pane `{kind}` section does not accept properties or styles"),
+                ));
+            }
+            _ => {
+                return Err(error(
+                    "E187",
+                    section,
+                    "structured pane children must be title, controls, compact-controls, or content sections",
+                ));
+            }
+        }
+    }
+    let content =
+        content.ok_or_else(|| error("E187", line, "structured pane requires `content`"))?;
+    if controls.is_some() && title.is_none() {
+        return Err(error(
+            "E187",
+            line,
+            "pane controls require a `title` section",
+        ));
+    }
+    if compact_controls.is_some() && controls.is_none() {
+        return Err(error(
+            "E187",
+            line,
+            "pane compact-controls require a `controls` section",
+        ));
+    }
+    if title
+        .as_ref()
+        .is_some_and(|title| title.always_show_controls)
+        && controls.is_none()
+    {
+        return Err(error(
+            "E187",
+            line,
+            "pane title `always-controls` requires a `controls` section",
+        ));
+    }
+    if let Some(title) = &mut title {
+        title.controls = controls;
+        title.compact_controls = compact_controls;
+    }
+    Ok((content, title))
+}
+
+fn parse_pane_title(
+    parts: &[String],
+    styles: Vec<String>,
+    line: &Line,
+) -> Result<PaneTitle, Error> {
+    let mut padding = PaddingOptions::default();
+    let mut always_show_controls = false;
+    for part in parts {
+        let parse = |value: &str| parse_expr(strip_wrapping_parens(value), line);
+        if let Some(value) = part.strip_prefix("padding=") {
+            padding.all = Some(parse(value)?);
+        } else if let Some(value) = part.strip_prefix("padding-x=") {
+            padding.x = Some(parse(value)?);
+        } else if let Some(value) = part.strip_prefix("padding-y=") {
+            padding.y = Some(parse(value)?);
+        } else if let Some(value) = part.strip_prefix("padding-top=") {
+            padding.top = Some(parse(value)?);
+        } else if let Some(value) = part.strip_prefix("padding-right=") {
+            padding.right = Some(parse(value)?);
+        } else if let Some(value) = part.strip_prefix("padding-bottom=") {
+            padding.bottom = Some(parse(value)?);
+        } else if let Some(value) = part.strip_prefix("padding-left=") {
+            padding.left = Some(parse(value)?);
+        } else if part == "always-controls" {
+            always_show_controls = true;
+        } else {
+            return Err(error(
+                "E187",
+                line,
+                format!("unknown pane title property `{part}`"),
+            ));
+        }
+    }
+    Ok(PaneTitle {
+        content: Box::new(parse_view(&line.children[0])?),
+        controls: None,
+        compact_controls: None,
+        padding,
+        always_show_controls,
+        styles,
+        span: Span::line(line.number),
+    })
 }
 
 fn parse_pane_configuration(
@@ -1705,12 +1866,16 @@ fn parse_pane_configuration(
     names: &mut std::collections::HashSet<String>,
     panes: &mut Vec<PaneView>,
 ) -> Result<PaneConfiguration, Error> {
-    let parts = split_words(&line.text);
+    let (core, styles) = split_style_utilities(&line.text);
+    let parts = split_words(core);
     match parts.first().map(String::as_str) {
         Some("pane") if parts.len() == 2 => Ok(PaneConfiguration::Pane(parse_pane_view(
-            &parts[1], line, names, panes,
+            &parts[1], styles, line, names, panes,
         )?)),
         Some("split") if (2..=3).contains(&parts.len()) => {
+            if !styles.is_empty() {
+                return Err(error("E187", line, "nested pane split does not accept `@`"));
+            }
             let axis = match parts[1].as_str() {
                 "horizontal" => PaneAxis::Horizontal,
                 "vertical" => PaneAxis::Vertical,
@@ -1757,7 +1922,8 @@ fn parse_closed_pane(
     names: &mut std::collections::HashSet<String>,
     panes: &mut Vec<PaneView>,
 ) -> Result<(), Error> {
-    let parts = split_words(&line.text);
+    let (core, styles) = split_style_utilities(&line.text);
+    let parts = split_words(core);
     if parts.len() != 3 || parts[0] != "pane" || parts[2] != "closed" {
         return Err(error(
             "E187",
@@ -1765,7 +1931,7 @@ fn parse_closed_pane(
             "extra pane templates use `pane name closed`",
         ));
     }
-    parse_pane_view(&parts[1], line, names, panes)?;
+    parse_pane_view(&parts[1], styles, line, names, panes)?;
     Ok(())
 }
 

@@ -2976,17 +2976,10 @@ fn render_pane_grid(
         .iter()
         .map(|pane| {
             let pane_scope = format!("format!(\"{{}}/{}\", {scope})", pane.name);
-            let content = render_node(
-                &pane.content,
-                document,
-                message,
-                env,
-                &pane_scope,
-                slot,
-            )?;
             Ok(format!(
-                "{} => {{ let __pane_content: ::iced::Element<'_, {message}> = {content}; ::iced::widget::pane_grid::Content::new(__pane_content) }}",
-                rust_string(&pane.name)
+                "{} => {}",
+                rust_string(&pane.name),
+                render_pane_content(pane, document, message, env, &pane_scope, slot)?
             ))
         })
         .collect::<Result<Vec<_>, Error>>()?
@@ -3034,6 +3027,64 @@ fn render_pane_grid(
         .unwrap();
     }
     Ok(format!("{code}.into()"))
+}
+
+fn render_pane_content(
+    pane: &PaneView,
+    document: &Document,
+    message: &str,
+    env: &HashMap<String, Binding>,
+    scope: &str,
+    slot: Option<&SlotContext>,
+) -> Result<String, Error> {
+    let body = render_node(&pane.content, document, message, env, scope, slot)?;
+    let mut declarations = format!("let __pane_content: ::iced::Element<'_, {message}> = {body};");
+    let mut content = String::from("::iced::widget::pane_grid::Content::new(__pane_content)");
+    if let Some(style) = container_style_value(&Style::parse(&pane.styles, document), document) {
+        write!(content, ".style(|_| {style})").unwrap();
+    }
+    if let Some(title) = &pane.title {
+        let title_content = render_node(&title.content, document, message, env, scope, slot)?;
+        write!(
+            declarations,
+            " let __pane_title: ::iced::Element<'_, {message}> = {title_content};"
+        )
+        .unwrap();
+        let mut title_bar = String::from("::iced::widget::pane_grid::TitleBar::new(__pane_title)");
+        if let Some(padding) = typed_padding_code(&title.padding, env, document)? {
+            write!(title_bar, ".padding({padding})").unwrap();
+        }
+        if let Some(controls) = &title.controls {
+            let controls = render_node(controls, document, message, env, scope, slot)?;
+            write!(
+                declarations,
+                " let __pane_controls: ::iced::Element<'_, {message}> = {controls};"
+            )
+            .unwrap();
+            if let Some(compact) = &title.compact_controls {
+                let compact = render_node(compact, document, message, env, scope, slot)?;
+                write!(
+                    declarations,
+                    " let __pane_compact_controls: ::iced::Element<'_, {message}> = {compact};"
+                )
+                .unwrap();
+                title_bar.push_str(".controls(::iced::widget::pane_grid::Controls::dynamic(__pane_controls, __pane_compact_controls))");
+            } else {
+                title_bar.push_str(
+                    ".controls(::iced::widget::pane_grid::Controls::new(__pane_controls))",
+                );
+            }
+        }
+        if title.always_show_controls {
+            title_bar.push_str(".always_show_controls()");
+        }
+        if let Some(style) = container_style_value(&Style::parse(&title.styles, document), document)
+        {
+            write!(title_bar, ".style(|_| {style})").unwrap();
+        }
+        write!(content, ".title_bar({title_bar})").unwrap();
+    }
+    Ok(format!("{{ {declarations} {content} }}"))
 }
 
 fn render_rich_span(
@@ -4048,7 +4099,9 @@ fn pane_grids(root: &ViewNode) -> Vec<&ViewNode> {
             ViewNode::PaneGrid { panes, .. } => {
                 output.push(node);
                 for pane in panes {
-                    collect(&pane.content, output);
+                    for node in pane.nodes() {
+                        collect(node, output);
+                    }
                 }
             }
             ViewNode::Layout { children, .. }
@@ -4134,7 +4187,9 @@ fn state_bindings(root: &ViewNode, editors: bool) -> Vec<String> {
             }
             ViewNode::PaneGrid { panes, .. } => {
                 for pane in panes {
-                    collect(&pane.content, editors, output);
+                    for node in pane.nodes() {
+                        collect(node, editors, output);
+                    }
                 }
             }
             ViewNode::Table { columns, .. } => {
@@ -4193,7 +4248,9 @@ fn needs_extern_noop(document: &Document) -> bool {
             | ViewNode::For { children, .. } => children.iter().any(contains),
             ViewNode::Tooltip { content, tip, .. } => contains(content) || contains(tip),
             ViewNode::Overlay { .. } => true,
-            ViewNode::PaneGrid { panes, .. } => panes.iter().any(|pane| contains(&pane.content)),
+            ViewNode::PaneGrid { panes, .. } => {
+                panes.iter().flat_map(PaneView::nodes).any(contains)
+            }
             ViewNode::Table { columns, .. } => columns
                 .iter()
                 .any(|column| contains(&column.header) || contains(&column.cell)),
@@ -5117,8 +5174,14 @@ fn append_size(code: &mut String, style: &Style) {
 }
 
 fn container_style_code(style: &Style, document: &Document) -> String {
+    container_style_value(style, document)
+        .map(|style| format!(".style(|_| {style})"))
+        .unwrap_or_default()
+}
+
+fn container_style_value(style: &Style, document: &Document) -> Option<String> {
     if style.background.is_none() && style.border_width == 0 && style.text_color.is_none() {
-        return String::new();
+        return None;
     }
     let background = style
         .background
@@ -5135,10 +5198,10 @@ fn container_style_code(style: &Style, document: &Document) -> String {
         .as_ref()
         .map(|color| theme_color(document, color))
         .unwrap_or_else(|| "::iced::Color::TRANSPARENT".into());
-    format!(
-        ".style(|_| ::iced::widget::container::Style {{ background: {background}, text_color: {text}, border: ::iced::Border {{ color: {border}, width: {}.0, radius: {}.0.into() }}, ..::iced::widget::container::Style::default() }})",
+    Some(format!(
+        "::iced::widget::container::Style {{ background: {background}, text_color: {text}, border: ::iced::Border {{ color: {border}, width: {}.0, radius: {}.0.into() }}, ..::iced::widget::container::Style::default() }}",
         style.border_width, style.radius
-    )
+    ))
 }
 
 fn button_style_code(style: &Style, document: &Document) -> String {
@@ -5992,6 +6055,49 @@ view
         assert!(!generated.contains("Configuration::Pane(\"preview\")"));
         assert!(generated.contains("\"preview\" =>"));
         assert!(generated.contains(".split(::iced::widget::pane_grid::Axis::Horizontal"));
+    }
+
+    #[test]
+    fn lowers_structured_pane_titles_and_dynamic_controls() {
+        let source = r#"app Workspace
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  filter = ""
+on close
+view
+  pane-grid #work split=vertical
+    pane files @bg-background border border-primary rounded
+      title padding=4.0 padding-x=8.0 padding-top=6.0 always-controls @bg-primary text-white
+        text "Files"
+      controls
+        button "Close" -> close
+      compact-controls
+        button "×" -> close
+      content
+        input "Filter" #filter <-> filter
+    pane editor
+      title
+        text "Editor"
+      controls
+        button "Close" -> close
+      content
+        text "Editor body"
+"#;
+        let generated = compile(source, "workspace.ice").unwrap();
+        assert!(generated.contains("pane_grid::Content::new(__pane_content).style"));
+        assert!(generated.contains(".title_bar(::iced::widget::pane_grid::TitleBar::new"));
+        assert!(generated.contains("top: 6.0 as f32"));
+        assert!(generated.contains("right: 8.0 as f32"));
+        assert!(generated.contains("bottom: 4.0 as f32"));
+        assert!(generated.contains("pane_grid::Controls::dynamic"));
+        assert!(generated.contains("pane_grid::Controls::new"));
+        assert!(generated.contains(".always_show_controls().style"));
+        assert!(generated.contains("__BindFilter"));
+        assert!(generated.contains("format!(\"{}/filter\""));
     }
 
     #[test]
