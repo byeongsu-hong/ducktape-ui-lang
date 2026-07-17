@@ -1570,6 +1570,7 @@ fn parse_container(parts: &[String], styles: Vec<String>, line: &Line) -> Result
             options.padding.bottom = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else if let Some(value) = part.strip_prefix("padding-left=") {
             options.padding.left = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if parse_container_style_option(part, &mut options.style, line)? {
         } else {
             return Err(error(
                 "E184",
@@ -1579,7 +1580,7 @@ fn parse_container(parts: &[String], styles: Vec<String>, line: &Line) -> Result
         }
     }
     Ok(ViewNode::Container {
-        options,
+        options: Box::new(options),
         id,
         styles,
         content: Box::new(parse_view(&line.children[0])?),

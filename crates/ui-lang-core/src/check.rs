@@ -809,6 +809,7 @@ fn infer_view(
             if let Some(clip) = &options.clip {
                 require_type(&expr_type(clip, env, document, span)?, &Type::Bool, span)?;
             }
+            check_container_style_options(&options.style, env, document, span)?;
             check_styles(styles, document, span, StyleTarget::Container)?;
             infer_view(content, env, document, signatures, ids)?;
         }
@@ -2460,12 +2461,12 @@ fn check_container_style_options(
     span: &Span,
 ) -> Result<(), Error> {
     if let Some(background) = &style.background {
-        check_background_value(background, env, document, span, "pane surface")?;
+        check_background_value(background, env, document, span, "surface")?;
     }
     for (color, label) in [
-        (&style.text_color, "pane text"),
-        (&style.border_color, "pane border"),
-        (&style.shadow_color, "pane shadow"),
+        (&style.text_color, "surface text"),
+        (&style.border_color, "surface border"),
+        (&style.shadow_color, "surface shadow"),
     ] {
         if let Some(color) = color
             && !valid_theme_color(color, document)
@@ -2490,7 +2491,7 @@ fn check_container_style_options(
     .flatten()
     {
         require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-        require_literal_range(value, 0.0, None, "pane surface metric", span)?;
+        require_literal_range(value, 0.0, None, "surface style metric", span)?;
     }
     for value in [&style.shadow_x, &style.shadow_y].into_iter().flatten() {
         require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
@@ -4712,7 +4713,7 @@ theme
   primary #333333
   danger #ff0000
 view
-  container #card width=fill height=80.0 max-width=640.0 max-height=120.0 align-x=center align-y=end clip=true padding=8.0 padding-left=12.0 @w-full bg-background border border-foreground rounded-lg
+  container #card width=fill height=80.0 max-width=640.0 max-height=120.0 align-x=center align-y=end clip=true padding=8.0 padding-left=12.0 background=linear(1.57, background@0.0, primary/25@1.0) text=foreground border=primary border-width=2.0 radius=4.0 radius-tl=1.0 radius-tr=2.0 radius-br=3.0 radius-bl=4.0 shadow=black/50 shadow-x=-1.0 shadow-y=2.0 shadow-blur=6.0 pixel-snap=true @w-full bg-background border border-foreground rounded-lg
     text "Card"
 "#;
         analyze(source).unwrap();
@@ -4725,6 +4726,11 @@ view
         let bad_clip = source.replace("clip=true", "clip=1");
         let error = analyze(&bad_clip).unwrap_err();
         assert_eq!(error.code, "E101");
+
+        let bad_style = source.replace("shadow-blur=6.0", "shadow-blur=-1.0");
+        let error = analyze(&bad_style).unwrap_err();
+        assert_eq!(error.code, "E128");
+        assert!(error.message.contains("surface style metric"));
 
         let unknown = source.replace("clip=true", "opaque=true");
         let error = analyze(&unknown).unwrap_err();
@@ -4940,7 +4946,7 @@ view
 
         let error = analyze(&source.replace("shadow-blur=6.0", "shadow-blur=-1.0")).unwrap_err();
         assert_eq!(error.code, "E128");
-        assert!(error.message.contains("pane surface metric"));
+        assert!(error.message.contains("surface style metric"));
 
         let error = analyze(&source.replace("pixel-snap=true", "pixel-snap=1.0")).unwrap_err();
         assert_eq!(error.code, "E101");

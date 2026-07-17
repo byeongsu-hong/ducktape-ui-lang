@@ -1,4 +1,4 @@
-# Ice Language Specification 0.58
+# Ice Language Specification 0.59
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.58 syntax.
+marked “planned” is a design constraint, not accepted 0.59 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.58.
+  block comments are not part of 0.59.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -267,6 +267,7 @@ container_property = ("width=" | "height=") length
                    | ("padding=" | "padding-x=" | "padding-y="
                      | "padding-top=" | "padding-right=" | "padding-bottom="
                      | "padding-left=") expr
+                   | surface_style_property
 overlay        = "overlay" "when=" expr overlay_property*
                  INDENT "content" INDENT node
                  INDENT "layer" INDENT node
@@ -312,9 +313,9 @@ pane_line_style_property = "color=" name ("/" u8)? | "width=" expr
 pane_configuration = pane_view
                    | "split" pane_axis ("ratio=" number)?
                      INDENT pane_configuration pane_configuration
-pane_view      = "pane" name pane_surface_property* styles?
+pane_view      = "pane" name surface_style_property* styles?
                  INDENT (node | pane_section+)
-closed_pane    = "pane" name "closed" pane_surface_property* styles?
+closed_pane    = "pane" name "closed" surface_style_property* styles?
                  INDENT (node | pane_section+)
 pane_section   = "title" pane_title_property* styles? INDENT node
                | "controls" INDENT node
@@ -324,8 +325,8 @@ pane_title_property
                = ("padding=" | "padding-x=" | "padding-y="
                  | "padding-top=" | "padding-right=" | "padding-bottom="
                  | "padding-left=") expr
-               | "always-controls" | pane_surface_property
-pane_surface_property
+               | "always-controls" | surface_style_property
+surface_style_property
                = "background=" background_value
                | ("text=" | "border=" | "shadow=") color_ref
                | ("border-width=" | "radius=" | "radius-tl="
@@ -562,7 +563,7 @@ default/centered/fixed position, visibility, resizability, close/minimize
 buttons, decorations, transparency, blur, level, and close-request behavior.
 Sizes, text size, and scale factor must be positive; minimum size cannot exceed
 maximum size. Window icons and platform-specific settings are not part of
-0.58.
+0.59.
 
 Media fixed lengths, rotation, opacity, scale, and radius are `f64`; rotation
 is radians, opacity is `0.0..=1.0`, scale is positive, and sizes/radius are
@@ -811,7 +812,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.58 message payloads.
+`Clone` for 0.59 message payloads.
 
 Three typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
@@ -937,7 +938,7 @@ The implemented native nodes are:
 | `scroll` | one child; direction, bounds, scrollbar, anchors, auto-scroll and absolute/relative offset route |
 | `grid` | responsive children with pixel width/spacing, fixed columns or fluid max-cell width, and aspect-ratio or evenly distributed `Length` height |
 | `stack` | overlays children with typed width/height, optional clipping and `under=N` intrinsic-base control |
-| `container` | exactly one child with ID, all length bounds, max bounds, per-axis alignment, clipping, per-side padding and checked container styles |
+| `container` | exactly one child with ID, all length bounds, max bounds, per-axis alignment, clipping, per-side padding and every concrete surface style field including linear backgrounds |
 | `overlay` | named `content` and `layer` trees with checked visibility, alignment, padding, backdrop and optional dismissal |
 | `text` | one `str`, `i64`, or `f64` expression with bounds, size/line-height, font, alignment, shaping, wrapping and checked color/weight styles |
 | `rich-text` | zero or more structured spans with rich defaults, complete span highlights and optional string link events |
@@ -982,11 +983,13 @@ values. `width=` and `spacing=` are non-negative `f64` pixels. A non-aspect
 expression and maps to iced's evenly distributed sizing.
 
 `container` is the explicit one-child wrapper used to size, align, clip, pad,
-and style an arbitrary structured child tree. Typed properties override any
-equivalent `@` utility on the same node:
+and style an arbitrary structured child tree. It accepts the shared surface
+properties used by pane content and title bars: solid or linear background,
+text, border with per-corner radius, shadow offset/blur, and pixel snapping.
+Typed properties override any equivalent `@` utility on the same node:
 
 ```ice
-container #card width=fill max-width=640.0 align-x=center padding=12.0 @bg-surface rounded-lg
+container #card width=fill max-width=640.0 align-x=center padding=12.0 background=linear(1.57, surface@0.0, background@1.0) shadow=black/50 shadow-y=2.0 shadow-blur=8.0 pixel-snap=true @bg-surface rounded-lg
   TaskRow task=task loading=loading
 ```
 
@@ -1351,7 +1354,7 @@ weight, stretch, and style variant is accepted. At most one declaration may be
 the application default. `font=default` and `font=mono` remain built-ins;
 declared fonts also work on text, rich text and spans, input, editor, checkbox,
 and toggler. Font
-byte loading is not part of 0.58.
+byte loading is not part of 0.59.
 
 Widget operation tasks target checked static IDs in the app view:
 
@@ -1371,7 +1374,7 @@ snap/end; and absolute scroll-to/scroll-by. Effects have no route and
 non-negative `i64`; relative offsets are `f64` in `0.0..=1.0`; absolute
 offsets are unrestricted `f64`. Targets must be real static IDs in the app
 scope. Repeated/component scopes and the feature-gated selector API remain
-outside 0.58.
+outside 0.59.
 
 Persistent pane grids expose their native layout-state operations directly in
 handlers:
@@ -1418,7 +1421,7 @@ and constraints, resizability, maximize/minimize state, position and movement,
 all modes, decorations, user attention, focus, level, system menu, mouse
 passthrough, monitor size, and automatic tabbing. Positive sizes and bool
 arguments are checked before Rust generation. New-window IDs, open/oldest/latest,
-icons, raw handles, screenshots, and callbacks remain outside 0.58.
+icons, raw handles, screenshots, and callbacks remain outside 0.59.
 
 Every iced window event has a direct subscription form:
 
@@ -1571,7 +1574,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 0.58 does not claim that remapping.
+extern line; 0.59 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -1592,7 +1595,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 0.58 native backend is enough for CRUD/settings-style screens, selection,
+The 0.59 native backend is enough for CRUD/settings-style screens, selection,
 media, hover
 overlays, and common pointer events, not all of iced. It still lacks direct
 syntax for canvas, arbitrary custom overlays, multiple
