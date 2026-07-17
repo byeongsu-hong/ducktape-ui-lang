@@ -934,20 +934,10 @@ fn render_node(
         ViewNode::Space { width, height, .. } => {
             let mut code = String::from("::iced::widget::space()");
             if let Some(width) = width {
-                write!(
-                    code,
-                    ".width({} as f32)",
-                    expr_code(width, env, document, ValueMode::Owned)?
-                )
-                .unwrap();
+                write!(code, ".width({})", length_code(width, env, document)?).unwrap();
             }
             if let Some(height) = height {
-                write!(
-                    code,
-                    ".height({} as f32)",
-                    expr_code(height, env, document, ValueMode::Owned)?
-                )
-                .unwrap();
+                write!(code, ".height({})", length_code(height, env, document)?).unwrap();
             }
             Ok(format!("{code}.into()"))
         }
@@ -1882,6 +1872,9 @@ fn length_code(
 ) -> Result<String, Error> {
     Ok(match length {
         LengthValue::Fill => "::iced::Fill".into(),
+        LengthValue::FillPortion(portion) => {
+            format!("::iced::Length::FillPortion({portion})")
+        }
         LengthValue::Shrink => "::iced::Shrink".into(),
         LengthValue::Fixed(value) => format!(
             "{} as f32",
@@ -2494,7 +2487,7 @@ view
     progress amount vertical
     radio "First" value=0 selected=(choice == 0) -> choice_changed _
     rule horizontal thickness=2.0
-    space width=4.0 height=8.0
+    space width=fill(2) height=shrink
     stack clip=true
       text "base"
       text "overlay"
@@ -2507,6 +2500,9 @@ view
         assert!(generated.contains("::iced::widget::progress_bar"));
         assert!(generated.contains(".vertical()"));
         assert!(generated.contains("::iced::widget::radio"));
+        assert!(generated.contains(
+            "::iced::widget::space().width(::iced::Length::FillPortion(2)).height(::iced::Shrink)"
+        ));
         assert!(generated.contains("::iced::widget::stack(__children).clip(true)"));
     }
 

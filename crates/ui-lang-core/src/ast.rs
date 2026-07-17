@@ -292,8 +292,8 @@ pub enum ViewNode {
         span: Span,
     },
     Space {
-        width: Option<Expr>,
-        height: Option<Expr>,
+        width: Option<LengthValue>,
+        height: Option<LengthValue>,
         styles: Vec<String>,
         span: Span,
     },
@@ -523,6 +523,7 @@ pub struct MediaOptions {
 #[derive(Clone, Debug)]
 pub enum LengthValue {
     Fill,
+    FillPortion(u16),
     Shrink,
     Fixed(Expr),
 }
