@@ -680,22 +680,57 @@ fn parse_responsive(parts: &[String], styles: Vec<String>, line: &Line) -> Resul
             "responsive does not accept `@` utilities",
         ));
     }
-    if line.children.len() != 2 {
-        return Err(error(
-            "E092",
-            line,
-            "responsive requires two children: narrow, then wide",
-        ));
-    }
     let mut breakpoint = None;
+    let mut size = None;
     let mut width = None;
     let mut height = None;
     for part in &parts[1..] {
         if let Some(value) = part.strip_prefix("at=") {
+            if breakpoint.is_some() {
+                return Err(error("E092", line, "responsive repeats `at=`"));
+            }
             breakpoint = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("size=") {
+            if size.is_some() {
+                return Err(error("E092", line, "responsive repeats `size=`"));
+            }
+            let Some(value) = value
+                .strip_prefix('(')
+                .and_then(|value| value.strip_suffix(')'))
+            else {
+                return Err(error(
+                    "E092",
+                    line,
+                    "responsive size bindings use `size=(width, height)`",
+                ));
+            };
+            let names = split_top(value, ',');
+            let [width, height] = names.as_slice() else {
+                return Err(error(
+                    "E092",
+                    line,
+                    "responsive size expects width and height bindings",
+                ));
+            };
+            let width = identifier(width, line)?;
+            let height = identifier(height, line)?;
+            if width == height {
+                return Err(error(
+                    "E092",
+                    line,
+                    "responsive size bindings must have different names",
+                ));
+            }
+            size = Some((width, height));
         } else if let Some(value) = part.strip_prefix("width=") {
+            if width.is_some() {
+                return Err(error("E092", line, "responsive repeats `width=`"));
+            }
             width = Some(parse_length(value, line)?);
         } else if let Some(value) = part.strip_prefix("height=") {
+            if height.is_some() {
+                return Err(error("E092", line, "responsive repeats `height=`"));
+            }
             height = Some(parse_length(value, line)?);
         } else {
             return Err(error(
@@ -705,12 +740,54 @@ fn parse_responsive(parts: &[String], styles: Vec<String>, line: &Line) -> Resul
             ));
         }
     }
+    let content = match (breakpoint, size) {
+        (Some(_), Some(_)) => {
+            return Err(error(
+                "E092",
+                line,
+                "responsive accepts either `at=` or `size=`, not both",
+            ));
+        }
+        (Some(breakpoint), None) => {
+            if line.children.len() != 2 {
+                return Err(error(
+                    "E092",
+                    line,
+                    "responsive with `at=` requires two children: narrow, then wide",
+                ));
+            }
+            ResponsiveContent::Breakpoint {
+                breakpoint,
+                narrow: Box::new(parse_view(&line.children[0])?),
+                wide: Box::new(parse_view(&line.children[1])?),
+            }
+        }
+        (None, Some((width, height))) => {
+            if line.children.len() != 1 {
+                return Err(error(
+                    "E092",
+                    line,
+                    "responsive with `size=` requires exactly one child",
+                ));
+            }
+            ResponsiveContent::Size {
+                width,
+                height,
+                content: Box::new(parse_view(&line.children[0])?),
+            }
+        }
+        (None, None) => {
+            return Err(error(
+                "E092",
+                line,
+                "responsive requires `at=` or `size=(width, height)`",
+            ));
+        }
+    };
     Ok(ViewNode::Responsive {
-        breakpoint: breakpoint.ok_or_else(|| error("E092", line, "responsive requires `at=`"))?,
+        content,
         width,
         height,
-        narrow: Box::new(parse_view(&line.children[0])?),
-        wide: Box::new(parse_view(&line.children[1])?),
         span: Span::line(line.number),
     })
 }

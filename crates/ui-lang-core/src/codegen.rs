@@ -1318,19 +1318,53 @@ fn render_node(
             Ok(format!("{code}.into() }}"))
         }
         ViewNode::Responsive {
-            breakpoint,
+            content,
             width,
             height,
-            narrow,
-            wide,
             ..
         } => {
-            let breakpoint = expr_code(breakpoint, env, document, ValueMode::Owned)?;
-            let narrow = render_node(narrow, document, message, env, scope)?;
-            let wide = render_node(wide, document, message, env, scope)?;
-            let mut code = format!(
-                "::iced::widget::responsive(move |__size| {{ let __responsive: ::iced::Element<'_, {message}> = if __size.width < {breakpoint} as f32 {{ {narrow} }} else {{ {wide} }}; __responsive }})"
-            );
+            let builder = match content {
+                ResponsiveContent::Breakpoint {
+                    breakpoint,
+                    narrow,
+                    wide,
+                } => {
+                    let breakpoint = expr_code(breakpoint, env, document, ValueMode::Owned)?;
+                    let narrow = render_node(narrow, document, message, env, scope)?;
+                    let wide = render_node(wide, document, message, env, scope)?;
+                    format!(
+                        "move |__size| {{ let __responsive: ::iced::Element<'_, {message}> = if __size.width < {breakpoint} as f32 {{ {narrow} }} else {{ {wide} }}; __responsive }}"
+                    )
+                }
+                ResponsiveContent::Size {
+                    width,
+                    height,
+                    content,
+                } => {
+                    let mut child_env = env.clone();
+                    child_env.insert(
+                        width.clone(),
+                        Binding {
+                            code: "(__size.width as f64)".into(),
+                            ty: Type::F64,
+                            local: true,
+                        },
+                    );
+                    child_env.insert(
+                        height.clone(),
+                        Binding {
+                            code: "(__size.height as f64)".into(),
+                            ty: Type::F64,
+                            local: true,
+                        },
+                    );
+                    let content = render_node(content, document, message, &child_env, scope)?;
+                    format!(
+                        "move |__size| {{ let __responsive: ::iced::Element<'_, {message}> = {content}; __responsive }}"
+                    )
+                }
+            };
+            let mut code = format!("::iced::widget::responsive({builder})");
             if let Some(width) = width {
                 write!(code, ".width({})", length_code(width, env, document)?).unwrap();
             }
@@ -2007,10 +2041,13 @@ fn input_bindings(root: &ViewNode) -> Vec<String> {
             ViewNode::Float { content, .. }
             | ViewNode::Pin { content, .. }
             | ViewNode::Sensor { content, .. } => collect(content, output),
-            ViewNode::Responsive { narrow, wide, .. } => {
-                collect(narrow, output);
-                collect(wide, output);
-            }
+            ViewNode::Responsive { content, .. } => match content {
+                ResponsiveContent::Breakpoint { narrow, wide, .. } => {
+                    collect(narrow, output);
+                    collect(wide, output);
+                }
+                ResponsiveContent::Size { content, .. } => collect(content, output),
+            },
             _ => {}
         }
     }
@@ -2035,7 +2072,12 @@ fn needs_extern_noop(document: &Document) -> bool {
             ViewNode::Float { content, .. }
             | ViewNode::Pin { content, .. }
             | ViewNode::Sensor { content, .. } => contains(content),
-            ViewNode::Responsive { narrow, wide, .. } => contains(narrow) || contains(wide),
+            ViewNode::Responsive { content, .. } => match content {
+                ResponsiveContent::Breakpoint { narrow, wide, .. } => {
+                    contains(narrow) || contains(wide)
+                }
+                ResponsiveContent::Size { content, .. } => contains(content),
+            },
             _ => false,
         }
     }
@@ -3299,6 +3341,12 @@ view
     responsive at=600.0 width=fill height=40.0
       text "Narrow"
       text "Wide"
+    responsive size=(available_width, available_height) width=fill height=fill
+      col
+        if available_width < available_height
+          text "Portrait"
+        if available_width >= available_height
+          text "Landscape"
 "#;
         let generated = compile(source, "structure.ice").unwrap();
         assert!(generated.contains("::iced::widget::float(__float_content).scale(1.1 as f32)"));
@@ -3309,6 +3357,8 @@ view
         assert!(generated.contains(".key(self.sensor_key)"));
         assert!(generated.contains("::iced::widget::responsive(move |__size|"));
         assert!(generated.contains("if __size.width < 600.0 as f32"));
+        assert!(generated.contains("if ((__size.width as f64) < (__size.height as f64))"));
+        assert!(generated.contains("if ((__size.width as f64) >= (__size.height as f64))"));
     }
 
     #[test]

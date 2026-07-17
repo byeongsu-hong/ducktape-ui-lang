@@ -1,4 +1,4 @@
-# Ice Language Specification 0.23
+# Ice Language Specification 0.24
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.23 syntax.
+marked “planned” is a design constraint, not accepted 0.24 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.23.
+  block comments are not part of 0.24.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -272,8 +272,9 @@ pin            = "pin" (("width=" | "height=") length)?
 sensor         = "sensor" sensor_property+ INDENT node
 sensor_property = ("show=" | "resize=" | "hide=") route
                 | "key=" expr | "anticipate=" expr | "delay=" expr
-responsive     = "responsive" "at=" expr
-                 (("width=" | "height=") length)? INDENT node node
+responsive     = "responsive" responsive_mode
+                 (("width=" | "height=") length)? INDENT node+
+responsive_mode = "at=" expr | "size=(" name "," name ")"
 rule           = "rule" ("horizontal" | "vertical") rule_property* styles?
 rule_property  = "thickness=" expr | "style=" ("default" | "weak")
                | "fill=" rule_fill | "color=" name ("/" u8)?
@@ -412,12 +413,16 @@ automatically. Combo search state owns its initial options and cannot be
 assigned after initialization.
 
 `float` applies positive scale and x/y translation to one child. `pin` places
-one child at x/y coordinates inside optional typed width/height bounds.
+one child at x/y coordinates inside optional typed width/height bounds; x/y is
+the direct decomposition of iced's `position(Point)` helper.
 `sensor` observes one child: show/resize handlers receive `(width:f64,
 height:f64)`, while hide has no payload; anticipation is non-negative f64 and
-delay is non-negative i64 milliseconds. `responsive at=N` chooses its first
-child below width N and its second child otherwise. This two-branch breakpoint
-form is the native subset of iced's arbitrary size-dependent closure.
+delay is non-negative i64 milliseconds. `key=` owns a comparable Ice value and
+provides the same continuity behavior as iced's borrowed `key_ref` form.
+`responsive at=N` chooses its first child below width N and its second child
+otherwise. The general `responsive size=(width, height)` form binds the current
+iced `Size` as two scoped `f64` names and accepts one arbitrary child tree, so
+conditions and component inputs can depend on either dimension.
 
 `stack` accepts every iced `Length` for width and height. Its first rendered
 child normally determines intrinsic size. `under=N` places the first N rendered
@@ -476,7 +481,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.23 message payloads.
+`Clone` for 0.24 message payloads.
 
 Three typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
@@ -615,7 +620,7 @@ The implemented native nodes are:
 | `float` | one child with positive scale and x/y translation |
 | `pin` | one child with typed width/height and fixed x/y position |
 | `sensor` | one child with show/resize `(width, height)`, hide, key, anticipation and delay |
-| `responsive` | narrow/wide children selected by an `at=` width breakpoint |
+| `responsive` | breakpoint sugar or one arbitrary size-dependent child tree with scoped width/height bindings and typed bounds |
 | `rule` | horizontal/vertical separator with non-negative thickness, all fill modes, default/weak preset, color, corner radii and snap |
 | `space` | optional fixed/fill/fill-portion/shrink width and height |
 | `image` | raster path expression, typed length/fit/filter/rotation/opacity/scale/expand/radius properties |
@@ -773,7 +778,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 0.23 does not claim that remapping.
+extern line; 0.24 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -794,7 +799,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 0.23 native backend is enough for CRUD/settings-style screens, selection,
+The 0.24 native backend is enough for CRUD/settings-style screens, selection,
 media, hover
 overlays, and common pointer events, not all of iced. It still lacks direct
 syntax for canvas, general overlays/modals, rich text

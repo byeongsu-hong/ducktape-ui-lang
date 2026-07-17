@@ -1130,33 +1130,49 @@ fn infer_view(
             infer_view(content, env, document, signatures, ids)?;
         }
         ViewNode::Responsive {
-            breakpoint,
+            content,
             width,
             height,
-            narrow,
-            wide,
             span,
         } => {
-            require_type(
-                &expr_type(breakpoint, env, document, span)?,
-                &Type::F64,
-                span,
-            )?;
-            require_literal_range(
-                breakpoint,
-                f64::EPSILON,
-                None,
-                "responsive breakpoint",
-                span,
-            )?;
             for length in [width, height].into_iter().flatten() {
                 if let LengthValue::Fixed(value) = length {
                     require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
                     require_literal_range(value, 0.0, None, "responsive size", span)?;
                 }
             }
-            infer_view(narrow, env, document, signatures, ids)?;
-            infer_view(wide, env, document, signatures, ids)?;
+            match content {
+                ResponsiveContent::Breakpoint {
+                    breakpoint,
+                    narrow,
+                    wide,
+                } => {
+                    require_type(
+                        &expr_type(breakpoint, env, document, span)?,
+                        &Type::F64,
+                        span,
+                    )?;
+                    require_literal_range(
+                        breakpoint,
+                        f64::EPSILON,
+                        None,
+                        "responsive breakpoint",
+                        span,
+                    )?;
+                    infer_view(narrow, env, document, signatures, ids)?;
+                    infer_view(wide, env, document, signatures, ids)?;
+                }
+                ResponsiveContent::Size {
+                    width,
+                    height,
+                    content,
+                } => {
+                    let mut child_env = env.clone();
+                    child_env.insert(width.clone(), Type::F64);
+                    child_env.insert(height.clone(), Type::F64);
+                    infer_view(content, &child_env, document, signatures, ids)?;
+                }
+            }
         }
     }
     Ok(())
@@ -2217,6 +2233,12 @@ view
     responsive at=600.0 width=fill height=40.0
       text "Narrow"
       text "Wide"
+    responsive size=(available_width, available_height) width=fill height=fill
+      col
+        if available_width < available_height
+          text "Portrait"
+        if available_width >= available_height
+          text "Landscape"
     stack width=fill(2) height=120.0 clip=true under=1
       text "Base"
       text "Overlay"
@@ -2237,6 +2259,22 @@ view
         let error = analyze(&bad_under).unwrap_err();
         assert_eq!(error.code, "E074");
         assert!(error.message.contains("stack under"));
+
+        let duplicate_size_name = source.replace(
+            "size=(available_width, available_height)",
+            "size=(available_width, available_width)",
+        );
+        let error = analyze(&duplicate_size_name).unwrap_err();
+        assert_eq!(error.code, "E092");
+        assert!(error.message.contains("different names"));
+
+        let conflicting_responsive = source.replace(
+            "responsive size=(available_width, available_height)",
+            "responsive at=600.0 size=(available_width, available_height)",
+        );
+        let error = analyze(&conflicting_responsive).unwrap_err();
+        assert_eq!(error.code, "E092");
+        assert!(error.message.contains("either `at=` or `size=`"));
     }
 
     #[test]

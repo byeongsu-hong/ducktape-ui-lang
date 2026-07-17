@@ -361,12 +361,24 @@ pub enum ViewNode {
         span: Span,
     },
     Responsive {
-        breakpoint: Expr,
+        content: ResponsiveContent,
         width: Option<LengthValue>,
         height: Option<LengthValue>,
+        span: Span,
+    },
+}
+
+#[derive(Clone, Debug)]
+pub enum ResponsiveContent {
+    Breakpoint {
+        breakpoint: Expr,
         narrow: Box<ViewNode>,
         wide: Box<ViewNode>,
-        span: Span,
+    },
+    Size {
+        width: String,
+        height: String,
+        content: Box<ViewNode>,
     },
 }
 
