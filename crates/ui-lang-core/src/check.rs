@@ -1529,12 +1529,17 @@ fn infer_view(
             for (value, label) in [
                 (&options.padding, "combo padding"),
                 (&options.text_size, "combo text size"),
+                (&options.line_height, "combo line height"),
             ] {
                 if let Some(value) = value {
                     require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
                     require_literal_range(value, 0.0, None, label, span)?;
                 }
             }
+            check_font(options.font.as_ref(), document, span)?;
+            check_text_input_icon(options.icon.as_ref(), env, document)?;
+            check_text_input_styles(&options.style, env, document, span)?;
+            check_menu_style(options.menu_style.as_deref(), env, document, span)?;
             for (route, payload, label) in [
                 (Some(route), Some((**option_type).clone()), "selection"),
                 (options.input.as_ref(), Some(Type::Str), "input"),
@@ -2887,27 +2892,97 @@ fn check_pick_list_styles(
             }
         }
     }
-    if let Some(style) = options.menu_style.as_deref() {
+    check_menu_style(options.menu_style.as_deref(), env, document, span)?;
+    Ok(())
+}
+
+fn check_menu_style(
+    style: Option<&MenuStyleOptions>,
+    env: &HashMap<String, Type>,
+    document: &Document,
+    span: &Span,
+) -> Result<(), Error> {
+    let Some(style) = style else { return Ok(()) };
+    let style_span = style.span.as_ref().unwrap_or(span);
+    check_container_style_options(&style.options, env, document, style_span, "E129")?;
+    if let Some(color) = &style.selected_text_color
+        && !valid_theme_color(color, document)
+    {
+        return Err(Error::new(
+            "E129",
+            style_span,
+            format!("unknown selected text color `{color}`"),
+        ));
+    }
+    if let Some(background) = &style.selected_background {
+        check_background_value(
+            background,
+            env,
+            document,
+            style_span,
+            "E129",
+            "selected background",
+        )?;
+    }
+    Ok(())
+}
+
+fn check_text_input_icon(
+    icon: Option<&TextInputIcon>,
+    env: &HashMap<String, Type>,
+    document: &Document,
+) -> Result<(), Error> {
+    let Some(icon) = icon else { return Ok(()) };
+    check_font(icon.font.as_ref(), document, &icon.span)?;
+    for (value, label) in [
+        (&icon.size, "combo icon size"),
+        (&icon.spacing, "combo icon spacing"),
+    ] {
+        if let Some(value) = value {
+            require_type(
+                &expr_type(value, env, document, &icon.span)?,
+                &Type::F64,
+                &icon.span,
+            )?;
+            require_literal_range(value, 0.0, None, label, &icon.span)?;
+        }
+    }
+    Ok(())
+}
+
+fn check_text_input_styles(
+    styles: &TextInputStyleSet,
+    env: &HashMap<String, Type>,
+    document: &Document,
+    span: &Span,
+) -> Result<(), Error> {
+    for style in [
+        &styles.active,
+        &styles.hovered,
+        &styles.focused,
+        &styles.focused_hovered,
+        &styles.disabled,
+    ]
+    .into_iter()
+    .flatten()
+    {
         let style_span = style.span.as_ref().unwrap_or(span);
         check_container_style_options(&style.options, env, document, style_span, "E129")?;
-        if let Some(color) = &style.selected_text_color
-            && !valid_theme_color(color, document)
-        {
-            return Err(Error::new(
-                "E129",
-                style_span,
-                format!("unknown pick selected text color `{color}`"),
-            ));
-        }
-        if let Some(background) = &style.selected_background {
-            check_background_value(
-                background,
-                env,
-                document,
-                style_span,
-                "E129",
-                "pick selected background",
-            )?;
+        for (color, label) in [
+            (&style.icon_color, "input icon"),
+            (&style.placeholder_color, "input placeholder"),
+            (&style.value_color, "input value"),
+            (&style.selection_color, "input selection"),
+        ] {
+            if let Some(color) = color
+                && !valid_theme_color(color, document)
+            {
+                return Err(Error::new(
+                    "E129",
+                    style_span,
+                    format!("unknown {label} color `{color}`"),
+                ));
+            }
         }
     }
     Ok(())
@@ -3382,15 +3457,12 @@ fn check_handler(
                 let expected = states.get(target).ok_or_else(|| {
                     Error::new("E140", span, format!("`{target}` is not writable state"))
                 })?;
-                if matches!(expected, Type::Combo(_)) {
-                    return Err(Error::new(
-                        "E140",
-                        span,
-                        "combo search state is initialized once and cannot be assigned",
-                    ));
-                }
                 let actual = expr_type(value, &env, document, span)?;
-                require_type(&actual, expected, span)?;
+                if let Type::Combo(inner) = expected {
+                    require_type(&actual, &Type::List(inner.clone()), span)?;
+                } else {
+                    require_type(&actual, expected, span)?;
+                }
             }
             Statement::ReturnIf { condition, span } => {
                 require_type(
@@ -4923,6 +4995,7 @@ view
     #[test]
     fn checks_combo_search_state_and_routes() {
         let source = r#"app Demo
+font ui family=sans
 theme
   background #000000
   foreground #ffffff
@@ -4940,17 +5013,28 @@ on hovered(next)
 on opened
 on closed
 view
-  combo modes selected "Search modes" input=searched hover=hovered open=opened close=closed -> selected _
+  combo modes selected "Search modes" line-height=1.2 shaping=advanced font=ui input=searched hover=hovered open=opened close=closed -> selected _
+    active background=background border=foreground border-width=1.0 radius=4.0 icon=primary placeholder=danger value=foreground selection=primary
+    hovered background=background icon=foreground placeholder=danger value=foreground selection=primary
+    focused background=background border=primary
+    focused-hovered background=background border=foreground
+    disabled background=background value=danger
+    menu text=foreground selected-text=background selected-background=primary background=background border=foreground shadow=danger shadow-y=2.0
+    icon code="⌕" font=ui size=12.0 spacing=6.0 side=right
 "#;
         let document = analyze(source).unwrap();
         assert_eq!(document.states[0].ty.display(), "combo[str]");
         assert_eq!(document.handlers[0].params[0].ty.display(), "str");
         assert_eq!(document.handlers[1].params[0].ty.display(), "str");
         assert_eq!(document.handlers[2].params[0].ty.display(), "str");
+
+        let error = analyze(&source.replace("spacing=6.0", "spacing=-1.0")).unwrap_err();
+        assert_eq!(error.code, "E128");
+        assert!(error.message.contains("icon spacing"));
     }
 
     #[test]
-    fn rejects_assignment_to_combo_search_state() {
+    fn replaces_combo_search_options_with_a_typed_list() {
         let source = r#"app Demo
 theme
   background #000000
@@ -4961,15 +5045,17 @@ state
   modes:combo[str] = ["List", "Board"]
   selected:str? = none
 on reset
-  modes = []
+  modes = ["Timeline"]
 on selected(next)
   selected = some(next)
 view
   combo modes selected "Search modes" -> selected _
 "#;
-        let error = analyze(source).unwrap_err();
-        assert_eq!(error.code, "E140");
-        assert!(error.message.contains("cannot be assigned"));
+        analyze(source).unwrap();
+
+        let error = analyze(&source.replace("[\"Timeline\"]", "[1]")).unwrap_err();
+        assert_eq!(error.code, "E101");
+        assert!(error.message.contains("expected `[str]`, got `[i64]`"));
     }
 
     #[test]

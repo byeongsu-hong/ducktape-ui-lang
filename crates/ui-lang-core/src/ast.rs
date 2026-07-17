@@ -1266,7 +1266,7 @@ pub struct PickListOptions {
     pub open: Option<Route>,
     pub close: Option<Route>,
     pub style: Box<PickListStyleSet>,
-    pub menu_style: Option<Box<PickListMenuStyle>>,
+    pub menu_style: Option<Box<MenuStyleOptions>>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -1286,7 +1286,7 @@ pub struct PickListStatusStyle {
 }
 
 #[derive(Clone, Debug, Default)]
-pub struct PickListMenuStyle {
+pub struct MenuStyleOptions {
     pub options: ContainerStyleOptions,
     pub selected_text_color: Option<String>,
     pub selected_background: Option<BackgroundValue>,
@@ -1322,10 +1322,45 @@ pub struct ComboBoxOptions {
     pub menu_height: Option<LengthValue>,
     pub padding: Option<Expr>,
     pub text_size: Option<Expr>,
+    pub line_height: Option<Expr>,
+    pub shaping: Option<TextShaping>,
+    pub font: Option<FontPreset>,
+    pub icon: Option<TextInputIcon>,
     pub input: Option<Route>,
     pub hover: Option<Route>,
     pub open: Option<Route>,
     pub close: Option<Route>,
+    pub style: Box<TextInputStyleSet>,
+    pub menu_style: Option<Box<MenuStyleOptions>>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct TextInputStyleSet {
+    pub active: Option<TextInputStatusStyle>,
+    pub hovered: Option<TextInputStatusStyle>,
+    pub focused: Option<TextInputStatusStyle>,
+    pub focused_hovered: Option<TextInputStatusStyle>,
+    pub disabled: Option<TextInputStatusStyle>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct TextInputStatusStyle {
+    pub options: ContainerStyleOptions,
+    pub icon_color: Option<String>,
+    pub placeholder_color: Option<String>,
+    pub value_color: Option<String>,
+    pub selection_color: Option<String>,
+    pub span: Option<Span>,
+}
+
+#[derive(Clone, Debug)]
+pub struct TextInputIcon {
+    pub code_point: char,
+    pub font: Option<FontPreset>,
+    pub size: Option<Expr>,
+    pub spacing: Option<Expr>,
+    pub side: IconSide,
+    pub span: Span,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -141,6 +141,9 @@ on mode_searched(next)
 on mode_hovered(next)
   hovered_mode = next
 
+on reset_search_modes
+  searchable_modes = ["List", "Board", "Timeline", "Compact"]
+
 on panel_measured(width, height)
   observed_width = width
   observed_height = height
@@ -488,7 +491,15 @@ view
               handle static code="◆" font=ui size=12.0 line-height=1.0 shaping=basic
             pick display_modes display_mode -> display_mode_changed _
               handle none
-        combo searchable_modes display_mode "Search views" width=fill menu-height=160.0 padding=8.0 text-size=14.0 input=mode_searched hover=mode_hovered open=picker_opened close=picker_closed -> display_mode_changed _
+        combo searchable_modes display_mode "Search views" width=fill menu-height=160.0 padding=8.0 text-size=14.0 line-height=1.2 shaping=advanced font=ui input=mode_searched hover=mode_hovered open=picker_opened close=picker_closed -> display_mode_changed _
+          active background=surface border=border border-width=1.0 radius=6.0 icon=primary placeholder=muted value=foreground selection=primary
+          hovered background=background border=primary border-width=1.0 radius=6.0 icon=foreground placeholder=muted value=foreground selection=primary
+          focused background=surface border=primary border-width=1.0 radius=6.0 icon=primary placeholder=muted value=foreground selection=primary
+          focused-hovered background=background border=foreground border-width=2.0 radius=6.0 icon=foreground placeholder=muted value=foreground selection=primary
+          disabled background=background border=border border-width=1.0 radius=6.0 icon=muted placeholder=muted value=muted selection=primary
+          menu text=foreground selected-text=foreground selected-background=linear(1.57, primary@0.0, surface@1.0) background=surface border=border border-width=1.0 radius=6.0 shadow=black/50 shadow-y=4.0 shadow-blur=12.0
+          icon code="⌕" font=ui size=14.0 spacing=6.0 side=right
+        button "Reset search options" -> reset_search_modes
         if picker_open
           text "Picker is open" @text-xs text-muted
         if mode_query != ""

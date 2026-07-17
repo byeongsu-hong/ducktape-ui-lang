@@ -965,7 +965,19 @@ fn generate_statements(
         match statement {
             Statement::Assign { target, value, .. } => {
                 let code = expr_code(value, env, document, ValueMode::Owned)?;
-                writeln!(out, "{state}.{target} = {code};").unwrap();
+                if document
+                    .states
+                    .iter()
+                    .any(|item| item.name == *target && matches!(item.ty, Type::Combo(_)))
+                {
+                    writeln!(
+                        out,
+                        "{state}.{target} = ::iced::widget::combo_box::State::new({code});"
+                    )
+                    .unwrap();
+                } else {
+                    writeln!(out, "{state}.{target} = {code};").unwrap();
+                }
             }
             Statement::ReturnIf { condition, .. } => {
                 let code = expr_code(condition, env, document, ValueMode::Owned)?;
@@ -2068,6 +2080,33 @@ fn render_node(
                 )
                 .unwrap();
             }
+            if let Some(height) = &options.line_height {
+                write!(
+                    code,
+                    ".line_height(::iced::widget::text::LineHeight::Relative({} as f32))",
+                    expr_code(height, env, document, ValueMode::Owned)?
+                )
+                .unwrap();
+            }
+            if let Some(shaping) = options.shaping {
+                write!(
+                    code,
+                    ".text_shaping(::iced::widget::text::Shaping::{})",
+                    text_shaping_code(shaping)
+                )
+                .unwrap();
+            }
+            if let Some(font) = &options.font {
+                write!(code, ".font({})", font_preset_code(font, document)?).unwrap();
+            }
+            if let Some(icon) = &options.icon {
+                write!(
+                    code,
+                    ".icon({})",
+                    text_input_icon_code(icon, env, document)?
+                )
+                .unwrap();
+            }
             if let Some(route) = &options.input {
                 write!(
                     code,
@@ -2100,6 +2139,12 @@ fn render_node(
                 )
                 .unwrap();
             }
+            code.push_str(&text_input_style_code(&options.style, env, document)?);
+            code.push_str(&menu_style_code(
+                options.menu_style.as_deref(),
+                env,
+                document,
+            )?);
             Ok(format!("{code}.into() }}"))
         }
         ViewNode::Rule {
@@ -5612,7 +5657,7 @@ fn pick_list_style_code(
         for (status, style) in overrides {
             let Some(style) = style else { continue };
             write!(code, " ::iced::widget::pick_list::Status::{status} => {{").unwrap();
-            append_pick_list_surface_overrides(&mut code, &style.options, env, document, false)?;
+            append_select_surface_overrides(&mut code, &style.options, env, document, false)?;
             if let Some(color) = &style.placeholder_color {
                 write!(
                     code,
@@ -5633,31 +5678,48 @@ fn pick_list_style_code(
         }
         code.push_str(" _ => {} } __style })");
     }
-    if let Some(style) = options.menu_style.as_deref() {
-        code.push_str(".menu_style(move |__theme| { let mut __style = ::iced::overlay::menu::default(__theme);");
-        append_pick_list_surface_overrides(&mut code, &style.options, env, document, true)?;
-        if let Some(color) = &style.selected_text_color {
-            write!(
-                code,
-                " __style.selected_text_color = {};",
-                theme_color(document, color)
-            )
-            .unwrap();
-        }
-        if let Some(background) = &style.selected_background {
-            write!(
-                code,
-                " __style.selected_background = {};",
-                background_code(background, env, document)?
-            )
-            .unwrap();
-        }
-        code.push_str(" __style })");
-    }
+    code.push_str(&menu_style_code(
+        options.menu_style.as_deref(),
+        env,
+        document,
+    )?);
     Ok(code)
 }
 
-fn append_pick_list_surface_overrides(
+fn menu_style_code(
+    style: Option<&MenuStyleOptions>,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<String, Error> {
+    let Some(style) = style else {
+        return Ok(String::new());
+    };
+    let mut code = String::new();
+    code.push_str(
+        ".menu_style(move |__theme| { let mut __style = ::iced::overlay::menu::default(__theme);",
+    );
+    append_select_surface_overrides(&mut code, &style.options, env, document, true)?;
+    if let Some(color) = &style.selected_text_color {
+        write!(
+            code,
+            " __style.selected_text_color = {};",
+            theme_color(document, color)
+        )
+        .unwrap();
+    }
+    if let Some(background) = &style.selected_background {
+        write!(
+            code,
+            " __style.selected_background = {};",
+            background_code(background, env, document)?
+        )
+        .unwrap();
+    }
+    code.push_str(" __style })");
+    Ok(code)
+}
+
+fn append_select_surface_overrides(
     code: &mut String,
     options: &ContainerStyleOptions,
     env: &HashMap<String, Binding>,
@@ -5731,6 +5793,120 @@ fn append_pick_list_surface_overrides(
                 )
                 .unwrap();
             }
+        }
+    }
+    Ok(())
+}
+
+fn text_input_icon_code(
+    icon: &TextInputIcon,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<String, Error> {
+    let font = icon.font.as_ref().map_or_else(
+        || Ok("::iced::Font::DEFAULT".to_owned()),
+        |font| font_preset_code(font, document),
+    )?;
+    let size = icon.size.as_ref().map_or_else(
+        || Ok("::std::option::Option::None".to_owned()),
+        |value| {
+            Ok::<_, Error>(format!(
+                "::std::option::Option::Some(({} as f32).into())",
+                expr_code(value, env, document, ValueMode::Owned)?
+            ))
+        },
+    )?;
+    let spacing = icon.spacing.as_ref().map_or_else(
+        || Ok("0.0".to_owned()),
+        |value| expr_code(value, env, document, ValueMode::Owned),
+    )?;
+    let side = match icon.side {
+        IconSide::Left => "Left",
+        IconSide::Right => "Right",
+    };
+    Ok(format!(
+        "::iced::widget::text_input::Icon {{ font: {font}, code_point: {:?}, size: {size}, spacing: {spacing} as f32, side: ::iced::widget::text_input::Side::{side} }}",
+        icon.code_point
+    ))
+}
+
+fn text_input_style_code(
+    styles: &TextInputStyleSet,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<String, Error> {
+    let overrides = [
+        ("Active", &styles.active),
+        ("Hovered", &styles.hovered),
+        ("Focused { is_hovered: false }", &styles.focused),
+        ("Focused { is_hovered: true }", &styles.focused_hovered),
+        ("Disabled", &styles.disabled),
+    ];
+    if overrides.iter().all(|(_, style)| style.is_none()) {
+        return Ok(String::new());
+    }
+    let mut code = ".input_style(move |__theme, __status| { let mut __style = ::iced::widget::text_input::default(__theme, __status); match __status {".to_owned();
+    for (status, style) in overrides {
+        let Some(style) = style else { continue };
+        write!(code, " ::iced::widget::text_input::Status::{status} => {{").unwrap();
+        append_text_input_style_overrides(&mut code, style, env, document)?;
+        code.push_str(" }");
+    }
+    code.push_str(" _ => {} } __style })");
+    Ok(code)
+}
+
+fn append_text_input_style_overrides(
+    code: &mut String,
+    style: &TextInputStatusStyle,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<(), Error> {
+    if let Some(background) = &style.options.background {
+        write!(
+            code,
+            " __style.background = {};",
+            background_code(background, env, document)?
+        )
+        .unwrap();
+    }
+    if let Some(color) = &style.options.border_color {
+        write!(
+            code,
+            " __style.border.color = {};",
+            theme_color(document, color)
+        )
+        .unwrap();
+    }
+    if let Some(width) = &style.options.border_width {
+        write!(
+            code,
+            " __style.border.width = {} as f32;",
+            expr_code(width, env, document, ValueMode::Owned)?
+        )
+        .unwrap();
+    }
+    if let Some(radius) = radius_code(
+        style.options.radius.as_ref(),
+        [
+            style.options.radius_top_left.as_ref(),
+            style.options.radius_top_right.as_ref(),
+            style.options.radius_bottom_right.as_ref(),
+            style.options.radius_bottom_left.as_ref(),
+        ],
+        env,
+        document,
+    )? {
+        write!(code, " __style.border.radius = {radius};").unwrap();
+    }
+    for (color, field) in [
+        (&style.icon_color, "__style.icon"),
+        (&style.placeholder_color, "__style.placeholder"),
+        (&style.value_color, "__style.value"),
+        (&style.selection_color, "__style.selection"),
+    ] {
+        if let Some(color) = color {
+            write!(code, " {field} = {};", theme_color(document, color)).unwrap();
         }
     }
     Ok(())
@@ -7154,6 +7330,7 @@ view
     #[test]
     fn lowers_searchable_combo_boxes() {
         let source = r#"app Search
+font ui family=sans
 theme
   background #000000
   foreground #ffffff
@@ -7170,8 +7347,17 @@ on searched(next)
 on hovered(next)
 on opened
 on closed
+on reset
+  modes = ["Timeline"]
 view
-  combo modes selected "Search modes" width=fill menu-height=120.0 padding=8.0 text-size=14.0 input=searched hover=hovered open=opened close=closed -> selected _
+  combo modes selected "Search modes" width=fill menu-height=120.0 padding=8.0 text-size=14.0 line-height=1.2 shaping=advanced font=ui input=searched hover=hovered open=opened close=closed -> selected _
+    active background=background border=foreground border-width=1.0 radius=4.0 icon=primary placeholder=danger value=foreground selection=primary
+    hovered background=background icon=foreground placeholder=danger value=foreground selection=primary
+    focused background=background border=primary
+    focused-hovered background=background border=foreground
+    disabled background=background value=danger
+    menu text=foreground selected-text=background selected-background=primary background=background border=foreground border-width=1.0 radius=6.0 shadow=danger shadow-x=1.0 shadow-y=2.0 shadow-blur=4.0
+    icon code="⌕" font=ui size=12.0 spacing=6.0 side=right
 "#;
         let generated = compile(source, "search.ice").unwrap();
         assert!(
@@ -7190,6 +7376,20 @@ view
             generated
                 .contains(".on_option_hovered(move |__value| __SearchMessage::Hovered(__value))")
         );
+        assert!(
+            generated
+                .contains(".line_height(::iced::widget::text::LineHeight::Relative(1.2 as f32))")
+        );
+        assert!(generated.contains(".text_shaping(::iced::widget::text::Shaping::Advanced)"));
+        assert!(generated.contains("code_point: '⌕'"));
+        assert!(generated.contains("Side::Right"));
+        assert!(generated.contains(".input_style(move |__theme, __status|"));
+        assert!(generated.contains("Status::Focused { is_hovered: true }"));
+        assert!(generated.contains(".menu_style(move |__theme|"));
+        assert!(generated.contains("__style.selected_background"));
+        assert!(generated.contains(
+            "self.modes = ::iced::widget::combo_box::State::new(::std::vec![\"Timeline\".to_owned()]);"
+        ));
     }
 
     #[test]
