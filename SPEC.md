@@ -1,4 +1,4 @@
-# Ice Language Specification 0.21
+# Ice Language Specification 0.22
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.21 syntax.
+marked “planned” is a design constraint, not accepted 0.22 syntax.
 
 ## 1. Design contract
 
@@ -43,7 +43,8 @@ The Rust action must still validate its input.
 ## 2. Compiler model
 
 ```text
-UTF-8 .ice source
+UTF-8 .ice source graph
+  -> relative `use` resolution + source map
   -> indentation-aware parser
   -> AST
   -> name resolution + type inference + semantic checks
@@ -66,7 +67,8 @@ fn main() -> iced::Result {
 }
 ```
 
-The macro emits `include_str!` so Cargo rebuilds after a `.ice` change. It also
+The macro emits `include_str!` for the root and every imported file so Cargo
+rebuilds after any `.ice` change. It also
 emits probes for every declared extern struct field and async function. Rustc
 therefore rejects missing, private, or shape-incompatible Rust items even when
 an extern declaration is not reached at runtime.
@@ -79,18 +81,23 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.21.
+  block comments are not part of 0.22.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
   `snake_case`.
 - Static IDs use kebab case after `#`, for example `#task-list`.
 - Strings use double quotes and support `\n`, `\r`, `\t`, `\"`, and `\\`.
+- A top-level `use "relative/file.ice"` includes declarations relative to the
+  importing file. Paths must end in `.ice`, use `/`, and cannot be absolute.
+- Imports may be nested. Re-importing the same canonical file is idempotent;
+  import cycles and missing files are errors.
 
 Top-level declarations are order-independent, but canonical source uses:
 
 ```text
 app
+use
 extern
 theme
 state
@@ -100,9 +107,11 @@ subscribe
 view
 ```
 
-A file has exactly one `app` and one `view`, with at most one `extern`
-namespace. It may have multiple components and handlers. The view and each
-component have exactly one root node.
+An app source graph has exactly one `app` and one `view`, with at most one
+`extern` namespace. The root file declares the app and normally the view;
+imported fragments may hold any other top-level declarations. The graph may
+have multiple components and handlers. The view and each component have exactly
+one root node.
 
 ## 4. Compact grammar
 
@@ -110,6 +119,12 @@ The grammar below uses indentation (`INDENT`) as a block delimiter. `expr` is
 defined in section 6.
 
 ```text
+source_graph   = root_file imported_file*
+root_file      = (app_decl | use_decl | declaration)*
+imported_file  = (use_decl | declaration)*
+use_decl       = "use" string
+declaration    = extern_decl | theme_decl | state_decl | component_decl
+               | handler_decl | subscribe_decl | view_decl
 document       = app_decl extern_decl? theme_decl state_decl?
                  component_decl* handler_decl* subscribe_decl? view_decl
 
@@ -458,7 +473,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.21 message payloads.
+`Clone` for 0.22 message payloads.
 
 Three typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
@@ -742,12 +757,14 @@ The implemented families are:
 | `E120-E139` | view, action, and route resolution |
 | `E140-E159` | handler and expression types |
 | `E160-E179` | IDs and backend lowering constraints |
+| `E180-E199` | file imports and source loading |
 
 `cargo ice check` first reports these language errors directly, then invokes
 `cargo check` so rustc verifies extern items and generated iced types. A missing
-Rust item is named by its `crate::module::item` path in rustc's diagnostic. A
-future source-map layer may remap those rustc spans into the precise extern line;
-0.21 does not claim that remapping.
+Rust item is named by its `crate::module::item` path in rustc's diagnostic.
+Imported-language diagnostics already point to the original fragment and line.
+A future generated-Rust source-map layer may remap rustc spans into the precise
+extern line; 0.22 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -762,12 +779,13 @@ future source-map layer may remap those rustc spans into the precise extern line
 | `cargo ice clippy` | language analysis followed by workspace clippy |
 | `cargo ice expand FILE` | prints generated Rust for debugging |
 
-`cargo-ice` discovers `.ice` files recursively below the current directory and
-skips `.git` and `target`.
+`cargo-ice` discovers `.ice` files recursively below the current directory,
+skips `.git` and `target`, analyzes files with a top-level `app` as roots, and
+formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 0.21 native backend is enough for CRUD/settings-style screens, selection,
+The 0.22 native backend is enough for CRUD/settings-style screens, selection,
 media, hover
 overlays, and common pointer events, not all of iced. It still lacks direct
 syntax for canvas, general overlays/modals, rich text
@@ -793,10 +811,13 @@ domain and I/O           -> typed Rust async extern
 
 ## 13. Reference application
 
-The authoritative full example is
+The runnable multi-file task app starts at
 [`examples/iced-app/src/ui/tasks.ice`](examples/iced-app/src/ui/tasks.ice), with
 its Rust boundary in
-[`examples/iced-app/src/main.rs`](examples/iced-app/src/main.rs). It exercises
+[`examples/iced-app/src/main.rs`](examples/iced-app/src/main.rs). The exhaustive
+compile-tested widget example is
+[`examples/iced-app/src/ui/showcase.ice`](examples/iced-app/src/ui/showcase.ice).
+Together they exercise
 state inference, typed extern structs/functions, mount and result handlers,
 direct input binding, `if`, `for`, a pure component, dynamic component IDs,
 theme utilities, disabled controls, fallible asynchronous tasks, complete

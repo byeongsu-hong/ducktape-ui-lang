@@ -15,15 +15,13 @@ fn expand(input: TokenStream) -> Result<TokenStream, String> {
     let manifest = std::env::var("CARGO_MANIFEST_DIR")
         .map_err(|_| "ui-lang: CARGO_MANIFEST_DIR is unavailable".to_owned())?;
     let path = PathBuf::from(manifest).join(relative);
-    let source = std::fs::read_to_string(&path)
-        .map_err(|error| format!("ui-lang: cannot read {}: {error}", path.display()))?;
     let display = path.display().to_string();
-    let generated =
-        ui_lang_core::compile(&source, &display).map_err(|error| error.render(&display))?;
-    TokenStream::from_str(&generated).map_err(|error| {
+    let compiled = ui_lang_core::compile_file(&path).map_err(|error| error.render(&display))?;
+    TokenStream::from_str(&compiled.rust).map_err(|error| {
         format!(
-            "ui-lang generated invalid Rust for {}: {error}\n{generated}",
-            path.display()
+            "ui-lang generated invalid Rust for {}: {error}\n{}",
+            path.display(),
+            compiled.rust,
         )
     })
 }
