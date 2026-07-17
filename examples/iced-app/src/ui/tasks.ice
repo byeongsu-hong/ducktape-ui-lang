@@ -191,7 +191,7 @@ view
       col @w-full items-center p-6 bg-surface border border-border rounded-lg
         text "No tasks yet." @text-sm text-muted
 
-    rule horizontal thickness=1.0
+    rule horizontal thickness=1.0 style=weak fill=pad(12,4) color=border radius=2.0 snap=true
 
     grid columns=2 @w-full gap-4
       col @w-full gap-2 p-4 bg-surface rounded-lg

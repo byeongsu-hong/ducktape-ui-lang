@@ -1774,9 +1774,32 @@ fn parse_rule(parts: &[String], styles: Vec<String>, line: &Line) -> Result<View
         _ => return Err(error("E079", line, "rule uses `rule horizontal|vertical`")),
     };
     let mut thickness = Expr::F64(1.0);
+    let mut options = RuleOptions::default();
     for part in &parts[2..] {
         if let Some(value) = part.strip_prefix("thickness=") {
             thickness = parse_expr(strip_wrapping_parens(value), line)?;
+        } else if let Some(value) = part.strip_prefix("style=") {
+            options.style = Some(match value {
+                "default" => RuleStyle::Default,
+                "weak" => RuleStyle::Weak,
+                _ => return Err(error("E079", line, "rule style must be default or weak")),
+            });
+        } else if let Some(value) = part.strip_prefix("fill=") {
+            options.fill = Some(parse_rule_fill(value, line)?);
+        } else if let Some(value) = part.strip_prefix("color=") {
+            options.color = Some(value.to_owned());
+        } else if let Some(value) = part.strip_prefix("radius=") {
+            options.radius = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("radius-tl=") {
+            options.radius_top_left = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("radius-tr=") {
+            options.radius_top_right = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("radius-br=") {
+            options.radius_bottom_right = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("radius-bl=") {
+            options.radius_bottom_left = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("snap=") {
+            options.snap = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else {
             return Err(error(
                 "E079",
@@ -1788,9 +1811,44 @@ fn parse_rule(parts: &[String], styles: Vec<String>, line: &Line) -> Result<View
     Ok(ViewNode::Rule {
         axis,
         thickness,
+        options,
         styles,
         span: Span::line(line.number),
     })
+}
+
+fn parse_rule_fill(source: &str, line: &Line) -> Result<RuleFill, Error> {
+    if source == "full" {
+        return Ok(RuleFill::Full);
+    }
+    if let Some(value) = source
+        .strip_prefix("percent(")
+        .and_then(|value| value.strip_suffix(')'))
+    {
+        return Ok(RuleFill::Percent(parse_expr(value, line)?));
+    }
+    if let Some(value) = source
+        .strip_prefix("pad(")
+        .and_then(|value| value.strip_suffix(')'))
+    {
+        let values = split_top(value, ',');
+        let parse = |value: &str| {
+            value
+                .trim()
+                .parse::<u16>()
+                .map_err(|_| error("E079", line, "rule padding must be a u16"))
+        };
+        return match values.as_slice() {
+            [value] => Ok(RuleFill::Padded(parse(value)?)),
+            [first, second] => Ok(RuleFill::AsymmetricPadding(parse(first)?, parse(second)?)),
+            _ => Err(error("E079", line, "rule pad expects one or two values")),
+        };
+    }
+    Err(error(
+        "E079",
+        line,
+        "rule fill must be full, percent(N), pad(N), or pad(A,B)",
+    ))
 }
 
 fn parse_space(parts: &[String], styles: Vec<String>, line: &Line) -> Result<ViewNode, Error> {

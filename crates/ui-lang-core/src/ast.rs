@@ -288,6 +288,7 @@ pub enum ViewNode {
     Rule {
         axis: Axis,
         thickness: Expr,
+        options: RuleOptions,
         styles: Vec<String>,
         span: Span,
     },
@@ -470,6 +471,33 @@ pub enum VerticalAlignment {
     Top,
     Center,
     Bottom,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct RuleOptions {
+    pub style: Option<RuleStyle>,
+    pub fill: Option<RuleFill>,
+    pub color: Option<String>,
+    pub radius: Option<Expr>,
+    pub radius_top_left: Option<Expr>,
+    pub radius_top_right: Option<Expr>,
+    pub radius_bottom_right: Option<Expr>,
+    pub radius_bottom_left: Option<Expr>,
+    pub snap: Option<Expr>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RuleStyle {
+    Default,
+    Weak,
+}
+
+#[derive(Clone, Debug)]
+pub enum RuleFill {
+    Full,
+    Percent(Expr),
+    Padded(u16),
+    AsymmetricPadding(u16, u16),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

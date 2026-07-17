@@ -613,6 +613,7 @@ fn infer_view(
         }
         ViewNode::Rule {
             thickness,
+            options,
             styles,
             span,
             ..
@@ -622,6 +623,36 @@ fn infer_view(
                 &Type::F64,
                 span,
             )?;
+            require_literal_range(thickness, 0.0, None, "rule thickness", span)?;
+            if let Some(RuleFill::Percent(percent)) = &options.fill {
+                require_type(&expr_type(percent, env, document, span)?, &Type::F64, span)?;
+                require_literal_range(percent, 0.0, Some(100.0), "rule percent", span)?;
+            }
+            if let Some(color) = &options.color
+                && !valid_theme_color(color, document)
+            {
+                return Err(Error::new(
+                    "E129",
+                    span,
+                    format!("unknown rule color `{color}`"),
+                ));
+            }
+            for radius in [
+                &options.radius,
+                &options.radius_top_left,
+                &options.radius_top_right,
+                &options.radius_bottom_right,
+                &options.radius_bottom_left,
+            ]
+            .into_iter()
+            .flatten()
+            {
+                require_type(&expr_type(radius, env, document, span)?, &Type::F64, span)?;
+                require_literal_range(radius, 0.0, None, "rule radius", span)?;
+            }
+            if let Some(snap) = &options.snap {
+                require_type(&expr_type(snap, env, document, span)?, &Type::Bool, span)?;
+            }
             check_styles(styles, document, span, StyleTarget::Rule)?;
         }
         ViewNode::Space {
@@ -1550,6 +1581,14 @@ enum StyleTarget {
     Space,
 }
 
+fn valid_theme_color(value: &str, document: &Document) -> bool {
+    let (name, opacity) = value
+        .split_once('/')
+        .map_or((value, None), |(name, opacity)| (name, Some(opacity)));
+    (["white", "black", "transparent"].contains(&name) || document.theme.contains_key(name))
+        && opacity.is_none_or(|opacity| opacity.parse::<u8>().is_ok_and(|opacity| opacity <= 100))
+}
+
 fn check_styles(
     styles: &[String],
     document: &Document,
@@ -1591,16 +1630,7 @@ fn check_styles(
         let color = ["bg-", "text-", "border-"]
             .iter()
             .find_map(|prefix| utility.strip_prefix(prefix));
-        let valid_color = color.is_some_and(|value| {
-            let (name, opacity) = value
-                .split_once('/')
-                .map_or((value, None), |(name, opacity)| (name, Some(opacity)));
-            let known = ["white", "black", "transparent"].contains(&name)
-                || document.theme.contains_key(name);
-            known
-                && opacity
-                    .is_none_or(|opacity| opacity.parse::<u8>().is_ok_and(|opacity| opacity <= 100))
-        });
+        let valid_color = color.is_some_and(|value| valid_theme_color(value, document));
         let valid_spacing = ["p-", "px-", "py-", "gap-"].iter().any(|prefix| {
             utility
                 .strip_prefix(prefix)
@@ -1922,12 +1952,34 @@ view
     responsive at=600.0 width=fill height=40.0
       text "Narrow"
       text "Wide"
+    rule horizontal thickness=2.0 style=weak fill=percent(75.0) color=primary/50 radius=4.0 radius-tl=2.0 snap=false
     space width=fill(2) height=shrink
 "#;
         let document = analyze(source).unwrap();
         assert_eq!(document.handlers[0].params[0].ty.display(), "f64");
         assert_eq!(document.handlers[0].params[1].ty.display(), "f64");
         assert_eq!(document.handlers[1].params[0].ty.display(), "f64");
+    }
+
+    #[test]
+    fn rejects_invalid_rule_style_values() {
+        let source = r#"app Structure
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+view
+  rule horizontal fill=percent(101.0)
+"#;
+        let error = analyze(source).unwrap_err();
+        assert_eq!(error.code, "E128");
+        assert!(error.message.contains("rule percent"));
+
+        let unknown_color = source.replace("fill=percent(101.0)", "color=missing");
+        let error = analyze(&unknown_color).unwrap_err();
+        assert_eq!(error.code, "E129");
+        assert!(error.message.contains("unknown rule color"));
     }
 
     #[test]
