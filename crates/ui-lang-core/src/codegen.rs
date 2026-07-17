@@ -920,16 +920,19 @@ fn render_node(
             Ok(format!("{code}.into() }}"))
         }
         ViewNode::Rule {
-            axis, thickness, ..
+            axis,
+            thickness,
+            options,
+            ..
         } => {
             let thickness = expr_code(thickness, env, document, ValueMode::Owned)?;
             let axis = match axis {
                 Axis::Horizontal => "horizontal",
                 Axis::Vertical => "vertical",
             };
-            Ok(format!(
-                "::iced::widget::rule::{axis}({thickness} as f32).into()"
-            ))
+            let mut code = format!("::iced::widget::rule::{axis}({thickness} as f32)");
+            append_rule_options(&mut code, options, env, document)?;
+            Ok(format!("{code}.into()"))
         }
         ViewNode::Space { width, height, .. } => {
             let mut code = String::from("::iced::widget::space()");
@@ -1883,6 +1886,89 @@ fn length_code(
     })
 }
 
+fn append_rule_options(
+    code: &mut String,
+    options: &RuleOptions,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<(), Error> {
+    let has_radius = options.radius.is_some()
+        || options.radius_top_left.is_some()
+        || options.radius_top_right.is_some()
+        || options.radius_bottom_right.is_some()
+        || options.radius_bottom_left.is_some();
+    if options.style.is_none()
+        && options.fill.is_none()
+        && options.color.is_none()
+        && !has_radius
+        && options.snap.is_none()
+    {
+        return Ok(());
+    }
+    let preset = match options.style.unwrap_or(RuleStyle::Default) {
+        RuleStyle::Default => "default",
+        RuleStyle::Weak => "weak",
+    };
+    write!(
+        code,
+        ".style(move |__theme| {{ let mut __style = ::iced::widget::rule::{preset}(__theme);"
+    )
+    .unwrap();
+    if let Some(fill) = &options.fill {
+        let fill = match fill {
+            RuleFill::Full => "::iced::widget::rule::FillMode::Full".to_owned(),
+            RuleFill::Percent(value) => format!(
+                "::iced::widget::rule::FillMode::Percent({} as f32)",
+                expr_code(value, env, document, ValueMode::Owned)?
+            ),
+            RuleFill::Padded(value) => {
+                format!("::iced::widget::rule::FillMode::Padded({value})")
+            }
+            RuleFill::AsymmetricPadding(first, second) => {
+                format!("::iced::widget::rule::FillMode::AsymmetricPadding({first}, {second})")
+            }
+        };
+        write!(code, " __style.fill_mode = {fill};").unwrap();
+    }
+    if let Some(color) = &options.color {
+        write!(code, " __style.color = {};", theme_color(document, color)).unwrap();
+    }
+    if has_radius {
+        let base = options
+            .radius
+            .as_ref()
+            .map(|value| expr_code(value, env, document, ValueMode::Owned))
+            .transpose()?
+            .unwrap_or_else(|| "0.0".to_owned());
+        let corner = |value: &Option<Expr>| -> Result<String, Error> {
+            value
+                .as_ref()
+                .map(|value| expr_code(value, env, document, ValueMode::Owned))
+                .transpose()
+                .map(|value| value.unwrap_or_else(|| base.clone()))
+        };
+        write!(
+            code,
+            " __style.radius = ::iced::border::Radius {{ top_left: {} as f32, top_right: {} as f32, bottom_right: {} as f32, bottom_left: {} as f32 }};",
+            corner(&options.radius_top_left)?,
+            corner(&options.radius_top_right)?,
+            corner(&options.radius_bottom_right)?,
+            corner(&options.radius_bottom_left)?,
+        )
+        .unwrap();
+    }
+    if let Some(snap) = &options.snap {
+        write!(
+            code,
+            " __style.snap = {};",
+            expr_code(snap, env, document, ValueMode::Owned)?
+        )
+        .unwrap();
+    }
+    code.push_str(" __style })");
+    Ok(())
+}
+
 fn append_text_options(
     code: &mut String,
     options: &TextOptions,
@@ -2486,7 +2572,10 @@ view
     slider amount min=0.0 max=100.0 step=0.5 vertical release=released -> amount_changed _
     progress amount vertical
     radio "First" value=0 selected=(choice == 0) -> choice_changed _
-    rule horizontal thickness=2.0
+    rule horizontal thickness=2.0 style=weak fill=full color=primary/50 radius=4.0 radius-tl=2.0 snap=false
+    rule horizontal fill=percent(75.0)
+    rule horizontal fill=pad(4)
+    rule horizontal fill=pad(4,8)
     space width=fill(2) height=shrink
     stack clip=true
       text "base"
@@ -2500,6 +2589,12 @@ view
         assert!(generated.contains("::iced::widget::progress_bar"));
         assert!(generated.contains(".vertical()"));
         assert!(generated.contains("::iced::widget::radio"));
+        assert!(generated.contains("::iced::widget::rule::weak(__theme)"));
+        assert!(generated.contains("rule::FillMode::Full"));
+        assert!(generated.contains("rule::FillMode::Percent(75.0 as f32)"));
+        assert!(generated.contains("rule::FillMode::Padded(4)"));
+        assert!(generated.contains("rule::FillMode::AsymmetricPadding(4, 8)"));
+        assert!(generated.contains("__style.snap = false"));
         assert!(generated.contains(
             "::iced::widget::space().width(::iced::Length::FillPortion(2)).height(::iced::Shrink)"
         ));

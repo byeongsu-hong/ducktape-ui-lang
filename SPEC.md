@@ -1,4 +1,4 @@
-# Ice Language Specification 0.14
+# Ice Language Specification 0.15
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.14 syntax.
+marked “planned” is a design constraint, not accepted 0.15 syntax.
 
 ## 1. Design contract
 
@@ -79,7 +79,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.14.
+  block comments are not part of 0.15.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -223,8 +223,14 @@ sensor_property = ("show=" | "resize=" | "hide=") route
                 | "key=" expr | "anticipate=" expr | "delay=" expr
 responsive     = "responsive" "at=" expr
                  (("width=" | "height=") length)? INDENT node node
-rule           = "rule" ("horizontal" | "vertical")
-                 ("thickness=" expr)? styles?
+rule           = "rule" ("horizontal" | "vertical") rule_property* styles?
+rule_property  = "thickness=" expr | "style=" ("default" | "weak")
+               | "fill=" rule_fill | "color=" name ("/" u8)?
+               | ("radius=" | "radius-tl=" | "radius-tr="
+                 | "radius-br=" | "radius-bl=") expr
+               | "snap=" expr
+rule_fill      = "full" | "percent(" expr ")" | "pad(" u16 ")"
+               | "pad(" u16 "," u16 ")"
 space          = "space" ("width=" length)? ("height=" length)? styles?
 media          = ("image" | "svg") expr media_property*
 media_property = ("width=" | "height=") length
@@ -260,6 +266,10 @@ is radians, opacity is `0.0..=1.0`, scale is positive, and sizes/radius are
 non-negative. `filter`, `scale`, `expand`, and `radius` are image-only.
 Every `length` position accepts fixed `f64`, `fill`, `fill(N)` portions with a
 decimal `u16`, or `shrink`; out-of-range portions fail during parsing.
+`rule` exposes all four iced fill modes. Percent is checked in `0.0..=100.0`;
+padding is `u16`. Its default/weak preset can be overridden by a checked theme
+color token (including `/0..100` opacity), uniform or per-corner non-negative
+radius, and bool pixel snapping.
 Tooltip gap/padding are non-negative `f64`, delay is non-negative `i64`
 milliseconds, and snap is bool.
 
@@ -367,7 +377,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.14 message payloads.
+`Clone` for 0.15 message payloads.
 
 Three typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
@@ -507,7 +517,7 @@ The implemented native nodes are:
 | `pin` | one child with typed width/height and fixed x/y position |
 | `sensor` | one child with show/resize `(width, height)`, hide, key, anticipation and delay |
 | `responsive` | narrow/wide children selected by an `at=` width breakpoint |
-| `rule` | horizontal or vertical separator with `f64` thickness |
+| `rule` | horizontal/vertical separator with non-negative thickness, all fill modes, default/weak preset, color, corner radii and snap |
 | `space` | optional fixed/fill/fill-portion/shrink width and height |
 | `image` | raster path expression, typed length/fit/filter/rotation/opacity/scale/expand/radius properties |
 | `svg` | SVG path expression with typed length/fit/rotation/opacity properties |
@@ -656,7 +666,7 @@ The implemented families are:
 `cargo check` so rustc verifies extern items and generated iced types. A missing
 Rust item is named by its `crate::module::item` path in rustc's diagnostic. A
 future source-map layer may remap those rustc spans into the precise extern line;
-0.14 does not claim that remapping.
+0.15 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -676,7 +686,7 @@ skips `.git` and `target`.
 
 ## 12. Current coverage and escape hatches
 
-The 0.14 native backend is enough for CRUD/settings-style screens, selection,
+The 0.15 native backend is enough for CRUD/settings-style screens, selection,
 media, hover
 overlays, and common pointer events, not all of iced. It still lacks direct
 syntax for canvas, general overlays/modals, rich text
@@ -714,5 +724,5 @@ optional selection value, pick list and searchable combo box, extern and native
 tooltip/mouse-area components including pointer movement and wheel payloads,
 raster and SVG media, configured scrolling with offset events,
 responsive/positioned content, visibility sensing, formatted text, extended
-text input, child-content buttons, configured boolean controls, a clipboard
-task, and a raw-event subscription.
+text input, child-content buttons, configured boolean controls and rules, a
+clipboard task, and a raw-event subscription.
