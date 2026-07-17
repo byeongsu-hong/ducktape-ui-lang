@@ -90,7 +90,8 @@ cell subtrees, an automatically bound syntax-highlighted text editor, and
 structured keyboard press/release/modifier subscriptions.
 It also exercises native system information/theme tasks and theme-change
 subscriptions, standard/primary clipboard reads and writes, and every checked
-main-window effect/query task.
+main-window effect/query task. A compile fixture covers every native window
+event subscription without adding a continuous frame loop to the demo.
 
 Key files:
 
@@ -122,7 +123,7 @@ cargo fmt --all
 
 ## Status
 
-This is an executable v0.40 language slice, not yet a complete iced replacement.
+This is an executable v0.41 language slice, not yet a complete iced replacement.
 It implements typed extern data/actions, state, handlers, async tasks, pure
 components with named props and structured child slots, scoped IDs, relative
 multi-file `use`,

@@ -631,12 +631,28 @@ fn parse_subscription(line: &Line) -> Result<Subscription, Error> {
         return Err(error(
             "E084",
             line,
-            "subscription uses `name(args)`, `keyboard event`, or `system theme` before `-> handler _`",
+            "subscription uses `name(args)`, `keyboard event`, `window event`, or `system theme` before `-> handler _`",
         ));
     };
     let call = call.trim();
     let source = if call == "system theme" {
         SubscriptionSource::SystemTheme
+    } else if let Some(event) = call.strip_prefix("window ") {
+        SubscriptionSource::Window(match event.trim() {
+            "frame" => WindowEvent::Frame,
+            "opened" => WindowEvent::Opened,
+            "closed" => WindowEvent::Closed,
+            "moved" => WindowEvent::Moved,
+            "resized" => WindowEvent::Resized,
+            "rescaled" => WindowEvent::Rescaled,
+            "close-request" => WindowEvent::CloseRequested,
+            "focused" => WindowEvent::Focused,
+            "unfocused" => WindowEvent::Unfocused,
+            "file-hovered" => WindowEvent::FileHovered,
+            "file-dropped" => WindowEvent::FileDropped,
+            "files-hovered-left" => WindowEvent::FilesHoveredLeft,
+            _ => return Err(error("E084", line, "unknown window event")),
+        })
     } else if let Some(event) = call.strip_prefix("keyboard ") {
         SubscriptionSource::Keyboard(match event.trim() {
             "press" => KeyboardEvent::Press,

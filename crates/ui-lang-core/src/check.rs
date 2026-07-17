@@ -2049,6 +2049,34 @@ fn infer_subscriptions(
     signatures: &mut HashMap<String, Vec<Option<Type>>>,
 ) -> Result<(), Error> {
     for subscription in &document.subscriptions {
+        if let SubscriptionSource::Window(event) = &subscription.source {
+            let payloads = match event {
+                WindowEvent::Frame
+                | WindowEvent::Closed
+                | WindowEvent::CloseRequested
+                | WindowEvent::Focused
+                | WindowEvent::Unfocused
+                | WindowEvent::FilesHoveredLeft => Vec::new(),
+                WindowEvent::Opened => vec![
+                    Type::Option(Box::new(Type::F64)),
+                    Type::Option(Box::new(Type::F64)),
+                    Type::F64,
+                    Type::F64,
+                ],
+                WindowEvent::Moved | WindowEvent::Resized => vec![Type::F64, Type::F64],
+                WindowEvent::Rescaled => vec![Type::F64],
+                WindowEvent::FileHovered | WindowEvent::FileDropped => vec![Type::Str],
+            };
+            infer_ordered_payload_route(
+                &subscription.route,
+                &payloads,
+                states,
+                document,
+                signatures,
+                "window subscription",
+            )?;
+            continue;
+        }
         let output = match &subscription.source {
             SubscriptionSource::Extern { function, args } => {
                 let source = extern_function(
@@ -2064,6 +2092,7 @@ fn infer_subscriptions(
             SubscriptionSource::Keyboard(KeyboardEvent::Release) => Type::KeyRelease,
             SubscriptionSource::Keyboard(KeyboardEvent::Modifiers) => Type::KeyModifiers,
             SubscriptionSource::SystemTheme => Type::Str,
+            SubscriptionSource::Window(_) => unreachable!("handled above"),
         };
         if subscription
             .route
@@ -3081,6 +3110,38 @@ fn type_error(span: &Span, expected: &Type, actual: &Type) -> Error {
 #[cfg(test)]
 mod tests {
     use crate::analyze;
+
+    #[test]
+    fn checks_all_native_window_subscription_payloads() {
+        let source = include_str!("../../../examples/iced-app/src/ui/window_events.ice");
+        let document = analyze(source).unwrap();
+        let opened = document
+            .handlers
+            .iter()
+            .find(|handler| handler.name == "opened")
+            .unwrap();
+        assert_eq!(
+            opened
+                .params
+                .iter()
+                .map(|param| param.ty.display())
+                .collect::<Vec<_>>(),
+            ["f64?", "f64?", "f64", "f64"]
+        );
+
+        let error =
+            analyze(&source.replace("window moved -> moved _ _", "window moved -> moved _"))
+                .unwrap_err();
+        assert_eq!(error.code, "E129");
+        assert!(error.message.contains("expects 2 payloads"));
+
+        let error = analyze(&source.replace(
+            "window resized -> resized _ _",
+            "window resized -> resized 1.0 2.0",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E129");
+    }
 
     #[test]
     fn infers_action_result_handler() {

@@ -604,6 +604,82 @@ fn generate_subscription(
             SubscriptionSource::SystemTheme => {
                 writeln!(out, "::iced::system::theme_changes().map(__ice_system_theme).map(move |__value| {route}),").unwrap();
             }
+            SubscriptionSource::Window(event) => {
+                if *event == WindowEvent::Frame {
+                    let message_code =
+                        route_code(&subscription.route, "", &env, document, message)?;
+                    writeln!(
+                        out,
+                        "::iced::window::frames().map(move |_| {message_code}),"
+                    )
+                    .unwrap();
+                    continue;
+                }
+                let filter = match event {
+                    WindowEvent::Opened => {
+                        "match __event { ::iced::window::Event::Opened { position, size } => { let (x, y) = position.map_or((::std::option::Option::None, ::std::option::Option::None), |position| (::std::option::Option::Some(position.x as f64), ::std::option::Option::Some(position.y as f64))); ::std::option::Option::Some((x, y, size.width as f64, size.height as f64)) }, _ => ::std::option::Option::None }"
+                    }
+                    WindowEvent::Closed => {
+                        "matches!(__event, ::iced::window::Event::Closed).then_some(())"
+                    }
+                    WindowEvent::Moved => {
+                        "match __event { ::iced::window::Event::Moved(position) => ::std::option::Option::Some((position.x as f64, position.y as f64)), _ => ::std::option::Option::None }"
+                    }
+                    WindowEvent::Resized => {
+                        "match __event { ::iced::window::Event::Resized(size) => ::std::option::Option::Some((size.width as f64, size.height as f64)), _ => ::std::option::Option::None }"
+                    }
+                    WindowEvent::Rescaled => {
+                        "match __event { ::iced::window::Event::Rescaled(scale) => ::std::option::Option::Some(scale as f64), _ => ::std::option::Option::None }"
+                    }
+                    WindowEvent::CloseRequested => {
+                        "matches!(__event, ::iced::window::Event::CloseRequested).then_some(())"
+                    }
+                    WindowEvent::Focused => {
+                        "matches!(__event, ::iced::window::Event::Focused).then_some(())"
+                    }
+                    WindowEvent::Unfocused => {
+                        "matches!(__event, ::iced::window::Event::Unfocused).then_some(())"
+                    }
+                    WindowEvent::FileHovered => {
+                        "match __event { ::iced::window::Event::FileHovered(path) => ::std::option::Option::Some(path.to_string_lossy().into_owned()), _ => ::std::option::Option::None }"
+                    }
+                    WindowEvent::FileDropped => {
+                        "match __event { ::iced::window::Event::FileDropped(path) => ::std::option::Option::Some(path.to_string_lossy().into_owned()), _ => ::std::option::Option::None }"
+                    }
+                    WindowEvent::FilesHoveredLeft => {
+                        "matches!(__event, ::iced::window::Event::FilesHoveredLeft).then_some(())"
+                    }
+                    WindowEvent::Frame => unreachable!("handled above"),
+                };
+                let message_code = match event {
+                    WindowEvent::Opened => ordered_route_code(
+                        &subscription.route,
+                        &["__value.0", "__value.1", "__value.2", "__value.3"],
+                        &env,
+                        document,
+                        message,
+                    )?,
+                    WindowEvent::Moved | WindowEvent::Resized => ordered_route_code(
+                        &subscription.route,
+                        &["__value.0", "__value.1"],
+                        &env,
+                        document,
+                        message,
+                    )?,
+                    WindowEvent::Rescaled | WindowEvent::FileHovered | WindowEvent::FileDropped => {
+                        route_code(&subscription.route, "__value", &env, document, message)?
+                    }
+                    WindowEvent::Closed
+                    | WindowEvent::CloseRequested
+                    | WindowEvent::Focused
+                    | WindowEvent::Unfocused
+                    | WindowEvent::FilesHoveredLeft => {
+                        route_code(&subscription.route, "", &env, document, message)?
+                    }
+                    WindowEvent::Frame => unreachable!("handled above"),
+                };
+                writeln!(out, "::iced::window::events().filter_map(|(_, __event)| {{ {filter} }}).map(move |__value| {message_code}),").unwrap();
+            }
         }
     }
     writeln!(out, "])\n}}").unwrap();

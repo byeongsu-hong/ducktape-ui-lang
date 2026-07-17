@@ -128,3 +128,8 @@ mod showcase {
         let _ = Showcase::__boot();
     }
 }
+
+#[cfg(test)]
+mod window_events {
+    ui_lang::include_app!("src/ui/window_events.ice");
+}
