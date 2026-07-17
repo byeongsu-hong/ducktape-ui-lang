@@ -21,6 +21,9 @@ state
   draft = ""
   loading = false
   error = ""
+  volume = 40.0
+  notifications = true
+  view_mode = 0
 
 component TaskRow(task:Task, loading:bool)
   row #root @w-full items-center p-4 bg-surface border border-border rounded-lg
@@ -64,6 +67,17 @@ on failed(cause)
   loading = false
   error = cause.message
 
+on volume_changed(next)
+  volume = next
+
+on volume_committed
+
+on notifications_changed(next)
+  notifications = next
+
+on view_mode_changed(next)
+  view_mode = next
+
 view
   col @w-full h-full p-6 gap-6 bg-background
     row @w-full items-center gap-3
@@ -85,6 +99,23 @@ view
     if empty(tasks) && !loading
       col @w-full items-center p-6 bg-surface border border-border rounded-lg
         text "No tasks yet." @text-sm text-muted
+
+    rule horizontal thickness=1.0
+
+    grid columns=2 @w-full gap-4
+      col @w-full gap-2 p-4 bg-surface rounded-lg
+        text "Controls" @text-lg font-bold text-foreground
+        toggler "Notifications" checked=notifications -> notifications_changed _
+        slider volume min=0.0 max=100.0 step=5.0 release=volume_committed -> volume_changed _
+        progress volume
+      col @w-full gap-2 p-4 bg-surface rounded-lg
+        text "View mode" @text-lg font-bold text-foreground
+        radio "List" value=0 selected=(view_mode == 0) -> view_mode_changed _
+        radio "Board" value=1 selected=(view_mode == 1) -> view_mode_changed _
+        space height=8.0
+        stack clip=true @w-full p-4 bg-background rounded-lg
+          text "Stack base" @text-sm text-muted
+          text "Stack overlay" @text-sm text-foreground
 
     scroll #task-list @w-full h-full
       col @w-full gap-2

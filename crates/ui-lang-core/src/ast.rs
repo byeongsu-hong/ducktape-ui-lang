@@ -159,6 +159,7 @@ pub struct Id {
 pub enum ViewNode {
     Layout {
         kind: Layout,
+        options: LayoutOptions,
         id: Option<Id>,
         styles: Vec<String>,
         children: Vec<ViewNode>,
@@ -195,6 +196,53 @@ pub enum ViewNode {
         route: Route,
         span: Span,
     },
+    Toggler {
+        label: Expr,
+        checked: Expr,
+        disabled: Option<Expr>,
+        styles: Vec<String>,
+        route: Route,
+        span: Span,
+    },
+    Slider {
+        value: Expr,
+        min: Expr,
+        max: Expr,
+        step: Expr,
+        vertical: bool,
+        styles: Vec<String>,
+        route: Route,
+        release: Option<Route>,
+        span: Span,
+    },
+    Progress {
+        value: Expr,
+        min: Expr,
+        max: Expr,
+        vertical: bool,
+        styles: Vec<String>,
+        span: Span,
+    },
+    Radio {
+        label: Expr,
+        value: Expr,
+        selected: Expr,
+        styles: Vec<String>,
+        route: Route,
+        span: Span,
+    },
+    Rule {
+        axis: Axis,
+        thickness: Expr,
+        styles: Vec<String>,
+        span: Span,
+    },
+    Space {
+        width: Option<Expr>,
+        height: Option<Expr>,
+        styles: Vec<String>,
+        span: Span,
+    },
     If {
         condition: Expr,
         children: Vec<ViewNode>,
@@ -219,6 +267,20 @@ pub enum Layout {
     Column,
     Row,
     Scroll,
+    Grid,
+    Stack,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct LayoutOptions {
+    pub columns: Option<Expr>,
+    pub clip: Option<Expr>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Axis {
+    Horizontal,
+    Vertical,
 }
 
 #[derive(Clone, Debug)]

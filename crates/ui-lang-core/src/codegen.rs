@@ -337,11 +337,14 @@ fn render_node(
     match node {
         ViewNode::Layout {
             kind,
+            options,
             id,
             styles,
             children,
             ..
-        } => render_layout(*kind, id, styles, children, document, message, env, scope),
+        } => render_layout(
+            *kind, options, id, styles, children, document, message, env, scope,
+        ),
         ViewNode::Text { value, styles, .. } => {
             let style = Style::parse(styles, document);
             let value = expr_code(value, env, document, ValueMode::Owned)?;
@@ -456,6 +459,120 @@ fn render_node(
             }
             Ok(format!("{code}.into()"))
         }
+        ViewNode::Toggler {
+            label,
+            checked,
+            disabled,
+            route,
+            ..
+        } => {
+            let label = expr_code(label, env, document, ValueMode::Owned)?;
+            let checked = expr_code(checked, env, document, ValueMode::Owned)?;
+            let message_code = route_code(route, "__value", env, document, message)?;
+            let mut code = format!("::iced::widget::toggler({checked}).label({label})");
+            if let Some(disabled) = disabled {
+                let disabled = expr_code(disabled, env, document, ValueMode::Owned)?;
+                write!(code, ".on_toggle_maybe(if {disabled} {{ None }} else {{ Some(move |__value| {message_code}) }})").unwrap();
+            } else {
+                write!(code, ".on_toggle(move |__value| {message_code})").unwrap();
+            }
+            Ok(format!("{code}.into()"))
+        }
+        ViewNode::Slider {
+            value,
+            min,
+            max,
+            step,
+            vertical,
+            route,
+            release,
+            ..
+        } => {
+            let value = expr_code(value, env, document, ValueMode::Owned)?;
+            let min = expr_code(min, env, document, ValueMode::Owned)?;
+            let max = expr_code(max, env, document, ValueMode::Owned)?;
+            let step = expr_code(step, env, document, ValueMode::Owned)?;
+            let message_code = route_code(route, "__value", env, document, message)?;
+            let helper = if *vertical {
+                "vertical_slider"
+            } else {
+                "slider"
+            };
+            let mut code = format!(
+                "::iced::widget::{helper}(({min})..=({max}), {value}, move |__value| {message_code}).step({step})"
+            );
+            if let Some(release) = release {
+                write!(
+                    code,
+                    ".on_release({})",
+                    route_code(release, "", env, document, message)?
+                )
+                .unwrap();
+            }
+            Ok(format!("{code}.into()"))
+        }
+        ViewNode::Progress {
+            value,
+            min,
+            max,
+            vertical,
+            ..
+        } => {
+            let value = expr_code(value, env, document, ValueMode::Owned)?;
+            let min = expr_code(min, env, document, ValueMode::Owned)?;
+            let max = expr_code(max, env, document, ValueMode::Owned)?;
+            let vertical = if *vertical { ".vertical()" } else { "" };
+            Ok(format!(
+                "::iced::widget::progress_bar(({min} as f32)..=({max} as f32), {value} as f32){vertical}.into()"
+            ))
+        }
+        ViewNode::Radio {
+            label,
+            value,
+            selected,
+            route,
+            ..
+        } => {
+            let label = expr_code(label, env, document, ValueMode::Owned)?;
+            let value = expr_code(value, env, document, ValueMode::Owned)?;
+            let selected = expr_code(selected, env, document, ValueMode::Owned)?;
+            let message_code = route_code(route, "__value", env, document, message)?;
+            Ok(format!(
+                "::iced::widget::radio({label}, {value}, if {selected} {{ Some({value}) }} else {{ None }}, move |__value| {message_code}).into()"
+            ))
+        }
+        ViewNode::Rule {
+            axis, thickness, ..
+        } => {
+            let thickness = expr_code(thickness, env, document, ValueMode::Owned)?;
+            let axis = match axis {
+                Axis::Horizontal => "horizontal",
+                Axis::Vertical => "vertical",
+            };
+            Ok(format!(
+                "::iced::widget::rule::{axis}({thickness} as f32).into()"
+            ))
+        }
+        ViewNode::Space { width, height, .. } => {
+            let mut code = String::from("::iced::widget::space()");
+            if let Some(width) = width {
+                write!(
+                    code,
+                    ".width({} as f32)",
+                    expr_code(width, env, document, ValueMode::Owned)?
+                )
+                .unwrap();
+            }
+            if let Some(height) = height {
+                write!(
+                    code,
+                    ".height({} as f32)",
+                    expr_code(height, env, document, ValueMode::Owned)?
+                )
+                .unwrap();
+            }
+            Ok(format!("{code}.into()"))
+        }
         ViewNode::Component {
             name,
             args,
@@ -501,6 +618,7 @@ fn render_node(
 #[allow(clippy::too_many_arguments)]
 fn render_layout(
     kind: Layout,
+    options: &LayoutOptions,
     id: &Option<Id>,
     styles: &[String],
     children: &[ViewNode],
@@ -538,10 +656,12 @@ fn render_layout(
         |id| id_code(id, scope, env, document),
     )?;
     render_children(&mut body, children, document, message, env, &child_scope)?;
-    let constructor = if kind == Layout::Column {
-        "column"
-    } else {
-        "row"
+    let constructor = match kind {
+        Layout::Column => "column",
+        Layout::Row => "row",
+        Layout::Grid => "grid",
+        Layout::Stack => "stack",
+        Layout::Scroll => unreachable!("scroll returned above"),
     };
     write!(
         body,
@@ -551,7 +671,9 @@ fn render_layout(
     if let Some(gap) = style.gap {
         write!(body, ".spacing({gap})").unwrap();
     }
-    if let Some(padding) = style.padding_code() {
+    if matches!(kind, Layout::Column | Layout::Row)
+        && let Some(padding) = style.padding_code()
+    {
         write!(body, ".padding({padding})").unwrap();
     }
     if style.items_center {
@@ -561,8 +683,34 @@ fn render_layout(
             body.push_str(".align_y(::iced::Center)");
         }
     }
+    if kind == Layout::Grid
+        && let Some(columns) = &options.columns
+    {
+        write!(
+            body,
+            ".columns({} as usize)",
+            expr_code(columns, env, document, ValueMode::Owned)?
+        )
+        .unwrap();
+    }
+    if kind == Layout::Stack {
+        if let Some(clip) = &options.clip {
+            write!(
+                body,
+                ".clip({})",
+                expr_code(clip, env, document, ValueMode::Owned)?
+            )
+            .unwrap();
+        }
+        append_size(&mut body, &style);
+    }
     body.push(';');
     body.push_str(" let __content = ::iced::widget::container(__layout)");
+    if matches!(kind, Layout::Grid | Layout::Stack)
+        && let Some(padding) = style.padding_code()
+    {
+        write!(body, ".padding({padding})").unwrap();
+    }
     append_size(&mut body, &style);
     if let Some(max_width) = style.max_width {
         write!(body, ".max_width({max_width})").unwrap();
@@ -676,7 +824,7 @@ fn expr_code(
     Ok(match expr {
         Expr::Bool(value) => value.to_string(),
         Expr::I64(value) => value.to_string(),
-        Expr::F64(value) => value.to_string(),
+        Expr::F64(value) => rust_f64(*value),
         Expr::Str(value) => match mode {
             ValueMode::Owned => format!("{}.to_owned()", rust_string(value)),
             ValueMode::Borrowed => rust_string(value),
@@ -801,7 +949,7 @@ fn initial_code(expr: &Expr, ty: &Type, document: &Document) -> String {
         (Expr::EmptyList, Type::List(_)) => "::std::vec::Vec::new()".into(),
         (Expr::Bool(value), _) => value.to_string(),
         (Expr::I64(value), _) => value.to_string(),
-        (Expr::F64(value), _) => value.to_string(),
+        (Expr::F64(value), _) => rust_f64(*value),
         _ => expr_code(expr, &HashMap::new(), document, ValueMode::Owned)
             .unwrap_or_else(|_| "::core::default::Default::default()".into()),
     }
@@ -1125,6 +1273,10 @@ fn rust_string(value: &str) -> String {
     format!("{value:?}")
 }
 
+fn rust_f64(value: f64) -> String {
+    format!("{value:?}")
+}
+
 fn pascal(value: &str) -> String {
     value
         .split('_')
@@ -1170,5 +1322,47 @@ view
         assert!(generated.contains("async fn __ui_lang_check_load"));
         assert!(generated.contains("crate::backend::load(arg0).await"));
         assert!(generated.contains("let task = (||"));
+    }
+
+    #[test]
+    fn lowers_complex_native_controls() {
+        let source = r#"app Controls
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  amount = 50.0
+  enabled = false
+  choice = 0
+on amount_changed(next)
+  amount = next
+on released
+on enabled_changed(next)
+  enabled = next
+on choice_changed(next)
+  choice = next
+view
+  grid columns=2 @gap-2
+    toggler "Enabled" checked=enabled -> enabled_changed _
+    slider amount min=0.0 max=100.0 step=0.5 vertical release=released -> amount_changed _
+    progress amount vertical
+    radio "First" value=0 selected=(choice == 0) -> choice_changed _
+    rule horizontal thickness=2.0
+    space width=4.0 height=8.0
+    stack clip=true
+      text "base"
+      text "overlay"
+"#;
+        let generated = compile(source, "controls.ice").unwrap();
+        assert!(
+            generated.contains("::iced::widget::grid(__children).spacing(8).columns(2 as usize)")
+        );
+        assert!(generated.contains("::iced::widget::vertical_slider"));
+        assert!(generated.contains("::iced::widget::progress_bar"));
+        assert!(generated.contains(".vertical()"));
+        assert!(generated.contains("::iced::widget::radio"));
+        assert!(generated.contains("::iced::widget::stack(__children).clip(true)"));
     }
 }
