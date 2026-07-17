@@ -3190,6 +3190,21 @@ fn parse_media(
             options.rotation = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else if let Some(value) = part.strip_prefix("opacity=") {
             options.opacity = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if part == "memory" {
+            if media_kind != MediaKind::Svg {
+                return Err(error("E085", line, "memory is only available on svg"));
+            }
+            options.svg_memory = true;
+        } else if let Some(value) = part.strip_prefix("color=") {
+            if media_kind != MediaKind::Svg {
+                return Err(error("E085", line, "color is only available on svg"));
+            }
+            options.svg_color = Some(value.to_owned());
+        } else if let Some(value) = part.strip_prefix("hover=") {
+            if media_kind != MediaKind::Svg {
+                return Err(error("E085", line, "hover is only available on svg"));
+            }
+            options.svg_hover_color = Some((value != "none").then(|| value.to_owned()));
         } else if let Some(value) = part.strip_prefix("filter=") {
             if media_kind != MediaKind::Image {
                 return Err(error("E085", line, "filter is only available on image"));
