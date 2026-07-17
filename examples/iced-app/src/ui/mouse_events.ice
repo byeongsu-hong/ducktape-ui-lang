@@ -1,0 +1,30 @@
+app MouseEvents
+
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+
+on entered
+
+on left
+
+on moved(x, y)
+
+on pressed(button)
+
+on released(button)
+
+on wheel(x, y, pixels)
+
+subscribe
+  mouse entered -> entered
+  mouse left -> left
+  mouse moved -> moved _ _
+  mouse pressed -> pressed _
+  mouse released -> released _
+  mouse wheel -> wheel _ _ _
+
+view
+  text "Mouse events compile fixture"

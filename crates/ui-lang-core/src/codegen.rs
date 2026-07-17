@@ -14,6 +14,7 @@ pub fn generate(document: &Document, source_path: &str) -> Result<String, Error>
     )
     .unwrap();
     generate_keyboard_types(&mut out, document);
+    generate_mouse_types(&mut out, document);
     generate_system_types(&mut out, document);
 
     writeln!(out, "#[derive(Debug)]\npub struct {} {{", document.app).unwrap();
@@ -263,6 +264,29 @@ fn __ice_key_location(value: ::iced::keyboard::Location) -> ::std::string::Strin
         ::iced::keyboard::Location::Right => "right",
         ::iced::keyboard::Location::Numpad => "numpad",
     }.to_owned()
+}
+"#,
+    );
+}
+
+fn generate_mouse_types(out: &mut String, document: &Document) {
+    if !document
+        .subscriptions
+        .iter()
+        .any(|subscription| matches!(&subscription.source, SubscriptionSource::Mouse(_)))
+    {
+        return;
+    }
+    out.push_str(
+        r#"fn __ice_mouse_button(value: ::iced::mouse::Button) -> ::std::string::String {
+    match value {
+        ::iced::mouse::Button::Left => "left".to_owned(),
+        ::iced::mouse::Button::Right => "right".to_owned(),
+        ::iced::mouse::Button::Middle => "middle".to_owned(),
+        ::iced::mouse::Button::Back => "back".to_owned(),
+        ::iced::mouse::Button::Forward => "forward".to_owned(),
+        ::iced::mouse::Button::Other(number) => ::std::format!("other-{number}"),
+    }
 }
 "#,
     );
@@ -600,6 +624,51 @@ fn generate_subscription(
                     }
                 };
                 writeln!(out, "::iced::keyboard::listen().filter_map(|__event| {{ {filter} }}).map(move |__value| {route}),").unwrap();
+            }
+            SubscriptionSource::Mouse(event) => {
+                let filter = match event {
+                    MouseEvent::Entered => {
+                        "matches!(__event, ::iced::Event::Mouse(::iced::mouse::Event::CursorEntered)).then_some(())"
+                    }
+                    MouseEvent::Left => {
+                        "matches!(__event, ::iced::Event::Mouse(::iced::mouse::Event::CursorLeft)).then_some(())"
+                    }
+                    MouseEvent::Moved => {
+                        "match __event { ::iced::Event::Mouse(::iced::mouse::Event::CursorMoved { position }) => ::std::option::Option::Some((position.x as f64, position.y as f64)), _ => ::std::option::Option::None }"
+                    }
+                    MouseEvent::Pressed => {
+                        "match __event { ::iced::Event::Mouse(::iced::mouse::Event::ButtonPressed(button)) => ::std::option::Option::Some(__ice_mouse_button(button)), _ => ::std::option::Option::None }"
+                    }
+                    MouseEvent::Released => {
+                        "match __event { ::iced::Event::Mouse(::iced::mouse::Event::ButtonReleased(button)) => ::std::option::Option::Some(__ice_mouse_button(button)), _ => ::std::option::Option::None }"
+                    }
+                    MouseEvent::Wheel => {
+                        "match __event { ::iced::Event::Mouse(::iced::mouse::Event::WheelScrolled { delta }) => { let (x, y, pixels) = match delta { ::iced::mouse::ScrollDelta::Lines { x, y } => (x as f64, y as f64, false), ::iced::mouse::ScrollDelta::Pixels { x, y } => (x as f64, y as f64, true) }; ::std::option::Option::Some((x, y, pixels)) }, _ => ::std::option::Option::None }"
+                    }
+                };
+                let message_code = match event {
+                    MouseEvent::Entered | MouseEvent::Left => {
+                        route_code(&subscription.route, "", &env, document, message)?
+                    }
+                    MouseEvent::Moved => ordered_route_code(
+                        &subscription.route,
+                        &["__value.0", "__value.1"],
+                        &env,
+                        document,
+                        message,
+                    )?,
+                    MouseEvent::Pressed | MouseEvent::Released => {
+                        route_code(&subscription.route, "__value", &env, document, message)?
+                    }
+                    MouseEvent::Wheel => ordered_route_code(
+                        &subscription.route,
+                        &["__value.0", "__value.1", "__value.2"],
+                        &env,
+                        document,
+                        message,
+                    )?,
+                };
+                writeln!(out, "::iced::event::listen_with(|__event, _, _| {{ {filter} }}).map(move |__value| {message_code}),").unwrap();
             }
             SubscriptionSource::SystemTheme => {
                 writeln!(out, "::iced::system::theme_changes().map(__ice_system_theme).map(move |__value| {route}),").unwrap();
@@ -5277,6 +5346,21 @@ view
         assert!(generated.contains("::iced::keyboard::Event::ModifiersChanged"));
         assert!(generated.contains("self.key = event.key.clone()"));
         assert!(generated.contains("self.command = event.modifiers.command.clone()"));
+    }
+
+    #[test]
+    fn lowers_all_native_mouse_subscriptions() {
+        let source = include_str!("../../../examples/iced-app/src/ui/mouse_events.ice");
+        let generated = compile(source, "mouse_events.ice").unwrap();
+        assert!(generated.contains("fn __ice_mouse_button"));
+        assert!(generated.contains("::iced::event::listen_with"));
+        assert!(generated.contains("::iced::mouse::Event::CursorEntered"));
+        assert!(generated.contains("::iced::mouse::Event::CursorLeft"));
+        assert!(generated.contains("::iced::mouse::Event::CursorMoved"));
+        assert!(generated.contains("::iced::mouse::Event::ButtonPressed"));
+        assert!(generated.contains("::iced::mouse::Event::ButtonReleased"));
+        assert!(generated.contains("::iced::mouse::Event::WheelScrolled"));
+        assert!(generated.contains("::iced::mouse::ScrollDelta::Pixels"));
     }
 
     #[test]
