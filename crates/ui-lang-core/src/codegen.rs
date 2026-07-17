@@ -85,7 +85,22 @@ pub fn generate(document: &Document, source_path: &str) -> Result<String, Error>
         .map_or_else(String::new, |font| {
             format!(".default_font({})", font_decl_code(font))
         });
-    writeln!(out, "::iced::application(Self::__boot, Self::__update, Self::__view){subscription}.theme(Self::__theme){default_font}.run()").unwrap();
+    let title = document
+        .settings
+        .title
+        .as_ref()
+        .map_or_else(String::new, |title| {
+            format!(".title({})", rust_string(title))
+        });
+    let settings = app_settings_code(&document.settings);
+    let window = window_settings_code(document.settings.window.as_ref());
+    let scale_factor = document
+        .settings
+        .scale_factor
+        .map_or_else(String::new, |scale| {
+            format!(".scale_factor(|_| {scale} as f32)")
+        });
+    writeln!(out, "::iced::application(Self::__boot, Self::__update, Self::__view){title}{subscription}.theme(Self::__theme){settings}{default_font}{window}{scale_factor}.run()").unwrap();
     writeln!(out, "}}").unwrap();
 
     generate_theme(&mut out, document);
@@ -95,6 +110,95 @@ pub fn generate(document: &Document, source_path: &str) -> Result<String, Error>
     generate_view(&mut out, document, &message)?;
     writeln!(out, "}}").unwrap();
     Ok(out)
+}
+
+fn app_settings_code(settings: &AppSettings) -> String {
+    let mut fields = String::new();
+    if let Some(id) = &settings.id {
+        write!(
+            fields,
+            "id: ::std::option::Option::Some({}.to_owned()),",
+            rust_string(id)
+        )
+        .unwrap();
+    }
+    if let Some(size) = settings.default_text_size {
+        write!(fields, "default_text_size: ::iced::Pixels({size} as f32),").unwrap();
+    }
+    if let Some(value) = settings.antialiasing {
+        write!(fields, "antialiasing: {value},").unwrap();
+    }
+    if let Some(value) = settings.vsync {
+        write!(fields, "vsync: {value},").unwrap();
+    }
+    if fields.is_empty() {
+        String::new()
+    } else {
+        format!(".settings(::iced::Settings {{ {fields} ..::std::default::Default::default() }})")
+    }
+}
+
+fn window_settings_code(settings: Option<&WindowSettings>) -> String {
+    let Some(settings) = settings else {
+        return String::new();
+    };
+    let mut fields = String::new();
+    let size =
+        |(width, height): (f64, f64)| format!("::iced::Size::new({width} as f32, {height} as f32)");
+    if let Some(value) = settings.size {
+        write!(fields, "size: {},", size(value)).unwrap();
+    }
+    for (name, value) in [
+        ("maximized", settings.maximized),
+        ("fullscreen", settings.fullscreen),
+        ("visible", settings.visible),
+        ("resizable", settings.resizable),
+        ("closeable", settings.closeable),
+        ("minimizable", settings.minimizable),
+        ("decorations", settings.decorations),
+        ("transparent", settings.transparent),
+        ("blur", settings.blur),
+        ("exit_on_close_request", settings.exit_on_close_request),
+    ] {
+        if let Some(value) = value {
+            write!(fields, "{name}: {value},").unwrap();
+        }
+    }
+    if let Some(position) = settings.position {
+        let position = match position {
+            WindowPosition::Default => "::iced::window::Position::Default".into(),
+            WindowPosition::Centered => "::iced::window::Position::Centered".into(),
+            WindowPosition::Specific(x, y) => format!(
+                "::iced::window::Position::Specific(::iced::Point::new({x} as f32, {y} as f32))"
+            ),
+        };
+        write!(fields, "position: {position},").unwrap();
+    }
+    if let Some(value) = settings.min_size {
+        write!(
+            fields,
+            "min_size: ::std::option::Option::Some({}),",
+            size(value)
+        )
+        .unwrap();
+    }
+    if let Some(value) = settings.max_size {
+        write!(
+            fields,
+            "max_size: ::std::option::Option::Some({}),",
+            size(value)
+        )
+        .unwrap();
+    }
+    if let Some(level) = settings.level {
+        let level = match level {
+            WindowLevel::Normal => "Normal",
+            WindowLevel::AlwaysOnBottom => "AlwaysOnBottom",
+            WindowLevel::AlwaysOnTop => "AlwaysOnTop",
+        };
+        write!(fields, "level: ::iced::window::Level::{level},").unwrap();
+    }
+    format!(".window(::iced::window::Settings {{ {fields} ..::std::default::Default::default() }})")
 }
 
 fn generate_keyboard_types(out: &mut String, document: &Document) {
@@ -4051,6 +4155,67 @@ fn pascal(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use crate::compile;
+
+    #[test]
+    fn lowers_complete_common_application_and_window_settings() {
+        let source = r#"app Configured
+  title "Configured app"
+  id "dev.example.configured"
+  default-text-size 15
+  antialiasing false
+  vsync false
+  scale-factor 1.25
+  window
+    size 960 720
+    maximized true
+    fullscreen false
+    position 10 -20
+    min-size 480 360
+    max-size 1920 1080
+    visible true
+    resizable false
+    closeable false
+    minimizable false
+    decorations false
+    transparent true
+    blur true
+    level always-on-top
+    exit-on-close-request false
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+view
+  text "Configured"
+"#;
+        let generated = compile(source, "configured.ice").unwrap();
+        for expected in [
+            ".title(\"Configured app\")",
+            "id: ::std::option::Option::Some(\"dev.example.configured\".to_owned())",
+            "default_text_size: ::iced::Pixels(15 as f32)",
+            "antialiasing: false",
+            "vsync: false",
+            "size: ::iced::Size::new(960 as f32, 720 as f32)",
+            "maximized: true",
+            "fullscreen: false",
+            "Position::Specific(::iced::Point::new(10 as f32, -20 as f32))",
+            "min_size: ::std::option::Option::Some(::iced::Size::new(480 as f32, 360 as f32))",
+            "max_size: ::std::option::Option::Some(::iced::Size::new(1920 as f32, 1080 as f32))",
+            "visible: true",
+            "resizable: false",
+            "closeable: false",
+            "minimizable: false",
+            "decorations: false",
+            "transparent: true",
+            "blur: true",
+            "level: ::iced::window::Level::AlwaysOnTop",
+            "exit_on_close_request: false",
+            ".scale_factor(|_| 1.25 as f32)",
+        ] {
+            assert!(generated.contains(expected), "missing {expected}");
+        }
+    }
 
     #[test]
     fn emits_a_probe_for_every_extern_function() {

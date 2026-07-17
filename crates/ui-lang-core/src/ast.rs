@@ -84,6 +84,7 @@ impl Type {
 #[derive(Clone, Debug)]
 pub struct Document {
     pub app: String,
+    pub settings: AppSettings,
     pub extern_path: Option<String>,
     pub structs: Vec<ExternStruct>,
     pub functions: Vec<ExternFn>,
@@ -95,6 +96,50 @@ pub struct Document {
     pub components: Vec<Component>,
     pub handlers: Vec<Handler>,
     pub view: ViewNode,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct AppSettings {
+    pub title: Option<String>,
+    pub id: Option<String>,
+    pub default_text_size: Option<f64>,
+    pub antialiasing: Option<bool>,
+    pub vsync: Option<bool>,
+    pub scale_factor: Option<f64>,
+    pub window: Option<WindowSettings>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct WindowSettings {
+    pub size: Option<(f64, f64)>,
+    pub maximized: Option<bool>,
+    pub fullscreen: Option<bool>,
+    pub position: Option<WindowPosition>,
+    pub min_size: Option<(f64, f64)>,
+    pub max_size: Option<(f64, f64)>,
+    pub visible: Option<bool>,
+    pub resizable: Option<bool>,
+    pub closeable: Option<bool>,
+    pub minimizable: Option<bool>,
+    pub decorations: Option<bool>,
+    pub transparent: Option<bool>,
+    pub blur: Option<bool>,
+    pub level: Option<WindowLevel>,
+    pub exit_on_close_request: Option<bool>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum WindowPosition {
+    Default,
+    Centered,
+    Specific(f64, f64),
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum WindowLevel {
+    Normal,
+    AlwaysOnBottom,
+    AlwaysOnTop,
 }
 
 #[derive(Clone, Debug)]

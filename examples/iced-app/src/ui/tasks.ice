@@ -1,4 +1,14 @@
 app Tasks
+  title "Ice Tasks"
+  id "dev.ducktape.ice.tasks"
+  default-text-size 16
+  antialiasing true
+  vsync true
+  scale-factor 1
+  window
+    size 960 720
+    min-size 480 360
+    position centered
 
 use "backend.ice"
 use "theme.ice"

@@ -13,6 +13,7 @@ struct Line {
 pub fn parse(source: &str) -> Result<Document, Error> {
     let lines = line_tree(source)?;
     let mut app = None;
+    let mut settings = AppSettings::default();
     let mut extern_path = None;
     let mut structs = Vec::new();
     let mut functions = Vec::new();
@@ -27,10 +28,10 @@ pub fn parse(source: &str) -> Result<Document, Error> {
 
     for line in &lines {
         if let Some(name) = line.text.strip_prefix("app ") {
-            ensure_leaf(line)?;
             if app.replace(identifier(name.trim(), line)?).is_some() {
                 return Err(error("E002", line, "an app may only be declared once"));
             }
+            settings = parse_app_settings(line)?;
         } else if let Some(path) = line.text.strip_prefix("extern ") {
             if extern_path.is_some() {
                 return Err(error(
@@ -129,6 +130,7 @@ pub fn parse(source: &str) -> Result<Document, Error> {
     let span = Span::line(1);
     Ok(Document {
         app: app.ok_or_else(|| Error::new("E006", &span, "missing `app Name` declaration"))?,
+        settings,
         extern_path,
         structs,
         functions,
@@ -141,6 +143,188 @@ pub fn parse(source: &str) -> Result<Document, Error> {
         handlers,
         view: view.ok_or_else(|| Error::new("E008", &span, "missing `view` block"))?,
     })
+}
+
+fn parse_app_settings(line: &Line) -> Result<AppSettings, Error> {
+    let mut settings = AppSettings::default();
+    for item in &line.children {
+        if item.text == "window" {
+            if settings.window.is_some() {
+                return Err(error("E014", item, "duplicate app setting `window`"));
+            }
+            settings.window = Some(parse_window_settings(item)?);
+            continue;
+        }
+        ensure_leaf(item)?;
+        let Some((name, value)) = item.text.split_once(char::is_whitespace) else {
+            return Err(error(
+                "E014",
+                item,
+                format!("unknown app setting `{}`", item.text),
+            ));
+        };
+        let value = value.trim();
+        macro_rules! set {
+            ($field:ident, $value:expr) => {
+                set_setting(&mut settings.$field, $value, name, item)?
+            };
+        }
+        match name {
+            "title" => set!(title, string_literal(value, item)?),
+            "id" => set!(id, string_literal(value, item)?),
+            "default-text-size" => set!(default_text_size, config_positive_number(value, item)?),
+            "antialiasing" => set!(antialiasing, config_bool(value, item)?),
+            "vsync" => set!(vsync, config_bool(value, item)?),
+            "scale-factor" => set!(scale_factor, config_positive_number(value, item)?),
+            _ => {
+                return Err(error("E014", item, format!("unknown app setting `{name}`")));
+            }
+        }
+    }
+    Ok(settings)
+}
+
+fn parse_window_settings(line: &Line) -> Result<WindowSettings, Error> {
+    let mut settings = WindowSettings::default();
+    for item in &line.children {
+        ensure_leaf(item)?;
+        let (name, value) = item
+            .text
+            .split_once(char::is_whitespace)
+            .map_or((item.text.as_str(), ""), |(name, value)| {
+                (name, value.trim())
+            });
+        macro_rules! set {
+            ($field:ident, $value:expr) => {
+                set_setting(&mut settings.$field, $value, name, item)?
+            };
+        }
+        match name {
+            "size" => set!(size, config_size(value, item)?),
+            "maximized" => set!(maximized, config_bool(value, item)?),
+            "fullscreen" => set!(fullscreen, config_bool(value, item)?),
+            "position" => set!(position, config_position(value, item)?),
+            "min-size" => set!(min_size, config_size(value, item)?),
+            "max-size" => set!(max_size, config_size(value, item)?),
+            "visible" => set!(visible, config_bool(value, item)?),
+            "resizable" => set!(resizable, config_bool(value, item)?),
+            "closeable" => set!(closeable, config_bool(value, item)?),
+            "minimizable" => set!(minimizable, config_bool(value, item)?),
+            "decorations" => set!(decorations, config_bool(value, item)?),
+            "transparent" => set!(transparent, config_bool(value, item)?),
+            "blur" => set!(blur, config_bool(value, item)?),
+            "level" => set!(
+                level,
+                match value {
+                    "normal" => WindowLevel::Normal,
+                    "always-on-bottom" => WindowLevel::AlwaysOnBottom,
+                    "always-on-top" => WindowLevel::AlwaysOnTop,
+                    _ => {
+                        return Err(error(
+                            "E015",
+                            item,
+                            "window level must be normal, always-on-bottom, or always-on-top",
+                        ));
+                    }
+                }
+            ),
+            "exit-on-close-request" => {
+                set!(exit_on_close_request, config_bool(value, item)?)
+            }
+            _ => {
+                return Err(error(
+                    "E015",
+                    item,
+                    format!("unknown window setting `{name}`"),
+                ));
+            }
+        }
+    }
+    if let (Some((min_width, min_height)), Some((max_width, max_height))) =
+        (settings.min_size, settings.max_size)
+        && (min_width > max_width || min_height > max_height)
+    {
+        return Err(error(
+            "E015",
+            line,
+            "window min-size cannot exceed max-size",
+        ));
+    }
+    Ok(settings)
+}
+
+fn set_setting<T>(slot: &mut Option<T>, value: T, name: &str, line: &Line) -> Result<(), Error> {
+    if slot.replace(value).is_some() {
+        Err(error("E014", line, format!("duplicate setting `{name}`")))
+    } else {
+        Ok(())
+    }
+}
+
+fn config_bool(source: &str, line: &Line) -> Result<bool, Error> {
+    match source {
+        "true" => Ok(true),
+        "false" => Ok(false),
+        _ => Err(error("E015", line, "setting expects true or false")),
+    }
+}
+
+fn config_number(source: &str, line: &Line) -> Result<f64, Error> {
+    source
+        .parse::<f64>()
+        .ok()
+        .filter(|value| value.is_finite())
+        .ok_or_else(|| error("E015", line, "setting expects a finite number"))
+}
+
+fn config_positive_number(source: &str, line: &Line) -> Result<f64, Error> {
+    let value = config_number(source, line)?;
+    if value > 0.0 {
+        Ok(value)
+    } else {
+        Err(error("E015", line, "setting must be greater than zero"))
+    }
+}
+
+fn config_pair(source: &str, line: &Line) -> Result<(f64, f64), Error> {
+    let parts = split_words(source);
+    if parts.len() != 2 {
+        return Err(error("E015", line, "window size expects `width height`"));
+    }
+    Ok((
+        config_number(&parts[0], line)?,
+        config_number(&parts[1], line)?,
+    ))
+}
+
+fn config_size(source: &str, line: &Line) -> Result<(f64, f64), Error> {
+    let (width, height) = config_pair(source, line)?;
+    if width > 0.0 && height > 0.0 {
+        Ok((width, height))
+    } else {
+        Err(error(
+            "E015",
+            line,
+            "window dimensions must be greater than zero",
+        ))
+    }
+}
+
+fn config_position(source: &str, line: &Line) -> Result<WindowPosition, Error> {
+    match source {
+        "default" => Ok(WindowPosition::Default),
+        "centered" => Ok(WindowPosition::Centered),
+        _ => {
+            let (x, y) = config_pair(source, line).map_err(|_| {
+                error(
+                    "E015",
+                    line,
+                    "window position expects default, centered, or `x y`",
+                )
+            })?;
+            Ok(WindowPosition::Specific(x, y))
+        }
+    }
 }
 
 fn parse_font(source: &str, line: &Line) -> Result<FontDecl, Error> {
@@ -3835,6 +4019,50 @@ view
             document.qr_codes[0].data,
             QrPayload::Text("https://example.com/ice docs".into())
         );
+    }
+
+    #[test]
+    fn parses_checked_application_and_window_settings() {
+        let source = SOURCE.replace(
+            "app Demo",
+            r#"app Demo
+  title "Configured"
+  id "dev.example.demo"
+  default-text-size 15
+  antialiasing false
+  vsync false
+  scale-factor 1.25
+  window
+    size 960 720
+    min-size 480 360
+    max-size 1920 1080
+    position centered
+    level always-on-top
+    visible true"#,
+        );
+        let document = parse(&source).unwrap();
+        assert_eq!(document.settings.title.as_deref(), Some("Configured"));
+        assert_eq!(document.settings.scale_factor, Some(1.25));
+        let window = document.settings.window.unwrap();
+        assert_eq!(window.size, Some((960.0, 720.0)));
+        assert!(matches!(window.position, Some(WindowPosition::Centered)));
+        assert!(matches!(window.level, Some(WindowLevel::AlwaysOnTop)));
+
+        let error = parse(&source.replace("min-size 480 360", "min-size 2000 360")).unwrap_err();
+        assert_eq!(error.code, "E015");
+        assert!(error.message.contains("min-size cannot exceed max-size"));
+
+        let error = parse(&source.replace("size 960 720", "size 0 720")).unwrap_err();
+        assert_eq!(error.code, "E015");
+        assert!(error.message.contains("greater than zero"));
+
+        let error = parse(&source.replace(
+            "  antialiasing false",
+            "  antialiasing false\n  antialiasing true",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E014");
+        assert!(error.message.contains("duplicate"));
     }
 
     #[test]
