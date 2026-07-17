@@ -522,21 +522,7 @@ fn parse_view(line: &Line) -> Result<ViewNode, Error> {
                 span,
             })
         }
-        "text" => {
-            if parts.len() != 2 {
-                return Err(error(
-                    "E063",
-                    line,
-                    "text expects one expression before `@`",
-                ));
-            }
-            ensure_leaf(line)?;
-            Ok(ViewNode::Text {
-                value: parse_expr(&parts[1], line)?,
-                styles,
-                span,
-            })
-        }
+        "text" => parse_text(&parts, styles, line),
         "input" => parse_input(&parts, styles, line),
         "button" => parse_button(&parts, styles, route_source, line),
         "checkbox" => parse_checkbox(&parts, styles, route_source, line),
@@ -1229,6 +1215,71 @@ fn parse_scroll_anchor(source: &str, line: &Line) -> Result<ScrollAnchor, Error>
     }
 }
 
+fn parse_text(parts: &[String], styles: Vec<String>, line: &Line) -> Result<ViewNode, Error> {
+    let value = parts
+        .get(1)
+        .ok_or_else(|| error("E063", line, "text expects one expression before `@`"))?;
+    let mut options = TextOptions::default();
+    for part in &parts[2..] {
+        if let Some(value) = part.strip_prefix("width=") {
+            options.width = Some(parse_length(value, line)?);
+        } else if let Some(value) = part.strip_prefix("height=") {
+            options.height = Some(parse_length(value, line)?);
+        } else if let Some(value) = part.strip_prefix("size=") {
+            options.size = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("line-height=") {
+            options.line_height = Some(TextLineHeight::Relative(parse_expr(
+                strip_wrapping_parens(value),
+                line,
+            )?));
+        } else if let Some(value) = part.strip_prefix("line-height-px=") {
+            options.line_height = Some(TextLineHeight::Absolute(parse_expr(
+                strip_wrapping_parens(value),
+                line,
+            )?));
+        } else if let Some(value) = part.strip_prefix("font=") {
+            options.font = Some(match value {
+                "default" => FontPreset::Default,
+                "mono" => FontPreset::Monospace,
+                _ => return Err(error("E063", line, "text font must be default or mono")),
+            });
+        } else if let Some(value) = part.strip_prefix("align-x=") {
+            options.align_x = Some(match value {
+                "default" => TextAlignment::Default,
+                "left" => TextAlignment::Left,
+                "center" => TextAlignment::Center,
+                "right" => TextAlignment::Right,
+                "justified" => TextAlignment::Justified,
+                _ => return Err(error("E063", line, "unknown horizontal text alignment")),
+            });
+        } else if let Some(value) = part.strip_prefix("align-y=") {
+            options.align_y = Some(match value {
+                "top" => VerticalAlignment::Top,
+                "center" => VerticalAlignment::Center,
+                "bottom" => VerticalAlignment::Bottom,
+                _ => return Err(error("E063", line, "unknown vertical text alignment")),
+            });
+        } else if let Some(value) = part.strip_prefix("shaping=") {
+            options.shaping = Some(parse_text_shaping(value, line, "E063")?);
+        } else if let Some(value) = part.strip_prefix("wrapping=") {
+            options.wrapping = Some(parse_text_wrapping(value, line, "E063")?);
+        } else {
+            return Err(error(
+                "E063",
+                line,
+                format!("unknown text property `{part}`"),
+            ));
+        }
+    }
+    ensure_leaf(line)?;
+    Ok(ViewNode::Text {
+        value: parse_expr(value, line)?,
+        options,
+        styles,
+        span: Span::line(line.number),
+    })
+}
+
 fn parse_input(parts: &[String], styles: Vec<String>, line: &Line) -> Result<ViewNode, Error> {
     ensure_leaf(line)?;
     if parts.len() < 4 {
@@ -1506,21 +1557,9 @@ fn parse_bool_control_option(
     } else if let Some(value) = part.strip_prefix("line-height=") {
         options.line_height = Some(parse_expr(strip_wrapping_parens(value), line)?);
     } else if let Some(value) = part.strip_prefix("shaping=") {
-        options.shaping = Some(parse_text_shaping(value, line)?);
+        options.shaping = Some(parse_text_shaping(value, line, "E075")?);
     } else if let Some(value) = part.strip_prefix("wrapping=") {
-        options.wrapping = Some(match value {
-            "none" => TextWrapping::None,
-            "word" => TextWrapping::Word,
-            "glyph" => TextWrapping::Glyph,
-            "word-or-glyph" => TextWrapping::WordOrGlyph,
-            _ => {
-                return Err(error(
-                    "E075",
-                    line,
-                    "wrapping must be none, word, glyph, or word-or-glyph",
-                ));
-            }
-        });
+        options.wrapping = Some(parse_text_wrapping(value, line, "E075")?);
     } else if let Some(value) = part.strip_prefix("font=") {
         options.font = Some(match value {
             "default" => FontPreset::Default,
@@ -1552,22 +1591,40 @@ fn parse_bool_control_option(
     } else if allow_icon && let Some(value) = part.strip_prefix("icon-line-height=") {
         options.icon_line_height = Some(parse_expr(strip_wrapping_parens(value), line)?);
     } else if allow_icon && let Some(value) = part.strip_prefix("icon-shaping=") {
-        options.icon_shaping = Some(parse_text_shaping(value, line)?);
+        options.icon_shaping = Some(parse_text_shaping(value, line, "E075")?);
     } else {
         return Ok(false);
     }
     Ok(true)
 }
 
-fn parse_text_shaping(source: &str, line: &Line) -> Result<TextShaping, Error> {
+fn parse_text_shaping(source: &str, line: &Line, code: &'static str) -> Result<TextShaping, Error> {
     match source {
         "auto" => Ok(TextShaping::Auto),
         "basic" => Ok(TextShaping::Basic),
         "advanced" => Ok(TextShaping::Advanced),
         _ => Err(error(
-            "E075",
+            code,
             line,
             "shaping must be auto, basic, or advanced",
+        )),
+    }
+}
+
+fn parse_text_wrapping(
+    source: &str,
+    line: &Line,
+    code: &'static str,
+) -> Result<TextWrapping, Error> {
+    match source {
+        "none" => Ok(TextWrapping::None),
+        "word" => Ok(TextWrapping::Word),
+        "glyph" => Ok(TextWrapping::Glyph),
+        "word-or-glyph" => Ok(TextWrapping::WordOrGlyph),
+        _ => Err(error(
+            code,
+            line,
+            "wrapping must be none, word, glyph, or word-or-glyph",
         )),
     }
 }

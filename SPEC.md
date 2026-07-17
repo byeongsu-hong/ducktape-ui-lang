@@ -1,4 +1,4 @@
-# Ice Language Specification 0.12
+# Ice Language Specification 0.13
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.12 syntax.
+marked “planned” is a design constraint, not accepted 0.13 syntax.
 
 ## 1. Design contract
 
@@ -79,7 +79,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.12.
+  block comments are not part of 0.13.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -166,7 +166,14 @@ scroll_property = "direction=" ("vertical" | "horizontal" | "both")
                   | "bar-spacing=") expr
                 | ("anchor-x=" | "anchor-y=") ("start" | "end")
                 | "auto=" expr | "scroll=" route
-text           = "text" expr styles?
+text           = "text" expr text_property* styles?
+text_property  = ("width=" | "height=") length | "size=" expr
+               | ("line-height=" | "line-height-px=") expr
+               | "font=" ("default" | "mono")
+               | "align-x=" text_alignment
+               | "align-y=" ("top" | "center" | "bottom")
+               | "shaping=" ("auto" | "basic" | "advanced")
+               | "wrapping=" ("none" | "word" | "glyph" | "word-or-glyph")
 input          = "input" string id? "<->" name input_property* styles?
 input_property = "hint=" string | ("disabled=" | "secure=") expr
                | ("submit=" | "paste=") route | "width=" length
@@ -276,6 +283,11 @@ hidden scrollbars, scrollbar dimensions/spacing, axis anchors, and bool
 auto-scroll. Its `scroll=` handler receives absolute x/y followed by relative
 x/y as four f64 payloads. Bare handler names receive all four automatically.
 
+`text` accepts str, i64, and f64 values plus typed width/height, positive size,
+relative `line-height=` or absolute `line-height-px=`, horizontal and vertical
+alignment, shaping, wrapping, and default/monospace fonts. An explicit `size=`
+overrides a `@text-*` utility; `font=mono @font-bold` preserves both choices.
+
 `input` keeps its required `str` binding and additionally supports bool secure
 mode, submit routes, str-payload paste routes, typed width/padding/text size,
 relative line height, horizontal alignment, default/monospace font, and a
@@ -353,7 +365,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.12 message payloads.
+`Clone` for 0.13 message payloads.
 
 Three typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
@@ -479,7 +491,7 @@ The implemented native nodes are:
 | `scroll` | one child; direction, bounds, scrollbar, anchors, auto-scroll and absolute/relative offset route |
 | `grid` | responsive grid; optional positive `i64` `columns` (default 3) |
 | `stack` | overlays children; optional bool `clip` |
-| `text` | one `str`, `i64`, or `f64` expression |
+| `text` | one `str`, `i64`, or `f64` expression with bounds, size/line-height, font, alignment, shaping, wrapping and checked color/weight styles |
 | `input` | required `str` binding; ID, hint, disabled/secure, submit/paste, sizing, alignment, default/mono font and icon properties |
 | `button` | string label or one child; optional ID/disabled, typed size/padding/clip, required route |
 | `checkbox` | string label, bool value/route, disabled, sizing/typography/wrapping/font and custom icon properties |
@@ -642,7 +654,7 @@ The implemented families are:
 `cargo check` so rustc verifies extern items and generated iced types. A missing
 Rust item is named by its `crate::module::item` path in rustc's diagnostic. A
 future source-map layer may remap those rustc spans into the precise extern line;
-0.12 does not claim that remapping.
+0.13 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -662,7 +674,7 @@ skips `.git` and `target`.
 
 ## 12. Current coverage and escape hatches
 
-The 0.12 native backend is enough for CRUD/settings-style screens, selection,
+The 0.13 native backend is enough for CRUD/settings-style screens, selection,
 media, hover
 overlays, and common pointer events, not all of iced. It still lacks direct
 syntax for canvas, general overlays/modals, rich text
@@ -699,6 +711,6 @@ layouts, toggles, sliders, progress, radio controls, rules, fixed spacing, an
 optional selection value, pick list and searchable combo box, extern and native
 tooltip/mouse-area components including pointer movement and wheel payloads,
 raster and SVG media, configured scrolling with offset events,
-responsive/positioned content, visibility sensing, extended text input,
-child-content buttons, configured boolean controls, a clipboard task, and a
-raw-event subscription.
+responsive/positioned content, visibility sensing, formatted text, extended
+text input, child-content buttons, configured boolean controls, a clipboard
+task, and a raw-event subscription.

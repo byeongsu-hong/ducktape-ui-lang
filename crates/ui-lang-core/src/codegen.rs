@@ -437,16 +437,16 @@ fn render_node(
         } => render_layout(
             *kind, options, id, styles, children, document, message, env, scope,
         ),
-        ViewNode::Text { value, styles, .. } => {
+        ViewNode::Text {
+            value,
+            options,
+            styles,
+            ..
+        } => {
             let style = Style::parse(styles, document);
             let value = expr_code(value, env, document, ValueMode::Owned)?;
             let mut code = format!("::iced::widget::text({value})");
-            if let Some(size) = style.text_size {
-                write!(code, ".size({size})").unwrap();
-            }
-            if style.bold {
-                code.push_str(".font(::iced::Font { weight: ::iced::font::Weight::Bold, ..::iced::Font::default() })");
-            }
+            append_text_options(&mut code, options, &style, env, document)?;
             if let Some(color) = style.text_color {
                 write!(code, ".color({})", theme_color(document, &color)).unwrap();
             }
@@ -1890,6 +1890,87 @@ fn length_code(
     })
 }
 
+fn append_text_options(
+    code: &mut String,
+    options: &TextOptions,
+    style: &Style,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<(), Error> {
+    if let Some(size) = &options.size {
+        write!(
+            code,
+            ".size({} as f32)",
+            expr_code(size, env, document, ValueMode::Owned)?
+        )
+        .unwrap();
+    } else if let Some(size) = style.text_size {
+        write!(code, ".size({size})").unwrap();
+    }
+    for (length, method) in [(&options.width, "width"), (&options.height, "height")] {
+        if let Some(length) = length {
+            write!(code, ".{method}({})", length_code(length, env, document)?).unwrap();
+        }
+    }
+    if let Some(line_height) = &options.line_height {
+        let line_height = match line_height {
+            TextLineHeight::Relative(value) => format!(
+                "::iced::widget::text::LineHeight::Relative({} as f32)",
+                expr_code(value, env, document, ValueMode::Owned)?
+            ),
+            TextLineHeight::Absolute(value) => format!(
+                "::iced::widget::text::LineHeight::Absolute(({} as f32).into())",
+                expr_code(value, env, document, ValueMode::Owned)?
+            ),
+        };
+        write!(code, ".line_height({line_height})").unwrap();
+    }
+    if let Some(alignment) = options.align_x {
+        write!(
+            code,
+            ".align_x(::iced::widget::text::Alignment::{})",
+            text_alignment_code(alignment)
+        )
+        .unwrap();
+    }
+    if let Some(alignment) = options.align_y {
+        let alignment = match alignment {
+            VerticalAlignment::Top => "Top",
+            VerticalAlignment::Center => "Center",
+            VerticalAlignment::Bottom => "Bottom",
+        };
+        write!(code, ".align_y(::iced::alignment::Vertical::{alignment})").unwrap();
+    }
+    if let Some(shaping) = options.shaping {
+        write!(
+            code,
+            ".shaping(::iced::widget::text::Shaping::{})",
+            text_shaping_code(shaping)
+        )
+        .unwrap();
+    }
+    if let Some(wrapping) = options.wrapping {
+        write!(
+            code,
+            ".wrapping(::iced::widget::text::Wrapping::{})",
+            text_wrapping_code(wrapping)
+        )
+        .unwrap();
+    }
+    match (options.font, style.bold) {
+        (Some(FontPreset::Default), false) => code.push_str(".font(::iced::Font::DEFAULT)"),
+        (Some(FontPreset::Monospace), false) => code.push_str(".font(::iced::Font::MONOSPACE)"),
+        (Some(FontPreset::Monospace), true) => code.push_str(
+            ".font(::iced::Font { weight: ::iced::font::Weight::Bold, ..::iced::Font::MONOSPACE })",
+        ),
+        (Some(FontPreset::Default) | None, true) => code.push_str(
+            ".font(::iced::Font { weight: ::iced::font::Weight::Bold, ..::iced::Font::DEFAULT })",
+        ),
+        (None, false) => {}
+    }
+    Ok(())
+}
+
 fn append_bool_control_options(
     code: &mut String,
     options: &BoolControlOptions,
@@ -1931,15 +2012,10 @@ fn append_bool_control_options(
         .unwrap();
     }
     if let Some(wrapping) = options.wrapping {
-        let wrapping = match wrapping {
-            TextWrapping::None => "None",
-            TextWrapping::Word => "Word",
-            TextWrapping::Glyph => "Glyph",
-            TextWrapping::WordOrGlyph => "WordOrGlyph",
-        };
         write!(
             code,
-            ".text_wrapping(::iced::widget::text::Wrapping::{wrapping})"
+            ".text_wrapping(::iced::widget::text::Wrapping::{})",
+            text_wrapping_code(wrapping)
         )
         .unwrap();
     }
@@ -1952,16 +2028,10 @@ fn append_bool_control_options(
     }
     if toggler {
         if let Some(alignment) = options.alignment {
-            let alignment = match alignment {
-                TextAlignment::Default => "Default",
-                TextAlignment::Left => "Left",
-                TextAlignment::Center => "Center",
-                TextAlignment::Right => "Right",
-                TextAlignment::Justified => "Justified",
-            };
             write!(
                 code,
-                ".text_alignment(::iced::widget::text::Alignment::{alignment})"
+                ".text_alignment(::iced::widget::text::Alignment::{})",
+                text_alignment_code(alignment)
             )
             .unwrap();
         }
@@ -1998,6 +2068,25 @@ fn text_shaping_code(shaping: TextShaping) -> &'static str {
         TextShaping::Auto => "Auto",
         TextShaping::Basic => "Basic",
         TextShaping::Advanced => "Advanced",
+    }
+}
+
+fn text_wrapping_code(wrapping: TextWrapping) -> &'static str {
+    match wrapping {
+        TextWrapping::None => "None",
+        TextWrapping::Word => "Word",
+        TextWrapping::Glyph => "Glyph",
+        TextWrapping::WordOrGlyph => "WordOrGlyph",
+    }
+}
+
+fn text_alignment_code(alignment: TextAlignment) -> &'static str {
+    match alignment {
+        TextAlignment::Default => "Default",
+        TextAlignment::Left => "Left",
+        TextAlignment::Center => "Center",
+        TextAlignment::Right => "Right",
+        TextAlignment::Justified => "Justified",
     }
 }
 
@@ -2648,6 +2737,28 @@ view
         assert!(generated.contains("checkbox::Icon"));
         assert!(generated.contains("code_point: '✓'"));
         assert!(generated.contains(".text_alignment(::iced::widget::text::Alignment::Right)"));
+    }
+
+    #[test]
+    fn lowers_full_text_format() {
+        let source = r#"app Typography
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+view
+  text "Long text" width=fill height=40.0 size=16.0 line-height-px=20.0 font=mono align-x=justified align-y=center shaping=advanced wrapping=word-or-glyph @font-bold
+"#;
+        let generated = compile(source, "typography.ice").unwrap();
+        assert!(generated.contains(".width(::iced::Fill).height(40.0 as f32)"));
+        assert!(generated.contains("LineHeight::Absolute((20.0 as f32).into())"));
+        assert!(generated.contains("text::Alignment::Justified"));
+        assert!(generated.contains("alignment::Vertical::Center"));
+        assert!(generated.contains("text::Shaping::Advanced"));
+        assert!(generated.contains("text::Wrapping::WordOrGlyph"));
+        assert!(generated.contains("..::iced::Font::MONOSPACE"));
     }
 
     #[test]
