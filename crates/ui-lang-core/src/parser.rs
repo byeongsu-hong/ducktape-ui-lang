@@ -53,6 +53,8 @@ pub fn parse(source: &str) -> Result<Document, Error> {
                     functions.push(parse_extern_fn(source, item, &path, ExternKind::Stream)?);
                 } else if let Some(source) = item.text.strip_prefix("sip ") {
                     functions.push(parse_extern_fn(source, item, &path, ExternKind::Sip)?);
+                } else if let Some(source) = item.text.strip_prefix("sync ") {
+                    functions.push(parse_extern_fn(source, item, &path, ExternKind::Sync)?);
                 } else if let Some(source) = item.text.strip_prefix("subscription ") {
                     functions.push(parse_extern_fn(
                         source,
@@ -646,13 +648,16 @@ fn parse_extern_fn(
     if error_ty.is_some()
         && matches!(
             kind,
-            ExternKind::Component | ExternKind::Shader | ExternKind::Subscription
+            ExternKind::Component
+                | ExternKind::Shader
+                | ExternKind::Sync
+                | ExternKind::Subscription
         )
     {
         return Err(error(
             "E023",
             line,
-            "extern components, shaders, and subscriptions cannot declare an error type",
+            "extern components, shaders, sync functions, and subscriptions cannot declare an error type",
         ));
     }
     Ok(ExternFn {
@@ -1093,7 +1098,7 @@ fn parse_task_flow(line: &Line) -> Result<Statement, Error> {
         return Err(error(
             "E050",
             line,
-            "flow requires an indented `from run|task|stream ...` source",
+            "flow requires an indented `from run|task|stream ...`, `from done value`, or `from none Type` source",
         ));
     };
     ensure_leaf(first)?;
@@ -1101,7 +1106,7 @@ fn parse_task_flow(line: &Line) -> Result<Statement, Error> {
         error(
             "E050",
             first,
-            "the first flow line must be `from run|task|stream ...`",
+            "the first flow line must be `from run|task|stream ...`, `from done value`, or `from none Type`",
         )
     })?;
     let source = parse_task_source(source, first)?;
@@ -1119,6 +1124,21 @@ fn parse_task_flow(line: &Line) -> Result<Statement, Error> {
         }
         if item.text == "discard" {
             transforms.push(TaskTransform::Discard {
+                span: Span::line(item.number),
+            });
+            continue;
+        }
+        if let Some(source) = item.text.strip_prefix("map-error ") {
+            let Some((binding, value)) = split_top_marker(source, "->") else {
+                return Err(error(
+                    "E050",
+                    item,
+                    "map-error uses `map-error error -> sync_call(error)`",
+                ));
+            };
+            transforms.push(TaskTransform::MapError {
+                binding: identifier(binding.trim(), item)?,
+                value: parse_expr(value.trim(), item)?,
                 span: Span::line(item.number),
             });
             continue;
@@ -1161,7 +1181,7 @@ fn parse_task_flow(line: &Line) -> Result<Statement, Error> {
             return Err(error(
                 "E050",
                 item,
-                "flow lines must be then, and-then, collect, discard, done, error, or units",
+                "flow lines must be then, and-then, map-error, collect, discard, done, error, or units",
             ));
         };
         let slot = match kind.trim() {
@@ -1196,6 +1216,18 @@ fn parse_task_flow(line: &Line) -> Result<Statement, Error> {
 }
 
 fn parse_task_source(source: &str, line: &Line) -> Result<TaskSource, Error> {
+    if let Some(value) = source.strip_prefix("done ") {
+        return Ok(TaskSource::Done {
+            value: parse_expr(value.trim(), line)?,
+            span: Span::line(line.number),
+        });
+    }
+    if let Some(output) = source.strip_prefix("none ") {
+        return Ok(TaskSource::None {
+            output: parse_type(output.trim(), line)?,
+            span: Span::line(line.number),
+        });
+    }
     let (kind, call) = source
         .strip_prefix("run ")
         .map(|call| (EffectKind::Future, call))
@@ -1217,7 +1249,7 @@ fn parse_task_source(source: &str, line: &Line) -> Result<TaskSource, Error> {
             )
         })?;
     let (function, args) = parse_effect_call(kind, call.trim(), line)?;
-    Ok(TaskSource {
+    Ok(TaskSource::Effect {
         kind,
         function,
         args,
@@ -7205,6 +7237,23 @@ fn parse_type(source: &str, line: &Line) -> Result<Type, Error> {
         return Ok(Type::Option(Box::new(parse_type(inner, line)?)));
     }
     if let Some(inner) = source
+        .strip_prefix("result[")
+        .and_then(|source| source.strip_suffix(']'))
+    {
+        let parts = split_top(inner, ',');
+        if parts.len() != 2 {
+            return Err(error(
+                "E023",
+                line,
+                "result type uses `result[Output,Error]`",
+            ));
+        }
+        return Ok(Type::Result(
+            Box::new(parse_type(parts[0].trim(), line)?),
+            Box::new(parse_type(parts[1].trim(), line)?),
+        ));
+    }
+    if let Some(inner) = source
         .strip_prefix("combo[")
         .and_then(|source| source.strip_suffix(']'))
     {
@@ -8048,7 +8097,13 @@ view
         else {
             panic!("expected task flow");
         };
-        assert_eq!(task_source.kind, EffectKind::Stream);
+        assert!(matches!(
+            task_source,
+            TaskSource::Effect {
+                kind: EffectKind::Stream,
+                ..
+            }
+        ));
         assert_eq!(transforms.len(), 2);
         assert!(matches!(transforms[0], TaskTransform::Then { .. }));
         assert!(matches!(transforms[1], TaskTransform::Collect { .. }));
@@ -8059,6 +8114,73 @@ view
             parse(&source.replace("    from stream numbers(3)", "    collect")).unwrap_err();
         assert_eq!(error.code, "E050");
         assert!(error.message.contains("first flow line"));
+    }
+
+    #[test]
+    fn parses_task_error_mapping_and_native_sources() {
+        let source = r#"app Errors
+extern crate::backend
+  NetworkError(message:str)
+  AppError(message:str)
+  sync normalize(error:NetworkError) -> AppError
+  task request() -> i64 ! NetworkError
+theme
+  background #000000
+state
+  results:[result[i64,AppError]] = []
+on start
+  parallel
+    flow
+      from task request()
+      map-error reason -> normalize(reason)
+      collect
+      done -> collected _
+    flow
+      from done 1
+      then value -> done value + 1
+      done -> finished _
+    flow
+      from none i64
+      done -> finished _
+on collected(values)
+on finished(value)
+view
+  text "Errors"
+"#;
+        let document = parse(source).unwrap();
+        assert_eq!(document.functions[0].kind, ExternKind::Sync);
+        assert_eq!(
+            document.states[0].ty,
+            Type::List(Box::new(Type::Result(
+                Box::new(Type::I64),
+                Box::new(Type::Named("AppError".into()))
+            )))
+        );
+        let Statement::TaskGroup { statements, .. } = &document.handlers[0].statements[0] else {
+            panic!("expected task group");
+        };
+        assert!(matches!(
+            &statements[0],
+            Statement::TaskFlow { transforms, .. }
+                if matches!(transforms[0], TaskTransform::MapError { .. })
+        ));
+        assert!(matches!(
+            &statements[1],
+            Statement::TaskFlow {
+                source: TaskSource::Done { .. },
+                ..
+            }
+        ));
+        assert!(matches!(
+            &statements[2],
+            Statement::TaskFlow {
+                source: TaskSource::None {
+                    output: Type::I64,
+                    ..
+                },
+                ..
+            }
+        ));
     }
 
     #[test]

@@ -15,15 +15,16 @@ counts toward the row below.
 
 ## Typed system reachability
 
-Ice 0.88 has six checked Rust boundaries:
+Ice 0.89 has seven checked Rust boundaries:
 
 | Boundary | Rust ABI | Covers |
 | --- | --- | --- |
-| `extern name(args)` | `fn(...) -> Element<'static, Event>` | any owned default-renderer widget tree, including custom widgets |
+| `component name(args)` | `fn(...) -> Element<'static, Event>` | any owned default-renderer widget tree, including custom widgets |
 | `shader name(args)` | `fn(...) -> impl shader::Program<Event>` | native wgpu primitives, pipeline/storage, state, events, redraw, capture, and mouse interaction |
 | `task name(args)` | `fn(...) -> Task<Event>` or `Task<Result<Event, Error>>` | widget/window/clipboard/font/system operations and arbitrary task composition |
 | `stream name(args)` | `fn(...) -> impl Stream<Item = Event>` or `Stream<Item = Result<Event, Error>>` | native repeated `Task::run` output from channels, iterators, async generators, and other streams |
 | `sip name(args)` | `fn(...) -> impl Sipper<Output, Progress>` or `Straw<Output, Progress, Error>` | native repeated progress plus one final output through `Task::sip` |
+| `sync name(args)` | `fn(...) -> Output` | checked synchronous domain conversions usable in Ice expressions |
 | `subscribe` | `fn(...) -> Subscription<Event>` | event, keyboard, mouse, window, system, channel, timer, stream, and custom recipe sources |
 
 Generated probes verify the concrete Rust signatures. Reachability is not the
@@ -79,7 +80,7 @@ public behavior has direct documented Ice syntax and tests.
 | --- | --- | --- |
 | application settings | partial | static title, application ID, ordered checked font byte preloads, default text size/font, antialiasing, vsync, scale factor, theme and run; executor and presets missing |
 | `Theme` and styles | partial | checked color tokens and a Tailwind-like subset; native theme/style catalogs and custom closures missing |
-| `Task` | partial | async externs, typed arbitrary iced `Task` adapters, direct system/clipboard/font/widget/main-window tasks, nested batch/chain groups, complete abortable handles, repeated `run` streams, typed `sip`, and native typed flows with output-dependent `then`/optional-or-result `and_then`, `collect`, `discard`, and `units`; first-class raw `Result` collection, `map_err`, and direct `none`/`done` constructors missing |
+| `Task` | partial | async/sync externs, typed arbitrary iced `Task` adapters, direct system/clipboard/font/widget/main-window tasks, nested batch/chain groups, complete abortable handles, repeated `run` streams, typed `sip`, and native typed flows with direct `done`/`none`, output-dependent `then`, optional-or-result `and_then`, `map_err`, result-preserving `collect`, `discard`, and `units`; low-level task-module `oneshot`/`channel`/blocking/effect constructors remain adapter-only |
 | `Subscription` | partial | typed arbitrary iced `Subscription` adapters, batching, checked conditional activation/status filters, direct timer/input-method/keyboard/mouse/touch/window sources and system theme changes; other combinators missing |
 | widget operations | partial | all 13 core focus/cursor/selection/scroll operations with checked static app IDs and typed focus query; scoped repeated/component IDs and feature-gated selectors remain |
 | clipboard | native | standard and primary read/write tasks; reads preserve iced's optional string payload and writes are checked fire-and-forget effects |
