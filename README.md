@@ -48,7 +48,8 @@ The complete task app is split at the intended boundary and includes grid and
 stack layouts, optional selection state, native pick and searchable combo
 lists, native controls and media, native and extern tooltip/mouse areas, a
 responsive view, float/pin positioning, visibility sensing, a clipboard task,
-pointer movement/wheel events, and an application event subscription:
+configured scrolling with offset events, pointer movement/wheel events, and an
+application event subscription:
 
 - [`tasks.ice`](examples/iced-app/src/ui/tasks.ice) owns UI state, events,
   layout, and style;
@@ -79,7 +80,7 @@ cargo fmt --all
 
 ## Status
 
-This is an executable v0.8 language slice, not yet a complete iced replacement.
+This is an executable v0.9 language slice, not yet a complete iced replacement.
 It implements typed extern data/actions, state, handlers, async tasks, pure
 components, scoped IDs, `if`/`for`, five layouts, twenty native widget forms,
 checked style utilities, formatting, analysis, and iced code generation. Typed

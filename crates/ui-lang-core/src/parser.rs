@@ -1140,6 +1140,9 @@ fn parse_extern_component(
 
 fn parse_layout_options(kind: &str, parts: &[String], line: &Line) -> Result<LayoutOptions, Error> {
     let mut options = LayoutOptions::default();
+    if kind == "scroll" {
+        options.scroll = Some(ScrollOptions::default());
+    }
     for part in parts {
         if let Some(value) = part.strip_prefix("columns=") {
             if kind != "grid" || options.columns.is_some() {
@@ -1159,6 +1162,54 @@ fn parse_layout_options(kind: &str, parts: &[String], line: &Line) -> Result<Lay
                 ));
             }
             options.clip = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if kind == "scroll" {
+            let scroll = options.scroll.as_mut().expect("scroll options");
+            if let Some(value) = part.strip_prefix("direction=") {
+                scroll.direction = match value {
+                    "vertical" => ScrollDirection::Vertical,
+                    "horizontal" => ScrollDirection::Horizontal,
+                    "both" => ScrollDirection::Both,
+                    _ => {
+                        return Err(error(
+                            "E074",
+                            line,
+                            "scroll direction must be vertical, horizontal, or both",
+                        ));
+                    }
+                };
+            } else if let Some(value) = part.strip_prefix("width=") {
+                scroll.width = Some(parse_length(value, line)?);
+            } else if let Some(value) = part.strip_prefix("height=") {
+                scroll.height = Some(parse_length(value, line)?);
+            } else if let Some(value) = part.strip_prefix("bar=") {
+                scroll.hidden_bar = match value {
+                    "visible" => false,
+                    "hidden" => true,
+                    _ => return Err(error("E074", line, "scroll bar must be visible or hidden")),
+                };
+            } else if let Some(value) = part.strip_prefix("bar-width=") {
+                scroll.bar_width = Some(parse_expr(strip_wrapping_parens(value), line)?);
+            } else if let Some(value) = part.strip_prefix("bar-margin=") {
+                scroll.bar_margin = Some(parse_expr(strip_wrapping_parens(value), line)?);
+            } else if let Some(value) = part.strip_prefix("scroller-width=") {
+                scroll.scroller_width = Some(parse_expr(strip_wrapping_parens(value), line)?);
+            } else if let Some(value) = part.strip_prefix("bar-spacing=") {
+                scroll.bar_spacing = Some(parse_expr(strip_wrapping_parens(value), line)?);
+            } else if let Some(value) = part.strip_prefix("anchor-x=") {
+                scroll.anchor_x = parse_scroll_anchor(value, line)?;
+            } else if let Some(value) = part.strip_prefix("anchor-y=") {
+                scroll.anchor_y = parse_scroll_anchor(value, line)?;
+            } else if let Some(value) = part.strip_prefix("auto=") {
+                scroll.auto_scroll = Some(parse_expr(strip_wrapping_parens(value), line)?);
+            } else if let Some(value) = part.strip_prefix("scroll=") {
+                scroll.route = Some(parse_payload_route(value, line, 4)?);
+            } else {
+                return Err(error(
+                    "E074",
+                    line,
+                    format!("unknown scroll property `{part}`"),
+                ));
+            }
         } else {
             return Err(error(
                 "E074",
@@ -1168,6 +1219,14 @@ fn parse_layout_options(kind: &str, parts: &[String], line: &Line) -> Result<Lay
         }
     }
     Ok(options)
+}
+
+fn parse_scroll_anchor(source: &str, line: &Line) -> Result<ScrollAnchor, Error> {
+    match source {
+        "start" => Ok(ScrollAnchor::Start),
+        "end" => Ok(ScrollAnchor::End),
+        _ => Err(error("E074", line, "scroll anchor must be start or end")),
+    }
 }
 
 fn parse_input(parts: &[String], styles: Vec<String>, line: &Line) -> Result<ViewNode, Error> {

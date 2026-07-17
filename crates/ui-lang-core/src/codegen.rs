@@ -1196,6 +1196,20 @@ fn render_layout(
         )?;
         let child = render_node(&children[0], document, message, env, &child_scope)?;
         let mut code = String::from("::iced::widget::scrollable(__scroll_content)");
+        let scroll = options.scroll.as_ref().expect("scroll options");
+        let bar = scroll_bar_code(scroll, env, document)?;
+        let direction = match scroll.direction {
+            ScrollDirection::Vertical => {
+                format!("::iced::widget::scrollable::Direction::Vertical({bar})")
+            }
+            ScrollDirection::Horizontal => {
+                format!("::iced::widget::scrollable::Direction::Horizontal({bar})")
+            }
+            ScrollDirection::Both => format!(
+                "::iced::widget::scrollable::Direction::Both {{ vertical: {bar}, horizontal: {bar} }}"
+            ),
+        };
+        write!(code, ".direction({direction})").unwrap();
         if let Some(id) = id {
             write!(
                 code,
@@ -1204,7 +1218,56 @@ fn render_layout(
             )
             .unwrap();
         }
+        let anchor = |anchor| match anchor {
+            ScrollAnchor::Start => "Start",
+            ScrollAnchor::End => "End",
+        };
+        write!(
+            code,
+            ".anchor_x(::iced::widget::scrollable::Anchor::{})",
+            anchor(scroll.anchor_x)
+        )
+        .unwrap();
+        write!(
+            code,
+            ".anchor_y(::iced::widget::scrollable::Anchor::{})",
+            anchor(scroll.anchor_y)
+        )
+        .unwrap();
+        if let Some(auto_scroll) = &scroll.auto_scroll {
+            write!(
+                code,
+                ".auto_scroll({})",
+                expr_code(auto_scroll, env, document, ValueMode::Owned)?
+            )
+            .unwrap();
+        }
+        if let Some(route) = &scroll.route {
+            let message_code = ordered_route_code(
+                route,
+                &[
+                    "__absolute.x as f64",
+                    "__absolute.y as f64",
+                    "__relative.x as f64",
+                    "__relative.y as f64",
+                ],
+                env,
+                document,
+                message,
+            )?;
+            write!(
+                code,
+                ".on_scroll(move |__viewport| {{ let __absolute = __viewport.absolute_offset(); let __relative = __viewport.relative_offset(); {message_code} }})"
+            )
+            .unwrap();
+        }
         append_size(&mut code, &style);
+        if let Some(width) = &scroll.width {
+            write!(code, ".width({})", length_code(width, env, document)?).unwrap();
+        }
+        if let Some(height) = &scroll.height {
+            write!(code, ".height({})", length_code(height, env, document)?).unwrap();
+        }
         return Ok(format!(
             "{{ let __scroll_content: ::iced::Element<'_, {message}> = {child}; {code}.into() }}"
         ));
@@ -1284,6 +1347,31 @@ fn render_layout(
         body.push_str(" __content.into() }");
     }
     Ok(body)
+}
+
+fn scroll_bar_code(
+    scroll: &ScrollOptions,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<String, Error> {
+    let constructor = if scroll.hidden_bar { "hidden" } else { "new" };
+    let mut code = format!("::iced::widget::scrollable::Scrollbar::{constructor}()");
+    for (value, method) in [
+        (&scroll.bar_width, "width"),
+        (&scroll.bar_margin, "margin"),
+        (&scroll.scroller_width, "scroller_width"),
+        (&scroll.bar_spacing, "spacing"),
+    ] {
+        if let Some(value) = value {
+            write!(
+                code,
+                ".{method}({} as f32)",
+                expr_code(value, env, document, ValueMode::Owned)?
+            )
+            .unwrap();
+        }
+    }
+    Ok(code)
 }
 
 fn render_children(
@@ -2185,6 +2273,40 @@ view
         assert!(generated.contains(".key(self.sensor_key)"));
         assert!(generated.contains("::iced::widget::responsive(move |__size|"));
         assert!(generated.contains("if __size.width < 600.0 as f32"));
+    }
+
+    #[test]
+    fn lowers_configured_scrollables_and_viewport_events() {
+        let source = r#"app Scrolling
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  absolute_x = 0.0
+  absolute_y = 0.0
+  relative_x = 0.0
+  relative_y = 0.0
+on scrolled(ax, ay, rx, ry)
+  absolute_x = ax
+  absolute_y = ay
+  relative_x = rx
+  relative_y = ry
+view
+  scroll #feed direction=both width=fill height=200.0 bar=hidden bar-width=8.0 bar-margin=2.0 scroller-width=6.0 bar-spacing=4.0 anchor-x=end anchor-y=start auto=true scroll=scrolled
+    col
+      text "Scrollable"
+"#;
+        let generated = compile(source, "scrolling.ice").unwrap();
+        assert!(generated.contains("scrollable::Direction::Both"));
+        assert!(generated.contains("scrollable::Scrollbar::hidden().width(8.0 as f32)"));
+        assert!(generated.contains(".anchor_x(::iced::widget::scrollable::Anchor::End)"));
+        assert!(generated.contains(".auto_scroll(true)"));
+        assert!(generated.contains("let __absolute = __viewport.absolute_offset()"));
+        assert!(generated.contains(
+            "__ScrollingMessage::Scrolled(__absolute.x as f64, __absolute.y as f64, __relative.x as f64, __relative.y as f64)"
+        ));
     }
 
     #[test]

@@ -1,4 +1,4 @@
-# Ice Language Specification 0.8
+# Ice Language Specification 0.9
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.8 syntax.
+marked “planned” is a design constraint, not accepted 0.9 syntax.
 
 ## 1. Design contract
 
@@ -79,7 +79,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.8.
+  block comments are not part of 0.9.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -155,9 +155,17 @@ node           = layout | text | input | button | checkbox | toggler
                | rule | space | float | pin | sensor | responsive
                | media | tooltip | mouse_area
                | component_call | extern_component_call | if_node | for_node
-layout         = ("col" | "row" | "scroll") id? styles? INDENT node+
+layout         = ("col" | "row") id? styles? INDENT node+
+               | "scroll" id? scroll_property* styles? INDENT node
                | "grid" id? ("columns=" expr)? styles? INDENT node+
                | "stack" id? ("clip=" expr)? styles? INDENT node+
+scroll_property = "direction=" ("vertical" | "horizontal" | "both")
+                | ("width=" | "height=") length
+                | "bar=" ("visible" | "hidden")
+                | ("bar-width=" | "bar-margin=" | "scroller-width="
+                  | "bar-spacing=") expr
+                | ("anchor-x=" | "anchor-y=") ("start" | "end")
+                | "auto=" expr | "scroll=" route
 text           = "text" expr styles?
 input          = "input" string id? "<->" name property* styles?
 button         = "button" string id? property* styles? "->" route
@@ -243,6 +251,11 @@ local widget coordinates. `scroll=` receives `(x:f64, y:f64, pixels:bool)`;
 `pixels=false` identifies iced line units. Bare handler names receive these
 payloads automatically.
 
+`scroll` accepts every native direction, fixed/fill/shrink bounds, visible or
+hidden scrollbars, scrollbar dimensions/spacing, axis anchors, and bool
+auto-scroll. Its `scroll=` handler receives absolute x/y followed by relative
+x/y as four f64 payloads. Bare handler names receive all four automatically.
+
 `pick` requires a homogeneous `[T]` options expression and a matching optional
 `T?` selection. Its main route carries `T`; `open=` and `close=` routes carry no
 payload. Pick values may be bool, i64, f64, str, or an extern type. Fixed
@@ -305,7 +318,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.8 message payloads.
+`Clone` for 0.9 message payloads.
 
 Three typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
@@ -428,7 +441,7 @@ The implemented native nodes are:
 | --- | --- |
 | `col` | vertical children |
 | `row` | horizontal children |
-| `scroll` | exactly one child |
+| `scroll` | one child; direction, bounds, scrollbar, anchors, auto-scroll and absolute/relative offset route |
 | `grid` | responsive grid; optional positive `i64` `columns` (default 3) |
 | `stack` | overlays children; optional bool `clip` |
 | `text` | one `str`, `i64`, or `f64` expression |
@@ -594,7 +607,7 @@ The implemented families are:
 `cargo check` so rustc verifies extern items and generated iced types. A missing
 Rust item is named by its `crate::module::item` path in rustc's diagnostic. A
 future source-map layer may remap those rustc spans into the precise extern line;
-0.8 does not claim that remapping.
+0.9 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -614,7 +627,7 @@ skips `.git` and `target`.
 
 ## 12. Current coverage and escape hatches
 
-The 0.8 native backend is enough for CRUD/settings-style screens, selection,
+The 0.9 native backend is enough for CRUD/settings-style screens, selection,
 media, hover
 overlays, and common pointer events, not all of iced. It still lacks direct
 syntax for canvas, general overlays/modals, rich text
@@ -650,5 +663,6 @@ theme utilities, disabled controls, fallible asynchronous tasks, grid and stack
 layouts, toggles, sliders, progress, radio controls, rules, fixed spacing, an
 optional selection value, pick list and searchable combo box, extern and native
 tooltip/mouse-area components including pointer movement and wheel payloads,
-raster and SVG media, responsive/positioned content, visibility sensing, a
-clipboard task, and a raw-event subscription.
+raster and SVG media, configured scrolling with offset events,
+responsive/positioned content, visibility sensing, a clipboard task, and a
+raw-event subscription.

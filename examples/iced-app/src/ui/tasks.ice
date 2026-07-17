@@ -42,6 +42,10 @@ state
   pointer_x = 0.0
   pointer_y = 0.0
   scroll_pixels = false
+  scroll_x = 0.0
+  scroll_y = 0.0
+  scroll_relative_x = 0.0
+  scroll_relative_y = 0.0
 
 component TaskRow(task:Task, loading:bool)
   row #root @w-full items-center p-4 bg-surface border border-border rounded-lg
@@ -149,6 +153,12 @@ on native_scroll(x, y, pixels)
   pointer_y = y
   scroll_pixels = pixels
 
+on task_list_scrolled(x, y, relative_x, relative_y)
+  scroll_x = x
+  scroll_y = y
+  scroll_relative_x = relative_x
+  scroll_relative_y = relative_y
+
 subscribe
   app_events() -> external_event _
 
@@ -224,7 +234,7 @@ view
           text "Stack base" @text-sm text-muted
           text "Stack overlay" @text-sm text-foreground
 
-    scroll #task-list @w-full h-full
+    scroll #task-list direction=vertical width=fill height=fill bar=visible bar-width=8.0 bar-margin=2.0 scroller-width=6.0 bar-spacing=2.0 anchor-y=start auto=true scroll=task_list_scrolled
       col @w-full gap-2
         for task in tasks
           TaskRow(task, loading) #task(task.id)

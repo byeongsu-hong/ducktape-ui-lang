@@ -220,6 +220,42 @@ fn infer_view(
             if let Some(clip) = &options.clip {
                 require_type(&expr_type(clip, env, document, span)?, &Type::Bool, span)?;
             }
+            if let Some(scroll) = &options.scroll {
+                for length in [&scroll.width, &scroll.height].into_iter().flatten() {
+                    if let LengthValue::Fixed(value) = length {
+                        require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+                        require_literal_range(value, 0.0, None, "scroll size", span)?;
+                    }
+                }
+                for (value, label) in [
+                    (&scroll.bar_width, "scroll bar width"),
+                    (&scroll.bar_margin, "scroll bar margin"),
+                    (&scroll.scroller_width, "scroll scroller width"),
+                    (&scroll.bar_spacing, "scroll bar spacing"),
+                ] {
+                    if let Some(value) = value {
+                        require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+                        require_literal_range(value, 0.0, None, label, span)?;
+                    }
+                }
+                if let Some(auto_scroll) = &scroll.auto_scroll {
+                    require_type(
+                        &expr_type(auto_scroll, env, document, span)?,
+                        &Type::Bool,
+                        span,
+                    )?;
+                }
+                if let Some(route) = &scroll.route {
+                    infer_ordered_payload_route(
+                        route,
+                        &[Type::F64, Type::F64, Type::F64, Type::F64],
+                        env,
+                        document,
+                        signatures,
+                        "scroll viewport",
+                    )?;
+                }
+            }
             check_styles(styles, document, span, StyleTarget::Layout(*kind))?;
             for child in children {
                 infer_view(child, env, document, signatures, ids)?;
@@ -849,9 +885,20 @@ fn require_literal_range(
     label: &str,
     span: &Span,
 ) -> Result<(), Error> {
-    if let Expr::F64(value) = expr
-        && (*value < min || max.is_some_and(|max| *value > max))
-    {
+    let literal = match expr {
+        Expr::F64(value) => Some(*value),
+        Expr::Unary {
+            op: UnaryOp::Neg,
+            value,
+        } if matches!(value.as_ref(), Expr::F64(_)) => {
+            let Expr::F64(value) = value.as_ref() else {
+                unreachable!()
+            };
+            Some(-value)
+        }
+        _ => None,
+    };
+    if literal.is_some_and(|value| value < min || max.is_some_and(|max| value > max)) {
         return Err(Error::new(
             "E128",
             span,
@@ -1808,6 +1855,52 @@ view
         let error = analyze(source).unwrap_err();
         assert_eq!(error.code, "E129");
         assert!(error.message.contains("mouse move"));
+    }
+
+    #[test]
+    fn checks_scrollable_configuration_and_offsets() {
+        let source = r#"app Scrolling
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  absolute_x = 0.0
+  absolute_y = 0.0
+  relative_x = 0.0
+  relative_y = 0.0
+on scrolled(ax, ay, rx, ry)
+  absolute_x = ax
+  absolute_y = ay
+  relative_x = rx
+  relative_y = ry
+view
+  scroll #feed direction=both width=fill height=200.0 bar=hidden bar-width=8.0 bar-margin=2.0 scroller-width=6.0 bar-spacing=4.0 anchor-x=end anchor-y=start auto=true scroll=scrolled
+    col
+      text "Scrollable"
+"#;
+        let document = analyze(source).unwrap();
+        for param in &document.handlers[0].params {
+            assert_eq!(param.ty.display(), "f64");
+        }
+    }
+
+    #[test]
+    fn rejects_negative_scrollbar_size() {
+        let source = r#"app Scrolling
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+view
+  scroll bar-width=-1.0
+    text "Scrollable"
+"#;
+        let error = analyze(source).unwrap_err();
+        assert_eq!(error.code, "E128");
+        assert!(error.message.contains("scroll bar width"));
     }
 
     #[test]

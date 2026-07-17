@@ -513,6 +513,55 @@ pub enum Layout {
 pub struct LayoutOptions {
     pub columns: Option<Expr>,
     pub clip: Option<Expr>,
+    pub scroll: Option<ScrollOptions>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ScrollOptions {
+    pub direction: ScrollDirection,
+    pub width: Option<LengthValue>,
+    pub height: Option<LengthValue>,
+    pub hidden_bar: bool,
+    pub bar_width: Option<Expr>,
+    pub bar_margin: Option<Expr>,
+    pub scroller_width: Option<Expr>,
+    pub bar_spacing: Option<Expr>,
+    pub anchor_x: ScrollAnchor,
+    pub anchor_y: ScrollAnchor,
+    pub auto_scroll: Option<Expr>,
+    pub route: Option<Route>,
+}
+
+impl Default for ScrollOptions {
+    fn default() -> Self {
+        Self {
+            direction: ScrollDirection::Vertical,
+            width: None,
+            height: None,
+            hidden_bar: false,
+            bar_width: None,
+            bar_margin: None,
+            scroller_width: None,
+            bar_spacing: None,
+            anchor_x: ScrollAnchor::Start,
+            anchor_y: ScrollAnchor::Start,
+            auto_scroll: None,
+            route: None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ScrollDirection {
+    Vertical,
+    Horizontal,
+    Both,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ScrollAnchor {
+    Start,
+    End,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
