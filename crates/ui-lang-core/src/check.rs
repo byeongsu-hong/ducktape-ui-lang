@@ -2050,6 +2050,7 @@ fn infer_subscriptions(
 ) -> Result<(), Error> {
     for subscription in &document.subscriptions {
         let ordered_payloads = match &subscription.source {
+            SubscriptionSource::Every { .. } => Some(Vec::new()),
             SubscriptionSource::InputMethod(event) => Some(match event {
                 InputMethodEvent::Opened | InputMethodEvent::Closed => Vec::new(),
                 InputMethodEvent::Preedit => vec![
@@ -2087,6 +2088,7 @@ fn infer_subscriptions(
         };
         if let Some(payloads) = ordered_payloads {
             let label = match &subscription.source {
+                SubscriptionSource::Every { .. } => "timer subscription",
                 SubscriptionSource::InputMethod(_) => "input-method subscription",
                 SubscriptionSource::Mouse(_) => "mouse subscription",
                 SubscriptionSource::Touch(_) => "touch subscription",
@@ -2104,6 +2106,7 @@ fn infer_subscriptions(
             continue;
         }
         let output = match &subscription.source {
+            SubscriptionSource::Every { .. } => unreachable!("handled above"),
             SubscriptionSource::Extern { function, args } => {
                 let source = extern_function(
                     document,
@@ -3139,6 +3142,22 @@ fn type_error(span: &Span, expected: &Type, actual: &Type) -> Error {
 #[cfg(test)]
 mod tests {
     use crate::analyze;
+
+    #[test]
+    fn checks_native_timer_subscription() {
+        let source = include_str!("../../../examples/iced-app/src/ui/timer.ice");
+        analyze(source).unwrap();
+
+        let error =
+            analyze(&source.replace("every 250ms -> tick", "every 250ms -> tick _")).unwrap_err();
+        assert_eq!(error.code, "E129");
+        assert!(error.message.contains("expects 0 payloads"));
+
+        for invalid in ["0ms", "1m", "1.5s"] {
+            let error = analyze(&source.replace("250ms", invalid)).unwrap_err();
+            assert_eq!(error.code, "E084");
+        }
+    }
 
     #[test]
     fn checks_all_native_input_method_subscription_payloads() {

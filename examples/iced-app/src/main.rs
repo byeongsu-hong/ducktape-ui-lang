@@ -148,3 +148,8 @@ mod touch_events {
 mod input_method_events {
     ui_lang::include_app!("src/ui/input_method_events.ice");
 }
+
+#[cfg(test)]
+mod timer {
+    ui_lang::include_app!("src/ui/timer.ice");
+}

@@ -631,12 +631,16 @@ fn parse_subscription(line: &Line) -> Result<Subscription, Error> {
         return Err(error(
             "E084",
             line,
-            "subscription uses `name(args)`, `input-method event`, `keyboard event`, `mouse event`, `touch event`, `window event`, or `system theme` before `-> handler _`",
+            "subscription uses `name(args)`, `every duration`, `input-method event`, `keyboard event`, `mouse event`, `touch event`, `window event`, or `system theme` before `-> handler _`",
         ));
     };
     let call = call.trim();
     let source = if call == "system theme" {
         SubscriptionSource::SystemTheme
+    } else if let Some(duration) = call.strip_prefix("every ") {
+        SubscriptionSource::Every {
+            milliseconds: parse_duration(duration.trim(), line)?,
+        }
     } else if let Some(event) = call.strip_prefix("input-method ") {
         SubscriptionSource::InputMethod(match event.trim() {
             "opened" => InputMethodEvent::Opened,
@@ -722,6 +726,27 @@ fn parse_subscription(line: &Line) -> Result<Subscription, Error> {
         route: parse_route(route.trim(), line)?,
         span: Span::line(line.number),
     })
+}
+
+fn parse_duration(source: &str, line: &Line) -> Result<u64, Error> {
+    let (number, multiplier) = source
+        .strip_suffix("ms")
+        .map(|number| (number, 1))
+        .or_else(|| source.strip_suffix('s').map(|number| (number, 1_000)))
+        .ok_or_else(|| {
+            error(
+                "E084",
+                line,
+                "duration must use `ms` or `s`, like `500ms` or `2s`",
+            )
+        })?;
+    let value = number
+        .parse::<u64>()
+        .ok()
+        .and_then(|number| number.checked_mul(multiplier))
+        .filter(|value| *value > 0)
+        .ok_or_else(|| error("E084", line, "duration must be a positive whole number"))?;
+    Ok(value)
 }
 
 fn parse_state(line: &Line) -> Result<State, Error> {
