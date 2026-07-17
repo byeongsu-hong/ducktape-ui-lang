@@ -1605,9 +1605,15 @@ fn lazy_hashable(ty: &Type) -> bool {
     match ty {
         Type::Bool | Type::I64 | Type::Str | Type::Named(_) => true,
         Type::List(inner) | Type::Option(inner) => lazy_hashable(inner),
-        Type::F64 | Type::Combo(_) | Type::Markdown | Type::Editor | Type::Unit | Type::Unknown => {
-            false
-        }
+        Type::F64
+        | Type::Combo(_)
+        | Type::Markdown
+        | Type::Editor
+        | Type::KeyPress
+        | Type::KeyRelease
+        | Type::KeyModifiers
+        | Type::Unit
+        | Type::Unknown => false,
     }
 }
 
@@ -1905,19 +1911,21 @@ fn infer_subscriptions(
     signatures: &mut HashMap<String, Vec<Option<Type>>>,
 ) -> Result<(), Error> {
     for subscription in &document.subscriptions {
-        let source = extern_function(
-            document,
-            &subscription.function,
-            ExternKind::Subscription,
-            &subscription.span,
-        )?;
-        check_call_args(
-            source,
-            &subscription.args,
-            states,
-            document,
-            &subscription.span,
-        )?;
+        let output = match &subscription.source {
+            SubscriptionSource::Extern { function, args } => {
+                let source = extern_function(
+                    document,
+                    function,
+                    ExternKind::Subscription,
+                    &subscription.span,
+                )?;
+                check_call_args(source, args, states, document, &subscription.span)?;
+                source.output.clone()
+            }
+            SubscriptionSource::Keyboard(KeyboardEvent::Press) => Type::KeyPress,
+            SubscriptionSource::Keyboard(KeyboardEvent::Release) => Type::KeyRelease,
+            SubscriptionSource::Keyboard(KeyboardEvent::Modifiers) => Type::KeyModifiers,
+        };
         if subscription
             .route
             .args
@@ -1932,7 +1940,7 @@ fn infer_subscriptions(
         }
         infer_route(
             &subscription.route,
-            Some(source.output.clone()),
+            Some(output),
             states,
             document,
             signatures,
@@ -2233,32 +2241,7 @@ pub(crate) fn expr_type(
                 .cloned()
                 .ok_or_else(|| Error::new("E150", span, format!("unknown value `{}`", path[0])))?;
             for field in &path[1..] {
-                let Type::Named(name) = &ty else {
-                    return Err(Error::new(
-                        "E151",
-                        span,
-                        format!("type `{}` has no field `{field}`", ty.display()),
-                    ));
-                };
-                let item = document
-                    .structs
-                    .iter()
-                    .find(|item| item.name == *name)
-                    .ok_or_else(|| {
-                        Error::new("E151", span, format!("unknown extern struct `{name}`"))
-                    })?;
-                ty = item
-                    .fields
-                    .iter()
-                    .find(|(name, _)| name == field)
-                    .map(|(_, ty)| ty.clone())
-                    .ok_or_else(|| {
-                        Error::new(
-                            "E151",
-                            span,
-                            format!("struct `{name}` has no field `{field}`"),
-                        )
-                    })?;
+                ty = field_type(&ty, field, document, span)?;
             }
             Ok(ty)
         }
@@ -2371,6 +2354,58 @@ pub(crate) fn expr_type(
             }
         }
     }
+}
+
+fn field_type(ty: &Type, field: &str, document: &Document, span: &Span) -> Result<Type, Error> {
+    let found = match ty {
+        Type::Named(name) => {
+            let item = document
+                .structs
+                .iter()
+                .find(|item| item.name == *name)
+                .ok_or_else(|| {
+                    Error::new("E151", span, format!("unknown extern struct `{name}`"))
+                })?;
+            return item
+                .fields
+                .iter()
+                .find(|(name, _)| name == field)
+                .map(|(_, ty)| ty.clone())
+                .ok_or_else(|| {
+                    Error::new(
+                        "E151",
+                        span,
+                        format!("struct `{name}` has no field `{field}`"),
+                    )
+                });
+        }
+        Type::KeyPress => match field {
+            "key" | "modified_key" | "physical_key" | "location" => Some(Type::Str),
+            "modifiers" => Some(Type::KeyModifiers),
+            "text" => Some(Type::Option(Box::new(Type::Str))),
+            "repeat" => Some(Type::Bool),
+            _ => None,
+        },
+        Type::KeyRelease => match field {
+            "key" | "modified_key" | "physical_key" | "location" => Some(Type::Str),
+            "modifiers" => Some(Type::KeyModifiers),
+            _ => None,
+        },
+        Type::KeyModifiers => match field {
+            "shift" | "control" | "alt" | "logo" | "command" | "jump" | "macos_command" => {
+                Some(Type::Bool)
+            }
+            _ => None,
+        },
+        _ => None,
+    };
+    found.ok_or_else(|| {
+        Error::new(
+            "E151",
+            span,
+            format!("type `{}` has no field `{field}`", ty.display()),
+        )
+    })
 }
 
 fn check_id(
@@ -3657,6 +3692,46 @@ view
 "#;
         let error = analyze(source).unwrap_err();
         assert_eq!(error.code, "E127");
+    }
+
+    #[test]
+    fn checks_native_keyboard_payload_fields() {
+        let source = r#"app Shortcuts
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  key = ""
+  typed:str? = none
+  repeat = false
+  command = false
+on pressed(event)
+  key = event.key
+  typed = event.text
+  repeat = event.repeat
+  command = event.modifiers.command
+on released(event)
+  key = event.physical_key
+  command = event.modifiers.jump
+on modifiers_changed(modifiers)
+  command = modifiers.macos_command
+subscribe
+  keyboard press -> pressed _
+  keyboard release -> released _
+  keyboard modifiers -> modifiers_changed _
+view
+  text key
+"#;
+        let document = analyze(source).unwrap();
+        assert_eq!(document.handlers[0].params[0].ty.display(), "key-press");
+        assert_eq!(document.handlers[1].params[0].ty.display(), "key-release");
+        assert_eq!(document.handlers[2].params[0].ty.display(), "key-modifiers");
+
+        let error = analyze(&source.replace("event.physical_key", "event.repeat")).unwrap_err();
+        assert_eq!(error.code, "E151");
+        assert!(error.message.contains("key-release"));
     }
 
     #[test]

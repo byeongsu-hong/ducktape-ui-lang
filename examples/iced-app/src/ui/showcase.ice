@@ -49,6 +49,9 @@ state
   scroll_relative_y = 0.0
   help:markdown = "# Ice **renders** [iced docs](https://iced.rs)"
   notes:editor = "fn main() { println!(\"ice\"); }"
+  last_key = "none"
+  command_down = false
+  key_repeat = false
 
 component TaskRow(task:Task, loading:bool)
   row #root @w-full items-center p-4 bg-surface border border-border rounded-lg
@@ -167,8 +170,23 @@ on task_list_scrolled(x, y, relative_x, relative_y)
 
 on docs_link(url)
 
+on key_pressed(event)
+  last_key = event.key
+  command_down = event.modifiers.command
+  key_repeat = event.repeat
+
+on key_released(event)
+  last_key = event.key
+  command_down = event.modifiers.command
+
+on key_modifiers_changed(modifiers)
+  command_down = modifiers.command
+
 subscribe
   app_events() -> external_event _
+  keyboard press -> key_pressed _
+  keyboard release -> key_released _
+  keyboard modifiers -> key_modifiers_changed _
 
 view
   col @w-full h-full p-6 gap-6 bg-background
@@ -176,6 +194,7 @@ view
       text "Tasks" @text-2xl font-bold text-foreground
       lazy tasks as cached_tasks
         text len(cached_tasks) @text-sm text-muted
+      text last_key @text-sm text-muted
 
     row @w-full items-center gap-3
       input "New task" #new-task <-> draft hint="What needs doing?" disabled=loading secure=false submit=submit paste=draft_pasted width=fill text-size=14.0 line-height=1.2 align=left font=default icon="+" icon-side=left icon-size=14.0 icon-spacing=6.0 @px-4 py-3 bg-surface border border-border rounded-lg focus:border-primary

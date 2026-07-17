@@ -13,6 +13,7 @@ pub fn generate(document: &Document, source_path: &str) -> Result<String, Error>
         rust_string(source_path)
     )
     .unwrap();
+    generate_keyboard_types(&mut out, document);
 
     writeln!(out, "#[derive(Debug)]\npub struct {} {{", document.app).unwrap();
     for qr in &document.qr_codes {
@@ -86,6 +87,73 @@ pub fn generate(document: &Document, source_path: &str) -> Result<String, Error>
     generate_view(&mut out, document, &message)?;
     writeln!(out, "}}").unwrap();
     Ok(out)
+}
+
+fn generate_keyboard_types(out: &mut String, document: &Document) {
+    if !document
+        .subscriptions
+        .iter()
+        .any(|subscription| matches!(&subscription.source, SubscriptionSource::Keyboard(_)))
+    {
+        return;
+    }
+    out.push_str(
+        r#"#[derive(Debug, Clone, Copy)]
+struct __IceKeyModifiers {
+    shift: bool,
+    control: bool,
+    alt: bool,
+    logo: bool,
+    command: bool,
+    jump: bool,
+    macos_command: bool,
+}
+#[derive(Debug, Clone)]
+struct __IceKeyPress {
+    key: ::std::string::String,
+    modified_key: ::std::string::String,
+    physical_key: ::std::string::String,
+    location: ::std::string::String,
+    modifiers: __IceKeyModifiers,
+    text: ::std::option::Option<::std::string::String>,
+    repeat: bool,
+}
+#[derive(Debug, Clone)]
+struct __IceKeyRelease {
+    key: ::std::string::String,
+    modified_key: ::std::string::String,
+    physical_key: ::std::string::String,
+    location: ::std::string::String,
+    modifiers: __IceKeyModifiers,
+}
+fn __ice_key(value: ::iced::keyboard::Key) -> ::std::string::String {
+    match value {
+        ::iced::keyboard::Key::Named(value) => ::std::format!("{value:?}"),
+        ::iced::keyboard::Key::Character(value) => value.to_string(),
+        ::iced::keyboard::Key::Unidentified => "Unidentified".to_owned(),
+    }
+}
+fn __ice_key_modifiers(value: ::iced::keyboard::Modifiers) -> __IceKeyModifiers {
+    __IceKeyModifiers {
+        shift: value.shift(),
+        control: value.control(),
+        alt: value.alt(),
+        logo: value.logo(),
+        command: value.command(),
+        jump: value.jump(),
+        macos_command: value.macos_command(),
+    }
+}
+fn __ice_key_location(value: ::iced::keyboard::Location) -> ::std::string::String {
+    match value {
+        ::iced::keyboard::Location::Standard => "standard",
+        ::iced::keyboard::Location::Left => "left",
+        ::iced::keyboard::Location::Right => "right",
+        ::iced::keyboard::Location::Numpad => "numpad",
+    }.to_owned()
+}
+"#,
+    );
 }
 
 fn generate_extern_probes(out: &mut String, document: &Document) {
@@ -320,32 +388,47 @@ fn generate_subscription(
     .unwrap();
     writeln!(out, "::iced::Subscription::batch([").unwrap();
     for subscription in &document.subscriptions {
-        let source = document
-            .functions
-            .iter()
-            .find(|item| {
-                item.name == subscription.function && item.kind == ExternKind::Subscription
-            })
-            .ok_or_else(|| {
-                Error::new(
-                    "E130",
-                    &subscription.span,
-                    format!("unknown extern subscription `{}`", subscription.function),
-                )
-            })?;
-        let args = subscription
-            .args
-            .iter()
-            .map(|arg| expr_code(arg, &env, document, ValueMode::Owned))
-            .collect::<Result<Vec<_>, _>>()?
-            .join(", ");
         let route = route_code(&subscription.route, "__value", &env, document, message)?;
-        writeln!(
-            out,
-            "{}({args}).map(move |__value| {route}),",
-            source.rust_path
-        )
-        .unwrap();
+        match &subscription.source {
+            SubscriptionSource::Extern { function, args } => {
+                let source = document
+                    .functions
+                    .iter()
+                    .find(|item| item.name == *function && item.kind == ExternKind::Subscription)
+                    .ok_or_else(|| {
+                        Error::new(
+                            "E130",
+                            &subscription.span,
+                            format!("unknown extern subscription `{function}`"),
+                        )
+                    })?;
+                let args = args
+                    .iter()
+                    .map(|arg| expr_code(arg, &env, document, ValueMode::Owned))
+                    .collect::<Result<Vec<_>, _>>()?
+                    .join(", ");
+                writeln!(
+                    out,
+                    "{}({args}).map(move |__value| {route}),",
+                    source.rust_path
+                )
+                .unwrap();
+            }
+            SubscriptionSource::Keyboard(event) => {
+                let filter = match event {
+                    KeyboardEvent::Press => {
+                        "match __event { ::iced::keyboard::Event::KeyPressed { key, modified_key, physical_key, location, modifiers, text, repeat } => ::std::option::Option::Some(__IceKeyPress { key: __ice_key(key), modified_key: __ice_key(modified_key), physical_key: ::std::format!(\"{physical_key:?}\"), location: __ice_key_location(location), modifiers: __ice_key_modifiers(modifiers), text: text.map(|value| value.to_string()), repeat }), _ => ::std::option::Option::None }"
+                    }
+                    KeyboardEvent::Release => {
+                        "match __event { ::iced::keyboard::Event::KeyReleased { key, modified_key, physical_key, location, modifiers } => ::std::option::Option::Some(__IceKeyRelease { key: __ice_key(key), modified_key: __ice_key(modified_key), physical_key: ::std::format!(\"{physical_key:?}\"), location: __ice_key_location(location), modifiers: __ice_key_modifiers(modifiers) }), _ => ::std::option::Option::None }"
+                    }
+                    KeyboardEvent::Modifiers => {
+                        "match __event { ::iced::keyboard::Event::ModifiersChanged(modifiers) => ::std::option::Option::Some(__ice_key_modifiers(modifiers)), _ => ::std::option::Option::None }"
+                    }
+                };
+                writeln!(out, "::iced::keyboard::listen().filter_map(|__event| {{ {filter} }}).map(move |__value| {route}),").unwrap();
+            }
+        }
     }
     writeln!(out, "])\n}}").unwrap();
     Ok(())
@@ -4423,6 +4506,43 @@ view
         assert!(generated.contains("focus_next().map(|value| __InteropMessage::Focused)"));
         assert!(generated.contains("save().map(|result| match result"));
         assert!(generated.contains("Result::Err(error) => __InteropMessage::Failed(error)"));
+    }
+
+    #[test]
+    fn lowers_native_keyboard_subscriptions() {
+        let source = r#"app Shortcuts
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  key = ""
+  command = false
+on pressed(event)
+  key = event.key
+  command = event.modifiers.command
+on released(event)
+  key = event.key
+on modifiers_changed(modifiers)
+  command = modifiers.command
+subscribe
+  keyboard press -> pressed _
+  keyboard release -> released _
+  keyboard modifiers -> modifiers_changed _
+view
+  text key
+"#;
+        let generated = compile(source, "shortcuts.ice").unwrap();
+        assert!(generated.contains("struct __IceKeyPress"));
+        assert!(generated.contains("struct __IceKeyRelease"));
+        assert!(generated.contains("struct __IceKeyModifiers"));
+        assert!(generated.contains("::iced::keyboard::listen().filter_map"));
+        assert!(generated.contains("::iced::keyboard::Event::KeyPressed"));
+        assert!(generated.contains("::iced::keyboard::Event::KeyReleased"));
+        assert!(generated.contains("::iced::keyboard::Event::ModifiersChanged"));
+        assert!(generated.contains("self.key = event.key.clone()"));
+        assert!(generated.contains("self.command = event.modifiers.command.clone()"));
     }
 
     #[test]

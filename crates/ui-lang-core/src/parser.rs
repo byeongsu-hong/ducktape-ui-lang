@@ -361,13 +361,32 @@ fn parse_subscription(line: &Line) -> Result<Subscription, Error> {
         return Err(error(
             "E084",
             line,
-            "subscription uses `name(args) -> handler _`",
+            "subscription uses `name(args) -> handler _` or `keyboard event -> handler _`",
         ));
     };
-    let (function, args) = parse_signature(call.trim(), line)?;
+    let call = call.trim();
+    let source = if let Some(event) = call.strip_prefix("keyboard ") {
+        SubscriptionSource::Keyboard(match event.trim() {
+            "press" => KeyboardEvent::Press,
+            "release" => KeyboardEvent::Release,
+            "modifiers" => KeyboardEvent::Modifiers,
+            _ => {
+                return Err(error(
+                    "E084",
+                    line,
+                    "keyboard event must be press, release, or modifiers",
+                ));
+            }
+        })
+    } else {
+        let (function, args) = parse_signature(call, line)?;
+        SubscriptionSource::Extern {
+            function,
+            args: parse_expr_list(&args, line)?,
+        }
+    };
     Ok(Subscription {
-        function,
-        args: parse_expr_list(&args, line)?,
+        source,
         route: parse_route(route.trim(), line)?,
         span: Span::line(line.number),
     })

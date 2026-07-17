@@ -1,4 +1,4 @@
-# Ice Language Specification 0.32
+# Ice Language Specification 0.33
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.32 syntax.
+marked “planned” is a design constraint, not accepted 0.33 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.32.
+  block comments are not part of 0.33.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -168,6 +168,7 @@ statement      = name "=" expr
 subscribe_decl = "subscribe" INDENT subscription_use+
 subscription_use
                = call "->" route
+               | "keyboard" ("press" | "release" | "modifiers") "->" route
 
 view_decl      = "view" INDENT node
 
@@ -625,7 +626,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.32 message payloads.
+`Clone` for 0.33 message payloads.
 
 Three typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
@@ -846,12 +847,25 @@ Subscriptions are declared separately from activation:
 ```ice
 subscribe
   app_events() -> external_event _
+  keyboard press -> key_pressed _
+  keyboard release -> key_released _
+  keyboard modifiers -> key_modifiers_changed _
 ```
 
 The compiler batches active subscriptions and wires the application builder.
 Subscription routes accept only `_`; handlers can read current state after the
 event arrives. This prevents generated `'static` subscription closures from
 capturing a borrowed application state.
+
+Native keyboard subscriptions infer structured payloads. Press events expose
+`key`, `modified_key`, `physical_key`, `location`, `modifiers`, optional `text`,
+and `repeat`; release events expose the same fields except `text` and `repeat`.
+Modifier payloads expose `shift`, `control`, `alt`, `logo`, `command`, `jump`,
+and `macos_command`. The nested `event.modifiers` value has that same shape.
+Logical character keys keep their text, named and physical keys use their iced
+names, and locations are `standard`, `left`, `right`, or `numpad`. Like
+`iced::keyboard::listen`, these subscriptions receive keyboard events that no
+widget captured.
 
 ### IDs
 
@@ -951,7 +965,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 0.32 does not claim that remapping.
+extern line; 0.33 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -972,11 +986,10 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 0.32 native backend is enough for CRUD/settings-style screens, selection,
+The 0.33 native backend is enough for CRUD/settings-style screens, selection,
 media, hover
 overlays, and common pointer events, not all of iced. It still lacks direct
-syntax for canvas, general overlays/modals, rich text
-and text editors, widget operations, multiple
+syntax for canvas, general overlays/modals, rich text, widget operations, multiple
 windows, and custom widgets. [`COVERAGE.md`](COVERAGE.md) is the exact versioned
 ledger.
 
@@ -1006,7 +1019,7 @@ compile-tested widget example is
 [`examples/iced-app/src/ui/showcase.ice`](examples/iced-app/src/ui/showcase.ice).
 Together they exercise
 state inference, typed extern structs/functions, mount and result handlers,
-direct input/editor binding, `if`, `for`, native keyed columns and lazy subtrees, parsed Markdown, structured tables, pure components, structured slot composition,
+direct input/editor binding, typed keyboard subscriptions, `if`, `for`, native keyed columns and lazy subtrees, parsed Markdown, structured tables, pure components, structured slot composition,
 dynamic component IDs,
 theme utilities, disabled controls, fallible asynchronous tasks, complete
 wrapping row/column layouts, grids and fully sized underlay stacks, toggles,
