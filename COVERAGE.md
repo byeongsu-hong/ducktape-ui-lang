@@ -15,7 +15,7 @@ counts toward the row below.
 
 ## Typed system reachability
 
-Ice 0.64 has three checked Rust boundaries:
+Ice 0.65 has three checked Rust boundaries:
 
 | Boundary | Rust ABI | Covers |
 | --- | --- | --- |
@@ -62,7 +62,7 @@ public behavior has direct documented Ice syntax and tests.
 | `stack` | native | ordered children, all `Length` widths/heights, clipping and `push_under` base-layer behavior via `under=N` |
 | `svg` | partial | native path or UTF-8 memory source, all four iced length variants, fit, rotation, opacity and complete idle/hovered color style; gzip/binary memory sources and advanced classes missing |
 | `table` | native | typed cloned rows, arbitrary header/cell subtrees, automatic row/column identity scopes, all table width/padding/separator setters and all column width/alignment setters |
-| `text` | partial | native string/numeric text plus structured rich spans; Rich bounds, size, relative/absolute line height, font, alignment, wrapping, color and str link events; every concrete Span field including highlight border/per-corner radius/padding/underline/strike; arbitrary style classes and gradient span backgrounds remain |
+| `text` | partial | native string/numeric text plus structured rich spans; Rich bounds, size, relative/absolute line height, font, alignment, wrapping, color and str link events; every concrete Span field including solid/linear highlight background, border/per-corner radius/padding/underline/strike; arbitrary style classes remain |
 | `text_editor` | partial | owned/replaced app state, generated action application, ID, placeholder, width/height/min/max, typography, padding, wrapping, disabled mode and all five built-in highlight themes; component-owned bindings, custom key binding/highlighter and full status styles remain |
 | `text_input` | partial | native binding, hint, disabled/secure, ID, submit/paste, typed width/padding/size/line-height, alignment, complete font descriptors, icon and basic style; full style catalog missing |
 | `themer` | partial | native default/app/all 22 built-in themes, checked default text color and solid/linear background; arbitrary alternate Theme types missing |
