@@ -1147,7 +1147,7 @@ fn infer_view(
             }
             check_font(options.font.as_ref(), document, span)?;
             check_text_input_icon(options.icon.as_ref(), env, document, "input")?;
-            check_text_input_styles(&options.style, env, document, span)?;
+            check_text_input_styles(&options.style, env, document, span, "input")?;
             check_styles(styles, document, span, StyleTarget::Input)?;
         }
         ViewNode::Button {
@@ -1527,7 +1527,7 @@ fn infer_view(
             }
             check_font(options.font.as_ref(), document, span)?;
             check_text_input_icon(options.icon.as_ref(), env, document, "combo")?;
-            check_text_input_styles(&options.style, env, document, span)?;
+            check_text_input_styles(&options.style, env, document, span, "combo")?;
             check_menu_style(options.menu_style.as_deref(), env, document, span)?;
             for (route, payload, label) in [
                 (Some(route), Some((**option_type).clone()), "selection"),
@@ -1829,6 +1829,7 @@ fn infer_view(
                 ));
             }
             check_font(options.font.as_ref(), document, span)?;
+            check_text_input_styles(&options.style, env, document, span, "editor")?;
         }
         ViewNode::Table {
             item,
@@ -2945,6 +2946,7 @@ fn check_text_input_styles(
     env: &HashMap<String, Type>,
     document: &Document,
     span: &Span,
+    widget: &str,
 ) -> Result<(), Error> {
     for style in [
         &styles.active,
@@ -2959,10 +2961,10 @@ fn check_text_input_styles(
         let style_span = style.span.as_ref().unwrap_or(span);
         check_container_style_options(&style.options, env, document, style_span, "E129")?;
         for (color, label) in [
-            (&style.icon_color, "input icon"),
-            (&style.placeholder_color, "input placeholder"),
-            (&style.value_color, "input value"),
-            (&style.selection_color, "input selection"),
+            (&style.icon_color, "icon"),
+            (&style.placeholder_color, "placeholder"),
+            (&style.value_color, "value"),
+            (&style.selection_color, "selection"),
         ] {
             if let Some(color) = color
                 && !valid_theme_color(color, document)
@@ -2970,7 +2972,7 @@ fn check_text_input_styles(
                 return Err(Error::new(
                     "E129",
                     style_span,
-                    format!("unknown {label} color `{color}`"),
+                    format!("unknown {widget} {label} color `{color}`"),
                 ));
             }
         }
@@ -4915,6 +4917,11 @@ state
   locked = false
 view
   editor #body <-> body placeholder="Write" width=640.0 height=fill min-height=80.0 max-height=240.0 size=14.0 line-height=1.3 padding=8.0 wrapping=word-or-glyph font=mono highlight="rs" highlight-theme=solarized-dark disabled=locked
+    active background=background border=foreground border-width=1.0 radius=4.0 placeholder=danger value=foreground selection=primary
+    hovered background=background border=primary placeholder=danger value=foreground selection=primary
+    focused background=background border=primary
+    focused-hovered background=background border=foreground
+    disabled background=background value=danger
 "#;
         let document = analyze(source).unwrap();
         assert_eq!(document.states[0].ty.display(), "editor");
@@ -4922,6 +4929,10 @@ view
         let error = analyze(&source.replace("min-height=80.0", "min-height=300.0")).unwrap_err();
         assert_eq!(error.code, "E139");
         assert!(error.message.contains("cannot exceed"));
+
+        let error = analyze(&source.replace("placeholder=danger", "icon=danger")).unwrap_err();
+        assert_eq!(error.code, "E099");
+        assert!(error.message.contains("unknown editor style property"));
     }
 
     #[test]

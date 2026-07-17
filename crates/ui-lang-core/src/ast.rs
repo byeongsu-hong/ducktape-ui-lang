@@ -851,6 +851,7 @@ pub struct TextEditorOptions {
     pub font: Option<FontPreset>,
     pub highlight: Option<String>,
     pub highlight_theme: Option<HighlightTheme>,
+    pub style: Box<TextInputStyleSet>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

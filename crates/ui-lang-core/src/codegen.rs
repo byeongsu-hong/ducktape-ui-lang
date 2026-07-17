@@ -1708,6 +1708,7 @@ fn render_node(
                 env,
                 document,
                 "style",
+                "text_input",
             )?);
             Ok(format!(
                 "::iced::widget::column![::iced::widget::text({}), {input}].spacing(6).into()",
@@ -2134,6 +2135,7 @@ fn render_node(
                 env,
                 document,
                 "input_style",
+                "text_input",
             )?);
             code.push_str(&menu_style_code(
                 options.menu_style.as_deref(),
@@ -2867,6 +2869,13 @@ fn render_node(
                 )
                 .unwrap();
             }
+            code.push_str(&text_input_style_code(
+                &options.style,
+                env,
+                document,
+                "style",
+                "text_editor",
+            )?);
             let variant = editor_variant(binding);
             let enabled = format!(
                 "{code}.on_action({message}::{variant} as fn(::iced::widget::text_editor::Action) -> {message})"
@@ -5830,6 +5839,7 @@ fn text_input_style_code(
     env: &HashMap<String, Binding>,
     document: &Document,
     method: &str,
+    widget: &str,
 ) -> Result<String, Error> {
     let overrides = [
         ("Active", &styles.active),
@@ -5842,11 +5852,11 @@ fn text_input_style_code(
         return Ok(String::new());
     }
     let mut code = format!(
-        ".{method}(move |__theme, __status| {{ let mut __style = ::iced::widget::text_input::default(__theme, __status); match __status {{"
+        ".{method}(move |__theme, __status| {{ let mut __style = ::iced::widget::{widget}::default(__theme, __status); match __status {{"
     );
     for (status, style) in overrides {
         let Some(style) = style else { continue };
-        write!(code, " ::iced::widget::text_input::Status::{status} => {{").unwrap();
+        write!(code, " ::iced::widget::{widget}::Status::{status} => {{").unwrap();
         append_text_input_style_overrides(&mut code, style, env, document)?;
         code.push_str(" }");
     }
@@ -6862,6 +6872,11 @@ state
   locked = false
 view
   editor #body <-> body placeholder="Write" width=640.0 height=fill min-height=80.0 max-height=240.0 size=14.0 line-height-px=18.0 padding=8.0 wrapping=word-or-glyph font=mono highlight="rs" highlight-theme=inspired-github disabled=locked
+    active background=background border=foreground border-width=1.0 radius=4.0 placeholder=danger value=foreground selection=primary
+    hovered background=background border=primary placeholder=danger value=foreground selection=primary
+    focused background=background border=primary
+    focused-hovered background=background border=foreground
+    disabled background=background value=danger
 "#;
         let generated = compile(source, "notes.ice").unwrap();
         assert!(generated.contains("body: ::iced::widget::text_editor::Content::with_text"));
@@ -6878,6 +6893,10 @@ view
         assert!(
             generated.contains(".highlight(\"rs\", ::iced::highlighter::Theme::InspiredGitHub)")
         );
+        assert!(generated.contains("::iced::widget::text_editor::default"));
+        assert!(generated.contains("text_editor::Status::Focused { is_hovered: true }"));
+        assert!(generated.contains("__style.placeholder ="));
+        assert!(generated.contains("__style.selection ="));
         assert!(generated.contains("if self.locked"));
         assert!(generated.contains(".on_action(__NotesMessage::__EditBody"));
     }

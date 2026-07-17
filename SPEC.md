@@ -1,4 +1,4 @@
-# Ice Language Specification 0.72
+# Ice Language Specification 0.73
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.72 syntax.
+marked “planned” is a design constraint, not accepted 0.73 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.72.
+  block comments are not part of 0.73.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -360,6 +360,7 @@ table_column_property = "width=" length
                       | "align-x=" ("left" | "center" | "right")
                       | "align-y=" ("top" | "center" | "bottom")
 editor_view    = "editor" id? "<->" name editor_property*
+                 (INDENT editor_status*)?
 editor_property = "placeholder=" string | "width=" expr | "height=" length
                 | ("min-height=" | "max-height=" | "size="
                   | "line-height=" | "line-height-px=" | "padding=") expr
@@ -369,6 +370,13 @@ editor_property = "placeholder=" string | "width=" expr | "height=" length
                 | "highlight-theme=" ("solarized-dark" | "base16-mocha"
                   | "base16-ocean" | "base16-eighties" | "inspired-github")
                 | "disabled=" expr
+editor_status  = ("active" | "hovered" | "focused"
+               | "focused-hovered" | "disabled") editor_style_property*
+editor_style_property
+               = "background=" background_value
+               | ("border=" | "placeholder=" | "value=" | "selection=") color_ref
+               | ("border-width=" | "radius=" | "radius-tl="
+                 | "radius-tr=" | "radius-br=" | "radius-bl=") expr
 column_property = flex_property | "max-width=" expr
 flex_property  = ("width=" | "height=") length | "spacing=" expr
                | ("padding=" | "padding-x=" | "padding-y="
@@ -656,7 +664,7 @@ default/centered/fixed position, visibility, resizability, close/minimize
 buttons, decorations, transparency, blur, level, and close-request behavior.
 Sizes, text size, and scale factor must be positive; minimum size cannot exceed
 maximum size. Window icons and platform-specific settings are not part of
-0.72.
+0.73.
 
 Media fixed lengths, rotation, opacity, scale, and radius are `f64`; rotation
 is radians, opacity is `0.0..=1.0`, scale is positive, and sizes/radius are
@@ -963,17 +971,21 @@ state
 
 view
   editor #notes <-> notes placeholder="Write notes" width=640.0 height=fill min-height=80.0 max-height=240.0 size=14.0 line-height=1.3 padding=8.0 wrapping=word font=mono highlight="rs" highlight-theme=base16-ocean disabled=loading
+    active background=surface border=border placeholder=muted value=foreground selection=primary
+    focused-hovered background=surface border=primary border-width=2.0 radius=8.0
+    disabled background=background border=border value=muted
 ```
 
 The compiler owns iced's `Action` message variant and calls `Content::perform`
 automatically, so editor actions never leak into application handlers. Width is
 fixed pixels, height accepts every iced `Length`, metrics are range-checked,
 and all four wrapping modes, declared or built-in fonts, relative/absolute line
-height, and all five iced highlighter themes are accepted. A disabled editor is
-rendered without `on_action`. An editor must live in the app view or in slot
-content supplied by the app; the checker rejects editor bindings declared
-inside a pure component because their generated actions must mutate app-owned
-state.
+height, and all five iced highlighter themes are accepted. Optional status lines
+cover every concrete Style field for active, hovered, focused, focused-hovered,
+and disabled editors. A disabled editor is rendered without `on_action`. An
+editor must live in the app view or in slot content supplied by the app; the
+checker rejects editor bindings declared inside a pure component because their
+generated actions must mutate app-owned state.
 
 Spaces inside a compound expression should be wrapped in parentheses when the
 expression shares a line with widget properties:
@@ -1020,7 +1032,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.72 message payloads.
+`Clone` for 0.73 message payloads.
 
 Three typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
@@ -1178,7 +1190,7 @@ The implemented native nodes are:
 | `lazy` | caches one owned static child subtree by a checked hashable dependency |
 | `markdown` | renders owned parsed content with all text/heading/code sizes, spacing and str link events |
 | `table` | maps typed rows into arbitrary structured headers/cells with complete sizing, padding, separator and alignment options |
-| `editor` | binds owned multi-line content to generated iced actions with sizing, typography, wrapping and built-in highlighting |
+| `editor` | binds owned multi-line content to generated iced actions with sizing, typography, wrapping, built-in highlighting and every concrete status style field |
 
 `if` and `for` are child control-flow nodes inside a layout. There is no virtual
 DOM or runtime reconciliation layer; the iced backend constructs the current
@@ -1562,7 +1574,7 @@ weight, stretch, and style variant is accepted. At most one declaration may be
 the application default. `font=default` and `font=mono` remain built-ins;
 declared fonts also work on text, rich text and spans, input, editor, checkbox,
 toggler, radio, pick, combo, and their custom icons. Font
-byte loading is not part of 0.72.
+byte loading is not part of 0.73.
 
 Widget operation tasks target checked static IDs in the app view:
 
@@ -1582,7 +1594,7 @@ snap/end; and absolute scroll-to/scroll-by. Effects have no route and
 non-negative `i64`; relative offsets are `f64` in `0.0..=1.0`; absolute
 offsets are unrestricted `f64`. Targets must be real static IDs in the app
 scope. Repeated/component scopes and the feature-gated selector API remain
-outside 0.72.
+outside 0.73.
 
 Persistent pane grids expose their native layout-state operations directly in
 handlers:
@@ -1629,7 +1641,7 @@ and constraints, resizability, maximize/minimize state, position and movement,
 all modes, decorations, user attention, focus, level, system menu, mouse
 passthrough, monitor size, and automatic tabbing. Positive sizes and bool
 arguments are checked before Rust generation. New-window IDs, open/oldest/latest,
-icons, raw handles, screenshots, and callbacks remain outside 0.72.
+icons, raw handles, screenshots, and callbacks remain outside 0.73.
 
 Every iced window event has a direct subscription form:
 
@@ -1782,7 +1794,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 0.72 does not claim that remapping.
+extern line; 0.73 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -1803,7 +1815,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 0.72 native backend is enough for CRUD/settings-style screens, selection,
+The 0.73 native backend is enough for CRUD/settings-style screens, selection,
 media, hover
 overlays, and common pointer events, not all of iced. It still lacks direct
 syntax for canvas, arbitrary custom overlays, multiple
