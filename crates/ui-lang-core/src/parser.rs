@@ -1225,6 +1225,38 @@ fn parse_layout_options(kind: &str, parts: &[String], line: &Line) -> Result<Lay
                 ));
             }
             options.clip = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if kind == "stack"
+            && let Some(value) = part.strip_prefix("width=")
+        {
+            if options.width.is_some() {
+                return Err(error(
+                    "E074",
+                    line,
+                    format!("invalid layout property `{part}`"),
+                ));
+            }
+            options.width = Some(parse_length(value, line)?);
+        } else if kind == "stack"
+            && let Some(value) = part.strip_prefix("height=")
+        {
+            if options.height.is_some() {
+                return Err(error(
+                    "E074",
+                    line,
+                    format!("invalid layout property `{part}`"),
+                ));
+            }
+            options.height = Some(parse_length(value, line)?);
+        } else if kind == "stack"
+            && let Some(value) = part.strip_prefix("under=")
+        {
+            options.under = value.parse().map_err(|_| {
+                error(
+                    "E074",
+                    line,
+                    "stack under must be an integer from 0 to 65535",
+                )
+            })?;
         } else if kind == "scroll" {
             let scroll = options.scroll.as_mut().expect("scroll options");
             if let Some(value) = part.strip_prefix("direction=") {

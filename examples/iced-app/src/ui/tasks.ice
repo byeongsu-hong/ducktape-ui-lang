@@ -241,7 +241,8 @@ view
         radio "List" value=0 selected=(view_mode == 0) -> view_mode_changed _
         radio "Board" value=1 selected=(view_mode == 1) -> view_mode_changed _
         space width=fill(2) height=8.0
-        stack clip=true @w-full p-4 bg-background rounded-lg
+        stack clip=true width=fill height=shrink under=1 @p-4 bg-background rounded-lg
+          text "Stack underlay" @text-sm text-muted
           text "Stack base" @text-sm text-muted
           text "Stack overlay" @text-sm text-foreground
 

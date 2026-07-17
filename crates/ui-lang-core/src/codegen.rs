@@ -1458,11 +1458,20 @@ fn render_layout(
         Layout::Stack => "stack",
         Layout::Scroll => unreachable!("scroll returned above"),
     };
-    write!(
-        body,
-        " let __layout = ::iced::widget::{constructor}(__children)"
-    )
-    .unwrap();
+    if kind == Layout::Stack && options.under > 0 {
+        write!(
+            body,
+            " let __under = ({} as usize).min(__children.len()); let __above = __children.split_off(__under); let __layout = __above.into_iter().fold(::iced::widget::Stack::new(), |__stack, __child| __stack.push(__child)); let __layout = __children.into_iter().rev().fold(__layout, |__stack, __child| __stack.push_under(__child))",
+            options.under
+        )
+        .unwrap();
+    } else {
+        write!(
+            body,
+            " let __layout = ::iced::widget::{constructor}(__children)"
+        )
+        .unwrap();
+    }
     if let Some(gap) = style.gap {
         write!(body, ".spacing({gap})").unwrap();
     }
@@ -1496,6 +1505,12 @@ fn render_layout(
                 expr_code(clip, env, document, ValueMode::Owned)?
             )
             .unwrap();
+        }
+        if let Some(width) = &options.width {
+            write!(body, ".width({})", length_code(width, env, document)?).unwrap();
+        }
+        if let Some(height) = &options.height {
+            write!(body, ".height({})", length_code(height, env, document)?).unwrap();
         }
         append_size(&mut body, &style);
     }
@@ -2947,7 +2962,7 @@ view
     rule horizontal fill=pad(4)
     rule horizontal fill=pad(4,8)
     space width=fill(2) height=shrink
-    stack clip=true
+    stack clip=true width=fill(2) height=120.0 under=1
       text "base"
       text "overlay"
 "#;
@@ -2984,7 +2999,13 @@ view
         assert!(generated.contains(
             "::iced::widget::space().width(::iced::Length::FillPortion(2)).height(::iced::Shrink)"
         ));
-        assert!(generated.contains("::iced::widget::stack(__children).clip(true)"));
+        assert!(generated.contains("__children.split_off(__under)"));
+        assert!(generated.contains("::iced::widget::Stack::new()"));
+        assert!(generated.contains("__stack.push_under(__child)"));
+        assert!(
+            generated
+                .contains(".clip(true).width(::iced::Length::FillPortion(2)).height(120.0 as f32)")
+        );
     }
 
     #[test]

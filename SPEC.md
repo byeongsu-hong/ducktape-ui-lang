@@ -1,4 +1,4 @@
-# Ice Language Specification 0.19
+# Ice Language Specification 0.20
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.19 syntax.
+marked “planned” is a design constraint, not accepted 0.20 syntax.
 
 ## 1. Design contract
 
@@ -79,7 +79,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.19.
+  block comments are not part of 0.20.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -158,7 +158,9 @@ node           = layout | text | input | button | checkbox | toggler
 layout         = ("col" | "row") id? styles? INDENT node+
                | "scroll" id? scroll_property* styles? INDENT node
                | "grid" id? ("columns=" expr)? styles? INDENT node+
-               | "stack" id? ("clip=" expr)? styles? INDENT node+
+               | "stack" id? stack_property* styles? INDENT node+
+stack_property = ("width=" | "height=") length | "clip=" expr
+               | "under=" u16
 scroll_property = "direction=" ("vertical" | "horizontal" | "both")
                 | ("width=" | "height=") length
                 | "bar=" ("visible" | "hidden")
@@ -390,6 +392,12 @@ delay is non-negative i64 milliseconds. `responsive at=N` chooses its first
 child below width N and its second child otherwise. This two-branch breakpoint
 form is the native subset of iced's arbitrary size-dependent closure.
 
+`stack` accepts every iced `Length` for width and height. Its first rendered
+child normally determines intrinsic size. `under=N` places the first N rendered
+children beneath that base without letting them determine intrinsic size,
+matching iced's `push_under`; values larger than the rendered child count simply
+leave the stack without an intrinsic base layer.
+
 Spaces inside a compound expression should be wrapped in parentheses when the
 expression shares a line with widget properties:
 
@@ -433,7 +441,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.19 message payloads.
+`Clone` for 0.20 message payloads.
 
 Three typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
@@ -558,7 +566,7 @@ The implemented native nodes are:
 | `row` | horizontal children |
 | `scroll` | one child; direction, bounds, scrollbar, anchors, auto-scroll and absolute/relative offset route |
 | `grid` | responsive grid; optional positive `i64` `columns` (default 3) |
-| `stack` | overlays children; optional bool `clip` |
+| `stack` | overlays children with typed width/height, optional clipping and `under=N` intrinsic-base control |
 | `text` | one `str`, `i64`, or `f64` expression with bounds, size/line-height, font, alignment, shaping, wrapping and checked color/weight styles |
 | `input` | required `str` binding; ID, hint, disabled/secure, submit/paste, sizing, alignment, default/mono font and icon properties |
 | `button` | string label or one child; optional ID/disabled, typed size/padding/clip, required route |
@@ -722,7 +730,7 @@ The implemented families are:
 `cargo check` so rustc verifies extern items and generated iced types. A missing
 Rust item is named by its `crate::module::item` path in rustc's diagnostic. A
 future source-map layer may remap those rustc spans into the precise extern line;
-0.19 does not claim that remapping.
+0.20 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -742,7 +750,7 @@ skips `.git` and `target`.
 
 ## 12. Current coverage and escape hatches
 
-The 0.19 native backend is enough for CRUD/settings-style screens, selection,
+The 0.20 native backend is enough for CRUD/settings-style screens, selection,
 media, hover
 overlays, and common pointer events, not all of iced. It still lacks direct
 syntax for canvas, general overlays/modals, rich text
@@ -774,8 +782,9 @@ its Rust boundary in
 [`examples/iced-app/src/main.rs`](examples/iced-app/src/main.rs). It exercises
 state inference, typed extern structs/functions, mount and result handlers,
 direct input binding, `if`, `for`, a pure component, dynamic component IDs,
-theme utilities, disabled controls, fallible asynchronous tasks, grid and stack
-layouts, toggles, sliders, progress, radio controls, rules, fixed spacing, an
+theme utilities, disabled controls, fallible asynchronous tasks, grid layouts
+and fully sized underlay stacks, toggles, sliders, progress, radio controls,
+rules, fixed spacing, an
 optional selection value, pick list and searchable combo box, extern and native
 tooltip/mouse-area components including pointer movement and wheel payloads,
 raster and SVG media, configured scrolling with offset events,

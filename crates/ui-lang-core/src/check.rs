@@ -220,6 +220,12 @@ fn infer_view(
             if let Some(clip) = &options.clip {
                 require_type(&expr_type(clip, env, document, span)?, &Type::Bool, span)?;
             }
+            for length in [&options.width, &options.height].into_iter().flatten() {
+                if let LengthValue::Fixed(value) = length {
+                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+                    require_literal_range(value, 0.0, None, "stack size", span)?;
+                }
+            }
             if let Some(scroll) = &options.scroll {
                 for length in [&scroll.width, &scroll.height].into_iter().flatten() {
                     if let LengthValue::Fixed(value) = length {
@@ -2161,6 +2167,9 @@ view
     responsive at=600.0 width=fill height=40.0
       text "Narrow"
       text "Wide"
+    stack width=fill(2) height=120.0 clip=true under=1
+      text "Base"
+      text "Overlay"
     rule horizontal thickness=2.0 style=weak fill=percent(75.0) color=primary/50 radius=4.0 radius-tl=2.0 snap=false
     space width=fill(2) height=shrink
 "#;
@@ -2168,6 +2177,16 @@ view
         assert_eq!(document.handlers[0].params[0].ty.display(), "f64");
         assert_eq!(document.handlers[0].params[1].ty.display(), "f64");
         assert_eq!(document.handlers[1].params[0].ty.display(), "f64");
+
+        let bad_stack = source.replace("height=120.0 clip=true", "height=-1.0 clip=true");
+        let error = analyze(&bad_stack).unwrap_err();
+        assert_eq!(error.code, "E128");
+        assert!(error.message.contains("stack size"));
+
+        let bad_under = source.replace("under=1", "under=70000");
+        let error = analyze(&bad_under).unwrap_err();
+        assert_eq!(error.code, "E074");
+        assert!(error.message.contains("stack under"));
     }
 
     #[test]
