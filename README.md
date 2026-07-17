@@ -127,7 +127,7 @@ cargo fmt --all
 
 ## Status
 
-This is an executable v0.78 language slice, not yet a complete iced replacement.
+This is an executable v0.79 language slice, not yet a complete iced replacement.
 It implements typed extern data/actions, state, handlers, async tasks, pure
 components with named props, default children, named structural slots, and
 React-like qualified compound children, scoped IDs, relative
@@ -145,6 +145,8 @@ crop rectangles; byte and image values can cross typed Rust boundaries. The
 interactive viewer exposes iced's complete zoom/pan configuration.
 Declarative canvases draw native geometry, raster images, and SVGs, and can
 share named iced cache groups while retaining checked dependency invalidation.
+Their structured event directives cover every iced event family plus
+publish/capture and immediate or scheduled redraw actions.
 The main window also has checked runtime effect and query tasks.
 Native containers expose their complete concrete layout and surface style APIs,
 including linear backgrounds, per-corner borders, shadows, and pixel snapping.

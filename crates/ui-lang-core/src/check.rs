@@ -2273,6 +2273,7 @@ fn infer_view(
         ViewNode::Canvas {
             options,
             commands,
+            events,
             span,
         } => {
             for length in [&options.width, &options.height].into_iter().flatten() {
@@ -2343,6 +2344,59 @@ fn infer_view(
             canvas_env.insert("canvas_width".into(), Type::F64);
             canvas_env.insert("canvas_height".into(), Type::F64);
             check_canvas_commands(commands, &canvas_env, document)?;
+            let mut seen = HashSet::new();
+            for event in events {
+                let name = canvas_event_name(&event.source).ok_or_else(|| {
+                    Error::new("E190", &event.span, "invalid canvas event source")
+                })?;
+                if !seen.insert(name) {
+                    return Err(Error::new(
+                        "E190",
+                        &event.span,
+                        format!("duplicate canvas event `{name}`"),
+                    ));
+                }
+                let CanvasEventAction::Route(route) = &event.action else {
+                    continue;
+                };
+                if let Some(payloads) = ordered_subscription_payloads(&event.source) {
+                    infer_ordered_payload_route(
+                        route,
+                        &payloads,
+                        env,
+                        document,
+                        signatures,
+                        "canvas event",
+                    )?;
+                } else {
+                    let output = match event.source {
+                        SubscriptionSource::Keyboard(KeyboardEvent::Press) => Type::KeyPress,
+                        SubscriptionSource::Keyboard(KeyboardEvent::Release) => Type::KeyRelease,
+                        SubscriptionSource::Keyboard(KeyboardEvent::Modifiers) => {
+                            Type::KeyModifiers
+                        }
+                        _ => {
+                            return Err(Error::new(
+                                "E190",
+                                &event.span,
+                                "invalid canvas event source",
+                            ));
+                        }
+                    };
+                    if route
+                        .args
+                        .iter()
+                        .any(|arg| !matches!(arg, RouteArg::Payload))
+                    {
+                        return Err(Error::new(
+                            "E190",
+                            &event.span,
+                            "canvas keyboard event routes only accept `_`",
+                        ));
+                    }
+                    infer_route(route, Some(output), env, document, signatures)?;
+                }
+            }
         }
         ViewNode::Theme {
             text,
@@ -3736,6 +3790,81 @@ fn check_text_options(
     Ok(())
 }
 
+fn ordered_subscription_payloads(source: &SubscriptionSource) -> Option<Vec<Type>> {
+    Some(match source {
+        SubscriptionSource::Every { .. } => Vec::new(),
+        SubscriptionSource::InputMethod(event) => match event {
+            InputMethodEvent::Opened | InputMethodEvent::Closed => Vec::new(),
+            InputMethodEvent::Preedit => vec![
+                Type::Str,
+                Type::Option(Box::new(Type::I64)),
+                Type::Option(Box::new(Type::I64)),
+            ],
+            InputMethodEvent::Commit => vec![Type::Str],
+        },
+        SubscriptionSource::Mouse(event) => match event {
+            MouseEvent::Entered | MouseEvent::Left => Vec::new(),
+            MouseEvent::Moved => vec![Type::F64, Type::F64],
+            MouseEvent::Pressed | MouseEvent::Released => vec![Type::Str],
+            MouseEvent::Wheel => vec![Type::F64, Type::F64, Type::Bool],
+        },
+        SubscriptionSource::Touch(_) => vec![Type::Str, Type::F64, Type::F64],
+        SubscriptionSource::Window(event) => match event {
+            WindowEvent::Frame
+            | WindowEvent::Closed
+            | WindowEvent::CloseRequested
+            | WindowEvent::Focused
+            | WindowEvent::Unfocused
+            | WindowEvent::FilesHoveredLeft => Vec::new(),
+            WindowEvent::Opened => vec![
+                Type::Option(Box::new(Type::F64)),
+                Type::Option(Box::new(Type::F64)),
+                Type::F64,
+                Type::F64,
+            ],
+            WindowEvent::Moved | WindowEvent::Resized => vec![Type::F64, Type::F64],
+            WindowEvent::Rescaled => vec![Type::F64],
+            WindowEvent::FileHovered | WindowEvent::FileDropped => vec![Type::Str],
+        },
+        _ => return None,
+    })
+}
+
+fn canvas_event_name(source: &SubscriptionSource) -> Option<&'static str> {
+    Some(match source {
+        SubscriptionSource::InputMethod(InputMethodEvent::Opened) => "input-method opened",
+        SubscriptionSource::InputMethod(InputMethodEvent::Preedit) => "input-method preedit",
+        SubscriptionSource::InputMethod(InputMethodEvent::Commit) => "input-method commit",
+        SubscriptionSource::InputMethod(InputMethodEvent::Closed) => "input-method closed",
+        SubscriptionSource::Keyboard(KeyboardEvent::Press) => "keyboard press",
+        SubscriptionSource::Keyboard(KeyboardEvent::Release) => "keyboard release",
+        SubscriptionSource::Keyboard(KeyboardEvent::Modifiers) => "keyboard modifiers",
+        SubscriptionSource::Mouse(MouseEvent::Entered) => "mouse entered",
+        SubscriptionSource::Mouse(MouseEvent::Left) => "mouse left",
+        SubscriptionSource::Mouse(MouseEvent::Moved) => "mouse moved",
+        SubscriptionSource::Mouse(MouseEvent::Pressed) => "mouse pressed",
+        SubscriptionSource::Mouse(MouseEvent::Released) => "mouse released",
+        SubscriptionSource::Mouse(MouseEvent::Wheel) => "mouse wheel",
+        SubscriptionSource::Touch(TouchEvent::Pressed) => "touch pressed",
+        SubscriptionSource::Touch(TouchEvent::Moved) => "touch moved",
+        SubscriptionSource::Touch(TouchEvent::Lifted) => "touch lifted",
+        SubscriptionSource::Touch(TouchEvent::Lost) => "touch lost",
+        SubscriptionSource::Window(WindowEvent::Frame) => "window frame",
+        SubscriptionSource::Window(WindowEvent::Opened) => "window opened",
+        SubscriptionSource::Window(WindowEvent::Closed) => "window closed",
+        SubscriptionSource::Window(WindowEvent::Moved) => "window moved",
+        SubscriptionSource::Window(WindowEvent::Resized) => "window resized",
+        SubscriptionSource::Window(WindowEvent::Rescaled) => "window rescaled",
+        SubscriptionSource::Window(WindowEvent::CloseRequested) => "window close-request",
+        SubscriptionSource::Window(WindowEvent::Focused) => "window focused",
+        SubscriptionSource::Window(WindowEvent::Unfocused) => "window unfocused",
+        SubscriptionSource::Window(WindowEvent::FileHovered) => "window file-hovered",
+        SubscriptionSource::Window(WindowEvent::FileDropped) => "window file-dropped",
+        SubscriptionSource::Window(WindowEvent::FilesHoveredLeft) => "window files-hovered-left",
+        _ => return None,
+    })
+}
+
 fn infer_subscriptions(
     document: &Document,
     states: &HashMap<String, Type>,
@@ -3749,43 +3878,7 @@ fn infer_subscriptions(
                 &subscription.span,
             )?;
         }
-        let ordered_payloads = match &subscription.source {
-            SubscriptionSource::Every { .. } => Some(Vec::new()),
-            SubscriptionSource::InputMethod(event) => Some(match event {
-                InputMethodEvent::Opened | InputMethodEvent::Closed => Vec::new(),
-                InputMethodEvent::Preedit => vec![
-                    Type::Str,
-                    Type::Option(Box::new(Type::I64)),
-                    Type::Option(Box::new(Type::I64)),
-                ],
-                InputMethodEvent::Commit => vec![Type::Str],
-            }),
-            SubscriptionSource::Mouse(event) => Some(match event {
-                MouseEvent::Entered | MouseEvent::Left => Vec::new(),
-                MouseEvent::Moved => vec![Type::F64, Type::F64],
-                MouseEvent::Pressed | MouseEvent::Released => vec![Type::Str],
-                MouseEvent::Wheel => vec![Type::F64, Type::F64, Type::Bool],
-            }),
-            SubscriptionSource::Touch(_) => Some(vec![Type::Str, Type::F64, Type::F64]),
-            SubscriptionSource::Window(event) => Some(match event {
-                WindowEvent::Frame
-                | WindowEvent::Closed
-                | WindowEvent::CloseRequested
-                | WindowEvent::Focused
-                | WindowEvent::Unfocused
-                | WindowEvent::FilesHoveredLeft => Vec::new(),
-                WindowEvent::Opened => vec![
-                    Type::Option(Box::new(Type::F64)),
-                    Type::Option(Box::new(Type::F64)),
-                    Type::F64,
-                    Type::F64,
-                ],
-                WindowEvent::Moved | WindowEvent::Resized => vec![Type::F64, Type::F64],
-                WindowEvent::Rescaled => vec![Type::F64],
-                WindowEvent::FileHovered | WindowEvent::FileDropped => vec![Type::Str],
-            }),
-            _ => None,
-        };
+        let ordered_payloads = ordered_subscription_payloads(&subscription.source);
         if let Some(payloads) = ordered_payloads {
             let label = match &subscription.source {
                 SubscriptionSource::Every { .. } => "timer subscription",
@@ -7258,8 +7351,12 @@ state
   cached = true
   picture = rgba(1, 1, bytes(ff 00 ff ff))
 on pressed(x, y)
+on key(value)
 view
   canvas width=fill height=120.0 cache=cached cache-group=drawings press=pressed
+    event keyboard press -> key _
+    redraw window frame after=16ms
+    capture touch lost
     circle x=60.0 y=60.0 radius=24.0 fill=primary
     image picture x=4.0 y=4.0 width=16.0 height=16.0 opacity=0.8 snap=true
     svg "<svg/>" memory x=24.0 y=4.0 width=16.0 height=16.0 color=foreground opacity=0.9
@@ -7289,5 +7386,23 @@ view
         let error = analyze(&source.replace(" radius=24.0", "")).unwrap_err();
         assert_eq!(error.code, "E190");
         assert!(error.message.contains("requires `radius=`"));
+
+        let error = analyze(&source.replace(
+            "event keyboard press -> key _",
+            "event keyboard press -> key _\n    event keyboard press -> key _",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E190");
+        assert!(error.message.contains("duplicate canvas event"));
+
+        let error =
+            analyze(&source.replace("event keyboard press -> key _", "event every 1s -> key _"))
+                .unwrap_err();
+        assert_eq!(error.code, "E190");
+        assert!(error.message.contains("canvas events accept"));
+
+        let error = analyze(&source.replace("after=16ms", "after=0ms")).unwrap_err();
+        assert_eq!(error.code, "E084");
+        assert!(error.message.contains("positive"));
     }
 }

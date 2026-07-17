@@ -1,4 +1,4 @@
-# Ice Language Specification 0.78
+# Ice Language Specification 0.79
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.78 syntax.
+marked “planned” is a design constraint, not accepted 0.79 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.78.
+  block comments are not part of 0.79.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -742,7 +742,7 @@ default/centered/fixed position, visibility, resizability, close/minimize
 buttons, decorations, transparency, blur, level, and close-request behavior.
 Sizes, text size, and scale factor must be positive; minimum size cannot exceed
 maximum size. Window icons and platform-specific settings are not part of
-0.78.
+0.79.
 
 Media fixed lengths, rotation, opacity, scale, and radius are `f64`; rotation
 is radians and defaults to floating layout behavior, while `solid(angle)` makes
@@ -1146,7 +1146,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.78 message payloads.
+`Clone` for 0.79 message payloads.
 
 Three typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
@@ -1456,6 +1456,9 @@ Canvas is a checked declarative layer over iced's native `Canvas`, `Program`,
 
 ```ice
 canvas width=fill height=220.0 cache=chart_version cache-group=charts capture=true cursor=crosshair press=chart_pressed
+  event keyboard press -> chart_key _
+  capture touch lost
+  redraw window frame after=16ms
   rect x=0.0 y=0.0 width=canvas_width height=canvas_height fill=background
   circle x=64.0 y=64.0 radius=28.0 fill=primary stroke=foreground stroke-width=2.0
   path fill=primary/25 stroke=primary stroke-width=2.0 cap=round join=round
@@ -1501,6 +1504,31 @@ press/release variants and move emit local `(x, y)` values;
 scroll emits `(x, y, pixels)`. `enter`/`exit` have no payload. `capture=true`
 marks emitted pointer events captured. Native consumers must enable iced's
 `canvas` Cargo feature.
+
+Canvas event directives expose the complete native `Program::update` event and
+action surface without turning drawing commands into handlers:
+
+```ice
+event keyboard press -> chart_key _
+event input-method preedit -> composing _ _ _
+event mouse wheel -> wheel _ _ _
+event touch moved -> touched _ _ _
+event window resized -> resized _ _
+capture window close-request
+redraw window frame
+redraw window frame after=16ms
+```
+
+`event` accepts every input-method, keyboard, mouse, touch, and window variant
+listed by `subscribe` and uses the same checked payload types. Mouse event
+coordinates are raw window coordinates; the compact `move=` canvas property
+continues to emit local coordinates. `capture source` returns iced's
+capture-only action. `redraw source` requests the next frame, while `after=ms`
+or `after=s` calls `request_redraw_at` relative to the current instant. A routed
+event publishes a message and therefore already redraws. `capture=true` also
+marks routed and redraw actions captured. Event sources must be unique within a
+canvas and these directives are allowed only at its root, not inside drawing
+groups or control flow.
 
 ### Components
 
@@ -1756,7 +1784,7 @@ weight, stretch, and style variant is accepted. At most one declaration may be
 the application default. `font=default` and `font=mono` remain built-ins;
 declared fonts also work on text, rich text and spans, input, editor, checkbox,
 toggler, radio, pick, combo, and their custom icons. Font
-byte loading is not part of 0.78.
+byte loading is not part of 0.79.
 
 Widget operation tasks target checked static IDs in the app view:
 
@@ -1776,7 +1804,7 @@ snap/end; and absolute scroll-to/scroll-by. Effects have no route and
 non-negative `i64`; relative offsets are `f64` in `0.0..=1.0`; absolute
 offsets are unrestricted `f64`. Targets must be real static IDs in the app
 scope. Repeated/component scopes and the feature-gated selector API remain
-outside 0.78.
+outside 0.79.
 
 Persistent pane grids expose their native layout-state operations directly in
 handlers:
@@ -1823,7 +1851,7 @@ and constraints, resizability, maximize/minimize state, position and movement,
 all modes, decorations, user attention, focus, level, system menu, mouse
 passthrough, monitor size, and automatic tabbing. Positive sizes and bool
 arguments are checked before Rust generation. New-window IDs, open/oldest/latest,
-icons, raw handles, screenshots, and callbacks remain outside 0.78.
+icons, raw handles, screenshots, and callbacks remain outside 0.79.
 
 Every iced window event has a direct subscription form:
 
@@ -1976,7 +2004,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 0.78 does not claim that remapping.
+extern line; 0.79 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -1997,7 +2025,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 0.78 native backend is enough for CRUD/settings-style screens, selection,
+The 0.79 native backend is enough for CRUD/settings-style screens, selection,
 media, hover overlays, declarative canvas geometry, and common pointer events,
 not all of iced. It still lacks direct syntax for shaders, arbitrary custom
 overlays, multiple windows, and custom widgets. [`COVERAGE.md`](COVERAGE.md) is
