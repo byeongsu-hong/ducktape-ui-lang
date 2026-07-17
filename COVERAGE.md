@@ -15,7 +15,7 @@ counts toward the row below.
 
 ## Typed system reachability
 
-Ice 0.74 has three checked Rust boundaries:
+Ice 0.75 has three checked Rust boundaries:
 
 | Boundary | Rust ABI | Covers |
 | --- | --- | --- |
@@ -39,7 +39,8 @@ public behavior has direct documented Ice syntax and tests.
 | `container` | partial | native one-child container with ID, complete concrete layout API and every concrete Style field including linear background, text, per-corner border, shadow and pixel snap; advanced classes remain |
 | `float` | partial | native scale and fixed x/y translation; viewport-aware translation closure and style API missing |
 | `grid` | native | dynamic children, pixel spacing/width, fixed or fluid columns, aspect-ratio or all `Length` height modes |
-| `image` | partial | native path, all four iced length variants, fit, filter, rotation, opacity, scale, expand and radius; memory handles and crop missing |
+| `image` | native | path, encoded-memory and RGBA handles; all four iced length variants, fit, filter, floating/solid rotation, opacity, scale, expand, per-corner radius and crop cover the complete concrete widget API |
+| `image::Viewer` | missing | interactive zoom/pan widget and its padding/scale bounds/step configuration |
 | `keyed` | native | typed list template with bool/i64/f64 identity keys, automatic keyed child scopes, spacing/per-side padding/all `Length` bounds, max width and alignment |
 | `lazy` | native | hash-keyed rebuilds with bool/i64/str, `Hash + Clone` extern values, recursive list/optional dependencies, a dependency-only scope and statically enforced owned `Element<'static>` subtrees |
 | `markdown` | partial | owned parsed/replaced content, syntax highlighting, every `Settings` size/spacing field and str link events; incremental append, image URI access, full `Style` and custom `Viewer` remain |
@@ -60,7 +61,7 @@ public behavior has direct documented Ice syntax and tests.
 | `slider` | partial | native f64 behavior/sizing plus nested active/hovered/dragged styles covering solid/linear rail and handle backgrounds, border/radius and circle/rectangle handles; generic numeric values, arbitrary runtime closures and advanced classes missing |
 | `space` | native | optional fixed/fill/fill-portion/shrink width and height cover the complete widget API |
 | `stack` | native | ordered children, all `Length` widths/heights, clipping and `push_under` base-layer behavior via `under=N` |
-| `svg` | partial | native path or UTF-8 memory source, all four iced length variants, fit, rotation, opacity and complete idle/hovered color style; gzip/binary memory sources and advanced classes missing |
+| `svg` | partial | native path or UTF-8/raw byte memory source, all four iced length variants, fit, rotation, opacity and complete idle/hovered color style; advanced classes remain |
 | `table` | native | typed cloned rows, arbitrary header/cell subtrees, automatic row/column identity scopes, all table width/padding/separator setters and all column width/alignment setters |
 | `text` | partial | native string/numeric text plus structured rich spans; Rich bounds, size, relative/absolute line height, font, alignment, wrapping, color and str link events; every concrete Span field including solid/linear highlight background, border/per-corner radius/padding/underline/strike; arbitrary style classes remain |
 | `text_editor` | partial | owned/replaced app state, generated action application, every concrete builder setter except custom key binding/highlighter, all five built-in highlight themes, and every concrete Style field across active/hovered/focused/focused-hovered/disabled statuses; component-owned bindings and advanced classes remain |

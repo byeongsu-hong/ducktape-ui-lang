@@ -431,16 +431,7 @@ fn parse_qr_data(source: &str, line: &Line) -> Result<QrData, Error> {
         .strip_prefix("bytes(")
         .and_then(|data| data.strip_suffix(')'))
     {
-        QrPayload::Bytes(
-            data.split_whitespace()
-                .map(|byte| {
-                    (byte.len() == 2)
-                        .then(|| u8::from_str_radix(byte, 16).ok())
-                        .flatten()
-                        .ok_or_else(|| error("E093", line, "qr bytes use two hex digits per byte"))
-                })
-                .collect::<Result<_, _>>()?,
-        )
+        QrPayload::Bytes(parse_hex_bytes(data, line, "E093")?)
     } else {
         return Err(error(
             "E093",
@@ -3638,7 +3629,12 @@ fn parse_media(
                 }
             });
         } else if let Some(value) = part.strip_prefix("rotation=") {
+            let (value, solid) = value
+                .strip_prefix("solid(")
+                .and_then(|value| value.strip_suffix(')'))
+                .map_or((value, false), |value| (value, true));
             options.rotation = Some(parse_expr(strip_wrapping_parens(value), line)?);
+            options.rotation_solid = solid;
         } else if let Some(value) = part.strip_prefix("opacity=") {
             options.opacity = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else if part == "memory" {
@@ -3680,6 +3676,28 @@ fn parse_media(
                 return Err(error("E085", line, "radius is only available on image"));
             }
             options.radius = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some((field, value)) = [
+            ("radius-tl=", &mut options.radius_top_left),
+            ("radius-tr=", &mut options.radius_top_right),
+            ("radius-br=", &mut options.radius_bottom_right),
+            ("radius-bl=", &mut options.radius_bottom_left),
+        ]
+        .into_iter()
+        .find_map(|(prefix, field)| part.strip_prefix(prefix).map(|value| (field, value)))
+        {
+            if media_kind != MediaKind::Image {
+                return Err(error("E085", line, "radius is only available on image"));
+            }
+            *field = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("crop=") {
+            if media_kind != MediaKind::Image {
+                return Err(error("E085", line, "crop is only available on image"));
+            }
+            options.crop = Some(
+                parse_expr_list(strip_wrapping_parens(value), line)?
+                    .try_into()
+                    .map_err(|_| error("E085", line, "crop requires x, y, width, and height"))?,
+            );
         } else {
             return Err(error(
                 "E085",
@@ -5783,6 +5801,8 @@ fn parse_type(source: &str, line: &Line) -> Result<Type, Error> {
         "i64" => Type::I64,
         "f64" => Type::F64,
         "str" => Type::Str,
+        "bytes" => Type::Bytes,
+        "image" => Type::Image,
         "markdown" => Type::Markdown,
         "editor" => Type::Editor,
         "unit" => Type::Unit,
@@ -5795,6 +5815,18 @@ fn parse_type(source: &str, line: &Line) -> Result<Type, Error> {
 
 fn parse_expr(source: &str, line: &Line) -> Result<Expr, Error> {
     ExprParser::new(source, line)?.parse()
+}
+
+fn parse_hex_bytes(source: &str, line: &Line, code: &'static str) -> Result<Vec<u8>, Error> {
+    source
+        .split_whitespace()
+        .map(|byte| {
+            (byte.len() == 2)
+                .then(|| u8::from_str_radix(byte, 16).ok())
+                .flatten()
+                .ok_or_else(|| error(code, line, "bytes use two hex digits per byte"))
+        })
+        .collect()
 }
 
 fn parse_expr_list(source: &str, line: &Line) -> Result<Vec<Expr>, Error> {
@@ -5813,6 +5845,7 @@ enum Token {
     Str(String),
     I64(i64),
     F64(f64),
+    Bytes(Vec<u8>),
     LParen,
     RParen,
     LBracket,
@@ -5900,6 +5933,7 @@ impl<'a> ExprParser<'a> {
             Token::Str(value) => Ok(Expr::Str(value)),
             Token::I64(value) => Ok(Expr::I64(value)),
             Token::F64(value) => Ok(Expr::F64(value)),
+            Token::Bytes(value) => Ok(Expr::Bytes(value)),
             Token::LBracket => {
                 if self.peek() == Some(&Token::RBracket) {
                     self.index += 1;
@@ -6034,6 +6068,18 @@ fn lex_expr(source: &str, line: &Line) -> Result<Vec<Token>, Error> {
             }
             index += 1;
             tokens.push(Token::Str(value));
+            continue;
+        }
+        if chars[index..].starts_with(&['b', 'y', 't', 'e', 's', '(']) {
+            let start = index + 6;
+            let end = chars[start..]
+                .iter()
+                .position(|ch| *ch == ')')
+                .map(|offset| start + offset)
+                .ok_or_else(|| error("E070", line, "missing closing `)` after bytes"))?;
+            let source = chars[start..end].iter().collect::<String>();
+            tokens.push(Token::Bytes(parse_hex_bytes(&source, line, "E070")?));
+            index = end + 1;
             continue;
         }
         if ch.is_ascii_digit() {
@@ -6250,6 +6296,8 @@ fn literal_type(expr: &Expr) -> Option<Type> {
         Expr::I64(_) => Type::I64,
         Expr::F64(_) => Type::F64,
         Expr::Str(_) => Type::Str,
+        Expr::Bytes(_) => Type::Bytes,
+        Expr::Call { name, .. } if matches!(name.as_str(), "encoded" | "rgba") => Type::Image,
         Expr::EmptyList => return None,
         Expr::List(values) => {
             let first = values.first().and_then(literal_type)?;
