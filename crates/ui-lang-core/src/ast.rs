@@ -1066,8 +1066,8 @@ pub struct SliderStyleSet {
 #[derive(Clone, Debug, Default)]
 pub struct SliderStyle {
     pub span: Option<Span>,
-    pub rail_start: Option<String>,
-    pub rail_end: Option<String>,
+    pub rail_start: Option<BackgroundValue>,
+    pub rail_end: Option<BackgroundValue>,
     pub rail_width: Option<Expr>,
     pub rail_border_color: Option<String>,
     pub rail_border_width: Option<Expr>,
@@ -1077,7 +1077,7 @@ pub struct SliderStyle {
     pub rail_radius_bottom_right: Option<Expr>,
     pub rail_radius_bottom_left: Option<Expr>,
     pub handle_shape: Option<SliderHandleShape>,
-    pub handle_color: Option<String>,
+    pub handle_color: Option<BackgroundValue>,
     pub handle_border_color: Option<String>,
     pub handle_border_width: Option<Expr>,
     pub handle_radius: Option<Expr>,

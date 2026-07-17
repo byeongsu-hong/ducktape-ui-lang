@@ -4646,11 +4646,22 @@ fn append_slider_style_fields(
     env: &HashMap<String, Binding>,
     document: &Document,
 ) -> Result<(), Error> {
-    for (color, field) in [
+    for (background, field) in [
         (&style.rail_start, "__style.rail.backgrounds.0"),
         (&style.rail_end, "__style.rail.backgrounds.1"),
-        (&style.rail_border_color, "__style.rail.border.color"),
         (&style.handle_color, "__style.handle.background"),
+    ] {
+        if let Some(background) = background {
+            write!(
+                code,
+                " {field} = {};",
+                background_code(background, env, document)?
+            )
+            .unwrap();
+        }
+    }
+    for (color, field) in [
+        (&style.rail_border_color, "__style.rail.border.color"),
         (&style.handle_border_color, "__style.handle.border_color"),
     ] {
         if let Some(color) = color {
@@ -6098,7 +6109,7 @@ view
     grid columns=2 width=640.0 spacing=12.0 height=aspect(16.0,9.0) @gap-2
       toggler "Enabled" checked=enabled -> enabled_changed _
       slider amount min=0.0 max=100.0 step=0.5 default=50.0 shift-step=0.1 vertical width=20.0 height=fill(2) release=released -> amount_changed _
-        active rail-start=primary rail-end=background rail-width=4.0 rail-border=transparent rail-border-width=1.0 rail-radius=2.0 rail-radius-tl=1.0 handle=circle(7.0) handle-color=primary handle-border=foreground handle-border-width=1.0
+        active rail-start=linear(0.0, primary@0.0, danger@1.0) rail-end=linear(1.57, background@0.0, primary/25@1.0) rail-width=4.0 rail-border=transparent rail-border-width=1.0 rail-radius=2.0 rail-radius-tl=1.0 handle=circle(7.0) handle-color=linear(0.785, primary@0.0, foreground@1.0) handle-border=foreground handle-border-width=1.0
         hovered rail-start=foreground rail-end=background handle=rect(12) handle-color=foreground handle-radius=3.0 handle-radius-tl=1.0
         dragged rail-start=danger handle=circle(8.0) handle-color=danger
       slider amount min=0.0 max=100.0 step=1.0 width=fill height=18.0 -> amount_changed _
@@ -6136,6 +6147,9 @@ view
         assert!(generated.contains("slider::HandleShape::Circle"));
         assert!(generated.contains("slider::HandleShape::Rectangle"));
         assert!(generated.contains("__style.rail.backgrounds.0"));
+        assert!(generated.contains("__style.rail.backgrounds.0 = ::iced::Background::from"));
+        assert!(generated.contains("__style.rail.backgrounds.1 = ::iced::Background::from"));
+        assert!(generated.contains("__style.handle.background = ::iced::Background::from"));
         assert!(generated.contains("::iced::widget::progress_bar"));
         assert!(generated.contains(".vertical()"));
         assert!(generated.contains(".length(::iced::Length::FillPortion(2)).girth(20.0 as f32)"));

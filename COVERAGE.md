@@ -15,7 +15,7 @@ counts toward the row below.
 
 ## Typed system reachability
 
-Ice 0.61 has three checked Rust boundaries:
+Ice 0.62 has three checked Rust boundaries:
 
 | Boundary | Rust ABI | Covers |
 | --- | --- | --- |
@@ -57,7 +57,7 @@ public behavior has direct documented Ice syntax and tests.
 | `scrollable` | partial | native content/ID, all directions, bounds, scrollbar geometry/visibility/spacing, anchors, auto-scroll and absolute/relative offset events; viewport bounds/reversed offsets and style catalog missing |
 | `sensor` | native | show/resize dimensions, hide, comparable owned keys, anticipation and delay; owned keys provide the same continuity behavior as `key_ref` without borrowed lifetimes |
 | `shader` | missing | custom GPU primitive/program |
-| `slider` | partial | native f64 behavior/sizing plus nested active/hovered/dragged styles covering color rail/background/border/radius and circle/rectangle handles; generic numeric values, gradient backgrounds, arbitrary runtime closures and advanced classes missing |
+| `slider` | partial | native f64 behavior/sizing plus nested active/hovered/dragged styles covering solid/linear rail and handle backgrounds, border/radius and circle/rectangle handles; generic numeric values, arbitrary runtime closures and advanced classes missing |
 | `space` | native | optional fixed/fill/fill-portion/shrink width and height cover the complete widget API |
 | `stack` | native | ordered children, all `Length` widths/heights, clipping and `push_under` base-layer behavior via `under=N` |
 | `svg` | partial | native path, all four iced length variants, fit, rotation and opacity; memory handles and status style missing |
