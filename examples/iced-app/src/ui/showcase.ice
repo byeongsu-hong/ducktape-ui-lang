@@ -170,7 +170,8 @@ view
   col @w-full h-full p-6 gap-6 bg-background
     row @w-full items-center gap-3
       text "Tasks" @text-2xl font-bold text-foreground
-      text len(tasks) @text-sm text-muted
+      lazy tasks as cached_tasks
+        text len(cached_tasks) @text-sm text-muted
 
     row @w-full items-center gap-3
       input "New task" #new-task <-> draft hint="What needs doing?" disabled=loading secure=false submit=submit paste=draft_pasted width=fill text-size=14.0 line-height=1.2 align=left font=default icon="+" icon-side=left icon-size=14.0 icon-spacing=6.0 @px-4 py-3 bg-surface border border-border rounded-lg focus:border-primary

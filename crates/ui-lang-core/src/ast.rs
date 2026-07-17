@@ -357,6 +357,12 @@ pub enum ViewNode {
         child: Box<ViewNode>,
         span: Span,
     },
+    Lazy {
+        dependency: Expr,
+        binding: String,
+        child: Box<ViewNode>,
+        span: Span,
+    },
     Component {
         name: String,
         args: Vec<Expr>,

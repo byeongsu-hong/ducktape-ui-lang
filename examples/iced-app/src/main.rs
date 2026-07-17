@@ -3,7 +3,7 @@ ui_lang::include_app!("src/ui/tasks.ice");
 mod backend {
     use std::sync::{LazyLock, Mutex, MutexGuard};
 
-    #[derive(Clone, Debug, PartialEq)]
+    #[derive(Clone, Debug, Hash, PartialEq)]
     pub struct Task {
         pub id: i64,
         pub title: String,

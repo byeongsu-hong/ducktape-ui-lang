@@ -237,7 +237,8 @@ fn slots(node: &ViewNode) -> Vec<&Span> {
             | ViewNode::Float { content, .. }
             | ViewNode::Pin { content, .. }
             | ViewNode::Sensor { content, .. }
-            | ViewNode::KeyedColumn { child: content, .. } => collect(content, output),
+            | ViewNode::KeyedColumn { child: content, .. }
+            | ViewNode::Lazy { child: content, .. } => collect(content, output),
             ViewNode::Tooltip { content, tip, .. } => {
                 collect(content, output);
                 collect(tip, output);
@@ -1023,6 +1024,29 @@ fn infer_view(
             }
             infer_view(child, &child_env, document, signatures, ids)?;
         }
+        ViewNode::Lazy {
+            dependency,
+            binding,
+            child,
+            span,
+        } => {
+            let dependency_type = expr_type(dependency, env, document, span)?;
+            if !lazy_hashable(&dependency_type) {
+                return Err(Error::new(
+                    "E139",
+                    span,
+                    format!(
+                        "lazy dependency type `{}` does not implement stable hashing",
+                        dependency_type.display()
+                    ),
+                )
+                .hint("use bool, i64, str, an extern type with Hash + Clone, or a list/optional of those"));
+            }
+            check_lazy_subtree(child, document, &mut HashSet::new(), false)?;
+            let child_env = HashMap::from([(binding.clone(), dependency_type)]);
+            let mut child_ids = HashSet::new();
+            infer_view(child, &child_env, document, signatures, &mut child_ids)?;
+        }
         ViewNode::Component {
             name,
             args,
@@ -1399,6 +1423,105 @@ fn infer_view(
         }
     }
     Ok(())
+}
+
+fn lazy_hashable(ty: &Type) -> bool {
+    match ty {
+        Type::Bool | Type::I64 | Type::Str | Type::Named(_) => true,
+        Type::List(inner) | Type::Option(inner) => lazy_hashable(inner),
+        Type::F64 | Type::Combo(_) | Type::Unit | Type::Unknown => false,
+    }
+}
+
+fn check_lazy_subtree(
+    node: &ViewNode,
+    document: &Document,
+    components: &mut HashSet<String>,
+    supplied_slot: bool,
+) -> Result<(), Error> {
+    match node {
+        ViewNode::Input { span, .. } => Err(Error::new(
+            "E139",
+            span,
+            "input cannot live in lazy because iced text input borrows app state",
+        )),
+        ViewNode::ComboBox { span, .. } => Err(Error::new(
+            "E139",
+            span,
+            "combo cannot live in lazy because iced combo box borrows search state",
+        )),
+        ViewNode::QrCode { span, .. } => Err(Error::new(
+            "E139",
+            span,
+            "named QR data cannot live in lazy because iced QR code borrows app state",
+        )),
+        ViewNode::Slot { span } if !supplied_slot => Err(Error::new(
+            "E139",
+            span,
+            "a lazy subtree cannot borrow a slot from its enclosing component",
+        )),
+        ViewNode::Layout { children, .. }
+        | ViewNode::If { children, .. }
+        | ViewNode::For { children, .. } => {
+            for child in children {
+                check_lazy_subtree(child, document, components, supplied_slot)?;
+            }
+            Ok(())
+        }
+        ViewNode::Button {
+            content: Some(content),
+            ..
+        }
+        | ViewNode::MouseArea { content, .. }
+        | ViewNode::Theme { content, .. }
+        | ViewNode::Float { content, .. }
+        | ViewNode::Pin { content, .. }
+        | ViewNode::Sensor { content, .. }
+        | ViewNode::KeyedColumn { child: content, .. }
+        | ViewNode::Lazy { child: content, .. } => {
+            check_lazy_subtree(content, document, components, supplied_slot)
+        }
+        ViewNode::Tooltip { content, tip, .. } => {
+            check_lazy_subtree(content, document, components, supplied_slot)?;
+            check_lazy_subtree(tip, document, components, supplied_slot)
+        }
+        ViewNode::Responsive { content, .. } => match content {
+            ResponsiveContent::Breakpoint { narrow, wide, .. } => {
+                check_lazy_subtree(narrow, document, components, supplied_slot)?;
+                check_lazy_subtree(wide, document, components, supplied_slot)
+            }
+            ResponsiveContent::Size { content, .. } => {
+                check_lazy_subtree(content, document, components, supplied_slot)
+            }
+        },
+        ViewNode::Component {
+            name,
+            content,
+            span,
+            ..
+        } => {
+            if let Some(content) = content {
+                check_lazy_subtree(content, document, components, supplied_slot)?;
+            }
+            if !components.insert(name.clone()) {
+                return Err(Error::new(
+                    "E139",
+                    span,
+                    format!("recursive component `{name}` cannot be used in lazy"),
+                ));
+            }
+            let component = document
+                .components
+                .iter()
+                .find(|component| component.name == *name)
+                .expect("component names are checked before lazy safety");
+            let result =
+                check_lazy_subtree(&component.root, document, components, content.is_some());
+            components.remove(name);
+            result
+        }
+        _ => Ok(()),
+    }
 }
 
 fn require_literal_range(
@@ -2474,6 +2597,47 @@ view
 
         let error = analyze(&source.replace("spacing=8.0", "spacing=-1.0")).unwrap_err();
         assert!(error.message.contains("outside its valid range"));
+    }
+
+    #[test]
+    fn checks_lazy_static_boundaries() {
+        let source = r#"app Demo
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  title = "Hello"
+  other = "Outside"
+view
+  lazy title as cached
+    col
+      text cached
+      text len(cached)
+"#;
+        analyze(source).unwrap();
+
+        let error = analyze(&source.replace("text len(cached)", "text other")).unwrap_err();
+        assert_eq!(error.code, "E150");
+        assert!(error.message.contains("unknown value `other`"));
+
+        let error = analyze(&source.replace("title = \"Hello\"", "title = 1.0")).unwrap_err();
+        assert_eq!(error.code, "E139");
+        assert!(error.message.contains("stable hashing"));
+
+        let error =
+            analyze(&source.replace("text len(cached)", "input \"Edit\" <-> cached")).unwrap_err();
+        assert_eq!(error.code, "E139");
+        assert!(error.message.contains("borrows app state"));
+
+        let component_source = source.replace(
+            "view\n  lazy title as cached\n    col\n      text cached\n      text len(cached)",
+            "component Editor(value:str)\n  input \"Edit\" <-> value\nview\n  lazy title as cached\n    Editor(cached)",
+        );
+        let error = analyze(&component_source).unwrap_err();
+        assert_eq!(error.code, "E139");
+        assert!(error.message.contains("borrows app state"));
     }
 
     #[test]

@@ -1485,6 +1485,43 @@ fn render_node(
         } => render_keyed_column(
             item, items, key, options, child, span, document, message, env, scope, slot,
         ),
+        ViewNode::Lazy {
+            dependency,
+            binding,
+            child,
+            span,
+        } => {
+            let dependency_type = expr_type(
+                dependency,
+                &env.iter()
+                    .map(|(name, binding)| (name.clone(), binding.ty.clone()))
+                    .collect(),
+                document,
+                span,
+            )?;
+            let dependency = expr_code(dependency, env, document, ValueMode::Owned)?;
+            let mut child_env = HashMap::new();
+            child_env.insert(
+                binding.clone(),
+                Binding {
+                    code: binding.clone(),
+                    ty: dependency_type.clone(),
+                    local: false,
+                },
+            );
+            let child = render_node(
+                child,
+                document,
+                message,
+                &child_env,
+                "__lazy_scope.clone()",
+                None,
+            )?;
+            let dependency_rust = dependency_type.rust(&document.structs);
+            Ok(format!(
+                "::iced::widget::lazy(({dependency}, ({scope}).to_owned()), move |__dependency| {{ let {binding}: {dependency_rust} = __dependency.0.clone(); let __lazy_scope = __dependency.1.clone(); let __lazy_content: ::iced::Element<'static, {message}> = {child}; __lazy_content }}).into()"
+            ))
+        }
         ViewNode::If { span, .. } | ViewNode::For { span, .. } => Err(Error::new(
             "E170",
             span,
@@ -2246,7 +2283,9 @@ fn input_bindings(root: &ViewNode) -> Vec<String> {
                 content: Some(content),
                 ..
             } => collect(content, output),
-            ViewNode::KeyedColumn { child, .. } => collect(child, output),
+            ViewNode::KeyedColumn { child, .. } | ViewNode::Lazy { child, .. } => {
+                collect(child, output)
+            }
             ViewNode::Button {
                 content: Some(content),
                 ..
@@ -2284,7 +2323,7 @@ fn needs_extern_noop(document: &Document) -> bool {
                 content: Some(content),
                 ..
             } => contains(content),
-            ViewNode::KeyedColumn { child, .. } => contains(child),
+            ViewNode::KeyedColumn { child, .. } | ViewNode::Lazy { child, .. } => contains(child),
             ViewNode::Button {
                 content: Some(content),
                 ..
@@ -3507,6 +3546,32 @@ view
         assert!(generated.contains(".max_width(640.0 as f32)"));
         assert!(generated.contains(".align_items(::iced::Alignment::End)"));
         assert!(generated.contains("format!(\"{}/key({:?})\""));
+    }
+
+    #[test]
+    fn lowers_lazy_to_an_owned_static_subtree() {
+        let source = r#"app LazyDemo
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  title = "Hello"
+view
+  lazy title as cached
+    col
+      text cached
+      text len(cached)
+"#;
+        let generated = compile(source, "lazy.ice").unwrap();
+        assert!(
+            generated
+                .contains("::iced::widget::lazy((self.title.clone(), (\"LazyDemo\").to_owned())")
+        );
+        assert!(generated.contains("let cached: ::std::string::String = __dependency.0.clone()"));
+        assert!(generated.contains("let __lazy_content: ::iced::Element<'static,"));
+        assert!(generated.contains("let __lazy_scope = __dependency.1.clone()"));
     }
 
     #[test]

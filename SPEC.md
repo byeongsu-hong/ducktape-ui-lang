@@ -1,4 +1,4 @@
-# Ice Language Specification 0.28
+# Ice Language Specification 0.29
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.28 syntax.
+marked “planned” is a design constraint, not accepted 0.29 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.28.
+  block comments are not part of 0.29.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -176,7 +176,7 @@ node           = layout | text | input | button | checkbox | toggler
                | rule | qr_code | space | float | pin | sensor | responsive
                | media | tooltip | mouse_area | theme_boundary
                | component_call | slot | extern_component_call | if_node | for_node
-               | keyed_column
+               | keyed_column | lazy_node
 layout         = "col" id? column_property* styles? INDENT node+
                | "row" id? flex_property* styles? INDENT node+
                | "scroll" id? scroll_property* styles? INDENT node
@@ -190,6 +190,7 @@ keyed_property = ("width=" | "height=") length | "spacing=" expr
                  | "padding-left=") expr
                | "max-width=" expr
                | "align=" ("start" | "center" | "end")
+lazy_node      = "lazy" expr "as" name INDENT node
 column_property = flex_property | "max-width=" expr
 flex_property  = ("width=" | "height=") length | "spacing=" expr
                | ("padding=" | "padding-x=" | "padding-y="
@@ -487,6 +488,15 @@ receives an automatic `key(...)` identity scope. Keyed columns accept every
 native keyed-column setter: spacing, uniform/axis/per-side padding, every
 `Length` for width and height, max width, and cross-axis alignment.
 
+`lazy dependency as cached` rebuilds its one child subtree only when the
+dependency hash changes. The dependency may be bool, i64, str, an extern type
+implementing Rust `Hash + Clone`, or a recursive list/optional of those. Only
+the owned `cached` alias is visible inside the subtree, which statically enforces
+iced's `Element<'static>` contract. Input, combo, named QR data, and a slot from
+an enclosing component are rejected because those forms borrow app-owned data.
+Components and structured children remain usable when their complete expanded
+tree satisfies the same static rule.
+
 Spaces inside a compound expression should be wrapped in parentheses when the
 expression shares a line with widget properties:
 
@@ -530,7 +540,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.28 message payloads.
+`Clone` for 0.29 message payloads.
 
 Three typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
@@ -681,6 +691,7 @@ The implemented native nodes are:
 | `if` | includes its children when a bool expression is true |
 | `for` | iterates a list and adds one typed item binding |
 | `keyed` | repeats one child template with a bool/i64/f64 identity key and native column sizing/alignment |
+| `lazy` | caches one owned static child subtree by a checked hashable dependency |
 
 `if` and `for` are child control-flow nodes inside a layout. There is no virtual
 DOM or runtime reconciliation layer; the iced backend constructs the current
@@ -852,7 +863,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 0.28 does not claim that remapping.
+extern line; 0.29 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -873,7 +884,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 0.28 native backend is enough for CRUD/settings-style screens, selection,
+The 0.29 native backend is enough for CRUD/settings-style screens, selection,
 media, hover
 overlays, and common pointer events, not all of iced. It still lacks direct
 syntax for canvas, general overlays/modals, rich text
@@ -907,7 +918,7 @@ compile-tested widget example is
 [`examples/iced-app/src/ui/showcase.ice`](examples/iced-app/src/ui/showcase.ice).
 Together they exercise
 state inference, typed extern structs/functions, mount and result handlers,
-direct input binding, `if`, `for`, native keyed columns, pure components, structured slot composition,
+direct input binding, `if`, `for`, native keyed columns and lazy subtrees, pure components, structured slot composition,
 dynamic component IDs,
 theme utilities, disabled controls, fallible asynchronous tasks, complete
 wrapping row/column layouts, grids and fully sized underlay stacks, toggles,

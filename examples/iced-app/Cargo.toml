@@ -5,7 +5,7 @@ edition.workspace = true
 publish = false
 
 [dependencies]
-iced = { version = "0.14.0", default-features = false, features = ["image-without-codecs", "qr_code", "svg", "thread-pool", "tiny-skia", "wgpu", "x11"] }
+iced = { version = "0.14.0", default-features = false, features = ["image-without-codecs", "lazy", "qr_code", "svg", "thread-pool", "tiny-skia", "wgpu", "x11"] }
 image = { version = "0.25.10", default-features = false, features = ["pnm"] }
 ui-lang = { path = "../../crates/ui-lang" }
 
