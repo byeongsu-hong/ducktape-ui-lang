@@ -282,6 +282,28 @@ pub enum Statement {
         value: Expr,
         span: Span,
     },
+    WidgetOperation {
+        operation: WidgetOperation,
+        route: Option<Route>,
+        span: Span,
+    },
+}
+
+#[derive(Clone, Debug)]
+pub enum WidgetOperation {
+    FocusPrevious,
+    FocusNext,
+    Focus { id: String },
+    Focused { id: String },
+    CursorFront { id: String },
+    CursorEnd { id: String },
+    Cursor { id: String, position: Expr },
+    SelectAll { id: String },
+    Select { id: String, start: Expr, end: Expr },
+    Snap { id: String, x: Expr, y: Expr },
+    SnapEnd { id: String },
+    ScrollTo { id: String, x: Expr, y: Expr },
+    ScrollBy { id: String, x: Expr, y: Expr },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

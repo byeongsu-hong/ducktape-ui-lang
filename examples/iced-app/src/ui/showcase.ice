@@ -58,6 +58,7 @@ state
   cpu_brand = "unknown"
   clipboard_text:str? = none
   primary_text:str? = none
+  draft_focused = false
 
 component TaskRow(task:Task, loading:bool)
   row #root @w-full items-center p-4 bg-surface border border-border rounded-lg
@@ -159,6 +160,48 @@ on read_primary
 on primary_read(value)
   primary_text = value
 
+on focus_draft
+  task widget focus #new-task
+
+on check_draft_focus
+  task widget focused #new-task -> draft_focus_checked _
+
+on draft_focus_checked(value)
+  draft_focused = value
+
+on previous_focus
+  task widget focus-previous
+
+on next_focus
+  task widget focus-next
+
+on draft_cursor_front
+  task widget cursor-front #new-task
+
+on draft_cursor_end
+  task widget cursor-end #new-task
+
+on draft_cursor
+  task widget cursor #new-task 2
+
+on draft_select_all
+  task widget select-all #new-task
+
+on draft_select_range
+  task widget select #new-task 0 2
+
+on task_list_snap
+  task widget snap #task-list 0.0 0.5
+
+on task_list_snap_end
+  task widget snap-end #task-list
+
+on task_list_scroll_to
+  task widget scroll-to #task-list 0.0 24.0
+
+on task_list_scroll_by
+  task widget scroll-by #task-list 0.0 8.0
+
 on external_hover_changed(next)
   external_hover = next
 
@@ -236,6 +279,10 @@ view
       button "Copy primary" -> copy_primary
       button "Read clipboard" -> read_clipboard
       button "Read primary" -> read_primary
+      button "Focus draft" -> focus_draft
+      button "Check draft focus" -> check_draft_focus
+      if draft_focused
+        text "draft focused" @text-sm text-muted
 
     row @w-full items-center gap-3
       input "New task" #new-task <-> draft hint="What needs doing?" disabled=loading secure=false submit=submit paste=draft_pasted width=fill text-size=14.0 line-height=1.2 align=left font=ui icon="+" icon-side=left icon-size=14.0 icon-spacing=6.0 @px-4 py-3 bg-surface border border-border rounded-lg focus:border-primary
