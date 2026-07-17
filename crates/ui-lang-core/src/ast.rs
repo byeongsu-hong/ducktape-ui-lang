@@ -259,6 +259,7 @@ pub enum ViewNode {
         value: Expr,
         min: Expr,
         max: Expr,
+        options: ProgressOptions,
         vertical: bool,
         styles: Vec<String>,
         span: Span,
@@ -531,6 +532,31 @@ pub struct SliderStyle {
 pub enum SliderHandleShape {
     Circle(Expr),
     Rectangle { width: u16 },
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct ProgressOptions {
+    pub length: Option<LengthValue>,
+    pub girth: Option<LengthValue>,
+    pub style: Option<ProgressStyle>,
+    pub background: Option<String>,
+    pub bar: Option<String>,
+    pub border_color: Option<String>,
+    pub border_width: Option<Expr>,
+    pub radius: Option<Expr>,
+    pub radius_top_left: Option<Expr>,
+    pub radius_top_right: Option<Expr>,
+    pub radius_bottom_right: Option<Expr>,
+    pub radius_bottom_left: Option<Expr>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProgressStyle {
+    Primary,
+    Secondary,
+    Success,
+    Warning,
+    Danger,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
