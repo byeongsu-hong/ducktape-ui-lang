@@ -3058,8 +3058,8 @@ fn append_pane_grid_style(
     if let Some(background) = &style.region_background {
         write!(
             code,
-            " __style.hovered_region.background = ::iced::Background::Color({});",
-            theme_color(document, background)
+            " __style.hovered_region.background = {};",
+            background_code(background, env, document)?
         )
         .unwrap();
     }
@@ -3138,8 +3138,13 @@ fn render_pane_content(
     let body = render_node(&pane.content, document, message, env, scope, slot)?;
     let mut declarations = format!("let __pane_content: ::iced::Element<'_, {message}> = {body};");
     let mut content = String::from("::iced::widget::pane_grid::Content::new(__pane_content)");
-    if let Some(style) = container_style_value(&Style::parse(&pane.styles, document), document) {
-        write!(content, ".style(|_| {style})").unwrap();
+    if let Some(style) = pane_surface_style_value(
+        &Style::parse(&pane.styles, document),
+        &pane.style,
+        env,
+        document,
+    )? {
+        write!(content, ".style(move |_| {style})").unwrap();
     }
     if let Some(title) = &pane.title {
         let title_content = render_node(&title.content, document, message, env, scope, slot)?;
@@ -3176,9 +3181,13 @@ fn render_pane_content(
         if title.always_show_controls {
             title_bar.push_str(".always_show_controls()");
         }
-        if let Some(style) = container_style_value(&Style::parse(&title.styles, document), document)
-        {
-            write!(title_bar, ".style(|_| {style})").unwrap();
+        if let Some(style) = pane_surface_style_value(
+            &Style::parse(&title.styles, document),
+            &title.style,
+            env,
+            document,
+        )? {
+            write!(title_bar, ".style(move |_| {style})").unwrap();
         }
         write!(content, ".title_bar({title_bar})").unwrap();
     }
@@ -4452,6 +4461,152 @@ fn radius_code(
         "::iced::border::Radius {{ top_left: {} as f32, top_right: {} as f32, bottom_right: {} as f32, bottom_left: {} as f32 }}",
         values[0], values[1], values[2], values[3]
     )))
+}
+
+fn background_code(
+    background: &BackgroundValue,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<String, Error> {
+    match background {
+        BackgroundValue::Color(color) => Ok(format!(
+            "::iced::Background::Color({})",
+            theme_color(document, color)
+        )),
+        BackgroundValue::Linear { angle, stops } => {
+            let mut code = format!(
+                "::iced::Background::from(::iced::gradient::Linear::new({} as f32)",
+                expr_code(angle, env, document, ValueMode::Owned)?
+            );
+            for stop in stops {
+                write!(
+                    code,
+                    ".add_stop({} as f32, {})",
+                    expr_code(&stop.offset, env, document, ValueMode::Owned)?,
+                    theme_color(document, &stop.color)
+                )
+                .unwrap();
+            }
+            code.push(')');
+            Ok(code)
+        }
+    }
+}
+
+fn pane_surface_style_value(
+    utilities: &Style,
+    options: &ContainerStyleOptions,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<Option<String>, Error> {
+    let has_typed_style = options.background.is_some()
+        || options.text_color.is_some()
+        || options.border_color.is_some()
+        || options.border_width.is_some()
+        || options.radius.is_some()
+        || options.radius_top_left.is_some()
+        || options.radius_top_right.is_some()
+        || options.radius_bottom_right.is_some()
+        || options.radius_bottom_left.is_some()
+        || options.shadow_color.is_some()
+        || options.shadow_x.is_some()
+        || options.shadow_y.is_some()
+        || options.shadow_blur.is_some()
+        || options.pixel_snap.is_some();
+    if !has_typed_style {
+        return Ok(container_style_value(utilities, document));
+    }
+
+    let base = container_style_value(utilities, document)
+        .unwrap_or_else(|| "::iced::widget::container::Style::default()".into());
+    let mut code = format!("{{ let mut __style = {base};");
+    if let Some(background) = &options.background {
+        write!(
+            code,
+            " __style.background = ::std::option::Option::Some({});",
+            background_code(background, env, document)?
+        )
+        .unwrap();
+    }
+    if let Some(color) = &options.text_color {
+        write!(
+            code,
+            " __style.text_color = ::std::option::Option::Some({});",
+            theme_color(document, color)
+        )
+        .unwrap();
+    }
+    if let Some(color) = &options.border_color {
+        write!(
+            code,
+            " __style.border.color = {};",
+            theme_color(document, color)
+        )
+        .unwrap();
+    }
+    if let Some(width) = &options.border_width {
+        write!(
+            code,
+            " __style.border.width = {} as f32;",
+            expr_code(width, env, document, ValueMode::Owned)?
+        )
+        .unwrap();
+    }
+    if let Some(radius) = radius_code(
+        options.radius.as_ref(),
+        [
+            options.radius_top_left.as_ref(),
+            options.radius_top_right.as_ref(),
+            options.radius_bottom_right.as_ref(),
+            options.radius_bottom_left.as_ref(),
+        ],
+        env,
+        document,
+    )? {
+        write!(code, " __style.border.radius = {radius};").unwrap();
+    }
+    if let Some(color) = &options.shadow_color {
+        write!(
+            code,
+            " __style.shadow.color = {};",
+            theme_color(document, color)
+        )
+        .unwrap();
+    }
+    if let Some(x) = &options.shadow_x {
+        write!(
+            code,
+            " __style.shadow.offset.x = {} as f32;",
+            expr_code(x, env, document, ValueMode::Owned)?
+        )
+        .unwrap();
+    }
+    if let Some(y) = &options.shadow_y {
+        write!(
+            code,
+            " __style.shadow.offset.y = {} as f32;",
+            expr_code(y, env, document, ValueMode::Owned)?
+        )
+        .unwrap();
+    }
+    if let Some(blur) = &options.shadow_blur {
+        write!(
+            code,
+            " __style.shadow.blur_radius = {} as f32;",
+            expr_code(blur, env, document, ValueMode::Owned)?
+        )
+        .unwrap();
+    }
+    if let Some(snap) = &options.pixel_snap {
+        write!(
+            code,
+            " __style.snap = {};",
+            expr_code(snap, env, document, ValueMode::Owned)?
+        )
+        .unwrap();
+    }
+    code.push_str(" __style }");
+    Ok(Some(code))
 }
 
 fn append_slider_styles(
@@ -6169,11 +6324,11 @@ on close
 view
   pane-grid #work split=vertical
     style
-      hovered-region background=primary/50 border=foreground border-width=2.0 radius=4.0 radius-tl=1.0 radius-tr=2.0 radius-br=3.0 radius-bl=4.0
+      hovered-region background=linear(0.785, primary/25@0.0, background@0.5, danger@1.0) border=foreground border-width=2.0 radius=4.0 radius-tl=1.0 radius-tr=2.0 radius-br=3.0 radius-bl=4.0
       hovered-split color=primary width=3.0
       picked-split color=danger width=4.0
-    pane files @bg-background border border-primary rounded
-      title padding=4.0 padding-x=8.0 padding-top=6.0 always-controls @bg-primary text-white
+    pane files background=linear(1.57, background@0.0, primary/25@1.0) text=foreground border=primary border-width=2.0 radius=4.0 radius-tl=1.0 radius-tr=2.0 radius-br=3.0 radius-bl=4.0 shadow=black/50 shadow-x=-1.0 shadow-y=2.0 shadow-blur=6.0 pixel-snap=true @bg-background border border-primary rounded
+      title padding=4.0 padding-x=8.0 padding-top=6.0 always-controls background=primary/50 text=foreground border=danger border-width=1.0 radius=3.0 shadow=black/50 shadow-x=1.0 shadow-y=2.0 shadow-blur=4.0 pixel-snap=false @bg-primary text-white
         text "Files"
       controls
         button "Close" -> close
@@ -6202,6 +6357,8 @@ view
         assert!(generated.contains("format!(\"{}/filter\""));
         assert!(generated.contains("pane_grid::default(__theme)"));
         assert!(generated.contains("__style.hovered_region.background"));
+        assert!(generated.contains("::iced::gradient::Linear::new(0.785 as f32)"));
+        assert!(generated.contains(".add_stop(0.5 as f32"));
         assert!(generated.contains("__style.hovered_region.border.color"));
         assert!(generated.contains("__style.hovered_region.border.width = 2.0 as f32"));
         assert!(generated.contains("top_left: 1.0 as f32"));
@@ -6212,6 +6369,13 @@ view
         assert!(generated.contains("__style.hovered_split.width = 3.0 as f32"));
         assert!(generated.contains("__style.picked_split.color"));
         assert!(generated.contains("__style.picked_split.width = 4.0 as f32"));
+        assert!(generated.contains("__style.text_color = ::std::option::Option::Some"));
+        assert!(generated.contains("__style.shadow.color"));
+        assert!(generated.contains("__style.shadow.offset.x = (-1.0) as f32"));
+        assert!(generated.contains("__style.shadow.offset.y = 2.0 as f32"));
+        assert!(generated.contains("__style.shadow.blur_radius = 6.0 as f32"));
+        assert!(generated.contains("__style.snap = true"));
+        assert!(generated.contains("__style.snap = false"));
     }
 
     #[test]

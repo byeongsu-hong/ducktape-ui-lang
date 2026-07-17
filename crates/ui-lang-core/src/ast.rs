@@ -1379,6 +1379,7 @@ pub struct PaneView {
     pub content: Box<ViewNode>,
     pub title: Option<PaneTitle>,
     pub styles: Vec<String>,
+    pub style: ContainerStyleOptions,
     pub span: Span,
 }
 
@@ -1407,6 +1408,7 @@ pub struct PaneTitle {
     pub padding: PaddingOptions,
     pub always_show_controls: bool,
     pub styles: Vec<String>,
+    pub style: ContainerStyleOptions,
     pub span: Span,
 }
 
@@ -1424,7 +1426,7 @@ pub struct PaneGridOptions {
 
 #[derive(Clone, Debug, Default)]
 pub struct PaneGridStyle {
-    pub region_background: Option<String>,
+    pub region_background: Option<BackgroundValue>,
     pub region_border: Option<String>,
     pub region_border_width: Option<Expr>,
     pub region_radius: Option<Expr>,
@@ -1436,6 +1438,39 @@ pub struct PaneGridStyle {
     pub hovered_split_width: Option<Expr>,
     pub picked_split: Option<String>,
     pub picked_split_width: Option<Expr>,
+}
+
+#[derive(Clone, Debug)]
+pub enum BackgroundValue {
+    Color(String),
+    Linear {
+        angle: Expr,
+        stops: Vec<GradientStop>,
+    },
+}
+
+#[derive(Clone, Debug)]
+pub struct GradientStop {
+    pub color: String,
+    pub offset: Expr,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct ContainerStyleOptions {
+    pub background: Option<BackgroundValue>,
+    pub text_color: Option<String>,
+    pub border_color: Option<String>,
+    pub border_width: Option<Expr>,
+    pub radius: Option<Expr>,
+    pub radius_top_left: Option<Expr>,
+    pub radius_top_right: Option<Expr>,
+    pub radius_bottom_right: Option<Expr>,
+    pub radius_bottom_left: Option<Expr>,
+    pub shadow_color: Option<String>,
+    pub shadow_x: Option<Expr>,
+    pub shadow_y: Option<Expr>,
+    pub shadow_blur: Option<Expr>,
+    pub pixel_snap: Option<Expr>,
 }
 
 #[derive(Clone, Debug, Default)]
