@@ -512,10 +512,21 @@ fn __ice_canvas_interaction(value: &str) -> ::iced::mouse::Interaction {
 }
 
 fn uses_system_task(document: &Document, name: &str) -> bool {
-    document.handlers.iter().any(|handler| {
-        handler.statements.iter().any(|statement| {
-            matches!(statement, Statement::Run { kind: EffectKind::Task, function, .. } if function == name)
-        })
+    document
+        .handlers
+        .iter()
+        .any(|handler| statements_use_system_task(&handler.statements, name))
+}
+
+fn statements_use_system_task(statements: &[Statement], name: &str) -> bool {
+    statements.iter().any(|statement| match statement {
+        Statement::Run {
+            kind: EffectKind::Task,
+            function,
+            ..
+        } => function == name,
+        Statement::TaskGroup { statements, .. } => statements_use_system_task(statements, name),
+        _ => false,
     })
 }
 
@@ -1216,6 +1227,54 @@ fn generate_statements(
                         .unwrap(),
                     }
                 }
+            }
+            Statement::TaskGroup {
+                kind, statements, ..
+            } => {
+                has_task = true;
+                let mut task_env = env.clone();
+                for binding in task_env.values_mut() {
+                    binding.local = false;
+                }
+                if return_task {
+                    write!(out, "return ").unwrap();
+                }
+                match kind {
+                    TaskGroupKind::Parallel => {
+                        writeln!(out, "::iced::Task::batch([").unwrap();
+                        for statement in statements {
+                            write!(out, "{{ ").unwrap();
+                            generate_statements(
+                                out,
+                                ::std::slice::from_ref(statement),
+                                document,
+                                message,
+                                &task_env,
+                                state,
+                                false,
+                            )?;
+                            writeln!(out, "}},").unwrap();
+                        }
+                        write!(out, "])").unwrap();
+                    }
+                    TaskGroupKind::Sequential => {
+                        write!(out, "::iced::Task::none()").unwrap();
+                        for statement in statements {
+                            write!(out, ".chain({{ ").unwrap();
+                            generate_statements(
+                                out,
+                                ::std::slice::from_ref(statement),
+                                document,
+                                message,
+                                &task_env,
+                                state,
+                                false,
+                            )?;
+                            write!(out, "}})").unwrap();
+                        }
+                    }
+                }
+                writeln!(out, "{}", if return_task { ";" } else { "" }).unwrap();
             }
             Statement::ClipboardWrite { primary, value, .. } => {
                 has_task = true;
@@ -8354,6 +8413,33 @@ view
         assert!(generated.contains("async fn __ui_lang_check_load"));
         assert!(generated.contains("crate::backend::load(arg0).await"));
         assert!(generated.contains("let task = (||"));
+    }
+
+    #[test]
+    fn lowers_structured_task_groups_to_native_combinators() {
+        let source = r#"app Grouped
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+on start
+  parallel
+    task system theme -> theme_read _
+    sequential
+      task clipboard read -> clipboard_read _
+      task system info -> info_read _
+on theme_read(next)
+on clipboard_read(next)
+on info_read(info)
+view
+  text "Tasks"
+"#;
+        let generated = compile(source, "grouped.ice").unwrap();
+        assert!(generated.contains("return ::iced::Task::batch(["));
+        assert!(generated.contains("::iced::Task::none().chain({"));
+        assert!(generated.contains(".chain({ ::iced::system::information()"));
+        assert!(generated.contains("fn __ice_system_info"));
     }
 
     #[test]

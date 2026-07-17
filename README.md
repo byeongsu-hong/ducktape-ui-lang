@@ -93,7 +93,8 @@ It also exercises native system information/theme tasks and theme-change
 subscriptions, standard/primary clipboard reads and writes, and every checked
 main-window effect/query task. Compile fixtures cover every native window,
 mouse, touch, input-method, and timer subscription without adding continuous
-event loops to the demo.
+event loops to the demo, plus structured parallel and sequential native task
+composition.
 The native Tasks app separately exercises fully styled checked-aware checkboxes,
 togglers, and generic-value radios.
 
@@ -127,7 +128,7 @@ cargo fmt --all
 
 ## Status
 
-This is an executable v0.83 language slice, not yet a complete iced replacement.
+This is an executable v0.84 language slice, not yet a complete iced replacement.
 It implements typed extern data/actions, state, handlers, async tasks, pure
 components with named props, default children, named structural slots, and
 React-like qualified compound children, scoped IDs, relative
@@ -136,7 +137,8 @@ multi-file `use`,
 thirty-two native widget forms,
 dependency-keyed lazy subtrees, checked style utilities, formatting, analysis,
 direct typed keyboard, mouse, touch, input-method, conditional timer, event
-status filtering, system and clipboard operations, and iced code generation,
+status filtering, structured parallel/sequential tasks, system and clipboard
+operations, and iced code generation,
 plus checked startup font embedding, complete iced font descriptors, stateful
 native Canvas programs, and typed native wgpu Shader programs.
 Static app IDs also support

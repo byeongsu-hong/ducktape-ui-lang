@@ -392,6 +392,11 @@ pub enum Statement {
         error: Option<Route>,
         span: Span,
     },
+    TaskGroup {
+        kind: TaskGroupKind,
+        statements: Vec<Statement>,
+        span: Span,
+    },
     ClipboardWrite {
         primary: bool,
         value: Expr,
@@ -538,6 +543,12 @@ pub enum WindowAttention {
 pub enum EffectKind {
     Future,
     Task,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TaskGroupKind {
+    Parallel,
+    Sequential,
 }
 
 #[derive(Clone, Debug)]
