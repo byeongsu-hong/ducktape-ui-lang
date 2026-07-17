@@ -29,6 +29,35 @@ on about_link(url)
 
 on pane_clicked(name)
 
+on maximize_details
+  pane #workspace maximize details
+
+on restore_workspace
+  pane #workspace restore
+
+on swap_workspace
+  pane #workspace swap tasks details
+
+on move_details_left
+  pane #workspace move details left
+
+on resize_workspace
+  pane #workspace resize 0.5
+
+on drop_details
+  pane #workspace drop details tasks center
+
+on close_details
+  pane #workspace close details
+
+on inspect_workspace
+  pane #workspace maximized -> pane_observed _
+
+on inspect_adjacent
+  pane #workspace adjacent tasks right -> pane_observed _
+
+on pane_observed(name)
+
 on loaded(next)
   tasks = next
   loading = false

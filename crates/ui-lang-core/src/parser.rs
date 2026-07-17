@@ -900,6 +900,9 @@ fn parse_statement(line: &Line) -> Result<Statement, Error> {
             span: Span::line(line.number),
         });
     }
+    if let Some(source) = line.text.strip_prefix("pane ") {
+        return parse_pane_operation(source, line);
+    }
     if let Some(source) = line.text.strip_prefix("task widget ") {
         return parse_widget_operation(source, line);
     }
@@ -993,6 +996,84 @@ fn parse_statement(line: &Line) -> Result<Statement, Error> {
         line,
         format!("unknown statement `{}`", line.text),
     ))
+}
+
+fn parse_pane_operation(source: &str, line: &Line) -> Result<Statement, Error> {
+    let (source, route) = split_top_marker(source, "->")
+        .map_or((source, None), |(source, route)| (source, Some(route)));
+    let parts = split_words(source);
+    let grid = parts
+        .first()
+        .and_then(|part| part.strip_prefix('#'))
+        .ok_or_else(|| error("E188", line, "pane operation target must use `#grid`"))?;
+    let grid = identifier(grid, line)?;
+    let pane = |index: usize| {
+        identifier(
+            parts
+                .get(index)
+                .ok_or_else(|| error("E188", line, "pane operation is missing a pane name"))?,
+            line,
+        )
+    };
+    let edge = |index: usize| {
+        Ok(match parts.get(index).map(String::as_str) {
+            Some("top") => PaneEdge::Top,
+            Some("left") => PaneEdge::Left,
+            Some("right") => PaneEdge::Right,
+            Some("bottom") => PaneEdge::Bottom,
+            _ => {
+                return Err(error(
+                    "E188",
+                    line,
+                    "pane edge must be top, left, right, or bottom",
+                ));
+            }
+        })
+    };
+    let operation = match parts.get(1).map(String::as_str) {
+        Some("maximize") if parts.len() == 3 => PaneOperation::Maximize { pane: pane(2)? },
+        Some("restore") if parts.len() == 2 => PaneOperation::Restore,
+        Some("maximized") if parts.len() == 2 => PaneOperation::Maximized,
+        Some("adjacent") if parts.len() == 4 => PaneOperation::Adjacent {
+            pane: pane(2)?,
+            edge: edge(3)?,
+        },
+        Some("swap") if parts.len() == 4 => PaneOperation::Swap {
+            first: pane(2)?,
+            second: pane(3)?,
+        },
+        Some("close") if parts.len() == 3 => PaneOperation::Close { pane: pane(2)? },
+        Some("move") if parts.len() == 4 => PaneOperation::Move {
+            pane: pane(2)?,
+            edge: edge(3)?,
+        },
+        Some("resize") if parts.len() == 3 => PaneOperation::Resize {
+            ratio: parse_expr(strip_wrapping_parens(&parts[2]), line)?,
+        },
+        Some("drop") if parts.len() == 5 => PaneOperation::Drop {
+            pane: pane(2)?,
+            target: pane(3)?,
+            edge: match parts[4].as_str() {
+                "center" => None,
+                _ => Some(edge(4)?),
+            },
+        },
+        _ => {
+            return Err(error(
+                "E188",
+                line,
+                "unknown pane operation or wrong arguments",
+            ));
+        }
+    };
+    Ok(Statement::PaneOperation {
+        grid,
+        operation,
+        route: route
+            .map(|route| parse_route(route.trim(), line))
+            .transpose()?,
+        span: Span::line(line.number),
+    })
 }
 
 fn parse_widget_operation(source: &str, line: &Line) -> Result<Statement, Error> {
