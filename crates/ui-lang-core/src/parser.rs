@@ -51,6 +51,8 @@ pub fn parse(source: &str) -> Result<Document, Error> {
                     functions.push(parse_extern_fn(source, item, &path, ExternKind::Task)?);
                 } else if let Some(source) = item.text.strip_prefix("stream ") {
                     functions.push(parse_extern_fn(source, item, &path, ExternKind::Stream)?);
+                } else if let Some(source) = item.text.strip_prefix("sip ") {
+                    functions.push(parse_extern_fn(source, item, &path, ExternKind::Sip)?);
                 } else if let Some(source) = item.text.strip_prefix("subscription ") {
                     functions.push(parse_extern_fn(
                         source,
@@ -608,12 +610,31 @@ fn parse_extern_fn(
         }
     }
     let rest = source[close + 1..].trim();
-    let Some(rest) = rest.strip_prefix("->") else {
-        return Err(error(
-            "E022",
-            line,
-            "extern functions require `-> ReturnType`",
-        ));
+    let (progress, rest) = if kind == ExternKind::Sip {
+        let Some(rest) = rest.strip_prefix("progress=") else {
+            return Err(error(
+                "E022",
+                line,
+                "extern sips require `progress=ProgressType -> ReturnType`",
+            ));
+        };
+        let Some((progress, rest)) = split_top_marker(rest, "->") else {
+            return Err(error(
+                "E022",
+                line,
+                "extern sips require `progress=ProgressType -> ReturnType`",
+            ));
+        };
+        (Some(parse_type(progress.trim(), line)?), rest)
+    } else {
+        let Some(rest) = rest.strip_prefix("->") else {
+            return Err(error(
+                "E022",
+                line,
+                "extern functions require `-> ReturnType`",
+            ));
+        };
+        (None, rest)
     };
     let (output, error_ty) = match split_top_once(rest.trim(), '!') {
         Some((output, error_ty)) => (
@@ -639,6 +660,7 @@ fn parse_extern_fn(
         rust_path: format!("{namespace}::{name}"),
         name,
         params,
+        progress,
         output,
         error: error_ty,
         span: Span::line(line.number),
@@ -965,6 +987,12 @@ fn parse_statement(line: &Line) -> Result<Statement, Error> {
     if line.text == "abortable" {
         return Err(error("E050", line, "abortable requires a handle state"));
     }
+    if let Some(source) = line.text.strip_prefix("sip ") {
+        return parse_sip_statement(source, line);
+    }
+    if line.text == "sip" {
+        return Err(error("E050", line, "sip requires an extern call"));
+    }
     ensure_leaf(line)?;
     if let Some(condition) = line.text.strip_prefix("return if ") {
         return Ok(Statement::ReturnIf {
@@ -1095,6 +1123,66 @@ fn parse_statement(line: &Line) -> Result<Statement, Error> {
         line,
         format!("unknown statement `{}`", line.text),
     ))
+}
+
+fn parse_sip_statement(source: &str, line: &Line) -> Result<Statement, Error> {
+    let (function, args) = parse_signature(source.trim(), line)?;
+    let args = parse_expr_list(&args, line)?;
+    let mut progress = None;
+    let mut success = None;
+    let mut failure = None;
+    for route in &line.children {
+        ensure_leaf(route)?;
+        let Some((kind, target)) = split_top_marker(&route.text, "->") else {
+            return Err(error(
+                "E050",
+                route,
+                "sip routes use `progress -> handler _`, `done -> handler _`, or `error -> handler _`",
+            ));
+        };
+        let slot = match kind.trim() {
+            "progress" => &mut progress,
+            "done" => &mut success,
+            "error" => &mut failure,
+            _ => {
+                return Err(error(
+                    "E050",
+                    route,
+                    "sip route must be progress, done, or error",
+                ));
+            }
+        };
+        if slot.is_some() {
+            return Err(error(
+                "E050",
+                route,
+                format!("duplicate sip {} route", kind.trim()),
+            ));
+        }
+        *slot = Some(parse_route(target.trim(), route)?);
+    }
+    let progress = progress.ok_or_else(|| {
+        error(
+            "E050",
+            line,
+            "sip requires an indented `progress -> handler _` route",
+        )
+    })?;
+    let success = success.ok_or_else(|| {
+        error(
+            "E050",
+            line,
+            "sip requires an indented `done -> handler _` route",
+        )
+    })?;
+    Ok(Statement::Sip {
+        function,
+        args,
+        progress,
+        success,
+        error: failure,
+        span: Span::line(line.number),
+    })
 }
 
 fn parse_pane_operation(source: &str, line: &Line) -> Result<Statement, Error> {
@@ -7733,6 +7821,53 @@ view
             .unwrap_err();
         assert_eq!(error.code, "E050");
         assert!(error.message.contains("stream requires"));
+    }
+
+    #[test]
+    fn parses_typed_task_sips() {
+        let source = r#"app Sips
+extern crate::backend
+  AppError(message:str)
+  sip download(size:i64) progress=f64 -> bytes
+  sip fallible() progress=i64 -> str ! AppError
+theme
+  background #000000
+on start
+  parallel
+    sip download(3)
+      progress -> advanced _
+      done -> downloaded _
+    sip fallible()
+      progress -> counted _
+      done -> finished _
+      error -> failed _
+on advanced(value)
+on downloaded(value)
+on counted(value)
+on finished(value)
+on failed(error)
+view
+  text "Sips"
+"#;
+        let document = parse(source).unwrap();
+        assert_eq!(document.functions[0].kind, ExternKind::Sip);
+        assert_eq!(document.functions[0].progress, Some(Type::F64));
+        assert_eq!(
+            document.functions[1].error,
+            Some(Type::Named("AppError".into()))
+        );
+        let Statement::TaskGroup { statements, .. } = &document.handlers[0].statements[0] else {
+            panic!("expected task group");
+        };
+        assert!(
+            statements
+                .iter()
+                .all(|statement| matches!(statement, Statement::Sip { .. }))
+        );
+
+        let error = parse(&source.replace("      progress -> advanced _\n", "")).unwrap_err();
+        assert_eq!(error.code, "E050");
+        assert!(error.message.contains("progress"));
     }
 
     #[test]

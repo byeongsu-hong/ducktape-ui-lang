@@ -605,6 +605,17 @@ fn generate_extern_probes(out: &mut String, document: &Document) {
                 item.name, item.rust_path
             )
             .unwrap(),
+            ExternKind::Sip => writeln!(
+                out,
+                "#[allow(dead_code)] fn __ui_lang_check_sip_{}({params}) {{ let _: ::iced::Task<()> = ::iced::Task::sip({}({args}), |value| {{ let _: {} = value; }}, |value| {{ let _: {output} = value; }}); }}",
+                item.name,
+                item.rust_path,
+                item.progress
+                    .as_ref()
+                    .expect("sip extern has a progress type")
+                    .rust(&document.structs)
+            )
+            .unwrap(),
             ExternKind::Subscription => writeln!(
                 out,
                 "#[allow(dead_code)] fn __ui_lang_check_subscription_{}({params}) {{ let _: ::iced::Subscription<{output}> = {}({args}); }}",
@@ -1245,6 +1256,38 @@ fn generate_statements(
                         )
                         .unwrap(),
                     }
+                }
+            }
+            Statement::Sip {
+                function,
+                args,
+                progress,
+                success,
+                error,
+                span,
+            } => {
+                has_task = true;
+                let action = document
+                    .functions
+                    .iter()
+                    .find(|item| item.name == *function && item.kind == ExternKind::Sip)
+                    .ok_or_else(|| {
+                        Error::new("E130", span, format!("unknown extern sip `{function}`"))
+                    })?;
+                let args = args
+                    .iter()
+                    .map(|arg| expr_code(arg, env, document, ValueMode::Owned))
+                    .collect::<Result<Vec<_>, _>>()?
+                    .join(", ");
+                let progress_message = route_code(progress, "value", env, document, message)?;
+                let success_message = route_code(success, "value", env, document, message)?;
+                let prefix = if return_task { "return " } else { "" };
+                let suffix = if return_task { ";" } else { "" };
+                if let (Some(error_route), Some(_)) = (error, &action.error) {
+                    let error_message = route_code(error_route, "error", env, document, message)?;
+                    writeln!(out, "{prefix}::iced::Task::sip({}({args}), |value| {progress_message}, |result| match result {{ ::std::result::Result::Ok(value) => {success_message}, ::std::result::Result::Err(error) => {error_message} }}){suffix}", action.rust_path).unwrap();
+                } else {
+                    writeln!(out, "{prefix}::iced::Task::sip({}({args}), |value| {progress_message}, |value| {success_message}){suffix}", action.rust_path).unwrap();
                 }
             }
             Statement::TaskGroup {
@@ -8565,6 +8608,43 @@ view
         assert!(generated.contains("Task::run(crate::backend::numbers(3), |value|"));
         assert!(generated.contains("Task::run(crate::backend::fallible(), |result| match result"));
         assert!(generated.contains("Result::Err(error) => __StreamsMessage::Failed(error)"));
+    }
+
+    #[test]
+    fn lowers_typed_task_sips() {
+        let source = r#"app Sips
+extern crate::backend
+  AppError(message:str)
+  sip transfer(size:i64) progress=f64 -> bytes
+  sip fallible() progress=i64 -> str ! AppError
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+on start
+  parallel
+    sip transfer(3)
+      progress -> advanced _
+      done -> downloaded _
+    sip fallible()
+      progress -> counted _
+      done -> finished _
+      error -> failed _
+on advanced(value)
+on downloaded(value)
+on counted(value)
+on finished(value)
+on failed(error)
+view
+  text "Sips"
+"#;
+        let generated = compile(source, "sips.ice").unwrap();
+        assert!(generated.contains("fn __ui_lang_check_sip_transfer"));
+        assert!(generated.contains("let _: f64 = value"));
+        assert!(generated.contains("Task::sip(crate::backend::transfer(3), |value|"));
+        assert!(generated.contains("Task::sip(crate::backend::fallible(), |value|"));
+        assert!(generated.contains("Result::Err(error) => __SipsMessage::Failed(error)"));
     }
 
     #[test]

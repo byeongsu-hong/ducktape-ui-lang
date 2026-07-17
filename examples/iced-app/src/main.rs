@@ -185,6 +185,31 @@ mod backend {
     }
 
     #[cfg(test)]
+    pub fn count_sip(limit: i64) -> impl iced::task::Sipper<i64, i64> + Send + 'static {
+        iced::task::sipper(move |mut sender| async move {
+            let limit = limit.max(0);
+            for value in 1..=limit {
+                sender.send(value).await;
+            }
+            limit
+        })
+    }
+
+    #[cfg(test)]
+    pub fn fallible_sip(limit: i64) -> impl iced::task::Straw<i64, i64, AppError> + Send + 'static {
+        iced::task::sipper(move |mut sender| async move {
+            sender.send(1).await;
+            if limit < 0 {
+                Err(AppError {
+                    message: "sip failed".into(),
+                })
+            } else {
+                Ok(limit)
+            }
+        })
+    }
+
+    #[cfg(test)]
     pub fn app_events() -> iced::Subscription<bool> {
         iced::event::listen_with(|event, _status, _window| focus_event(event))
     }
@@ -280,6 +305,17 @@ mod task_stream {
     fn constructs_both_native_stream_units() {
         let (mut app, _) = TaskStream::__boot();
         assert_eq!(app.__update(__TaskStreamMessage::Start).units(), 2);
+    }
+}
+
+#[cfg(test)]
+mod task_sip {
+    ui_lang::include_app!("src/ui/task_sip.ice");
+
+    #[test]
+    fn constructs_both_native_sipper_units() {
+        let (mut app, _) = TaskSip::__boot();
+        assert_eq!(app.__update(__TaskSipMessage::Start).units(), 2);
     }
 }
 
