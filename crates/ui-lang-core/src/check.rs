@@ -25,11 +25,12 @@ pub fn check(document: &mut Document) -> Result<(), Error> {
                 ));
             };
             require_type(&actual, expected, &state.span)?;
-        } else if !(state.ty == Type::Markdown && actual == Type::Str)
-            && actual != Type::Unknown
-            && !compatible(&state.ty, &actual)
-        {
-            return Err(type_error(&state.span, &state.ty, &actual));
+        } else {
+            let text_initial =
+                matches!(state.ty, Type::Markdown | Type::Editor) && actual == Type::Str;
+            if actual != Type::Unknown && !text_initial && !compatible(&state.ty, &actual) {
+                return Err(type_error(&state.span, &state.ty, &actual));
+            }
         }
     }
 
@@ -42,6 +43,12 @@ pub fn check(document: &mut Document) -> Result<(), Error> {
     let mut ids = HashSet::new();
     infer_view(&document.view, &states, document, &mut signatures, &mut ids)?;
     for component in &document.components {
+        if let Some(span) = editor_span(&component.root) {
+            return Err(
+                Error::new("E139", span, "editor cannot bind a component parameter")
+                    .hint("pass the editor through the component slot from the app view"),
+            );
+        }
         let env = component.params.iter().cloned().collect();
         let mut ids = HashSet::new();
         infer_view(&component.root, &env, document, &mut signatures, &mut ids)?;
@@ -270,6 +277,41 @@ fn slots(node: &ViewNode) -> Vec<&Span> {
     let mut output = Vec::new();
     collect(node, &mut output);
     output
+}
+
+fn editor_span(node: &ViewNode) -> Option<&Span> {
+    match node {
+        ViewNode::TextEditor { span, .. } => Some(span),
+        ViewNode::Layout { children, .. }
+        | ViewNode::If { children, .. }
+        | ViewNode::For { children, .. } => children.iter().find_map(editor_span),
+        ViewNode::Button {
+            content: Some(content),
+            ..
+        }
+        | ViewNode::MouseArea { content, .. }
+        | ViewNode::Theme { content, .. }
+        | ViewNode::Float { content, .. }
+        | ViewNode::Pin { content, .. }
+        | ViewNode::Sensor { content, .. }
+        | ViewNode::KeyedColumn { child: content, .. }
+        | ViewNode::Lazy { child: content, .. } => editor_span(content),
+        ViewNode::Tooltip { content, tip, .. } => editor_span(content).or_else(|| editor_span(tip)),
+        ViewNode::Table { columns, .. } => columns
+            .iter()
+            .find_map(|column| editor_span(&column.header).or_else(|| editor_span(&column.cell))),
+        ViewNode::Component {
+            content: Some(content),
+            ..
+        } => editor_span(content),
+        ViewNode::Responsive { content, .. } => match content {
+            ResponsiveContent::Breakpoint { narrow, wide, .. } => {
+                editor_span(narrow).or_else(|| editor_span(wide))
+            }
+            ResponsiveContent::Size { content, .. } => editor_span(content),
+        },
+        _ => None,
+    }
 }
 
 fn check_qr_data(document: &Document) -> Result<(), Error> {
@@ -1084,6 +1126,59 @@ fn infer_view(
             }
             infer_route(route, Some(Type::Str), env, document, signatures)?;
         }
+        ViewNode::TextEditor {
+            binding,
+            id,
+            disabled,
+            options,
+            span,
+        } => {
+            check_id(id, env, document, ids, span)?;
+            let binding_type = env.get(binding).ok_or_else(|| {
+                Error::new("E139", span, format!("unknown editor state `{binding}`"))
+            })?;
+            require_type(binding_type, &Type::Editor, span)?;
+            if let Some(disabled) = disabled {
+                require_type(
+                    &expr_type(disabled, env, document, span)?,
+                    &Type::Bool,
+                    span,
+                )?;
+            }
+            for (value, label, min) in [
+                (&options.width, "editor width", 0.0),
+                (&options.min_height, "editor minimum height", 0.0),
+                (&options.max_height, "editor maximum height", 0.0),
+                (&options.size, "editor text size", f64::EPSILON),
+                (&options.padding, "editor padding", 0.0),
+            ] {
+                if let Some(value) = value {
+                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+                    require_literal_range(value, min, None, label, span)?;
+                }
+            }
+            if let Some(LengthValue::Fixed(value)) = &options.height {
+                require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+                require_literal_range(value, 0.0, None, "editor height", span)?;
+            }
+            if let Some(line_height) = &options.line_height {
+                let value = match line_height {
+                    TextLineHeight::Relative(value) | TextLineHeight::Absolute(value) => value,
+                };
+                require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+                require_literal_range(value, f64::EPSILON, None, "editor line height", span)?;
+            }
+            if let (Some(Expr::F64(min)), Some(Expr::F64(max))) =
+                (&options.min_height, &options.max_height)
+                && min > max
+            {
+                return Err(Error::new(
+                    "E139",
+                    span,
+                    "editor min-height cannot exceed max-height",
+                ));
+            }
+        }
         ViewNode::Table {
             item,
             rows,
@@ -1510,7 +1605,9 @@ fn lazy_hashable(ty: &Type) -> bool {
     match ty {
         Type::Bool | Type::I64 | Type::Str | Type::Named(_) => true,
         Type::List(inner) | Type::Option(inner) => lazy_hashable(inner),
-        Type::F64 | Type::Combo(_) | Type::Markdown | Type::Unit | Type::Unknown => false,
+        Type::F64 | Type::Combo(_) | Type::Markdown | Type::Editor | Type::Unit | Type::Unknown => {
+            false
+        }
     }
 }
 
@@ -1540,6 +1637,11 @@ fn check_lazy_subtree(
             "E139",
             span,
             "markdown cannot live in lazy because iced markdown borrows parsed content",
+        )),
+        ViewNode::TextEditor { span, .. } => Err(Error::new(
+            "E139",
+            span,
+            "editor cannot live in lazy because iced text editor borrows content state",
         )),
         ViewNode::Slot { span } if !supplied_slot => Err(Error::new(
             "E139",
@@ -2209,6 +2311,13 @@ pub(crate) fn expr_type(
                 require_type(&expr_type(&args[0], env, document, span)?, &Type::Str, span)?;
                 Ok(Type::Markdown)
             }
+            "editor" => {
+                if args.len() != 1 {
+                    return Err(Error::new("E152", span, "editor expects one argument"));
+                }
+                require_type(&expr_type(&args[0], env, document, span)?, &Type::Str, span)?;
+                Ok(Type::Editor)
+            }
             _ => Err(Error::new(
                 "E152",
                 span,
@@ -2796,6 +2905,49 @@ view
         let error = analyze(&source.replace("table row in rows", "table row in true")).unwrap_err();
         assert_eq!(error.code, "E139");
         assert!(error.message.contains("list of rows"));
+    }
+
+    #[test]
+    fn checks_bound_text_editors_and_highlighting() {
+        let source = r#"app Notes
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  body:editor = "fn main() {}"
+  locked = false
+view
+  editor #body <-> body placeholder="Write" width=640.0 height=fill min-height=80.0 max-height=240.0 size=14.0 line-height=1.3 padding=8.0 wrapping=word-or-glyph font=mono highlight="rs" highlight-theme=solarized-dark disabled=locked
+"#;
+        let document = analyze(source).unwrap();
+        assert_eq!(document.states[0].ty.display(), "editor");
+
+        let error = analyze(&source.replace("min-height=80.0", "min-height=300.0")).unwrap_err();
+        assert_eq!(error.code, "E139");
+        assert!(error.message.contains("cannot exceed"));
+    }
+
+    #[test]
+    fn directs_component_editors_through_slots() {
+        let source = r#"app Notes
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  body:editor = ""
+component EditorPanel(body:editor)
+  editor <-> body
+view
+  EditorPanel(body)
+"#;
+        let error = analyze(source).unwrap_err();
+        assert_eq!(error.code, "E139");
+        assert!(error.message.contains("component parameter"));
+        assert!(error.hint.unwrap().contains("slot"));
     }
 
     #[test]

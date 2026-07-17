@@ -1,4 +1,4 @@
-# Ice Language Specification 0.31
+# Ice Language Specification 0.32
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.31 syntax.
+marked “planned” is a design constraint, not accepted 0.32 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.31.
+  block comments are not part of 0.32.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -177,6 +177,7 @@ node           = layout | text | input | button | checkbox | toggler
                | media | tooltip | mouse_area | theme_boundary
                | component_call | slot | extern_component_call | if_node | for_node
                | keyed_column | lazy_node | markdown_view | table_view
+               | editor_view
 layout         = "col" id? column_property* styles? INDENT node+
                | "row" id? flex_property* styles? INDENT node+
                | "scroll" id? scroll_property* styles? INDENT node
@@ -205,6 +206,16 @@ table_column   = "column" table_column_property* INDENT
 table_column_property = "width=" length
                       | "align-x=" ("left" | "center" | "right")
                       | "align-y=" ("top" | "center" | "bottom")
+editor_view    = "editor" id? "<->" name editor_property*
+editor_property = "placeholder=" string | "width=" expr | "height=" length
+                | ("min-height=" | "max-height=" | "size="
+                  | "line-height=" | "line-height-px=" | "padding=") expr
+                | "wrapping=" text_wrapping
+                | "font=" ("default" | "mono")
+                | "highlight=" string
+                | "highlight-theme=" ("solarized-dark" | "base16-mocha"
+                  | "base16-ocean" | "base16-eighties" | "inspired-github")
+                | "disabled=" expr
 column_property = flex_property | "max-width=" expr
 flex_property  = ("width=" | "height=") length | "spacing=" expr
                | ("padding=" | "padding-x=" | "padding-y="
@@ -548,6 +559,27 @@ and separator thickness are non-negative pixels. Each column accepts every
 identity scopes are generated automatically, so IDs inside repeated cells do
 not collide. Rust row values must be `Clone`, matching iced's table contract.
 
+Text editor content is another owned UI state type. A literal initializes it,
+and `editor(source)` replaces it from a runtime str:
+
+```ice
+state
+  notes:editor = "fn main() {}"
+
+view
+  editor #notes <-> notes placeholder="Write notes" width=640.0 height=fill min-height=80.0 max-height=240.0 size=14.0 line-height=1.3 padding=8.0 wrapping=word font=mono highlight="rs" highlight-theme=base16-ocean disabled=loading
+```
+
+The compiler owns iced's `Action` message variant and calls `Content::perform`
+automatically, so editor actions never leak into application handlers. Width is
+fixed pixels, height accepts every iced `Length`, metrics are range-checked,
+and all four wrapping modes, default/monospace fonts, relative/absolute line
+height, and all five iced highlighter themes are accepted. A disabled editor is
+rendered without `on_action`. An editor must live in the app view or in slot
+content supplied by the app; the checker rejects editor bindings declared
+inside a pure component because their generated actions must mutate app-owned
+state.
+
 Spaces inside a compound expression should be wrapped in parentheses when the
 expression shares a line with widget properties:
 
@@ -567,6 +599,7 @@ button "Add" disabled=(loading || empty(trim(draft))) -> submit
 | `T?` | `Option<T>` |
 | `combo[T]` | `iced::widget::combo_box::State<T>` |
 | `markdown` | `iced::widget::markdown::Content` |
+| `editor` | `iced::widget::text_editor::Content` |
 | `Name` | the named struct in the extern namespace |
 | `unit` | `()` |
 
@@ -592,7 +625,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.31 message payloads.
+`Clone` for 0.32 message payloads.
 
 Three typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
@@ -746,6 +779,7 @@ The implemented native nodes are:
 | `lazy` | caches one owned static child subtree by a checked hashable dependency |
 | `markdown` | renders owned parsed content with all text/heading/code sizes, spacing and str link events |
 | `table` | maps typed rows into arbitrary structured headers/cells with complete sizing, padding, separator and alignment options |
+| `editor` | binds owned multi-line content to generated iced actions with sizing, typography, wrapping and built-in highlighting |
 
 `if` and `for` are child control-flow nodes inside a layout. There is no virtual
 DOM or runtime reconciliation layer; the iced backend constructs the current
@@ -917,7 +951,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 0.31 does not claim that remapping.
+extern line; 0.32 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -938,7 +972,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 0.31 native backend is enough for CRUD/settings-style screens, selection,
+The 0.32 native backend is enough for CRUD/settings-style screens, selection,
 media, hover
 overlays, and common pointer events, not all of iced. It still lacks direct
 syntax for canvas, general overlays/modals, rich text
@@ -972,7 +1006,7 @@ compile-tested widget example is
 [`examples/iced-app/src/ui/showcase.ice`](examples/iced-app/src/ui/showcase.ice).
 Together they exercise
 state inference, typed extern structs/functions, mount and result handlers,
-direct input binding, `if`, `for`, native keyed columns and lazy subtrees, parsed Markdown, structured tables, pure components, structured slot composition,
+direct input/editor binding, `if`, `for`, native keyed columns and lazy subtrees, parsed Markdown, structured tables, pure components, structured slot composition,
 dynamic component IDs,
 theme utilities, disabled controls, fallible asynchronous tasks, complete
 wrapping row/column layouts, grids and fully sized underlay stacks, toggles,

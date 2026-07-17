@@ -55,6 +55,14 @@ pub fn generate(document: &Document, source_path: &str) -> Result<String, Error>
     for binding in input_bindings(&document.view) {
         writeln!(out, "{}(::std::string::String),", binding_variant(&binding)).unwrap();
     }
+    for binding in editor_bindings(&document.view) {
+        writeln!(
+            out,
+            "{}(::iced::widget::text_editor::Action),",
+            editor_variant(&binding)
+        )
+        .unwrap();
+    }
     if needs_extern_noop(document) {
         writeln!(out, "__ExternNoop,").unwrap();
     }
@@ -278,6 +286,14 @@ fn generate_update(out: &mut String, document: &Document, message: &str) -> Resu
         writeln!(
             out,
             "{message}::{variant}(value) => {{ self.{binding} = value; ::iced::Task::none() }}"
+        )
+        .unwrap();
+    }
+    for binding in editor_bindings(&document.view) {
+        let variant = editor_variant(&binding);
+        writeln!(
+            out,
+            "{message}::{variant}(action) => {{ self.{binding}.perform(action); ::iced::Task::none() }}"
         )
         .unwrap();
     }
@@ -1556,6 +1572,113 @@ fn render_node(
                 "{{ {settings} ::iced::widget::markdown::view(self.{content}.items(), __markdown_settings).map(move |__uri| {route}) }}"
             ))
         }
+        ViewNode::TextEditor {
+            binding,
+            id,
+            disabled,
+            options,
+            ..
+        } => {
+            let mut code = format!("::iced::widget::text_editor(&self.{binding})");
+            if let Some(id) = id {
+                write!(
+                    code,
+                    ".id(::iced::widget::Id::from({}))",
+                    id_code(id, scope, env, document)?
+                )
+                .unwrap();
+            }
+            if let Some(placeholder) = &options.placeholder {
+                write!(code, ".placeholder({})", rust_string(placeholder)).unwrap();
+            }
+            if let Some(width) = &options.width {
+                write!(
+                    code,
+                    ".width({} as f32)",
+                    expr_code(width, env, document, ValueMode::Owned)?
+                )
+                .unwrap();
+            }
+            if let Some(height) = &options.height {
+                write!(code, ".height({})", length_code(height, env, document)?).unwrap();
+            }
+            for (value, method) in [
+                (&options.min_height, "min_height"),
+                (&options.max_height, "max_height"),
+                (&options.size, "size"),
+                (&options.padding, "padding"),
+            ] {
+                if let Some(value) = value {
+                    write!(
+                        code,
+                        ".{method}({} as f32)",
+                        expr_code(value, env, document, ValueMode::Owned)?
+                    )
+                    .unwrap();
+                }
+            }
+            if let Some(line_height) = &options.line_height {
+                match line_height {
+                    TextLineHeight::Relative(value) => write!(
+                        code,
+                        ".line_height(::iced::widget::text::LineHeight::Relative({} as f32))",
+                        expr_code(value, env, document, ValueMode::Owned)?
+                    )
+                    .unwrap(),
+                    TextLineHeight::Absolute(value) => write!(
+                        code,
+                        ".line_height(::iced::widget::text::LineHeight::Absolute(({} as f32).into()))",
+                        expr_code(value, env, document, ValueMode::Owned)?
+                    )
+                    .unwrap(),
+                }
+            }
+            if let Some(wrapping) = options.wrapping {
+                write!(
+                    code,
+                    ".wrapping(::iced::widget::text::Wrapping::{})",
+                    text_wrapping_code(wrapping)
+                )
+                .unwrap();
+            }
+            if let Some(font) = options.font {
+                let font = match font {
+                    FontPreset::Default => "DEFAULT",
+                    FontPreset::Monospace => "MONOSPACE",
+                };
+                write!(code, ".font(::iced::Font::{font})").unwrap();
+            }
+            if let Some(syntax) = &options.highlight {
+                let theme = match options
+                    .highlight_theme
+                    .unwrap_or(HighlightTheme::Base16Ocean)
+                {
+                    HighlightTheme::SolarizedDark => "SolarizedDark",
+                    HighlightTheme::Base16Mocha => "Base16Mocha",
+                    HighlightTheme::Base16Ocean => "Base16Ocean",
+                    HighlightTheme::Base16Eighties => "Base16Eighties",
+                    HighlightTheme::InspiredGithub => "InspiredGitHub",
+                };
+                write!(
+                    code,
+                    ".highlight({}, ::iced::highlighter::Theme::{theme})",
+                    rust_string(syntax)
+                )
+                .unwrap();
+            }
+            let variant = editor_variant(binding);
+            let enabled = format!(
+                "{code}.on_action({message}::{variant} as fn(::iced::widget::text_editor::Action) -> {message})"
+            );
+            if let Some(disabled) = disabled {
+                let disabled = expr_code(disabled, env, document, ValueMode::Owned)?;
+                Ok(format!(
+                    "if {disabled} {{ {code}.into() }} else {{ {enabled}.into() }}"
+                ))
+            } else {
+                Ok(format!("{enabled}.into()"))
+            }
+        }
         ViewNode::Table {
             item,
             rows,
@@ -2268,6 +2391,10 @@ fn expr_code(
                 "::iced::widget::markdown::Content::parse(&{})",
                 expr_code(&args[0], env, document, ValueMode::Owned)?
             ),
+            "editor" => format!(
+                "::iced::widget::text_editor::Content::with_text(&{})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
             _ => unreachable!("checker rejects unknown calls"),
         },
         Expr::Unary { op, value } => format!(
@@ -2385,6 +2512,10 @@ fn initial_code(expr: &Expr, ty: &Type, document: &Document) -> String {
             "::iced::widget::markdown::Content::parse({})",
             rust_string(value)
         ),
+        (Expr::Str(value), Type::Editor) => format!(
+            "::iced::widget::text_editor::Content::with_text({})",
+            rust_string(value)
+        ),
         (Expr::EmptyList, Type::List(_)) => "::std::vec::Vec::new()".into(),
         (Expr::EmptyList, Type::Combo(_)) => {
             "::iced::widget::combo_box::State::new(::std::vec::Vec::new())".into()
@@ -2409,10 +2540,15 @@ fn initial_code(expr: &Expr, ty: &Type, document: &Document) -> String {
     }
 }
 
-fn input_bindings(root: &ViewNode) -> Vec<String> {
-    fn collect(node: &ViewNode, output: &mut Vec<String>) {
+fn state_bindings(root: &ViewNode, editors: bool) -> Vec<String> {
+    fn collect(node: &ViewNode, editors: bool, output: &mut Vec<String>) {
         match node {
-            ViewNode::Input { binding, .. } => {
+            ViewNode::Input { binding, .. } if !editors => {
+                if !output.contains(binding) {
+                    output.push(binding.clone());
+                }
+            }
+            ViewNode::TextEditor { binding, .. } if editors => {
                 if !output.contains(binding) {
                     output.push(binding.clone());
                 }
@@ -2421,49 +2557,57 @@ fn input_bindings(root: &ViewNode) -> Vec<String> {
             | ViewNode::If { children, .. }
             | ViewNode::For { children, .. } => {
                 for child in children {
-                    collect(child, output);
+                    collect(child, editors, output);
                 }
             }
             ViewNode::Tooltip { content, tip, .. } => {
-                collect(content, output);
-                collect(tip, output);
+                collect(content, editors, output);
+                collect(tip, editors, output);
             }
             ViewNode::Table { columns, .. } => {
                 for column in columns {
-                    collect(&column.header, output);
-                    collect(&column.cell, output);
+                    collect(&column.header, editors, output);
+                    collect(&column.cell, editors, output);
                 }
             }
             ViewNode::MouseArea { content, .. } | ViewNode::Theme { content, .. } => {
-                collect(content, output)
+                collect(content, editors, output)
             }
             ViewNode::Component {
                 content: Some(content),
                 ..
-            } => collect(content, output),
+            } => collect(content, editors, output),
             ViewNode::KeyedColumn { child, .. } | ViewNode::Lazy { child, .. } => {
-                collect(child, output)
+                collect(child, editors, output)
             }
             ViewNode::Button {
                 content: Some(content),
                 ..
-            } => collect(content, output),
+            } => collect(content, editors, output),
             ViewNode::Float { content, .. }
             | ViewNode::Pin { content, .. }
-            | ViewNode::Sensor { content, .. } => collect(content, output),
+            | ViewNode::Sensor { content, .. } => collect(content, editors, output),
             ViewNode::Responsive { content, .. } => match content {
                 ResponsiveContent::Breakpoint { narrow, wide, .. } => {
-                    collect(narrow, output);
-                    collect(wide, output);
+                    collect(narrow, editors, output);
+                    collect(wide, editors, output);
                 }
-                ResponsiveContent::Size { content, .. } => collect(content, output),
+                ResponsiveContent::Size { content, .. } => collect(content, editors, output),
             },
             _ => {}
         }
     }
     let mut output = Vec::new();
-    collect(root, &mut output);
+    collect(root, editors, &mut output);
     output
+}
+
+fn input_bindings(root: &ViewNode) -> Vec<String> {
+    state_bindings(root, false)
+}
+
+fn editor_bindings(root: &ViewNode) -> Vec<String> {
+    state_bindings(root, true)
 }
 
 fn needs_extern_noop(document: &Document) -> bool {
@@ -3199,6 +3343,10 @@ fn binding_variant(binding: &str) -> String {
     format!("__Bind{}", pascal(binding))
 }
 
+fn editor_variant(binding: &str) -> String {
+    format!("__Edit{}", pascal(binding))
+}
+
 fn id_code(
     id: &Id,
     scope: &str,
@@ -3812,6 +3960,39 @@ view
             assert!(generated.contains(method));
         }
         assert!(generated.contains("format!(\"{}/row({})/column(0)\""));
+    }
+
+    #[test]
+    fn lowers_bound_text_editors_and_internal_actions() {
+        let source = r#"app Notes
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  body:editor = "fn main() {}"
+  locked = false
+view
+  editor #body <-> body placeholder="Write" width=640.0 height=fill min-height=80.0 max-height=240.0 size=14.0 line-height-px=18.0 padding=8.0 wrapping=word-or-glyph font=mono highlight="rs" highlight-theme=inspired-github disabled=locked
+"#;
+        let generated = compile(source, "notes.ice").unwrap();
+        assert!(generated.contains("body: ::iced::widget::text_editor::Content::with_text"));
+        assert!(generated.contains("__EditBody(::iced::widget::text_editor::Action)"));
+        assert!(generated.contains("self.body.perform(action)"));
+        assert!(generated.contains("::iced::widget::text_editor(&self.body)"));
+        assert!(generated.contains(".width(640.0 as f32)"));
+        assert!(generated.contains(".height(::iced::Fill)"));
+        assert!(generated.contains(".min_height(80.0 as f32)"));
+        assert!(generated.contains(".max_height(240.0 as f32)"));
+        assert!(generated.contains("LineHeight::Absolute((18.0 as f32).into())"));
+        assert!(generated.contains("Wrapping::WordOrGlyph"));
+        assert!(generated.contains(".font(::iced::Font::MONOSPACE)"));
+        assert!(
+            generated.contains(".highlight(\"rs\", ::iced::highlighter::Theme::InspiredGitHub)")
+        );
+        assert!(generated.contains("if self.locked"));
+        assert!(generated.contains(".on_action(__NotesMessage::__EditBody"));
     }
 
     #[test]
