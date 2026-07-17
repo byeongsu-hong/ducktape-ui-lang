@@ -766,6 +766,9 @@ fn parse_statement(line: &Line) -> Result<Statement, Error> {
     if let Some(source) = line.text.strip_prefix("task widget ") {
         return parse_widget_operation(source, line);
     }
+    if let Some(source) = line.text.strip_prefix("task window ") {
+        return parse_window_operation(source, line);
+    }
     for (prefix, primary) in [
         ("task clipboard write-primary ", true),
         ("task clipboard write ", false),
@@ -922,6 +925,119 @@ fn parse_widget_operation(source: &str, line: &Line) -> Result<Statement, Error>
         }
     };
     Ok(Statement::WidgetOperation {
+        operation,
+        route: route
+            .map(|route| parse_route(route.trim(), line))
+            .transpose()?,
+        span: Span::line(line.number),
+    })
+}
+
+fn parse_window_operation(source: &str, line: &Line) -> Result<Statement, Error> {
+    let (source, route) = split_top_marker(source, "->")
+        .map_or((source, None), |(source, route)| (source, Some(route)));
+    let parts = split_words(source);
+    let expr = |index: usize| {
+        parse_expr(
+            strip_wrapping_parens(
+                parts
+                    .get(index)
+                    .ok_or_else(|| error("E053", line, "window task is missing a value"))?,
+            ),
+            line,
+        )
+    };
+    let size = || match parts.as_slice() {
+        [_, value] if value == "none" => Ok(None),
+        [_, _, _] => Ok(Some((expr(1)?, expr(2)?))),
+        _ => Err(error(
+            "E053",
+            line,
+            "window size task expects `width height` or `none`",
+        )),
+    };
+    let operation = match parts.first().map(String::as_str) {
+        Some("close") if parts.len() == 1 => WindowOperation::Close,
+        Some("drag") if parts.len() == 1 => WindowOperation::Drag,
+        Some("drag-resize") if parts.len() == 2 => {
+            WindowOperation::DragResize(match parts[1].as_str() {
+                "north" => WindowDirection::North,
+                "south" => WindowDirection::South,
+                "east" => WindowDirection::East,
+                "west" => WindowDirection::West,
+                "north-east" => WindowDirection::NorthEast,
+                "north-west" => WindowDirection::NorthWest,
+                "south-east" => WindowDirection::SouthEast,
+                "south-west" => WindowDirection::SouthWest,
+                _ => return Err(error("E053", line, "unknown window resize direction")),
+            })
+        }
+        Some("resize") if parts.len() == 3 => WindowOperation::Resize(expr(1)?, expr(2)?),
+        Some("resizable") if parts.len() == 2 => WindowOperation::Resizable(expr(1)?),
+        Some("min-size") => WindowOperation::MinSize(size()?),
+        Some("max-size") => WindowOperation::MaxSize(size()?),
+        Some("resize-increments") => WindowOperation::ResizeIncrements(size()?),
+        Some("size") if parts.len() == 1 => WindowOperation::Size,
+        Some("maximized") if parts.len() == 1 => WindowOperation::IsMaximized,
+        Some("maximize") if parts.len() == 2 => WindowOperation::Maximize(expr(1)?),
+        Some("minimized") if parts.len() == 1 => WindowOperation::IsMinimized,
+        Some("minimize") if parts.len() == 2 => WindowOperation::Minimize(expr(1)?),
+        Some("position") if parts.len() == 1 => WindowOperation::Position,
+        Some("scale-factor") if parts.len() == 1 => WindowOperation::ScaleFactor,
+        Some("move") if parts.len() == 3 => WindowOperation::Move(expr(1)?, expr(2)?),
+        Some("mode") if parts.len() == 1 => WindowOperation::Mode,
+        Some("set-mode") if parts.len() == 2 => WindowOperation::SetMode(match parts[1].as_str() {
+            "windowed" => WindowMode::Windowed,
+            "fullscreen" => WindowMode::Fullscreen,
+            "hidden" => WindowMode::Hidden,
+            _ => {
+                return Err(error(
+                    "E053",
+                    line,
+                    "window mode must be windowed, fullscreen, or hidden",
+                ));
+            }
+        }),
+        Some("toggle-maximize") if parts.len() == 1 => WindowOperation::ToggleMaximize,
+        Some("toggle-decorations") if parts.len() == 1 => WindowOperation::ToggleDecorations,
+        Some("attention") if parts.len() == 2 => {
+            WindowOperation::Attention(match parts[1].as_str() {
+                "none" => None,
+                "critical" => Some(WindowAttention::Critical),
+                "informational" => Some(WindowAttention::Informational),
+                _ => {
+                    return Err(error(
+                        "E053",
+                        line,
+                        "window attention must be none, critical, or informational",
+                    ));
+                }
+            })
+        }
+        Some("focus") if parts.len() == 1 => WindowOperation::Focus,
+        Some("level") if parts.len() == 2 => WindowOperation::SetLevel(match parts[1].as_str() {
+            "normal" => WindowLevel::Normal,
+            "always-on-bottom" => WindowLevel::AlwaysOnBottom,
+            "always-on-top" => WindowLevel::AlwaysOnTop,
+            _ => return Err(error("E053", line, "unknown window level")),
+        }),
+        Some("system-menu") if parts.len() == 1 => WindowOperation::SystemMenu,
+        Some("mouse-passthrough") if parts.len() == 2 => {
+            WindowOperation::MousePassthrough(expr(1)?)
+        }
+        Some("monitor-size") if parts.len() == 1 => WindowOperation::MonitorSize,
+        Some("automatic-tabbing") if parts.len() == 2 => {
+            WindowOperation::AutomaticTabbing(expr(1)?)
+        }
+        _ => {
+            return Err(error(
+                "E053",
+                line,
+                "unknown window task or wrong arguments",
+            ));
+        }
+    };
+    Ok(Statement::WindowOperation {
         operation,
         route: route
             .map(|route| parse_route(route.trim(), line))

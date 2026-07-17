@@ -2107,6 +2107,53 @@ fn infer_runs(
         {
             infer_route(route, Some(Type::Bool), &unknown_env, document, signatures)?;
         }
+        if let Statement::WindowOperation {
+            operation,
+            route: Some(route),
+            ..
+        } = statement
+        {
+            match operation {
+                WindowOperation::Size => infer_ordered_payload_route(
+                    route,
+                    &[Type::F64, Type::F64],
+                    &unknown_env,
+                    document,
+                    signatures,
+                    "window size",
+                )?,
+                WindowOperation::Position | WindowOperation::MonitorSize => {
+                    infer_ordered_payload_route(
+                        route,
+                        &[
+                            Type::Option(Box::new(Type::F64)),
+                            Type::Option(Box::new(Type::F64)),
+                        ],
+                        &unknown_env,
+                        document,
+                        signatures,
+                        "optional window coordinates",
+                    )?
+                }
+                WindowOperation::IsMaximized => {
+                    infer_route(route, Some(Type::Bool), &unknown_env, document, signatures)?
+                }
+                WindowOperation::IsMinimized => infer_route(
+                    route,
+                    Some(Type::Option(Box::new(Type::Bool))),
+                    &unknown_env,
+                    document,
+                    signatures,
+                )?,
+                WindowOperation::ScaleFactor => {
+                    infer_route(route, Some(Type::F64), &unknown_env, document, signatures)?
+                }
+                WindowOperation::Mode => {
+                    infer_route(route, Some(Type::Str), &unknown_env, document, signatures)?
+                }
+                _ => {}
+            }
+        }
         if let Statement::Run {
             kind,
             function,
@@ -2421,6 +2468,68 @@ fn check_handler(
                             span,
                         )?;
                     }
+                }
+            }
+            Statement::WindowOperation {
+                operation,
+                route,
+                span,
+            } => {
+                if index + 1 != handler.statements.len() {
+                    return Err(Error::new(
+                        "E173",
+                        span,
+                        "window task must be the final statement in a handler",
+                    ));
+                }
+                let query = matches!(
+                    operation,
+                    WindowOperation::Size
+                        | WindowOperation::IsMaximized
+                        | WindowOperation::IsMinimized
+                        | WindowOperation::Position
+                        | WindowOperation::ScaleFactor
+                        | WindowOperation::Mode
+                        | WindowOperation::MonitorSize
+                );
+                match (query, route) {
+                    (true, None) => {
+                        return Err(Error::new("E173", span, "window query requires a route"));
+                    }
+                    (false, Some(_)) => {
+                        return Err(Error::new(
+                            "E173",
+                            span,
+                            "window effects do not produce a route",
+                        ));
+                    }
+                    _ => {}
+                }
+                for value in match operation {
+                    WindowOperation::Resizable(value)
+                    | WindowOperation::Maximize(value)
+                    | WindowOperation::Minimize(value)
+                    | WindowOperation::MousePassthrough(value)
+                    | WindowOperation::AutomaticTabbing(value) => vec![value],
+                    _ => Vec::new(),
+                } {
+                    require_type(&expr_type(value, &env, document, span)?, &Type::Bool, span)?;
+                }
+                for value in match operation {
+                    WindowOperation::Resize(width, height) => vec![width, height],
+                    WindowOperation::MinSize(Some((width, height)))
+                    | WindowOperation::MaxSize(Some((width, height)))
+                    | WindowOperation::ResizeIncrements(Some((width, height))) => {
+                        vec![width, height]
+                    }
+                    _ => Vec::new(),
+                } {
+                    require_type(&expr_type(value, &env, document, span)?, &Type::F64, span)?;
+                    require_literal_range(value, f64::EPSILON, None, "window size", span)?;
+                }
+                if let WindowOperation::Move(x, y) = operation {
+                    require_type(&expr_type(x, &env, document, span)?, &Type::F64, span)?;
+                    require_type(&expr_type(y, &env, document, span)?, &Type::F64, span)?;
                 }
             }
         }

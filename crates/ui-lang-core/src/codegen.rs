@@ -837,6 +837,215 @@ fn generate_statements(
                 )
                 .unwrap();
             }
+            Statement::WindowOperation {
+                operation, route, ..
+            } => {
+                has_task = true;
+                let id = "__window";
+                let value = |value: &Expr, cast: &str| {
+                    Ok::<_, Error>(format!(
+                        "({}) as {cast}",
+                        expr_code(value, env, document, ValueMode::Owned)?
+                    ))
+                };
+                let size = |width: &Expr, height: &Expr| {
+                    Ok::<_, Error>(format!(
+                        "::iced::Size::new({}, {})",
+                        value(width, "f32")?,
+                        value(height, "f32")?
+                    ))
+                };
+                let optional_size = |size_value: &Option<(Expr, Expr)>| {
+                    Ok::<_, Error>(match size_value {
+                        Some((width, height)) => {
+                            format!("::std::option::Option::Some({})", size(width, height)?)
+                        }
+                        None => "::std::option::Option::None".into(),
+                    })
+                };
+                let bool_value = |value: &Expr| expr_code(value, env, document, ValueMode::Owned);
+                let task = match operation {
+                    WindowOperation::Close => {
+                        format!("::iced::window::close::<{message}>({id})")
+                    }
+                    WindowOperation::Drag => {
+                        format!("::iced::window::drag::<{message}>({id})")
+                    }
+                    WindowOperation::DragResize(direction) => {
+                        let direction = match direction {
+                            WindowDirection::North => "North",
+                            WindowDirection::South => "South",
+                            WindowDirection::East => "East",
+                            WindowDirection::West => "West",
+                            WindowDirection::NorthEast => "NorthEast",
+                            WindowDirection::NorthWest => "NorthWest",
+                            WindowDirection::SouthEast => "SouthEast",
+                            WindowDirection::SouthWest => "SouthWest",
+                        };
+                        format!(
+                            "::iced::window::drag_resize::<{message}>({id}, ::iced::window::Direction::{direction})"
+                        )
+                    }
+                    WindowOperation::Resize(width, height) => format!(
+                        "::iced::window::resize::<{message}>({id}, {})",
+                        size(width, height)?
+                    ),
+                    WindowOperation::Resizable(enabled) => format!(
+                        "::iced::window::set_resizable::<{message}>({id}, {})",
+                        bool_value(enabled)?
+                    ),
+                    WindowOperation::MinSize(size) => format!(
+                        "::iced::window::set_min_size::<{message}>({id}, {})",
+                        optional_size(size)?
+                    ),
+                    WindowOperation::MaxSize(size) => format!(
+                        "::iced::window::set_max_size::<{message}>({id}, {})",
+                        optional_size(size)?
+                    ),
+                    WindowOperation::ResizeIncrements(size) => format!(
+                        "::iced::window::set_resize_increments::<{message}>({id}, {})",
+                        optional_size(size)?
+                    ),
+                    WindowOperation::Size => {
+                        let route = route.as_ref().expect("checker requires window route");
+                        let message_code = ordered_route_code(
+                            route,
+                            &["value.width as f64", "value.height as f64"],
+                            env,
+                            document,
+                            message,
+                        )?;
+                        format!("::iced::window::size({id}).map(move |value| {message_code})")
+                    }
+                    WindowOperation::IsMaximized => {
+                        let route = route.as_ref().expect("checker requires window route");
+                        let message_code = route_code(route, "value", env, document, message)?;
+                        format!(
+                            "::iced::window::is_maximized({id}).map(move |value| {message_code})"
+                        )
+                    }
+                    WindowOperation::Maximize(enabled) => format!(
+                        "::iced::window::maximize::<{message}>({id}, {})",
+                        bool_value(enabled)?
+                    ),
+                    WindowOperation::IsMinimized => {
+                        let route = route.as_ref().expect("checker requires window route");
+                        let message_code = route_code(route, "value", env, document, message)?;
+                        format!(
+                            "::iced::window::is_minimized({id}).map(move |value| {message_code})"
+                        )
+                    }
+                    WindowOperation::Minimize(enabled) => format!(
+                        "::iced::window::minimize::<{message}>({id}, {})",
+                        bool_value(enabled)?
+                    ),
+                    WindowOperation::Position => {
+                        let route = route.as_ref().expect("checker requires window route");
+                        let message_code =
+                            ordered_route_code(route, &["x", "y"], env, document, message)?;
+                        format!(
+                            "::iced::window::position({id}).map(move |value| {{ let (x, y) = value.map_or((::std::option::Option::None, ::std::option::Option::None), |value| (::std::option::Option::Some(value.x as f64), ::std::option::Option::Some(value.y as f64))); {message_code} }})"
+                        )
+                    }
+                    WindowOperation::ScaleFactor => {
+                        let route = route.as_ref().expect("checker requires window route");
+                        let message_code =
+                            route_code(route, "value as f64", env, document, message)?;
+                        format!(
+                            "::iced::window::scale_factor({id}).map(move |value| {message_code})"
+                        )
+                    }
+                    WindowOperation::Move(x, y) => format!(
+                        "::iced::window::move_to::<{message}>({id}, ::iced::Point::new({}, {}))",
+                        value(x, "f32")?,
+                        value(y, "f32")?
+                    ),
+                    WindowOperation::Mode => {
+                        let route = route.as_ref().expect("checker requires window route");
+                        let message_code = route_code(route, "value", env, document, message)?;
+                        format!(
+                            "::iced::window::mode({id}).map(move |value| {{ let value = match value {{ ::iced::window::Mode::Windowed => \"windowed\", ::iced::window::Mode::Fullscreen => \"fullscreen\", ::iced::window::Mode::Hidden => \"hidden\" }}.to_owned(); {message_code} }})"
+                        )
+                    }
+                    WindowOperation::SetMode(mode) => {
+                        let mode = match mode {
+                            WindowMode::Windowed => "Windowed",
+                            WindowMode::Fullscreen => "Fullscreen",
+                            WindowMode::Hidden => "Hidden",
+                        };
+                        format!(
+                            "::iced::window::set_mode::<{message}>({id}, ::iced::window::Mode::{mode})"
+                        )
+                    }
+                    WindowOperation::ToggleMaximize => {
+                        format!("::iced::window::toggle_maximize::<{message}>({id})")
+                    }
+                    WindowOperation::ToggleDecorations => {
+                        format!("::iced::window::toggle_decorations::<{message}>({id})")
+                    }
+                    WindowOperation::Attention(attention) => {
+                        let attention: String = match attention {
+                            None => "::std::option::Option::None".into(),
+                            Some(WindowAttention::Critical) => "::std::option::Option::Some(::iced::window::UserAttention::Critical)".into(),
+                            Some(WindowAttention::Informational) => "::std::option::Option::Some(::iced::window::UserAttention::Informational)".into(),
+                        };
+                        format!(
+                            "::iced::window::request_user_attention::<{message}>({id}, {attention})"
+                        )
+                    }
+                    WindowOperation::Focus => {
+                        format!("::iced::window::gain_focus::<{message}>({id})")
+                    }
+                    WindowOperation::SetLevel(level) => {
+                        let level = match level {
+                            WindowLevel::Normal => "Normal",
+                            WindowLevel::AlwaysOnBottom => "AlwaysOnBottom",
+                            WindowLevel::AlwaysOnTop => "AlwaysOnTop",
+                        };
+                        format!(
+                            "::iced::window::set_level::<{message}>({id}, ::iced::window::Level::{level})"
+                        )
+                    }
+                    WindowOperation::SystemMenu => {
+                        format!("::iced::window::show_system_menu::<{message}>({id})")
+                    }
+                    WindowOperation::MousePassthrough(enabled) => {
+                        let enabled = bool_value(enabled)?;
+                        format!(
+                            "if {enabled} {{ ::iced::window::enable_mouse_passthrough::<{message}>({id}) }} else {{ ::iced::window::disable_mouse_passthrough::<{message}>({id}) }}"
+                        )
+                    }
+                    WindowOperation::MonitorSize => {
+                        let route = route.as_ref().expect("checker requires window route");
+                        let message_code = ordered_route_code(
+                            route,
+                            &["width", "height"],
+                            env,
+                            document,
+                            message,
+                        )?;
+                        format!(
+                            "::iced::window::monitor_size({id}).map(move |value| {{ let (width, height) = value.map_or((::std::option::Option::None, ::std::option::Option::None), |value| (::std::option::Option::Some(value.width as f64), ::std::option::Option::Some(value.height as f64))); {message_code} }})"
+                        )
+                    }
+                    WindowOperation::AutomaticTabbing(enabled) => format!(
+                        "::iced::window::allow_automatic_tabbing::<{message}>({})",
+                        bool_value(enabled)?
+                    ),
+                };
+                let task = if matches!(operation, WindowOperation::AutomaticTabbing(_)) {
+                    task
+                } else {
+                    format!("::iced::window::oldest().and_then(move |__window| {task})")
+                };
+                writeln!(
+                    out,
+                    "{}{task}{}",
+                    if return_task { "return " } else { "" },
+                    if return_task { ";" } else { "" }
+                )
+                .unwrap();
+            }
         }
     }
     Ok(has_task)
@@ -5123,6 +5332,139 @@ view
         assert!(generated.contains("RelativeOffset { x: (0.0) as f32, y: (1.0) as f32 }"));
         assert!(generated.contains("AbsoluteOffset"));
         assert!(generated.contains("(-4.0)"));
+    }
+
+    #[test]
+    fn checks_and_lowers_main_window_tasks() {
+        let source = r#"app WindowTasks
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+on closed
+on size_read(width, height)
+on bool_read(value)
+on optional_bool_read(value)
+on optional_pair_read(x, y)
+on scale_read(value)
+on mode_read(value)
+on close_window
+  task window close
+on drag_window
+  task window drag
+on drag_resize_window
+  task window drag-resize north-east
+on resize_window
+  task window resize 800.0 600.0
+on resizable_window
+  task window resizable true
+on min_size_window
+  task window min-size 320.0 240.0
+on clear_min_size
+  task window min-size none
+on max_size_window
+  task window max-size 1920.0 1080.0
+on resize_increments_window
+  task window resize-increments 8.0 16.0
+on read_size
+  task window size -> size_read _ _
+on read_maximized
+  task window maximized -> bool_read _
+on maximize_window
+  task window maximize true
+on read_minimized
+  task window minimized -> optional_bool_read _
+on minimize_window
+  task window minimize false
+on read_position
+  task window position -> optional_pair_read _ _
+on read_scale
+  task window scale-factor -> scale_read _
+on move_window
+  task window move -10.0 20.0
+on read_mode
+  task window mode -> mode_read _
+on mode_window
+  task window set-mode fullscreen
+on toggle_maximize_window
+  task window toggle-maximize
+on toggle_decorations_window
+  task window toggle-decorations
+on attention_window
+  task window attention informational
+on clear_attention
+  task window attention none
+on focus_window
+  task window focus
+on level_window
+  task window level always-on-top
+on system_menu_window
+  task window system-menu
+on passthrough_window
+  task window mouse-passthrough false
+on read_monitor
+  task window monitor-size -> optional_pair_read _ _
+on automatic_tabbing
+  task window automatic-tabbing false
+view
+  text "Window"
+"#;
+        let generated = compile(source, "window_tasks.ice").unwrap();
+        for function in [
+            "window::close",
+            "window::drag",
+            "window::drag_resize",
+            "window::resize",
+            "window::set_resizable",
+            "window::set_min_size",
+            "window::set_max_size",
+            "window::set_resize_increments",
+            "window::size",
+            "window::is_maximized",
+            "window::maximize",
+            "window::is_minimized",
+            "window::minimize",
+            "window::position",
+            "window::scale_factor",
+            "window::move_to",
+            "window::mode",
+            "window::set_mode",
+            "window::toggle_maximize",
+            "window::toggle_decorations",
+            "window::request_user_attention",
+            "window::gain_focus",
+            "window::set_level",
+            "window::show_system_menu",
+            "window::enable_mouse_passthrough",
+            "window::disable_mouse_passthrough",
+            "window::monitor_size",
+            "window::allow_automatic_tabbing",
+        ] {
+            assert!(generated.contains(function), "missing {function}");
+        }
+        assert!(generated.contains("window::oldest().and_then"));
+
+        let error = compile(
+            &source.replace("task window close", "task window close -> closed"),
+            "window_tasks.ice",
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "E173");
+
+        let error = compile(
+            &source.replace("resize 800.0 600.0", "resize -1.0 600.0"),
+            "window_tasks.ice",
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "E128");
+
+        let error = compile(
+            &source.replace("size -> size_read _ _", "size -> size_read _"),
+            "window_tasks.ice",
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "E129");
     }
 
     #[test]
