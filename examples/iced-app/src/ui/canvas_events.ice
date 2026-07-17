@@ -34,7 +34,10 @@ on file_dropped(path)
 on files_left
 
 view
-  canvas width=fill height=120.0 capture=true
+  canvas width=fill height=120.0 capture=true cursor=(cursor_state) cursor-outside=true
+    state
+      cursor_state = "crosshair"
+      move_count = 0
     event input-method opened -> ime_opened
     event input-method preedit -> ime_preedit _ _ _
     event input-method commit -> ime_commit _
@@ -44,9 +47,17 @@ view
     event keyboard modifiers -> modifiers _
     event mouse entered -> mouse_entered
     event mouse left -> mouse_left
-    event mouse moved -> mouse_moved _ _
-    event mouse pressed -> mouse_pressed _
-    event mouse released -> mouse_released _
+    event mouse moved as x, y
+      set move_count = move_count + 1
+      emit mouse_moved x y
+    event mouse pressed as button
+      set cursor_state = "grabbing"
+      emit mouse_pressed button
+      capture
+    event mouse released as button
+      set cursor_state = "crosshair"
+      emit mouse_released button
+      capture
     event mouse wheel -> mouse_wheel _ _ _
     event touch pressed -> touch_pressed _ _ _
     event touch moved -> touch_moved _ _ _
@@ -65,3 +76,4 @@ view
     event window file-dropped -> file_dropped _
     event window files-hovered-left -> files_left
     rect x=0.0 y=0.0 width=canvas_width height=canvas_height fill=background
+    text move_count x=8.0 y=20.0 color=foreground size=14.0

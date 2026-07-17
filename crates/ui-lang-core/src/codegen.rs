@@ -389,47 +389,36 @@ fn generate_canvas_types(out: &mut String, document: &Document) {
         return;
     }
     out.push_str(
-        r#"struct __IceCanvasState {
-    cache: ::std::cell::OnceCell<::iced::widget::canvas::Cache>,
-    cache_key: ::std::cell::Cell<::std::option::Option<u64>>,
-    inside: bool,
-}
-impl ::std::default::Default for __IceCanvasState {
-    fn default() -> Self {
-        Self {
-            cache: ::std::cell::OnceCell::new(),
-            cache_key: ::std::cell::Cell::new(::std::option::Option::None),
-            inside: false,
-        }
-    }
-}
-struct __IceCanvasProgram<Message, Draw, Update> {
+        r#"struct __IceCanvasProgram<State, Message, Draw, Update, Interaction> {
     draw: Draw,
     update: Update,
-    interaction: ::iced::mouse::Interaction,
-    cache_key: ::std::option::Option<u64>,
-    cache_group: ::std::option::Option<::iced::widget::canvas::Group>,
-    use_cache: bool,
-    message: ::std::marker::PhantomData<fn() -> Message>,
+    interaction: Interaction,
+    message: ::std::marker::PhantomData<fn() -> (State, Message)>,
 }
-impl<Message, Draw, Update> ::iced::widget::canvas::Program<Message>
-    for __IceCanvasProgram<Message, Draw, Update>
+impl<State, Message, Draw, Update, Interaction> ::iced::widget::canvas::Program<Message>
+    for __IceCanvasProgram<State, Message, Draw, Update, Interaction>
 where
+    State: ::std::default::Default + 'static,
     Draw: Fn(
-        &__IceCanvasState,
+        &State,
         &::iced::Renderer,
         &::iced::Theme,
         ::iced::Rectangle,
         ::iced::mouse::Cursor,
     ) -> ::std::vec::Vec<::iced::widget::canvas::Geometry>,
     Update: Fn(
-        &mut __IceCanvasState,
+        &mut State,
         &::iced::widget::canvas::Event,
         ::iced::Rectangle,
         ::iced::mouse::Cursor,
     ) -> ::std::option::Option<::iced::widget::canvas::Action<Message>>,
+    Interaction: Fn(
+        &State,
+        ::iced::Rectangle,
+        ::iced::mouse::Cursor,
+    ) -> ::iced::mouse::Interaction,
 {
-    type State = __IceCanvasState;
+    type State = State;
 
     fn update(
         &self,
@@ -449,30 +438,47 @@ where
         bounds: ::iced::Rectangle,
         cursor: ::iced::mouse::Cursor,
     ) -> ::std::vec::Vec<::iced::widget::canvas::Geometry> {
-        if self.use_cache {
-            let cache = state.cache.get_or_init(|| match self.cache_group {
-                ::std::option::Option::Some(group) => ::iced::widget::canvas::Cache::with_group(group),
-                ::std::option::Option::None => ::iced::widget::canvas::Cache::new(),
-            });
-            if state.cache_key.get() != self.cache_key {
-                cache.clear();
-                state.cache_key.set(self.cache_key);
-            }
-        }
         (self.draw)(state, renderer, theme, bounds, cursor)
     }
 
     fn mouse_interaction(
         &self,
-        _state: &Self::State,
+        state: &Self::State,
         bounds: ::iced::Rectangle,
         cursor: ::iced::mouse::Cursor,
     ) -> ::iced::mouse::Interaction {
-        if cursor.is_over(bounds) {
-            self.interaction
-        } else {
-            ::iced::mouse::Interaction::default()
-        }
+        (self.interaction)(state, bounds, cursor)
+    }
+}
+fn __ice_canvas_interaction(value: &str) -> ::iced::mouse::Interaction {
+    match value {
+        "hidden" => ::iced::mouse::Interaction::Hidden,
+        "idle" => ::iced::mouse::Interaction::Idle,
+        "context-menu" => ::iced::mouse::Interaction::ContextMenu,
+        "help" => ::iced::mouse::Interaction::Help,
+        "pointer" => ::iced::mouse::Interaction::Pointer,
+        "progress" => ::iced::mouse::Interaction::Progress,
+        "wait" => ::iced::mouse::Interaction::Wait,
+        "cell" => ::iced::mouse::Interaction::Cell,
+        "crosshair" => ::iced::mouse::Interaction::Crosshair,
+        "text" => ::iced::mouse::Interaction::Text,
+        "alias" => ::iced::mouse::Interaction::Alias,
+        "copy" => ::iced::mouse::Interaction::Copy,
+        "move" => ::iced::mouse::Interaction::Move,
+        "no-drop" => ::iced::mouse::Interaction::NoDrop,
+        "not-allowed" => ::iced::mouse::Interaction::NotAllowed,
+        "grab" => ::iced::mouse::Interaction::Grab,
+        "grabbing" => ::iced::mouse::Interaction::Grabbing,
+        "resize-horizontal" => ::iced::mouse::Interaction::ResizingHorizontally,
+        "resize-vertical" => ::iced::mouse::Interaction::ResizingVertically,
+        "resize-diagonal-up" => ::iced::mouse::Interaction::ResizingDiagonallyUp,
+        "resize-diagonal-down" => ::iced::mouse::Interaction::ResizingDiagonallyDown,
+        "resize-column" => ::iced::mouse::Interaction::ResizingColumn,
+        "resize-row" => ::iced::mouse::Interaction::ResizingRow,
+        "all-scroll" => ::iced::mouse::Interaction::AllScroll,
+        "zoom-in" => ::iced::mouse::Interaction::ZoomIn,
+        "zoom-out" => ::iced::mouse::Interaction::ZoomOut,
+        _ => ::iced::mouse::Interaction::default(),
     }
 }
 "#,
@@ -2686,10 +2692,11 @@ fn render_node(
         }
         ViewNode::Canvas {
             options,
+            locals,
             commands,
             events,
             ..
-        } => render_canvas(options, commands, events, document, message, env),
+        } => render_canvas(options, locals, commands, events, document, message, env),
         ViewNode::Theme {
             preset,
             text,
@@ -4294,13 +4301,40 @@ fn append_scroll_surface_style(
 
 fn render_canvas(
     options: &CanvasOptions,
+    locals: &[State],
     commands: &[CanvasCommand],
     events: &[CanvasEvent],
     document: &Document,
     message: &str,
     env: &HashMap<String, Binding>,
 ) -> Result<String, Error> {
+    let state_fields = locals
+        .iter()
+        .map(|local| format!("{}: {},", local.name, local.ty.rust(&document.structs)))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let state_initials = locals
+        .iter()
+        .map(|local| {
+            format!(
+                "{}: {},",
+                local.name,
+                initial_code(&local.initial, &local.ty, document)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
     let mut canvas_env = env.clone();
+    for local in locals {
+        canvas_env.insert(
+            local.name.clone(),
+            Binding {
+                code: format!("__state.{}", local.name),
+                ty: local.ty.clone(),
+                local: false,
+            },
+        );
+    }
     canvas_env.insert(
         "canvas_width".into(),
         Binding {
@@ -4327,17 +4361,35 @@ fn render_canvas(
     } else {
         "::std::option::Option::None".into()
     };
-    let capture = options
-        .capture
+    let update = canvas_update_code(
+        options,
+        events,
+        env,
+        &canvas_env,
+        document,
+        message,
+        use_cache,
+    )?;
+    let interaction = if let Some(interaction) = &options.interaction_expr {
+        let interaction = expr_code(interaction, &canvas_env, document, ValueMode::Owned)?;
+        format!(
+            "{{ let __interaction = {interaction}; __ice_canvas_interaction(__interaction.as_str()) }}"
+        )
+    } else {
+        format!(
+            "::iced::mouse::Interaction::{}",
+            options
+                .interaction
+                .map(mouse_interaction_code)
+                .unwrap_or("None")
+        )
+    };
+    let interaction_outside = options
+        .interaction_outside
         .as_ref()
-        .map(|value| expr_code(value, env, document, ValueMode::Owned))
+        .map(|outside| expr_code(outside, &canvas_env, document, ValueMode::Owned))
         .transpose()?
         .unwrap_or_else(|| "false".into());
-    let update = canvas_update_code(options, events, env, document, message, &capture)?;
-    let interaction = options
-        .interaction
-        .map(mouse_interaction_code)
-        .unwrap_or("None");
     let cache_group = options.cache_group.as_ref().map_or_else(
         || "::std::option::Option::None".into(),
         |group| {
@@ -4347,8 +4399,18 @@ fn render_canvas(
             )
         },
     );
+    let cache_setup = if use_cache {
+        "let __cache = __state.cache.get_or_init(|| match __cache_group { ::std::option::Option::Some(group) => ::iced::widget::canvas::Cache::with_group(group), ::std::option::Option::None => ::iced::widget::canvas::Cache::new() }); if __state.cache_key.get() != __cache_key { __cache.clear(); __state.cache_key.set(__cache_key); }"
+    } else {
+        ""
+    };
+    let geometry = if use_cache {
+        "__cache.draw(__renderer, __bounds.size(), __paint)"
+    } else {
+        "{ let mut __frame = ::iced::widget::canvas::Frame::new(__renderer, __bounds.size()); __paint(&mut __frame); __frame.into_geometry() }"
+    };
     let mut code = format!(
-        "{{ let __program = __IceCanvasProgram::<{message}, _, _> {{ draw: move |__state: &__IceCanvasState, __renderer: &::iced::Renderer, __theme: &::iced::Theme, __bounds: ::iced::Rectangle, __cursor: ::iced::mouse::Cursor| {{ let __paint = move |__frame: &mut ::iced::widget::canvas::Frame| {{ {draw_commands} }}; let __geometry = if {use_cache} {{ __state.cache.get().expect(\"initialized canvas cache\").draw(__renderer, __bounds.size(), __paint) }} else {{ let mut __frame = ::iced::widget::canvas::Frame::new(__renderer, __bounds.size()); __paint(&mut __frame); __frame.into_geometry() }}; ::std::vec![__geometry] }}, update: {update}, interaction: ::iced::mouse::Interaction::{interaction}, cache_key: {cache_key}, cache_group: {cache_group}, use_cache: {use_cache}, message: ::std::marker::PhantomData }}; let __canvas = ::iced::widget::canvas(__program)"
+        "{{ #[allow(dead_code)] struct __IceCanvasState {{ cache: ::std::cell::OnceCell<::iced::widget::canvas::Cache>, cache_key: ::std::cell::Cell<::std::option::Option<u64>>, inside: bool, {state_fields} }} impl ::std::default::Default for __IceCanvasState {{ fn default() -> Self {{ Self {{ cache: ::std::cell::OnceCell::new(), cache_key: ::std::cell::Cell::new(::std::option::Option::None), inside: false, {state_initials} }} }} }} let __cache_key: ::std::option::Option<u64> = {cache_key}; let __cache_group: ::std::option::Option<::iced::widget::canvas::Group> = {cache_group}; let __program = __IceCanvasProgram::<__IceCanvasState, {message}, _, _, _> {{ draw: move |__state: &__IceCanvasState, __renderer: &::iced::Renderer, __theme: &::iced::Theme, __bounds: ::iced::Rectangle, __cursor: ::iced::mouse::Cursor| {{ let _ = (&__cache_key, &__cache_group); {cache_setup} let __paint = move |__frame: &mut ::iced::widget::canvas::Frame| {{ {draw_commands} }}; let __geometry = {geometry}; ::std::vec![__geometry] }}, update: {update}, interaction: move |__state: &__IceCanvasState, __bounds: ::iced::Rectangle, __cursor: ::iced::mouse::Cursor| {{ if ({interaction_outside}) || __cursor.is_over(__bounds) {{ {interaction} }} else {{ ::iced::mouse::Interaction::default() }} }}, message: ::std::marker::PhantomData }}; let __canvas = ::iced::widget::canvas(__program)"
     );
     if let Some(width) = &options.width {
         write!(code, ".width({})", length_code(width, env, document)?).unwrap();
@@ -4364,13 +4426,20 @@ fn canvas_update_code(
     options: &CanvasOptions,
     events: &[CanvasEvent],
     env: &HashMap<String, Binding>,
+    canvas_env: &HashMap<String, Binding>,
     document: &Document,
     message: &str,
-    capture: &str,
+    use_cache: bool,
 ) -> Result<String, Error> {
-    let action = |message: String| {
+    let capture = options
+        .capture
+        .as_ref()
+        .map(|value| expr_code(value, env, document, ValueMode::Owned))
+        .transpose()?
+        .unwrap_or_else(|| "false".into());
+    let action = |message: String, capture: &str| {
         format!(
-            "::std::option::Option::Some(if __capture {{ ::iced::widget::canvas::Action::publish({message}).and_capture() }} else {{ ::iced::widget::canvas::Action::publish({message}) }})"
+            "::std::option::Option::Some(if {capture} {{ ::iced::widget::canvas::Action::publish({message}).and_capture() }} else {{ ::iced::widget::canvas::Action::publish({message}) }})"
         )
     };
     let mut code = format!(
@@ -4380,11 +4449,21 @@ fn canvas_update_code(
         code.push_str(" let __inside = __cursor.is_over(__bounds); if __inside != __state.inside { __state.inside = __inside;");
         if let Some(route) = &options.enter {
             let route = route_code(route, "", env, document, message)?;
-            write!(code, " if __inside {{ return {}; }}", action(route)).unwrap();
+            write!(
+                code,
+                " if __inside {{ return {}; }}",
+                action(route, "__capture")
+            )
+            .unwrap();
         }
         if let Some(route) = &options.exit {
             let route = route_code(route, "", env, document, message)?;
-            write!(code, " if !__inside {{ return {}; }}", action(route)).unwrap();
+            write!(
+                code,
+                " if !__inside {{ return {}; }}",
+                action(route, "__capture")
+            )
+            .unwrap();
         }
         code.push_str(" }");
     }
@@ -4434,7 +4513,7 @@ fn canvas_update_code(
                     document,
                     message,
                 )?;
-                write!(code, " {event} => return {},", action(route)).unwrap();
+                write!(code, " {event} => return {},", action(route, "__capture")).unwrap();
             }
         }
         if let Some(route) = &options.move_route {
@@ -4448,7 +4527,7 @@ fn canvas_update_code(
             write!(
                 code,
                 " ::iced::widget::canvas::Event::Mouse(::iced::mouse::Event::CursorMoved {{ .. }}) => return {},",
-                action(route)
+                action(route, "__capture")
             )
             .unwrap();
         }
@@ -4470,8 +4549,8 @@ fn canvas_update_code(
             write!(
                 code,
                 " ::iced::widget::canvas::Event::Mouse(::iced::mouse::Event::WheelScrolled {{ delta }}) => return match delta {{ ::iced::mouse::ScrollDelta::Lines {{ x: __x, y: __y }} => {}, ::iced::mouse::ScrollDelta::Pixels {{ x: __x, y: __y }} => {} }},",
-                action(lines),
-                action(pixels)
+                action(lines, "__capture"),
+                action(pixels, "__capture")
             )
             .unwrap();
         }
@@ -4479,19 +4558,53 @@ fn canvas_update_code(
     }
     for event in events {
         let filter = canvas_event_filter(&event.source);
+        let payloads = canvas_event_payload_types(&event.source);
+        let mut event_env = canvas_env.clone();
+        for (binding, ty) in event.bindings.iter().zip(payloads) {
+            event_env.insert(
+                binding.clone(),
+                Binding {
+                    code: binding.clone(),
+                    ty,
+                    local: false,
+                },
+            );
+        }
+        let bindings = match event.bindings.as_slice() {
+            [] => String::new(),
+            [binding] => format!("let {binding} = __value;"),
+            bindings => format!("let ({}) = __value;", bindings.join(", ")),
+        };
+        let mut updates = event
+            .updates
+            .iter()
+            .enumerate()
+            .map(|(index, update)| {
+                Ok(format!(
+                    "let __next_canvas_state_{index} = {}; __state.{} = __next_canvas_state_{index};",
+                    expr_code(&update.value, &event_env, document, ValueMode::Owned)?,
+                    update.name,
+                ))
+            })
+            .collect::<Result<Vec<_>, Error>>()?
+            .join(" ");
+        if use_cache && !event.updates.is_empty() {
+            updates.push_str(
+                " if let ::std::option::Option::Some(__cache) = __state.cache.get() { __cache.clear(); }",
+            );
+        }
+        let event_capture = if event.capture { "true" } else { "__capture" };
         let result = match &event.action {
-            CanvasEventAction::Route(route) => action(canvas_event_route_code(
-                &event.source,
-                route,
-                env,
-                document,
-                message,
-            )?),
-            CanvasEventAction::Capture => {
-                "::std::option::Option::Some(::iced::widget::canvas::Action::capture())".into()
+            Some(CanvasEventAction::Route(route)) => {
+                let route = if event.route_payload {
+                    canvas_event_route_code(&event.source, route, env, document, message)?
+                } else {
+                    route_code(route, "", &event_env, document, message)?
+                };
+                action(route, event_capture)
             }
-            CanvasEventAction::Redraw { after_ms } => {
-                let action = after_ms.map_or_else(
+            Some(CanvasEventAction::Redraw { after_ms }) => {
+                let redraw = after_ms.map_or_else(
                     || "::iced::widget::canvas::Action::request_redraw()".into(),
                     |milliseconds| {
                         format!(
@@ -4500,13 +4613,16 @@ fn canvas_update_code(
                     },
                 );
                 format!(
-                    "::std::option::Option::Some(if __capture {{ {action}.and_capture() }} else {{ {action} }})"
+                    "::std::option::Option::Some(if {event_capture} {{ {redraw}.and_capture() }} else {{ {redraw} }})"
                 )
             }
+            None => format!(
+                "if {event_capture} {{ ::std::option::Option::Some(::iced::widget::canvas::Action::capture()) }} else {{ ::std::option::Option::None }}"
+            ),
         };
         write!(
             code,
-            " if let ::std::option::Option::Some(__value) = {filter} {{ let _ = &__value; return {result}; }}"
+            " if let ::std::option::Option::Some(__value) = {filter} {{ let _ = &__value; {bindings} {updates} return {result}; }}"
         )
         .unwrap();
     }
@@ -4557,6 +4673,50 @@ fn canvas_event_filter(source: &SubscriptionSource) -> String {
             WindowEvent::FileHovered => "match __event { ::iced::widget::canvas::Event::Window(::iced::window::Event::FileHovered(path)) => ::std::option::Option::Some(path.to_string_lossy().into_owned()), _ => ::std::option::Option::None }".into(),
             WindowEvent::FileDropped => "match __event { ::iced::widget::canvas::Event::Window(::iced::window::Event::FileDropped(path)) => ::std::option::Option::Some(path.to_string_lossy().into_owned()), _ => ::std::option::Option::None }".into(),
             WindowEvent::FilesHoveredLeft => "matches!(__event, ::iced::widget::canvas::Event::Window(::iced::window::Event::FilesHoveredLeft)).then_some(())".into(),
+        },
+        _ => unreachable!("parser rejects non-event canvas sources"),
+    }
+}
+
+fn canvas_event_payload_types(source: &SubscriptionSource) -> Vec<Type> {
+    match source {
+        SubscriptionSource::InputMethod(event) => match event {
+            InputMethodEvent::Opened | InputMethodEvent::Closed => Vec::new(),
+            InputMethodEvent::Preedit => vec![
+                Type::Str,
+                Type::Option(Box::new(Type::I64)),
+                Type::Option(Box::new(Type::I64)),
+            ],
+            InputMethodEvent::Commit => vec![Type::Str],
+        },
+        SubscriptionSource::Keyboard(event) => vec![match event {
+            KeyboardEvent::Press => Type::KeyPress,
+            KeyboardEvent::Release => Type::KeyRelease,
+            KeyboardEvent::Modifiers => Type::KeyModifiers,
+        }],
+        SubscriptionSource::Mouse(event) => match event {
+            MouseEvent::Entered | MouseEvent::Left => Vec::new(),
+            MouseEvent::Moved => vec![Type::F64, Type::F64],
+            MouseEvent::Pressed | MouseEvent::Released => vec![Type::Str],
+            MouseEvent::Wheel => vec![Type::F64, Type::F64, Type::Bool],
+        },
+        SubscriptionSource::Touch(_) => vec![Type::Str, Type::F64, Type::F64],
+        SubscriptionSource::Window(event) => match event {
+            WindowEvent::Frame
+            | WindowEvent::Closed
+            | WindowEvent::CloseRequested
+            | WindowEvent::Focused
+            | WindowEvent::Unfocused
+            | WindowEvent::FilesHoveredLeft => Vec::new(),
+            WindowEvent::Opened => vec![
+                Type::Option(Box::new(Type::F64)),
+                Type::Option(Box::new(Type::F64)),
+                Type::F64,
+                Type::F64,
+            ],
+            WindowEvent::Moved | WindowEvent::Resized => vec![Type::F64, Type::F64],
+            WindowEvent::Rescaled => vec![Type::F64],
+            WindowEvent::FileHovered | WindowEvent::FileDropped => vec![Type::Str],
         },
         _ => unreachable!("parser rejects non-event canvas sources"),
     }
@@ -9727,8 +9887,8 @@ view
 "#;
         let generated = compile(source, "drawing.ice").unwrap();
         for expected in [
-            "impl<Message, Draw, Update> ::iced::widget::canvas::Program<Message>",
-            "__state.cache.get().expect",
+            "impl<State, Message, Draw, Update, Interaction> ::iced::widget::canvas::Program<Message>",
+            "__state.cache.get_or_init",
             "Cache::with_group",
             "__ICE_CANVAS_GROUP_DRAWINGS",
             "::std::hash::Hash::hash",
@@ -9791,6 +9951,11 @@ view
             "Action::request_redraw_at",
             "Duration::from_millis(16)",
             ".and_capture()",
+            "move_count: i64",
+            "__state.move_count =",
+            "fn __ice_canvas_interaction",
+            "__ice_canvas_interaction(__interaction.as_str())",
+            "__cursor.is_over(__bounds)",
         ] {
             assert!(generated.contains(expected), "missing {expected}");
         }

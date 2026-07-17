@@ -4022,7 +4022,23 @@ fn parse_canvas(parts: &[String], styles: Vec<String>, line: &Line) -> Result<Vi
         } else if let Some(value) = part.strip_prefix("exit=") {
             options.exit = Some(parse_route(value, line)?);
         } else if let Some(value) = part.strip_prefix("cursor=") {
-            options.interaction = Some(parse_mouse_interaction(value, line)?);
+            if options.interaction.is_some() || options.interaction_expr.is_some() {
+                return Err(error("E190", line, "duplicate canvas cursor property"));
+            }
+            if value.starts_with('(') {
+                options.interaction_expr = Some(expr(value)?);
+            } else {
+                options.interaction = Some(parse_mouse_interaction(value, line)?);
+            }
+        } else if let Some(value) = part.strip_prefix("cursor-outside=") {
+            if options.interaction_outside.is_some() {
+                return Err(error(
+                    "E190",
+                    line,
+                    "duplicate canvas cursor-outside property",
+                ));
+            }
+            options.interaction_outside = Some(expr(value)?);
         } else {
             return Err(error(
                 "E190",
@@ -4033,8 +4049,21 @@ fn parse_canvas(parts: &[String], styles: Vec<String>, line: &Line) -> Result<Vi
     }
     let mut commands = Vec::new();
     let mut events = Vec::new();
+    let mut locals = Vec::new();
     for child in &line.children {
-        if child.text.starts_with("event ")
+        if child.text == "state" {
+            if !locals.is_empty() {
+                return Err(error("E190", child, "canvas may only have one state block"));
+            }
+            locals = child
+                .children
+                .iter()
+                .map(parse_state)
+                .collect::<Result<_, _>>()?;
+            if locals.is_empty() {
+                return Err(error("E190", child, "canvas state cannot be empty"));
+            }
+        } else if child.text.starts_with("event ")
             || child.text.starts_with("capture ")
             || child.text.starts_with("redraw ")
         {
@@ -4045,6 +4074,7 @@ fn parse_canvas(parts: &[String], styles: Vec<String>, line: &Line) -> Result<Vi
     }
     Ok(ViewNode::Canvas {
         options: Box::new(options),
+        locals,
         commands,
         events,
         span: Span::line(line.number),
@@ -4052,8 +4082,10 @@ fn parse_canvas(parts: &[String], styles: Vec<String>, line: &Line) -> Result<Vi
 }
 
 fn parse_canvas_event(line: &Line) -> Result<CanvasEvent, Error> {
-    ensure_leaf(line)?;
-    let (source, action) = if let Some(source) = line.text.strip_prefix("event ") {
+    if let Some(source) = line.text.strip_prefix("event ")
+        && source.contains(" -> ")
+    {
+        ensure_leaf(line)?;
         let mut event_line = line.clone();
         event_line.text = source.to_owned();
         let subscription = parse_subscription(&event_line)?;
@@ -4064,11 +4096,121 @@ fn parse_canvas_event(line: &Line) -> Result<CanvasEvent, Error> {
                 "canvas events do not use subscription `when` or `status` filters",
             ));
         }
-        (
-            subscription.source,
-            CanvasEventAction::Route(subscription.route),
-        )
-    } else {
+        validate_canvas_event_source(&subscription.source, line)?;
+        return Ok(CanvasEvent {
+            source: subscription.source,
+            bindings: Vec::new(),
+            updates: Vec::new(),
+            action: Some(CanvasEventAction::Route(subscription.route)),
+            capture: false,
+            route_payload: true,
+            span: Span::line(line.number),
+        });
+    }
+
+    if let Some(header) = line.text.strip_prefix("event ") {
+        if line.children.is_empty() {
+            return Err(error(
+                "E190",
+                line,
+                "canvas event blocks need indented `set`, `emit`, `redraw`, or `capture` actions",
+            ));
+        }
+        let (source, bindings) = header
+            .split_once(" as ")
+            .map_or((header, ""), |(source, bindings)| (source, bindings));
+        let source = parse_canvas_event_source(source, line)?;
+        validate_canvas_event_source(&source, line)?;
+        let mut seen_bindings = std::collections::HashSet::new();
+        let bindings = bindings
+            .split(',')
+            .map(str::trim)
+            .filter(|binding| !binding.is_empty())
+            .map(|binding| {
+                let binding = identifier(binding, line)?;
+                if !seen_bindings.insert(binding.clone()) {
+                    return Err(error(
+                        "E190",
+                        line,
+                        format!("duplicate canvas event binding `{binding}`"),
+                    ));
+                }
+                Ok(binding)
+            })
+            .collect::<Result<Vec<_>, Error>>()?;
+        let mut updates = Vec::new();
+        let mut action = None;
+        let mut capture = false;
+        for child in &line.children {
+            ensure_leaf(child)?;
+            if let Some(update) = child.text.strip_prefix("set ") {
+                let (name, value) = split_top_once(update, '=').ok_or_else(|| {
+                    error("E190", child, "canvas state updates use `set name = value`")
+                })?;
+                updates.push(CanvasStateUpdate {
+                    name: identifier(name.trim(), child)?,
+                    value: parse_expr(value.trim(), child)?,
+                    span: Span::line(child.number),
+                });
+            } else if let Some(route) = child.text.strip_prefix("emit ") {
+                if action.is_some() {
+                    return Err(error(
+                        "E190",
+                        child,
+                        "canvas event blocks allow one `emit` or `redraw` action",
+                    ));
+                }
+                action = Some(CanvasEventAction::Route(parse_route(route, child)?));
+            } else if child.text == "redraw" || child.text.starts_with("redraw ") {
+                if action.is_some() {
+                    return Err(error(
+                        "E190",
+                        child,
+                        "canvas event blocks allow one `emit` or `redraw` action",
+                    ));
+                }
+                let after_ms = child
+                    .text
+                    .strip_prefix("redraw ")
+                    .map(|after| {
+                        after.strip_prefix("after=").ok_or_else(|| {
+                            error(
+                                "E190",
+                                child,
+                                "scheduled canvas redraw uses `redraw after=16ms`",
+                            )
+                        })
+                    })
+                    .transpose()?
+                    .map(|after| parse_duration(after, child))
+                    .transpose()?;
+                action = Some(CanvasEventAction::Redraw { after_ms });
+            } else if child.text == "capture" {
+                if capture {
+                    return Err(error("E190", child, "duplicate canvas capture action"));
+                }
+                capture = true;
+            } else {
+                return Err(error(
+                    "E190",
+                    child,
+                    "canvas event blocks accept `set`, `emit`, `redraw`, or `capture`",
+                ));
+            }
+        }
+        return Ok(CanvasEvent {
+            source,
+            bindings,
+            updates,
+            action,
+            capture,
+            route_payload: false,
+            span: Span::line(line.number),
+        });
+    }
+
+    ensure_leaf(line)?;
+    let (source, action, capture) = {
         let (source, redraw) = line
             .text
             .strip_prefix("capture ")
@@ -4104,12 +4246,25 @@ fn parse_canvas_event(line: &Line) -> Result<CanvasEvent, Error> {
         }
         let source = parse_canvas_event_source(&parts.join(" "), line)?;
         let action = if redraw {
-            CanvasEventAction::Redraw { after_ms }
+            Some(CanvasEventAction::Redraw { after_ms })
         } else {
-            CanvasEventAction::Capture
+            None
         };
-        (source, action)
+        (source, action, !redraw)
     };
+    validate_canvas_event_source(&source, line)?;
+    Ok(CanvasEvent {
+        source,
+        bindings: Vec::new(),
+        updates: Vec::new(),
+        action,
+        capture,
+        route_payload: false,
+        span: Span::line(line.number),
+    })
+}
+
+fn validate_canvas_event_source(source: &SubscriptionSource, line: &Line) -> Result<(), Error> {
     if !matches!(
         source,
         SubscriptionSource::InputMethod(_)
@@ -4124,16 +4279,13 @@ fn parse_canvas_event(line: &Line) -> Result<CanvasEvent, Error> {
             "canvas events accept input-method, keyboard, mouse, touch, or window sources",
         ));
     }
-    Ok(CanvasEvent {
-        source,
-        action,
-        span: Span::line(line.number),
-    })
+    Ok(())
 }
 
 fn parse_canvas_event_source(source: &str, line: &Line) -> Result<SubscriptionSource, Error> {
     let mut event_line = line.clone();
     event_line.text = format!("{source} -> __canvas_event");
+    event_line.children.clear();
     Ok(parse_subscription(&event_line)?.source)
 }
 

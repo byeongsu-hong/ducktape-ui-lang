@@ -2272,6 +2272,7 @@ fn infer_view(
         }
         ViewNode::Canvas {
             options,
+            locals,
             commands,
             events,
             span,
@@ -2340,9 +2341,96 @@ fn infer_view(
                     "canvas scroll",
                 )?;
             }
+            let known = document
+                .structs
+                .iter()
+                .map(|item| item.name.as_str())
+                .collect::<HashSet<_>>();
             let mut canvas_env = env.clone();
+            let mut local_types = HashMap::new();
+            for local in locals {
+                if matches!(
+                    local.name.as_str(),
+                    "cache" | "cache_key" | "inside" | "canvas_width" | "canvas_height"
+                ) {
+                    return Err(Error::new(
+                        "E190",
+                        &local.span,
+                        format!("canvas state name `{}` is reserved", local.name),
+                    ));
+                }
+                if env.contains_key(&local.name) {
+                    return Err(Error::new(
+                        "E190",
+                        &local.span,
+                        format!(
+                            "canvas state `{}` conflicts with an app state or component parameter",
+                            local.name
+                        ),
+                    ));
+                }
+                if local_types
+                    .insert(local.name.clone(), local.ty.clone())
+                    .is_some()
+                {
+                    return Err(Error::new(
+                        "E190",
+                        &local.span,
+                        format!("duplicate canvas state `{}`", local.name),
+                    ));
+                }
+                check_declared_type(&local.ty, &local.span, &known)?;
+                let actual = expr_type(&local.initial, &HashMap::new(), document, &local.span)?;
+                if let Type::Combo(expected) = &local.ty {
+                    let Type::List(actual) = actual else {
+                        return Err(Error::new(
+                            "E104",
+                            &local.span,
+                            "combo canvas state must be initialized with a list",
+                        ));
+                    };
+                    require_type(&actual, expected, &local.span)?;
+                } else {
+                    let text_initial =
+                        matches!(local.ty, Type::Markdown | Type::Editor) && actual == Type::Str;
+                    if actual != Type::Unknown && !text_initial && !compatible(&local.ty, &actual) {
+                        return Err(type_error(&local.span, &local.ty, &actual));
+                    }
+                }
+                canvas_env.insert(local.name.clone(), local.ty.clone());
+            }
             canvas_env.insert("canvas_width".into(), Type::F64);
             canvas_env.insert("canvas_height".into(), Type::F64);
+            if let Some(interaction) = &options.interaction_expr {
+                require_type(
+                    &expr_type(interaction, &canvas_env, document, span)?,
+                    &Type::Str,
+                    span,
+                )?;
+                if let Expr::Str(value) = interaction
+                    && !valid_canvas_cursor(value)
+                {
+                    return Err(Error::new(
+                        "E190",
+                        span,
+                        format!("unknown canvas cursor `{value}`"),
+                    ));
+                }
+            }
+            if let Some(outside) = &options.interaction_outside {
+                if options.interaction.is_none() && options.interaction_expr.is_none() {
+                    return Err(Error::new(
+                        "E190",
+                        span,
+                        "canvas cursor-outside requires `cursor=`",
+                    ));
+                }
+                require_type(
+                    &expr_type(outside, &canvas_env, document, span)?,
+                    &Type::Bool,
+                    span,
+                )?;
+            }
             check_canvas_commands(commands, &canvas_env, document)?;
             let mut seen = HashSet::new();
             for event in events {
@@ -2356,45 +2444,104 @@ fn infer_view(
                         format!("duplicate canvas event `{name}`"),
                     ));
                 }
-                let CanvasEventAction::Route(route) = &event.action else {
-                    continue;
-                };
-                if let Some(payloads) = ordered_subscription_payloads(&event.source) {
-                    infer_ordered_payload_route(
-                        route,
-                        &payloads,
-                        env,
-                        document,
-                        signatures,
-                        "canvas event",
-                    )?;
-                } else {
-                    let output = match event.source {
+                let payloads = ordered_subscription_payloads(&event.source).or_else(|| {
+                    Some(vec![match event.source {
                         SubscriptionSource::Keyboard(KeyboardEvent::Press) => Type::KeyPress,
                         SubscriptionSource::Keyboard(KeyboardEvent::Release) => Type::KeyRelease,
                         SubscriptionSource::Keyboard(KeyboardEvent::Modifiers) => {
                             Type::KeyModifiers
                         }
-                        _ => {
+                        _ => return None,
+                    }])
+                });
+                let payloads = payloads.ok_or_else(|| {
+                    Error::new("E190", &event.span, "invalid canvas event source")
+                })?;
+                if !event.route_payload
+                    && !event.bindings.is_empty()
+                    && event.bindings.len() != payloads.len()
+                {
+                    return Err(Error::new(
+                        "E190",
+                        &event.span,
+                        format!(
+                            "canvas event `{name}` exposes {} values, but {} bindings were declared",
+                            payloads.len(),
+                            event.bindings.len()
+                        ),
+                    ));
+                }
+                let mut event_env = canvas_env.clone();
+                for (binding, ty) in event.bindings.iter().zip(&payloads) {
+                    if event_env.contains_key(binding) {
+                        return Err(Error::new(
+                            "E190",
+                            &event.span,
+                            format!(
+                                "canvas event binding `{binding}` conflicts with existing state"
+                            ),
+                        ));
+                    }
+                    event_env.insert(binding.clone(), ty.clone());
+                }
+                for update in &event.updates {
+                    let expected = local_types.get(&update.name).ok_or_else(|| {
+                        Error::new(
+                            "E190",
+                            &update.span,
+                            format!("unknown canvas state `{}`", update.name),
+                        )
+                    })?;
+                    let actual = expr_type(&update.value, &event_env, document, &update.span)?;
+                    require_type(&actual, expected, &update.span)?;
+                }
+                if event.updates.is_empty() && event.action.is_none() && !event.capture {
+                    return Err(Error::new(
+                        "E190",
+                        &event.span,
+                        "canvas event block has no effect",
+                    ));
+                };
+                let Some(CanvasEventAction::Route(route)) = &event.action else {
+                    continue;
+                };
+                if event.route_payload {
+                    if ordered_subscription_payloads(&event.source).is_some() {
+                        infer_ordered_payload_route(
+                            route,
+                            &payloads,
+                            env,
+                            document,
+                            signatures,
+                            "canvas event",
+                        )?;
+                    } else {
+                        if route
+                            .args
+                            .iter()
+                            .any(|arg| !matches!(arg, RouteArg::Payload))
+                        {
                             return Err(Error::new(
                                 "E190",
                                 &event.span,
-                                "invalid canvas event source",
+                                "canvas keyboard event routes only accept `_`",
                             ));
                         }
-                    };
+                        infer_route(route, payloads.first().cloned(), env, document, signatures)?;
+                    }
+                } else {
                     if route
                         .args
                         .iter()
-                        .any(|arg| !matches!(arg, RouteArg::Payload))
+                        .any(|arg| matches!(arg, RouteArg::Payload))
                     {
                         return Err(Error::new(
                             "E190",
                             &event.span,
-                            "canvas keyboard event routes only accept `_`",
+                            "canvas event block `emit` uses named bindings instead of `_`",
                         ));
                     }
-                    infer_route(route, Some(output), env, document, signatures)?;
+                    infer_route(route, None, &event_env, document, signatures)?;
                 }
             }
         }
@@ -3863,6 +4010,39 @@ fn canvas_event_name(source: &SubscriptionSource) -> Option<&'static str> {
         SubscriptionSource::Window(WindowEvent::FilesHoveredLeft) => "window files-hovered-left",
         _ => return None,
     })
+}
+
+fn valid_canvas_cursor(value: &str) -> bool {
+    matches!(
+        value,
+        "none"
+            | "hidden"
+            | "idle"
+            | "context-menu"
+            | "help"
+            | "pointer"
+            | "progress"
+            | "wait"
+            | "cell"
+            | "crosshair"
+            | "text"
+            | "alias"
+            | "copy"
+            | "move"
+            | "no-drop"
+            | "not-allowed"
+            | "grab"
+            | "grabbing"
+            | "resize-horizontal"
+            | "resize-vertical"
+            | "resize-diagonal-up"
+            | "resize-diagonal-down"
+            | "resize-column"
+            | "resize-row"
+            | "all-scroll"
+            | "zoom-in"
+            | "zoom-out"
+    )
 }
 
 fn infer_subscriptions(
@@ -7404,5 +7584,86 @@ view
         let error = analyze(&source.replace("after=16ms", "after=0ms")).unwrap_err();
         assert_eq!(error.code, "E084");
         assert!(error.message.contains("positive"));
+    }
+
+    #[test]
+    fn checks_canvas_local_state_and_event_blocks() {
+        let source = r#"app Drawing
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+on released(button)
+view
+  canvas width=fill height=120.0 cursor=(cursor_state) cursor-outside=outside
+    state
+      cursor_state = "grab"
+      outside = false
+      hits = 0
+    event mouse pressed as button
+      set cursor_state = "grabbing"
+      set hits = hits + 1
+      redraw
+      capture
+    event mouse released as button
+      set cursor_state = "grab"
+      emit released button
+    text hits x=8.0 y=20.0 color=foreground size=14.0
+"#;
+        analyze(source).unwrap();
+
+        let error = analyze(&source.replace("hits = 0", "cache = 0")).unwrap_err();
+        assert!(error.message.contains("reserved"));
+
+        let error = analyze(&source.replace("outside = false", "hits = 1")).unwrap_err();
+        assert!(error.message.contains("duplicate canvas state"));
+
+        let captured = source.replace(
+            "  danger #ff0000\n",
+            "  danger #ff0000\nstate\n  initial_cursor = \"grab\"\n",
+        );
+        let error = analyze(&captured.replacen(
+            "cursor_state = \"grab\"",
+            "cursor_state:str = initial_cursor",
+            1,
+        ))
+        .unwrap_err();
+        assert!(error.message.contains("initial_cursor"));
+
+        let error =
+            analyze(&source.replace("set hits = hits + 1", "set hits = \"many\"")).unwrap_err();
+        assert!(error.message.contains("expected `i64`"));
+
+        let error = analyze(&source.replace("set hits = hits + 1", "set missing = 1")).unwrap_err();
+        assert!(error.message.contains("unknown canvas state `missing`"));
+
+        let error = analyze(&source.replace(
+            "event mouse released as button",
+            "event mouse released as button, extra",
+        ))
+        .unwrap_err();
+        assert!(error.message.contains("exposes 1 values"));
+
+        let error = analyze(&source.replace(
+            "      redraw\n      capture",
+            "      redraw\n      emit released button\n      capture",
+        ))
+        .unwrap_err();
+        assert!(error.message.contains("one `emit` or `redraw`"));
+
+        let error =
+            analyze(&source.replace("emit released button", "emit released _")).unwrap_err();
+        assert!(error.message.contains("named bindings"));
+
+        let error = analyze(&source.replace("cursor=(cursor_state)", "cursor=(hits)")).unwrap_err();
+        assert!(error.message.contains("expected `str`"));
+
+        let error = analyze(&source.replace("cursor=(cursor_state) ", "")).unwrap_err();
+        assert!(error.message.contains("cursor-outside requires"));
+
+        let error =
+            analyze(&source.replace("cursor=(cursor_state)", "cursor=(\"bogus\")")).unwrap_err();
+        assert!(error.message.contains("unknown canvas cursor"));
     }
 }

@@ -81,7 +81,19 @@ view
               container width=fill height=fill padding=16.0
                 col @gap-3
                   text "Drag, resize, or arrange this pane." @text-sm text-muted
-                  canvas width=fill height=160.0 cache=detail_mode cache-group=details capture=true cursor=crosshair press=canvas_pressed
+                  canvas width=fill height=160.0 cache=detail_mode cache-group=details capture=true cursor=(cursor_state) cursor-outside=true
+                    state
+                      cursor_state = "crosshair"
+                      hits = 0
+                    event mouse pressed as button
+                      set cursor_state = "grabbing"
+                      set hits = hits + 1
+                      emit canvas_button button
+                      capture
+                    event mouse released as button
+                      set cursor_state = "crosshair"
+                      redraw
+                      capture
                     event keyboard press -> canvas_key _
                     redraw window frame after=1s
                     capture touch lost
@@ -93,6 +105,7 @@ view
                       line x=224.0 y=112.0
                       close
                     text detail_mode x=16.0 y=136.0 color=foreground size=14.0 font=default
+                    text hits x=112.0 y=136.0 color=primary size=14.0 font=default
                     image "examples/iced-app/assets/checker.ppm" x=256.0 y=16.0 width=48.0 height=48.0 filter=nearest opacity=0.9 snap=true radius=6.0
                     svg "examples/iced-app/assets/ice.svg" x=312.0 y=16.0 width=48.0 height=48.0 color=primary opacity=0.9
                   row wrap @gap-2

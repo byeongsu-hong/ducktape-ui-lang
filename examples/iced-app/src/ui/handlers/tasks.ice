@@ -35,7 +35,7 @@ on about_link(url)
 
 on pane_clicked(name)
 
-on canvas_pressed(x, y)
+on canvas_button(button)
 
 on canvas_key(value)
 
