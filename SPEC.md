@@ -1,4 +1,4 @@
-# Ice Language Specification 0.18
+# Ice Language Specification 0.19
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.18 syntax.
+marked “planned” is a design constraint, not accepted 0.19 syntax.
 
 ## 1. Design contract
 
@@ -79,7 +79,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.18.
+  block comments are not part of 0.19.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -265,6 +265,14 @@ tooltip        = "tooltip" tooltip_property* INDENT node node
 tooltip_property
                = "position=" ("top" | "bottom" | "left" | "right" | "cursor")
                | "gap=" expr | "padding=" expr | "delay=" expr | "snap=" expr
+               | "style=" ("transparent" | "rounded" | "bordered" | "dark"
+                 | "primary" | "secondary" | "success" | "warning" | "danger")
+               | ("background=" | "text=" | "border=" | "shadow=")
+                 name ("/" u8)?
+               | ("border-width=" | "radius=" | "radius-tl="
+                 | "radius-tr=" | "radius-br=" | "radius-bl="
+                 | "shadow-x=" | "shadow-y=" | "shadow-blur=") expr
+               | "pixel-snap=" expr
 mouse_area     = "mouse" mouse_property+ INDENT node
 mouse_property = ("press=" | "release=" | "double=" | "right_press="
                | "right_release=" | "middle_press=" | "middle_release="
@@ -356,6 +364,13 @@ danger presets. Checked theme colors can override background, filled bar, and
 border; border width and uniform/per-corner radii are non-negative f64 values.
 Literal reversed ranges are rejected before generation.
 
+`tooltip` styles start from transparent, rounded, bordered, dark, primary,
+secondary, success, warning, or danger iced container presets. Checked theme
+colors can override background, text, border, and shadow. Border width, shadow
+blur, and uniform/per-corner radii are non-negative f64 values; shadow x/y may
+be negative. `pixel-snap=` controls the container style's pixel-grid snap and is
+separate from the tooltip overlay's viewport `snap=` behavior.
+
 `pick` requires a homogeneous `[T]` options expression and a matching optional
 `T?` selection. Its main route carries `T`; `open=` and `close=` routes carry no
 payload. Pick values may be bool, i64, f64, str, or an extern type. Fixed
@@ -418,7 +433,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.18 message payloads.
+`Clone` for 0.19 message payloads.
 
 Three typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
@@ -562,7 +577,7 @@ The implemented native nodes are:
 | `space` | optional fixed/fill/fill-portion/shrink width and height |
 | `image` | raster path expression, typed length/fit/filter/rotation/opacity/scale/expand/radius properties |
 | `svg` | SVG path expression with typed length/fit/rotation/opacity properties |
-| `tooltip` | exactly two children (content then tip), position/gap/padding/delay/snap properties |
+| `tooltip` | exactly two children (content then tip), full positioning/timing plus preset, color, border, radius, shadow and pixel-snap styles |
 | `mouse` | one child; all button/enter/move/scroll/exit events and every iced cursor interaction |
 | `if` | includes its children when a bool expression is true |
 | `for` | iterates a list and adds one typed item binding |
@@ -707,7 +722,7 @@ The implemented families are:
 `cargo check` so rustc verifies extern items and generated iced types. A missing
 Rust item is named by its `crate::module::item` path in rustc's diagnostic. A
 future source-map layer may remap those rustc spans into the precise extern line;
-0.18 does not claim that remapping.
+0.19 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -727,7 +742,7 @@ skips `.git` and `target`.
 
 ## 12. Current coverage and escape hatches
 
-The 0.18 native backend is enough for CRUD/settings-style screens, selection,
+The 0.19 native backend is enough for CRUD/settings-style screens, selection,
 media, hover
 overlays, and common pointer events, not all of iced. It still lacks direct
 syntax for canvas, general overlays/modals, rich text
@@ -766,5 +781,5 @@ tooltip/mouse-area components including pointer movement and wheel payloads,
 raster and SVG media, configured scrolling with offset events,
 responsive/positioned content, visibility sensing, formatted text, extended
 text input, child-content buttons, configured boolean controls, rules and
-status-styled sliders, configured progress bars, a clipboard task, and a
-raw-event subscription.
+status-styled sliders, configured progress bars and tooltips, a clipboard task,
+and a raw-event subscription.

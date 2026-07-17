@@ -1144,9 +1144,12 @@ fn render_node(
             let padding = expr_code(&options.padding, env, document, ValueMode::Owned)?;
             let delay = expr_code(&options.delay_ms, env, document, ValueMode::Owned)?;
             let snap = expr_code(&options.snap, env, document, ValueMode::Owned)?;
-            Ok(format!(
-                "{{ let __tooltip_content: ::iced::Element<'_, {message}> = {content}; let __tooltip_tip: ::iced::Element<'_, {message}> = {tip}; ::iced::widget::tooltip(__tooltip_content, __tooltip_tip, ::iced::widget::tooltip::Position::{position}).gap({gap} as f32).padding({padding} as f32).delay(::std::time::Duration::from_millis({delay} as u64)).snap_within_viewport({snap}).into() }}"
-            ))
+            let mut code = format!(
+                "{{ let __tooltip_content: ::iced::Element<'_, {message}> = {content}; let __tooltip_tip: ::iced::Element<'_, {message}> = {tip}; ::iced::widget::tooltip(__tooltip_content, __tooltip_tip, ::iced::widget::tooltip::Position::{position}).gap({gap} as f32).padding({padding} as f32).delay(::std::time::Duration::from_millis({delay} as u64)).snap_within_viewport({snap})"
+            );
+            append_tooltip_style(&mut code, options, env, document)?;
+            code.push_str(".into() }");
+            Ok(code)
         }
         ViewNode::MouseArea {
             options, content, ..
@@ -2047,6 +2050,128 @@ fn append_slider_style_fields(
         };
         write!(code, " __style.handle.shape = {shape};").unwrap();
     }
+    Ok(())
+}
+
+fn append_tooltip_style(
+    code: &mut String,
+    options: &TooltipOptions,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<(), Error> {
+    let has_radius = options.radius.is_some()
+        || options.radius_top_left.is_some()
+        || options.radius_top_right.is_some()
+        || options.radius_bottom_right.is_some()
+        || options.radius_bottom_left.is_some();
+    if options.style.is_none()
+        && options.background.is_none()
+        && options.text_color.is_none()
+        && options.border_color.is_none()
+        && options.border_width.is_none()
+        && !has_radius
+        && options.shadow_color.is_none()
+        && options.shadow_x.is_none()
+        && options.shadow_y.is_none()
+        && options.shadow_blur.is_none()
+        && options.pixel_snap.is_none()
+    {
+        return Ok(());
+    }
+    let preset = match options.style.unwrap_or(TooltipStyle::Transparent) {
+        TooltipStyle::Transparent => "transparent",
+        TooltipStyle::Rounded => "rounded_box",
+        TooltipStyle::Bordered => "bordered_box",
+        TooltipStyle::Dark => "dark",
+        TooltipStyle::Primary => "primary",
+        TooltipStyle::Secondary => "secondary",
+        TooltipStyle::Success => "success",
+        TooltipStyle::Warning => "warning",
+        TooltipStyle::Danger => "danger",
+    };
+    write!(
+        code,
+        ".style(move |__theme| {{ let mut __style = ::iced::widget::container::{preset}(__theme);"
+    )
+    .unwrap();
+    if let Some(background) = &options.background {
+        write!(
+            code,
+            " __style.background = Some({}.into());",
+            theme_color(document, background)
+        )
+        .unwrap();
+    }
+    if let Some(text) = &options.text_color {
+        write!(
+            code,
+            " __style.text_color = Some({});",
+            theme_color(document, text)
+        )
+        .unwrap();
+    }
+    if let Some(border) = &options.border_color {
+        write!(
+            code,
+            " __style.border.color = {};",
+            theme_color(document, border)
+        )
+        .unwrap();
+    }
+    if let Some(width) = &options.border_width {
+        write!(
+            code,
+            " __style.border.width = {} as f32;",
+            expr_code(width, env, document, ValueMode::Owned)?
+        )
+        .unwrap();
+    }
+    if has_radius {
+        let radius = radius_code(
+            options.radius.as_ref(),
+            [
+                options.radius_top_left.as_ref(),
+                options.radius_top_right.as_ref(),
+                options.radius_bottom_right.as_ref(),
+                options.radius_bottom_left.as_ref(),
+            ],
+            env,
+            document,
+        )?
+        .expect("tooltip radius options were present");
+        write!(code, " __style.border.radius = {radius};").unwrap();
+    }
+    if let Some(shadow) = &options.shadow_color {
+        write!(
+            code,
+            " __style.shadow.color = {};",
+            theme_color(document, shadow)
+        )
+        .unwrap();
+    }
+    for (value, field) in [
+        (&options.shadow_x, "__style.shadow.offset.x"),
+        (&options.shadow_y, "__style.shadow.offset.y"),
+        (&options.shadow_blur, "__style.shadow.blur_radius"),
+    ] {
+        if let Some(value) = value {
+            write!(
+                code,
+                " {field} = {} as f32;",
+                expr_code(value, env, document, ValueMode::Owned)?
+            )
+            .unwrap();
+        }
+    }
+    if let Some(pixel_snap) = &options.pixel_snap {
+        write!(
+            code,
+            " __style.snap = {};",
+            expr_code(pixel_snap, env, document, ValueMode::Owned)?
+        )
+        .unwrap();
+    }
+    code.push_str(" __style })");
     Ok(())
 }
 
@@ -3183,7 +3308,7 @@ view
   col
     image "photo.ppm" width=fill height=64.0 fit=cover filter=nearest rotation=0.5 opacity=0.8 scale=1.2 expand=true radius=4.0
     svg "icon.svg" width=48.0 height=shrink fit=scale-down rotation=0.1 opacity=0.9
-    tooltip position=cursor gap=2.0 padding=5.0 delay=100 snap=false
+    tooltip position=cursor gap=2.0 padding=5.0 delay=100 snap=false style=success background=background text=foreground border=primary/75 border-width=1.0 radius=5.0 radius-tl=2.0 shadow=black/50 shadow-x=-1.0 shadow-y=2.0 shadow-blur=8.0 pixel-snap=true
       mouse enter=entered exit=exited press=pressed move=moved scroll=scrolled cursor=pointer
         text "Hover"
       text "Tip"
@@ -3194,6 +3319,12 @@ view
         assert!(generated.contains("::iced::widget::svg(\"icon.svg\".to_owned())"));
         assert!(generated.contains("tooltip::Position::FollowCursor"));
         assert!(generated.contains(".delay(::std::time::Duration::from_millis(100 as u64))"));
+        assert!(generated.contains("container::success(__theme)"));
+        assert!(generated.contains("__style.background = Some("));
+        assert!(generated.contains("__style.border.radius"));
+        assert!(generated.contains("__style.shadow.offset.x = (-1.0) as f32"));
+        assert!(generated.contains("__style.shadow.blur_radius = 8.0 as f32"));
+        assert!(generated.contains("__style.snap = true"));
         assert!(generated.contains(".on_enter(__MediaMessage::Entered)"));
         assert!(generated.contains(
             ".on_move(move |__point| __MediaMessage::Moved(__point.x as f64, __point.y as f64))"

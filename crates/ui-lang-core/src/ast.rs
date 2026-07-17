@@ -651,6 +651,34 @@ pub struct TooltipOptions {
     pub padding: Expr,
     pub delay_ms: Expr,
     pub snap: Expr,
+    pub style: Option<TooltipStyle>,
+    pub background: Option<String>,
+    pub text_color: Option<String>,
+    pub border_color: Option<String>,
+    pub border_width: Option<Expr>,
+    pub radius: Option<Expr>,
+    pub radius_top_left: Option<Expr>,
+    pub radius_top_right: Option<Expr>,
+    pub radius_bottom_right: Option<Expr>,
+    pub radius_bottom_left: Option<Expr>,
+    pub shadow_color: Option<String>,
+    pub shadow_x: Option<Expr>,
+    pub shadow_y: Option<Expr>,
+    pub shadow_blur: Option<Expr>,
+    pub pixel_snap: Option<Expr>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TooltipStyle {
+    Transparent,
+    Rounded,
+    Bordered,
+    Dark,
+    Primary,
+    Secondary,
+    Success,
+    Warning,
+    Danger,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

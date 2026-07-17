@@ -210,7 +210,7 @@ view
         row @gap-3 items-center
           image "examples/iced-app/assets/checker.ppm" width=48.0 height=48.0 fit=cover filter=nearest radius=8.0
           svg "examples/iced-app/assets/ice.svg" width=48.0 height=48.0 fit=contain opacity=0.9
-          tooltip position=bottom gap=4.0 padding=8.0 delay=100 snap=true
+          tooltip position=bottom gap=4.0 padding=8.0 delay=100 snap=true style=rounded background=surface text=foreground border=border border-width=1.0 radius=8.0 radius-tl=4.0 shadow=black/50 shadow-x=0.0 shadow-y=4.0 shadow-blur=12.0 pixel-snap=true
             mouse enter=native_enter exit=native_exit press=native_press move=native_move scroll=native_scroll cursor=pointer
               text "Native pointer area" @text-sm text-foreground
             col @p-2 bg-surface rounded-md

@@ -979,6 +979,21 @@ fn parse_tooltip(parts: &[String], styles: Vec<String>, line: &Line) -> Result<V
         padding: Expr::F64(5.0),
         delay_ms: Expr::I64(0),
         snap: Expr::Bool(true),
+        style: None,
+        background: None,
+        text_color: None,
+        border_color: None,
+        border_width: None,
+        radius: None,
+        radius_top_left: None,
+        radius_top_right: None,
+        radius_bottom_right: None,
+        radius_bottom_left: None,
+        shadow_color: None,
+        shadow_x: None,
+        shadow_y: None,
+        shadow_blur: None,
+        pixel_snap: None,
     };
     for part in &parts[1..] {
         if let Some(value) = part.strip_prefix("position=") {
@@ -1004,6 +1019,53 @@ fn parse_tooltip(parts: &[String], styles: Vec<String>, line: &Line) -> Result<V
             options.delay_ms = parse_expr(strip_wrapping_parens(value), line)?;
         } else if let Some(value) = part.strip_prefix("snap=") {
             options.snap = parse_expr(strip_wrapping_parens(value), line)?;
+        } else if let Some(value) = part.strip_prefix("style=") {
+            options.style = Some(match value {
+                "transparent" => TooltipStyle::Transparent,
+                "rounded" => TooltipStyle::Rounded,
+                "bordered" => TooltipStyle::Bordered,
+                "dark" => TooltipStyle::Dark,
+                "primary" => TooltipStyle::Primary,
+                "secondary" => TooltipStyle::Secondary,
+                "success" => TooltipStyle::Success,
+                "warning" => TooltipStyle::Warning,
+                "danger" => TooltipStyle::Danger,
+                _ => {
+                    return Err(error(
+                        "E086",
+                        line,
+                        "tooltip style must be transparent, rounded, bordered, dark, primary, secondary, success, warning, or danger",
+                    ));
+                }
+            });
+        } else if let Some(value) = part.strip_prefix("background=") {
+            options.background = Some(value.to_owned());
+        } else if let Some(value) = part.strip_prefix("text=") {
+            options.text_color = Some(value.to_owned());
+        } else if let Some(value) = part.strip_prefix("border=") {
+            options.border_color = Some(value.to_owned());
+        } else if let Some(value) = part.strip_prefix("border-width=") {
+            options.border_width = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("radius=") {
+            options.radius = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("radius-tl=") {
+            options.radius_top_left = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("radius-tr=") {
+            options.radius_top_right = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("radius-br=") {
+            options.radius_bottom_right = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("radius-bl=") {
+            options.radius_bottom_left = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("shadow=") {
+            options.shadow_color = Some(value.to_owned());
+        } else if let Some(value) = part.strip_prefix("shadow-x=") {
+            options.shadow_x = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("shadow-y=") {
+            options.shadow_y = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("shadow-blur=") {
+            options.shadow_blur = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("pixel-snap=") {
+            options.pixel_snap = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else {
             return Err(error(
                 "E086",
