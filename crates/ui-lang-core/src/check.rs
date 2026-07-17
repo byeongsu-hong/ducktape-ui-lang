@@ -95,7 +95,7 @@ fn check_declared_types(document: &Document) -> Result<(), Error> {
 
 fn check_declared_type(ty: &Type, span: &Span, known: &HashSet<&str>) -> Result<(), Error> {
     match ty {
-        Type::List(inner) => check_declared_type(inner, span, known),
+        Type::List(inner) | Type::Option(inner) => check_declared_type(inner, span, known),
         Type::Named(name) if !known.contains(name.as_str()) => {
             Err(
                 Error::new("E103", span, format!("unknown extern type `{name}`")).hint(format!(
@@ -363,6 +363,67 @@ fn infer_view(
             )?;
             infer_route(route, Some(value_type), env, document, signatures)?;
             check_styles(styles, document, span, StyleTarget::Radio)?;
+        }
+        ViewNode::PickList {
+            options,
+            selected,
+            options_config,
+            route,
+            span,
+        } => {
+            let Type::List(option_type) = expr_type(options, env, document, span)? else {
+                return Err(Error::new("E129", span, "pick options must be a list"));
+            };
+            let Type::Option(selected_type) = expr_type(selected, env, document, span)? else {
+                return Err(Error::new(
+                    "E129",
+                    span,
+                    "pick selection must use an optional `T?` value",
+                ));
+            };
+            require_type(&option_type, &selected_type, span)?;
+            if !matches!(
+                option_type.as_ref(),
+                Type::Bool | Type::I64 | Type::F64 | Type::Str | Type::Named(_)
+            ) {
+                return Err(Error::new(
+                    "E129",
+                    span,
+                    "pick values must be bool, i64, f64, str, or an extern type",
+                ));
+            }
+            if let Some(placeholder) = &options_config.placeholder {
+                require_type(
+                    &expr_type(placeholder, env, document, span)?,
+                    &Type::Str,
+                    span,
+                )?;
+            }
+            for length in [&options_config.width, &options_config.menu_height]
+                .into_iter()
+                .flatten()
+            {
+                if let LengthValue::Fixed(value) = length {
+                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+                    require_literal_range(value, 0.0, None, "pick size", span)?;
+                }
+            }
+            for (value, label) in [
+                (&options_config.padding, "pick padding"),
+                (&options_config.text_size, "pick text size"),
+            ] {
+                if let Some(value) = value {
+                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+                    require_literal_range(value, 0.0, None, label, span)?;
+                }
+            }
+            infer_route(route, Some(*option_type), env, document, signatures)?;
+            for route in [&options_config.open, &options_config.close]
+                .into_iter()
+                .flatten()
+            {
+                infer_route(route, None, env, document, signatures)?;
+            }
         }
         ViewNode::Rule {
             thickness,
@@ -855,7 +916,19 @@ pub(crate) fn expr_type(
         Expr::I64(_) => Ok(Type::I64),
         Expr::F64(_) => Ok(Type::F64),
         Expr::Str(_) => Ok(Type::Str),
-        Expr::EmptyList => Ok(Type::Unknown),
+        Expr::EmptyList => Ok(Type::List(Box::new(Type::Unknown))),
+        Expr::List(values) => {
+            let Some(first) = values.first() else {
+                return Ok(Type::List(Box::new(Type::Unknown)));
+            };
+            let ty = expr_type(first, env, document, span)?;
+            for value in &values[1..] {
+                let actual = expr_type(value, env, document, span)?;
+                require_type(&actual, &ty, span)?;
+            }
+            Ok(Type::List(Box::new(ty)))
+        }
+        Expr::None => Ok(Type::Option(Box::new(Type::Unknown))),
         Expr::Path(path) => {
             let mut ty = env
                 .get(&path[0])
@@ -924,6 +997,14 @@ pub(crate) fn expr_type(
                 }
                 require_type(&expr_type(&args[0], env, document, span)?, &Type::Str, span)?;
                 Ok(Type::Str)
+            }
+            "some" => {
+                if args.len() != 1 {
+                    return Err(Error::new("E152", span, "some expects one argument"));
+                }
+                Ok(Type::Option(Box::new(expr_type(
+                    &args[0], env, document, span,
+                )?)))
             }
             _ => Err(Error::new(
                 "E152",
@@ -1217,7 +1298,15 @@ fn require_type(actual: &Type, expected: &Type, span: &Span) -> Result<(), Error
 }
 
 fn compatible(left: &Type, right: &Type) -> bool {
-    left == right || *left == Type::Unknown || *right == Type::Unknown
+    left == right
+        || *left == Type::Unknown
+        || *right == Type::Unknown
+        || match (left, right) {
+            (Type::List(left), Type::List(right)) | (Type::Option(left), Type::Option(right)) => {
+                compatible(left, right)
+            }
+            _ => false,
+        }
 }
 
 fn type_error(span: &Span, expected: &Type, actual: &Type) -> Error {
@@ -1260,6 +1349,50 @@ view
 "#;
         let document = analyze(source).unwrap();
         assert_eq!(document.handlers[1].params[0].ty.display(), "[Item]");
+    }
+
+    #[test]
+    fn checks_optional_selection_values() {
+        let source = r#"app Demo
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  choices = ["List", "Board"]
+  selected:str? = none
+on selected(next)
+  selected = some(next)
+on opened
+view
+  pick choices selected placeholder="Choose" open=opened -> selected _
+"#;
+        let document = analyze(source).unwrap();
+        assert_eq!(document.states[0].ty.display(), "[str]");
+        assert_eq!(document.states[1].ty.display(), "str?");
+        assert_eq!(document.handlers[0].params[0].ty.display(), "str");
+    }
+
+    #[test]
+    fn rejects_a_non_optional_pick_selection() {
+        let source = r#"app Demo
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  choices = ["List", "Board"]
+  selected = "List"
+on selected(next)
+  selected = next
+view
+  pick choices selected -> selected _
+"#;
+        let error = analyze(source).unwrap_err();
+        assert_eq!(error.code, "E129");
+        assert!(error.message.contains("optional"));
     }
 
     #[test]

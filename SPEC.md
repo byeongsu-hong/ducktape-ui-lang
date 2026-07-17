@@ -1,4 +1,4 @@
-# Ice Language Specification 0.4
+# Ice Language Specification 0.5
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.4 syntax.
+marked “planned” is a design constraint, not accepted 0.5 syntax.
 
 ## 1. Design contract
 
@@ -79,7 +79,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.4.
+  block comments are not part of 0.5.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -151,7 +151,7 @@ subscription_use
 view_decl      = "view" INDENT node
 
 node           = layout | text | input | button | checkbox | toggler
-               | slider | progress | radio | rule | space
+               | slider | progress | radio | pick_list | rule | space
                | media | tooltip | mouse_area
                | component_call | extern_component_call | if_node | for_node
 layout         = ("col" | "row" | "scroll") id? styles? INDENT node+
@@ -169,6 +169,10 @@ progress       = "progress" expr ("min=" expr)? ("max=" expr)?
                  "vertical"? styles?
 radio          = "radio" expr "value=" expr "selected=" expr
                  styles? "->" route
+pick_list      = "pick" expr expr pick_property* "->" route
+pick_property  = "placeholder=" expr | "width=" length
+               | "menu-height=" length | "padding=" expr
+               | "text-size=" expr | "open=" route | "close=" route
 rule           = "rule" ("horizontal" | "vertical")
                  ("thickness=" expr)? styles?
 space          = "space" ("width=" expr)? ("height=" expr)? styles?
@@ -218,6 +222,11 @@ names in kebab case: `none`, `hidden`, `idle`, `context-menu`, `help`,
 `resize-vertical`, `resize-diagonal-up`, `resize-diagonal-down`,
 `resize-column`, `resize-row`, `all-scroll`, `zoom-in`, and `zoom-out`.
 
+`pick` requires a homogeneous `[T]` options expression and a matching optional
+`T?` selection. Its main route carries `T`; `open=` and `close=` routes carry no
+payload. Pick values may be bool, i64, f64, str, or an extern type. Fixed
+width/menu height, padding, and text size are non-negative `f64` values.
+
 Spaces inside a compound expression should be wrapped in parentheses when the
 expression shares a line with widget properties:
 
@@ -234,6 +243,7 @@ button "Add" disabled=(loading || empty(trim(draft))) -> submit
 | `f64` | `f64` |
 | `str` | `String` |
 | `[T]` | `Vec<T>` |
+| `T?` | `Option<T>` |
 | `Name` | the named struct in the extern namespace |
 | `unit` | `()` |
 
@@ -259,7 +269,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.4 message payloads.
+`Clone` for 0.5 message payloads.
 
 Three typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
@@ -293,34 +303,37 @@ actual item and type.
 
 ## 6. State and expressions
 
-Literal state types are inferred:
+Literal state types are inferred, including non-empty homogeneous lists:
 
 ```ice
 state
   draft = ""
   loading = false
   retries = 0
+  modes = ["List", "Board"]
 ```
 
-These infer to `str`, `bool`, and `i64`, respectively.
+These infer to `str`, `bool`, `i64`, and `[str]`, respectively.
 
 Empty lists need an annotation because their element type is unknowable:
 
 ```ice
 tasks:[Task] = []
+selection:str? = none
 ```
 
 The expression language contains:
 
-- literals: strings, booleans, `i64`, `f64`, and `[]`;
+- literals: strings, booleans, `i64`, `f64`, `none`, and list literals such as
+  `[]` and `["List", "Board"]`;
 - paths: `state_name`, `parameter`, `item.field`;
 - unary operators: `!`, `-`;
 - arithmetic: `*`, `/`, `+`, `-`;
 - comparison: `==`, `!=`, `<`, `<=`, `>`, `>=`;
 - boolean operators: `&&`, `||`;
 - parentheses;
-- built-ins: `len(list_or_str) -> i64`, `empty(list_or_str) -> bool`, and
-  `trim(str) -> str`.
+- built-ins: `len(list_or_str) -> i64`, `empty(list_or_str) -> bool`,
+  `trim(str) -> str`, and `some(T) -> T?`.
 
 There is no arbitrary Rust expression, method call, closure, allocation API, or
 implicit truthiness. New operations either belong in a small universal builtin
@@ -389,6 +402,7 @@ The implemented native nodes are:
 | `slider` | `f64` value/range/step, optional vertical axis and release route, `f64`-payload route |
 | `progress` | `f64` value/range, optional vertical axis |
 | `radio` | string label, `i64` or bool value, bool `selected`, value-payload route |
+| `pick` | `[T]` options, `T?` selection, placeholder/size/open/close properties, `T`-payload route |
 | `rule` | horizontal or vertical separator with `f64` thickness |
 | `space` | optional fixed `f64` width and height |
 | `image` | raster path expression, typed length/fit/filter/rotation/opacity/scale/expand/radius properties |
@@ -538,7 +552,7 @@ The implemented families are:
 `cargo check` so rustc verifies extern items and generated iced types. A missing
 Rust item is named by its `crate::module::item` path in rustc's diagnostic. A
 future source-map layer may remap those rustc spans into the precise extern line;
-0.4 does not claim that remapping.
+0.5 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -558,9 +572,10 @@ skips `.git` and `target`.
 
 ## 12. Current coverage and escape hatches
 
-The 0.4 native backend is enough for CRUD/settings-style screens, media, hover
+The 0.5 native backend is enough for CRUD/settings-style screens, selection,
+media, hover
 overlays, and common pointer events, not all of iced. It still lacks direct
-syntax for pick lists, combo boxes, canvas, general overlays/modals, rich text
+syntax for combo boxes, canvas, general overlays/modals, rich text
 and text editors, pointer move/scroll payloads, widget operations, multiple
 windows, and custom widgets. [`COVERAGE.md`](COVERAGE.md) is the exact versioned
 ledger.
@@ -591,5 +606,6 @@ state inference, typed extern structs/functions, mount and result handlers,
 direct input binding, `if`, `for`, a pure component, dynamic component IDs,
 theme utilities, disabled controls, fallible asynchronous tasks, grid and stack
 layouts, toggles, sliders, progress, radio controls, rules, fixed spacing, an
-extern and native tooltip/mouse-area components, raster and SVG media, a
+optional selection value and pick list, extern and native tooltip/mouse-area
+components, raster and SVG media, a
 clipboard task, and a raw-event subscription.

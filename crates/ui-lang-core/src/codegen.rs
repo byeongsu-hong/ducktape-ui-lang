@@ -633,6 +633,72 @@ fn render_node(
                 "::iced::widget::radio({label}, {value}, if {selected} {{ Some({value}) }} else {{ None }}, move |__value| {message_code}).into()"
             ))
         }
+        ViewNode::PickList {
+            options,
+            selected,
+            options_config,
+            route,
+            ..
+        } => {
+            let options = expr_code(options, env, document, ValueMode::Owned)?;
+            let selected = expr_code(selected, env, document, ValueMode::Owned)?;
+            let message_code = route_code(route, "__value", env, document, message)?;
+            let mut code = format!(
+                "::iced::widget::pick_list({options}, {selected}, move |__value| {message_code})"
+            );
+            if let Some(placeholder) = &options_config.placeholder {
+                write!(
+                    code,
+                    ".placeholder({})",
+                    expr_code(placeholder, env, document, ValueMode::Owned)?
+                )
+                .unwrap();
+            }
+            if let Some(width) = &options_config.width {
+                write!(code, ".width({})", length_code(width, env, document)?).unwrap();
+            }
+            if let Some(height) = &options_config.menu_height {
+                write!(
+                    code,
+                    ".menu_height({})",
+                    length_code(height, env, document)?
+                )
+                .unwrap();
+            }
+            if let Some(padding) = &options_config.padding {
+                write!(
+                    code,
+                    ".padding({} as f32)",
+                    expr_code(padding, env, document, ValueMode::Owned)?
+                )
+                .unwrap();
+            }
+            if let Some(size) = &options_config.text_size {
+                write!(
+                    code,
+                    ".text_size({} as f32)",
+                    expr_code(size, env, document, ValueMode::Owned)?
+                )
+                .unwrap();
+            }
+            if let Some(route) = &options_config.open {
+                write!(
+                    code,
+                    ".on_open({})",
+                    route_code(route, "", env, document, message)?
+                )
+                .unwrap();
+            }
+            if let Some(route) = &options_config.close {
+                write!(
+                    code,
+                    ".on_close({})",
+                    route_code(route, "", env, document, message)?
+                )
+                .unwrap();
+            }
+            Ok(format!("{code}.into()"))
+        }
         ViewNode::Rule {
             axis, thickness, ..
         } => {
@@ -1095,6 +1161,15 @@ fn expr_code(
             ValueMode::Borrowed => rust_string(value),
         },
         Expr::EmptyList => "::std::vec::Vec::new()".into(),
+        Expr::List(values) => format!(
+            "::std::vec![{}]",
+            values
+                .iter()
+                .map(|value| expr_code(value, env, document, ValueMode::Owned))
+                .collect::<Result<Vec<_>, _>>()?
+                .join(", ")
+        ),
+        Expr::None => "::std::option::Option::None".into(),
         Expr::Path(path) => {
             let binding = env.get(&path[0]).ok_or_else(|| {
                 Error::new(
@@ -1137,6 +1212,10 @@ fn expr_code(
             "trim" => format!(
                 "({}).trim().to_owned()",
                 expr_code(&args[0], env, document, ValueMode::Borrowed)?
+            ),
+            "some" => format!(
+                "::std::option::Option::Some({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
             ),
             _ => unreachable!("checker rejects unknown calls"),
         },
@@ -1212,6 +1291,7 @@ fn initial_code(expr: &Expr, ty: &Type, document: &Document) -> String {
     match (expr, ty) {
         (Expr::Str(value), Type::Str) => format!("{}.to_owned()", rust_string(value)),
         (Expr::EmptyList, Type::List(_)) => "::std::vec::Vec::new()".into(),
+        (Expr::None, Type::Option(_)) => "::std::option::Option::None".into(),
         (Expr::Bool(value), _) => value.to_string(),
         (Expr::I64(value), _) => value.to_string(),
         (Expr::F64(value), _) => rust_f64(*value),
@@ -1696,6 +1776,37 @@ view
         assert!(generated.contains(".vertical()"));
         assert!(generated.contains("::iced::widget::radio"));
         assert!(generated.contains("::iced::widget::stack(__children).clip(true)"));
+    }
+
+    #[test]
+    fn lowers_list_literals_options_and_pick_lists() {
+        let source = r#"app Selection
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  choices = ["List", "Board"]
+  selected:str? = none
+on selected(next)
+  selected = some(next)
+on opened
+on closed
+view
+  pick choices selected placeholder="Choose" width=fill menu-height=120.0 padding=8.0 text-size=14.0 open=opened close=closed -> selected _
+"#;
+        let generated = compile(source, "selection.ice").unwrap();
+        assert!(
+            generated.contains("pub(crate) selected: ::std::option::Option<::std::string::String>")
+        );
+        assert!(generated.contains("::std::vec![\"List\".to_owned(), \"Board\".to_owned()]"));
+        assert!(
+            generated
+                .contains("::iced::widget::pick_list(self.choices.clone(), self.selected.clone()")
+        );
+        assert!(generated.contains(".on_open(__SelectionMessage::Opened)"));
+        assert!(generated.contains("self.selected = ::std::option::Option::Some(next);"));
     }
 
     #[test]

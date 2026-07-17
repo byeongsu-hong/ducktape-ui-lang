@@ -15,7 +15,7 @@ container API, so container remains partial.
 
 ## Typed system reachability
 
-Ice 0.4 has three checked Rust boundaries:
+Ice 0.5 has three checked Rust boundaries:
 
 | Boundary | Rust ABI | Covers |
 | --- | --- | --- |
@@ -46,7 +46,7 @@ public behavior has direct documented Ice syntax and tests.
 | `mouse_area` | partial | native button/enter/exit routes and all cursor interactions; move and scroll payload routes missing |
 | `overlay` | missing | modal/overlay positioning and dismissal |
 | `pane_grid` | missing | pane state, resizing, dragging, focus |
-| `pick_list` | missing | choices, selection, open/close events |
+| `pick_list` | partial | native typed choices/optional selection, placeholder, sizing, padding, text size, open/close events; font, shaping, handle and style catalogs missing |
 | `pin` | missing | absolute pinning |
 | `progress_bar` | partial | native range/value and horizontal/vertical; style API missing |
 | `qr_code` | missing | data, cell size, theme |

@@ -27,6 +27,9 @@ state
   volume = 40.0
   notifications = true
   view_mode = 0
+  display_modes = ["List", "Board", "Timeline"]
+  display_mode:str? = none
+  picker_open = false
   external_hover = false
   event_seen = false
   native_hover = false
@@ -83,6 +86,15 @@ on notifications_changed(next)
 
 on view_mode_changed(next)
   view_mode = next
+
+on display_mode_changed(next)
+  display_mode = some(next)
+
+on picker_opened
+  picker_open = true
+
+on picker_closed
+  picker_open = false
 
 on copy_draft
   return if empty(trim(draft))
@@ -154,6 +166,9 @@ view
                 text "Pointer is inside" @text-xs text-muted
       col @w-full gap-2 p-4 bg-surface rounded-lg
         text "View mode" @text-lg font-bold text-foreground
+        pick display_modes display_mode placeholder="Choose a view" width=fill menu-height=160.0 padding=8.0 text-size=14.0 open=picker_opened close=picker_closed -> display_mode_changed _
+        if picker_open
+          text "Picker is open" @text-xs text-muted
         radio "List" value=0 selected=(view_mode == 0) -> view_mode_changed _
         radio "Board" value=1 selected=(view_mode == 1) -> view_mode_changed _
         space height=8.0
