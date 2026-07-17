@@ -15,7 +15,7 @@ counts toward the row below.
 
 ## Typed system reachability
 
-Ice 0.56 has three checked Rust boundaries:
+Ice 0.57 has three checked Rust boundaries:
 
 | Boundary | Rust ABI | Covers |
 | --- | --- | --- |
@@ -45,7 +45,7 @@ public behavior has direct documented Ice syntax and tests.
 | `markdown` | partial | owned parsed/replaced content, syntax highlighting, every `Settings` size/spacing field and str link events; incremental append, image URI access, full `Style` and custom `Viewer` remain |
 | `mouse_area` | native | all button/enter/move/scroll/exit events, scroll unit preservation, and all cursor interactions |
 | `overlay` | partial | structured content/layer sections, conditional visibility, all three alignments on both axes, padding, checked backdrop color, modal button/scroll blocking and backdrop dismissal lower through native Stack/Float overlay behavior; arbitrary custom Overlay implementations and z-index remain |
-| `pane_grid` | partial | recursive initial split trees, closed templates, declared dynamic splits, bounds, click, interactive resize/drag, maximize/query, adjacency, swap, close, move-to-edge, root resize and region drop; native Content/TitleBar, full and responsive compact Controls, per-side title padding, visibility and solid utility styles; runtime-generated pane templates, named nested-split resize and full style catalogs remain |
+| `pane_grid` | partial | recursive initial split trees, closed templates, declared dynamic splits, bounds, click, interactive resize/drag, maximize/query, adjacency, swap, close, move-to-edge, root resize and region drop; native Content/TitleBar, full and responsive compact Controls, per-side title padding and visibility; every concrete PaneGrid Style field for solid colors; runtime-generated pane templates, named nested-split resize, gradients and Content/TitleBar shadow/snap/classes remain |
 | `pick_list` | partial | native typed choices/optional selection, placeholder, sizing, padding, text size, open/close events; font, shaping, handle and style catalogs missing |
 | `pin` | native | one child, all `Length` bounds and pixel x/y positioning; x/y is behaviorally identical to iced's `position(Point)` helper |
 | `progress_bar` | partial | native range/value, all length/girth variants, horizontal/vertical, five presets, checked color backgrounds, border and per-corner radius; gradients, arbitrary runtime closures and advanced classes missing |

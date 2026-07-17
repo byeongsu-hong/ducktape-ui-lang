@@ -3026,7 +3026,105 @@ fn render_pane_grid(
         )
         .unwrap();
     }
+    append_pane_grid_style(&mut code, &options.style, env, document)?;
     Ok(format!("{code}.into()"))
+}
+
+fn append_pane_grid_style(
+    code: &mut String,
+    style: &PaneGridStyle,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<(), Error> {
+    let has_radius = style.region_radius.is_some()
+        || style.region_radius_top_left.is_some()
+        || style.region_radius_top_right.is_some()
+        || style.region_radius_bottom_right.is_some()
+        || style.region_radius_bottom_left.is_some();
+    if style.region_background.is_none()
+        && style.region_border.is_none()
+        && style.region_border_width.is_none()
+        && !has_radius
+        && style.hovered_split.is_none()
+        && style.hovered_split_width.is_none()
+        && style.picked_split.is_none()
+        && style.picked_split_width.is_none()
+    {
+        return Ok(());
+    }
+    code.push_str(
+        ".style(move |__theme| { let mut __style = ::iced::widget::pane_grid::default(__theme);",
+    );
+    if let Some(background) = &style.region_background {
+        write!(
+            code,
+            " __style.hovered_region.background = ::iced::Background::Color({});",
+            theme_color(document, background)
+        )
+        .unwrap();
+    }
+    if let Some(border) = &style.region_border {
+        write!(
+            code,
+            " __style.hovered_region.border.color = {};",
+            theme_color(document, border)
+        )
+        .unwrap();
+    }
+    if let Some(width) = &style.region_border_width {
+        write!(
+            code,
+            " __style.hovered_region.border.width = {} as f32;",
+            expr_code(width, env, document, ValueMode::Owned)?
+        )
+        .unwrap();
+    }
+    if has_radius {
+        let radius = radius_code(
+            style.region_radius.as_ref(),
+            [
+                style.region_radius_top_left.as_ref(),
+                style.region_radius_top_right.as_ref(),
+                style.region_radius_bottom_right.as_ref(),
+                style.region_radius_bottom_left.as_ref(),
+            ],
+            env,
+            document,
+        )?
+        .expect("pane-grid region radius options were present");
+        write!(code, " __style.hovered_region.border.radius = {radius};").unwrap();
+    }
+    for (color, width, field) in [
+        (
+            &style.hovered_split,
+            &style.hovered_split_width,
+            "hovered_split",
+        ),
+        (
+            &style.picked_split,
+            &style.picked_split_width,
+            "picked_split",
+        ),
+    ] {
+        if let Some(color) = color {
+            write!(
+                code,
+                " __style.{field}.color = {};",
+                theme_color(document, color)
+            )
+            .unwrap();
+        }
+        if let Some(width) = width {
+            write!(
+                code,
+                " __style.{field}.width = {} as f32;",
+                expr_code(width, env, document, ValueMode::Owned)?
+            )
+            .unwrap();
+        }
+    }
+    code.push_str(" __style })");
+    Ok(())
 }
 
 fn render_pane_content(
@@ -6070,6 +6168,10 @@ state
 on close
 view
   pane-grid #work split=vertical
+    style
+      hovered-region background=primary/50 border=foreground border-width=2.0 radius=4.0 radius-tl=1.0 radius-tr=2.0 radius-br=3.0 radius-bl=4.0
+      hovered-split color=primary width=3.0
+      picked-split color=danger width=4.0
     pane files @bg-background border border-primary rounded
       title padding=4.0 padding-x=8.0 padding-top=6.0 always-controls @bg-primary text-white
         text "Files"
@@ -6098,6 +6200,18 @@ view
         assert!(generated.contains(".always_show_controls().style"));
         assert!(generated.contains("__BindFilter"));
         assert!(generated.contains("format!(\"{}/filter\""));
+        assert!(generated.contains("pane_grid::default(__theme)"));
+        assert!(generated.contains("__style.hovered_region.background"));
+        assert!(generated.contains("__style.hovered_region.border.color"));
+        assert!(generated.contains("__style.hovered_region.border.width = 2.0 as f32"));
+        assert!(generated.contains("top_left: 1.0 as f32"));
+        assert!(generated.contains("top_right: 2.0 as f32"));
+        assert!(generated.contains("bottom_right: 3.0 as f32"));
+        assert!(generated.contains("bottom_left: 4.0 as f32"));
+        assert!(generated.contains("__style.hovered_split.color"));
+        assert!(generated.contains("__style.hovered_split.width = 3.0 as f32"));
+        assert!(generated.contains("__style.picked_split.color"));
+        assert!(generated.contains("__style.picked_split.width = 4.0 as f32"));
     }
 
     #[test]

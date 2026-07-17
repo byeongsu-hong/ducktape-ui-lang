@@ -1419,6 +1419,23 @@ pub struct PaneGridOptions {
     pub resize_leeway: Option<Expr>,
     pub draggable: bool,
     pub click: Option<Route>,
+    pub style: PaneGridStyle,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct PaneGridStyle {
+    pub region_background: Option<String>,
+    pub region_border: Option<String>,
+    pub region_border_width: Option<Expr>,
+    pub region_radius: Option<Expr>,
+    pub region_radius_top_left: Option<Expr>,
+    pub region_radius_top_right: Option<Expr>,
+    pub region_radius_bottom_right: Option<Expr>,
+    pub region_radius_bottom_left: Option<Expr>,
+    pub hovered_split: Option<String>,
+    pub hovered_split_width: Option<Expr>,
+    pub picked_split: Option<String>,
+    pub picked_split_width: Option<Expr>,
 }
 
 #[derive(Clone, Debug, Default)]
