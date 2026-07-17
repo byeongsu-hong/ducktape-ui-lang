@@ -264,6 +264,7 @@ pub enum SubscriptionSource {
     Extern { function: String, args: Vec<Expr> },
     Keyboard(KeyboardEvent),
     SystemTheme,
+    Window(WindowEvent),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -271,6 +272,22 @@ pub enum KeyboardEvent {
     Press,
     Release,
     Modifiers,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WindowEvent {
+    Frame,
+    Opened,
+    Closed,
+    Moved,
+    Resized,
+    Rescaled,
+    CloseRequested,
+    Focused,
+    Unfocused,
+    FileHovered,
+    FileDropped,
+    FilesHoveredLeft,
 }
 
 #[derive(Clone, Debug)]
