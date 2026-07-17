@@ -15,7 +15,7 @@ counts toward the row below.
 
 ## Typed system reachability
 
-Ice 0.66 has three checked Rust boundaries:
+Ice 0.67 has three checked Rust boundaries:
 
 | Boundary | Rust ABI | Covers |
 | --- | --- | --- |
@@ -33,7 +33,7 @@ public behavior has direct documented Ice syntax and tests.
 | --- | --- | --- |
 | `button` | partial | native string or arbitrary child content, disabled route, typed size/padding/clip, all eight iced presets and all concrete fields for active/hovered/pressed/disabled styles including linear backgrounds; advanced classes remain |
 | `canvas` | missing | drawing program, geometry, cache, events |
-| `checkbox` | partial | native label/value/disabled event, size/width/spacing, text typography/wrapping, complete font descriptors and custom icon; full style catalog missing |
+| `checkbox` | partial | native label/value/disabled event, size/width/spacing, text typography/wrapping, complete font descriptors and custom icon; all four presets and every concrete Style field across active/hovered/disabled checked and unchecked statuses; advanced classes remain |
 | `column` | native | children, typed spacing/per-side padding, all `Length` bounds, max width, cross-axis alignment, clipping and wrapping column spacing/alignment |
 | `combo_box` | partial | native typed search state/selection, input, hover, open/close, sizing, padding and text size; dynamic option replacement, icon/font/shaping and style catalogs missing |
 | `container` | partial | native one-child container with ID, complete concrete layout API and every concrete Style field including linear background, text, per-corner border, shadow and pixel snap; advanced classes remain |

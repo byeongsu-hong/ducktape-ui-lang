@@ -1218,6 +1218,7 @@ fn infer_view(
             checked,
             disabled,
             options,
+            style,
             styles,
             route,
             span,
@@ -1233,6 +1234,7 @@ fn infer_view(
                 )?;
             }
             check_bool_control_options(options, env, document, span)?;
+            check_checkbox_styles(style, env, document, span)?;
             infer_route(route, Some(Type::Bool), env, document, signatures)?;
             check_styles(styles, document, span, StyleTarget::Checkbox)?;
         }
@@ -2631,6 +2633,67 @@ fn check_bool_control_options(
             span,
             "checkbox icon properties require `icon=\"x\"`",
         ));
+    }
+    Ok(())
+}
+
+fn check_checkbox_styles(
+    styles: &CheckboxStyleSet,
+    env: &HashMap<String, Type>,
+    document: &Document,
+    parent_span: &Span,
+) -> Result<(), Error> {
+    for style in [
+        &styles.active_checked,
+        &styles.active_unchecked,
+        &styles.hovered_checked,
+        &styles.hovered_unchecked,
+        &styles.disabled_checked,
+        &styles.disabled_unchecked,
+    ]
+    .into_iter()
+    .flatten()
+    {
+        let span = style.span.as_ref().unwrap_or(parent_span);
+        if let Some(background) = &style.background {
+            check_background_value(
+                background,
+                env,
+                document,
+                span,
+                "E129",
+                "checkbox background",
+            )?;
+        }
+        for (color, label) in [
+            (&style.icon_color, "checkbox icon"),
+            (&style.text_color, "checkbox text"),
+            (&style.border_color, "checkbox border"),
+        ] {
+            if let Some(color) = color
+                && !valid_theme_color(color, document)
+            {
+                return Err(Error::new(
+                    "E129",
+                    span,
+                    format!("unknown {label} color `{color}`"),
+                ));
+            }
+        }
+        for value in [
+            &style.border_width,
+            &style.radius,
+            &style.radius_top_left,
+            &style.radius_top_right,
+            &style.radius_bottom_right,
+            &style.radius_bottom_left,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+            require_literal_range(value, 0.0, None, "checkbox style metric", span)?;
+        }
     }
     Ok(())
 }
@@ -5538,7 +5601,7 @@ view
     }
 
     #[test]
-    fn checks_checkbox_and_toggler_typography() {
+    fn checks_checkbox_styles_and_boolean_control_typography() {
         let source = r#"app Preferences
 theme
   background #000000
@@ -5551,10 +5614,38 @@ on changed(next)
   enabled = next
 view
   col
-    checkbox "Checkbox" checked=enabled size=20.0 width=fill spacing=8.0 text-size=14.0 line-height=1.2 shaping=advanced wrapping=word-or-glyph font=mono icon="✓" icon-size=12.0 icon-line-height=1.0 icon-shaping=basic -> changed _
+    checkbox "Checkbox" checked=enabled style=success size=20.0 width=fill spacing=8.0 text-size=14.0 line-height=1.2 shaping=advanced wrapping=word-or-glyph font=mono icon="✓" icon-size=12.0 icon-line-height=1.0 icon-shaping=basic -> changed _
+      active checked background=linear(1.57, primary@0.0, background@1.0) icon=foreground text=foreground border=primary border-width=1.0 radius=4.0 radius-tl=2.0 radius-tr=3.0 radius-br=5.0 radius-bl=6.0
+      active unchecked background=background icon=primary text=foreground border=foreground
+      hovered checked background=primary icon=foreground text=foreground border=primary
+      hovered unchecked background=foreground icon=background text=primary border=primary
+      disabled checked background=background icon=foreground text=foreground border=foreground
+      disabled unchecked background=background icon=primary text=foreground border=primary
     toggler "Toggler" checked=enabled size=20.0 width=fill spacing=8.0 text-size=14.0 line-height=1.2 shaping=auto wrapping=glyph font=default align=right -> changed _
 "#;
         analyze(source).unwrap();
+
+        let error =
+            analyze(&source.replace("border=primary border-width", "border=missing border-width"))
+                .unwrap_err();
+        assert_eq!(error.code, "E129");
+        assert!(error.message.contains("checkbox border color `missing`"));
+
+        let error = analyze(&source.replace("border-width=1.0", "border-width=-1.0")).unwrap_err();
+        assert_eq!(error.code, "E128");
+        assert!(error.message.contains("checkbox style metric"));
+
+        let error = analyze(&source.replace("style=success", "style=warning")).unwrap_err();
+        assert_eq!(error.code, "E067");
+        assert!(error.message.contains("checkbox style must be"));
+
+        let error = analyze(&source.replace(
+            "      active unchecked background=background",
+            "      active checked background=background\n      active unchecked background=background",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E067");
+        assert!(error.message.contains("duplicate checkbox active checked"));
     }
 
     #[test]

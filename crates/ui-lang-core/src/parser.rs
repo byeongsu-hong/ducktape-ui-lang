@@ -4214,7 +4214,6 @@ fn parse_checkbox(
     route: Option<&str>,
     line: &Line,
 ) -> Result<ViewNode, Error> {
-    ensure_leaf(line)?;
     let label = parts
         .get(1)
         .ok_or_else(|| error("E067", line, "checkbox needs a label expression"))?;
@@ -4222,6 +4221,7 @@ fn parse_checkbox(
     let mut checked = None;
     let mut disabled = None;
     let mut options = BoolControlOptions::default();
+    let mut style = CheckboxStyleSet::default();
     for part in &parts[2..] {
         if part.starts_with('#') {
             id = Some(parse_id(part, line)?);
@@ -4229,6 +4229,20 @@ fn parse_checkbox(
             checked = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else if let Some(value) = part.strip_prefix("disabled=") {
             disabled = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("style=") {
+            style.preset = match value {
+                "primary" => CheckboxStylePreset::Primary,
+                "secondary" => CheckboxStylePreset::Secondary,
+                "success" => CheckboxStylePreset::Success,
+                "danger" => CheckboxStylePreset::Danger,
+                _ => {
+                    return Err(error(
+                        "E067",
+                        line,
+                        "checkbox style must be primary, secondary, success, or danger",
+                    ));
+                }
+            };
         } else if parse_bool_control_option(part, &mut options, false, true, line)? {
         } else {
             return Err(error(
@@ -4238,12 +4252,16 @@ fn parse_checkbox(
             ));
         }
     }
+    for child in &line.children {
+        parse_checkbox_status_style(child, &mut style)?;
+    }
     Ok(ViewNode::Checkbox {
         label: parse_expr(label, line)?,
         id,
         checked: checked.ok_or_else(|| error("E067", line, "checkbox requires `checked=value`"))?,
         disabled,
         options,
+        style: Box::new(style),
         styles,
         route: parse_route(
             route.ok_or_else(|| error("E067", line, "checkbox requires `-> handler`"))?,
@@ -4251,6 +4269,75 @@ fn parse_checkbox(
         )?,
         span: Span::line(line.number),
     })
+}
+
+fn parse_checkbox_status_style(line: &Line, styles: &mut CheckboxStyleSet) -> Result<(), Error> {
+    ensure_leaf(line)?;
+    let parts = split_words(&line.text);
+    let status = parts.first().map(String::as_str);
+    let checked = parts.get(1).map(String::as_str);
+    let slot = match (status, checked) {
+        (Some("active"), Some("checked")) => &mut styles.active_checked,
+        (Some("active"), Some("unchecked")) => &mut styles.active_unchecked,
+        (Some("hovered"), Some("checked")) => &mut styles.hovered_checked,
+        (Some("hovered"), Some("unchecked")) => &mut styles.hovered_unchecked,
+        (Some("disabled"), Some("checked")) => &mut styles.disabled_checked,
+        (Some("disabled"), Some("unchecked")) => &mut styles.disabled_unchecked,
+        _ => {
+            return Err(error(
+                "E067",
+                line,
+                "checkbox style lines use `<active|hovered|disabled> <checked|unchecked>`",
+            ));
+        }
+    };
+    if slot.is_some() {
+        return Err(error(
+            "E067",
+            line,
+            format!(
+                "duplicate checkbox {} {} style",
+                status.unwrap(),
+                checked.unwrap()
+            ),
+        ));
+    }
+    let mut style = CheckboxStatusStyle {
+        span: Some(Span::line(line.number)),
+        ..CheckboxStatusStyle::default()
+    };
+    for part in &parts[2..] {
+        let parse = |value: &str| parse_expr(strip_wrapping_parens(value), line);
+        if let Some(value) = part.strip_prefix("background=") {
+            style.background = Some(parse_background_value(value, line)?);
+        } else if let Some(value) = part.strip_prefix("icon=") {
+            style.icon_color = Some(value.to_owned());
+        } else if let Some(value) = part.strip_prefix("text=") {
+            style.text_color = Some(value.to_owned());
+        } else if let Some(value) = part.strip_prefix("border=") {
+            style.border_color = Some(value.to_owned());
+        } else if let Some(value) = part.strip_prefix("border-width=") {
+            style.border_width = Some(parse(value)?);
+        } else if let Some(value) = part.strip_prefix("radius=") {
+            style.radius = Some(parse(value)?);
+        } else if let Some(value) = part.strip_prefix("radius-tl=") {
+            style.radius_top_left = Some(parse(value)?);
+        } else if let Some(value) = part.strip_prefix("radius-tr=") {
+            style.radius_top_right = Some(parse(value)?);
+        } else if let Some(value) = part.strip_prefix("radius-br=") {
+            style.radius_bottom_right = Some(parse(value)?);
+        } else if let Some(value) = part.strip_prefix("radius-bl=") {
+            style.radius_bottom_left = Some(parse(value)?);
+        } else {
+            return Err(error(
+                "E067",
+                line,
+                format!("unknown checkbox style property `{part}`"),
+            ));
+        }
+    }
+    *slot = Some(style);
+    Ok(())
 }
 
 fn parse_toggler(
