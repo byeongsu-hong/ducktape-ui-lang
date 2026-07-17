@@ -1,4 +1,4 @@
-# Ice Language Specification 0.71
+# Ice Language Specification 0.72
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.71 syntax.
+marked “planned” is a design constraint, not accepted 0.72 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.71.
+  block comments are not part of 0.72.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -398,13 +398,24 @@ text_property  = ("width=" | "height=") length | "size=" expr
                | "shaping=" ("auto" | "basic" | "advanced")
                | "wrapping=" ("none" | "word" | "glyph" | "word-or-glyph")
 input          = "input" string id? "<->" name input_property* styles?
+                 (INDENT input_child*)?
 input_property = "hint=" string | ("disabled=" | "secure=") expr
                | ("submit=" | "paste=") route | "width=" length
                | ("padding=" | "text-size=" | "line-height=") expr
                | "align=" ("left" | "center" | "right")
-               | "font=" font_ref | "icon=" string
+               | "font=" font_ref | "icon=" string | "icon-font=" font_ref
                | "icon-side=" ("left" | "right")
                | ("icon-size=" | "icon-spacing=") expr
+input_child    = input_status | input_icon
+input_status   = ("active" | "hovered" | "focused"
+               | "focused-hovered" | "disabled") input_style_property*
+input_style_property
+               = "background=" background_value
+               | ("border=" | "icon=" | "placeholder="
+                 | "value=" | "selection=") color_ref
+               | ("border-width=" | "radius=" | "radius-tl="
+                 | "radius-tr=" | "radius-br=" | "radius-bl=") expr
+input_icon     = "icon" combo_icon_property+
 button         = "button" (string | INDENT node) id? button_property*
                  styles? "->" route (INDENT button_status_style*)?
 button_property = "disabled=" expr | ("width=" | "height=") length
@@ -645,7 +656,7 @@ default/centered/fixed position, visibility, resizability, close/minimize
 buttons, decorations, transparency, blur, level, and close-request behavior.
 Sizes, text size, and scale factor must be positive; minimum size cannot exceed
 maximum size. Window icons and platform-specific settings are not part of
-0.71.
+0.72.
 
 Media fixed lengths, rotation, opacity, scale, and radius are `f64`; rotation
 is radians, opacity is `0.0..=1.0`, scale is positive, and sizes/radius are
@@ -696,9 +707,19 @@ overrides a `@text-*` utility; `font=mono @font-bold` preserves both choices.
 
 `input` keeps its required `str` binding and additionally supports bool secure
 mode, submit routes, str-payload paste routes, typed width/padding/text size,
-relative line height, horizontal alignment, default/monospace font, and a
-single-character icon with side/size/spacing. A disabled input suppresses
-typing, submit, and paste messages together.
+relative line height, horizontal alignment, complete font descriptors, and a
+complete text-input icon. Its five optional status lines expose every concrete
+iced text-input Style field. A disabled input suppresses typing, submit, and
+paste messages together. The old inline `icon=`, `icon-font=`, `icon-size=`,
+`icon-spacing=`, and `icon-side=` properties remain accepted as compact syntax.
+
+```ice
+input "Search" #query <-> query hint="Find anything" font=ui
+  active background=surface border=border icon=primary placeholder=muted value=foreground selection=primary
+  focused-hovered background=surface border=primary border-width=2.0 radius=8.0
+  disabled background=background border=border value=muted
+  icon code="⌕" font=ui size=14.0 spacing=6.0 side=left
+```
 
 `button` accepts either its compact string label or exactly one arbitrary child
 node. It also supports typed width/height, non-negative padding, bool clipping,
@@ -999,7 +1020,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.71 message payloads.
+`Clone` for 0.72 message payloads.
 
 Three typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
@@ -1130,7 +1151,7 @@ The implemented native nodes are:
 | `text` | one `str`, `i64`, or `f64` expression with bounds, size/line-height, font, alignment, shaping, wrapping and checked color/weight styles |
 | `rich-text` | zero or more structured spans with rich defaults, complete span highlights and optional string link events |
 | `pane-grid` | named pane trees backed by recursive persistent split state, structured title/full/compact controls, complete concrete state and surface styles with linear backgrounds, closed templates, dynamic opening, click, resize and drag/drop behavior |
-| `input` | required `str` binding; ID, hint, disabled/secure, submit/paste, sizing, alignment, default/mono font and icon properties |
+| `input` | required `str` binding; ID, hint, disabled/secure, submit/paste, every concrete builder setter, complete icon and all concrete status style fields |
 | `button` | string label or one child; optional ID/disabled, typed size/padding/clip, eight presets, complete status styles and required route |
 | `checkbox` | string label, bool value/route, disabled, sizing/typography/wrapping/font, custom icon, four presets and complete checked-aware status styles |
 | `toggler` | string label, bool value/route, disabled, sizing/typography/wrapping/font/alignment and complete checked-aware status styles |
@@ -1541,7 +1562,7 @@ weight, stretch, and style variant is accepted. At most one declaration may be
 the application default. `font=default` and `font=mono` remain built-ins;
 declared fonts also work on text, rich text and spans, input, editor, checkbox,
 toggler, radio, pick, combo, and their custom icons. Font
-byte loading is not part of 0.71.
+byte loading is not part of 0.72.
 
 Widget operation tasks target checked static IDs in the app view:
 
@@ -1561,7 +1582,7 @@ snap/end; and absolute scroll-to/scroll-by. Effects have no route and
 non-negative `i64`; relative offsets are `f64` in `0.0..=1.0`; absolute
 offsets are unrestricted `f64`. Targets must be real static IDs in the app
 scope. Repeated/component scopes and the feature-gated selector API remain
-outside 0.71.
+outside 0.72.
 
 Persistent pane grids expose their native layout-state operations directly in
 handlers:
@@ -1608,7 +1629,7 @@ and constraints, resizability, maximize/minimize state, position and movement,
 all modes, decorations, user attention, focus, level, system menu, mouse
 passthrough, monitor size, and automatic tabbing. Positive sizes and bool
 arguments are checked before Rust generation. New-window IDs, open/oldest/latest,
-icons, raw handles, screenshots, and callbacks remain outside 0.71.
+icons, raw handles, screenshots, and callbacks remain outside 0.72.
 
 Every iced window event has a direct subscription form:
 
@@ -1761,7 +1782,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 0.71 does not claim that remapping.
+extern line; 0.72 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -1782,7 +1803,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 0.71 native backend is enough for CRUD/settings-style screens, selection,
+The 0.72 native backend is enough for CRUD/settings-style screens, selection,
 media, hover
 overlays, and common pointer events, not all of iced. It still lacks direct
 syntax for canvas, arbitrary custom overlays, multiple

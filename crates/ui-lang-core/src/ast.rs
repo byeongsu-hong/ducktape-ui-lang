@@ -915,10 +915,8 @@ pub struct InputOptions {
     pub line_height: Option<Expr>,
     pub align: Option<InputAlignment>,
     pub font: Option<FontPreset>,
-    pub icon: Option<char>,
-    pub icon_side: Option<IconSide>,
-    pub icon_size: Option<Expr>,
-    pub icon_spacing: Option<Expr>,
+    pub icon: Option<TextInputIcon>,
+    pub style: Box<TextInputStyleSet>,
 }
 
 #[derive(Clone, Debug, Default)]

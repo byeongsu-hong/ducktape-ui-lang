@@ -418,7 +418,13 @@ view
         text "draft focused" @text-sm text-muted
 
     row @w-full items-center gap-3
-      input "New task" #new-task <-> draft hint="What needs doing?" disabled=loading secure=false submit=submit paste=draft_pasted width=fill text-size=14.0 line-height=1.2 align=left font=ui icon="+" icon-side=left icon-size=14.0 icon-spacing=6.0 @px-4 py-3 bg-surface border border-border rounded-lg focus:border-primary
+      input "New task" #new-task <-> draft hint="What needs doing?" disabled=loading secure=false submit=submit paste=draft_pasted width=fill text-size=14.0 line-height=1.2 align=left font=ui @px-4 py-3 bg-surface border border-border rounded-lg focus:border-primary
+        active background=surface border=border border-width=1.0 radius=8.0 icon=primary placeholder=muted value=foreground selection=primary
+        hovered background=surface border=foreground icon=primary placeholder=muted value=foreground selection=primary
+        focused background=surface border=primary border-width=2.0 radius=8.0
+        focused-hovered background=surface border=primary border-width=2.0 radius=8.0
+        disabled background=background border=border icon=muted placeholder=muted value=muted selection=primary
+        icon code="+" font=ui size=14.0 spacing=6.0 side=left
       button disabled=empty(trim(draft)) height=44.0 padding=8.0 clip=true @bg-surface text-foreground rounded-lg disabled:opacity-50 -> copy_draft
         row @gap-2 items-center
           text "Copy" @text-sm text-foreground

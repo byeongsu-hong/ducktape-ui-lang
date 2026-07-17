@@ -3101,7 +3101,7 @@ fn parse_combo_box_child(line: &Line, options: &mut ComboBoxOptions) -> Result<(
     match parts.first().map(String::as_str) {
         Some("active" | "hovered" | "focused" | "focused-hovered" | "disabled") => {
             ensure_leaf(line)?;
-            parse_text_input_status(&parts, line, &mut options.style)
+            parse_text_input_status(&parts, line, &mut options.style, "E088", "combo")
         }
         Some("menu") => {
             ensure_leaf(line)?;
@@ -3116,7 +3116,7 @@ fn parse_combo_box_child(line: &Line, options: &mut ComboBoxOptions) -> Result<(
             if options.icon.is_some() {
                 return Err(error("E088", line, "duplicate combo icon"));
             }
-            options.icon = Some(parse_text_input_icon(&parts[1..], line)?);
+            options.icon = Some(parse_text_input_icon(&parts[1..], line, "E088", "combo")?);
             Ok(())
         }
         _ => Err(error(
@@ -3131,6 +3131,8 @@ fn parse_text_input_status(
     parts: &[String],
     line: &Line,
     styles: &mut TextInputStyleSet,
+    code: &'static str,
+    widget: &str,
 ) -> Result<(), Error> {
     let status = parts.first().expect("text input status line");
     let slot = match status.as_str() {
@@ -3143,9 +3145,9 @@ fn parse_text_input_status(
     };
     if slot.is_some() {
         return Err(error(
-            "E088",
+            code,
             line,
-            format!("duplicate combo {status} style"),
+            format!("duplicate {widget} {status} style"),
         ));
     }
     let mut style = TextInputStatusStyle {
@@ -3170,16 +3172,16 @@ fn parse_text_input_status(
                 || style.options.pixel_snap.is_some()
             {
                 return Err(error(
-                    "E088",
+                    code,
                     line,
-                    format!("unknown combo input style property `{part}`"),
+                    format!("unknown {widget} style property `{part}`"),
                 ));
             }
         } else {
             return Err(error(
-                "E088",
+                code,
                 line,
-                format!("unknown combo input style property `{part}`"),
+                format!("unknown {widget} style property `{part}`"),
             ));
         }
     }
@@ -3187,7 +3189,12 @@ fn parse_text_input_status(
     Ok(())
 }
 
-fn parse_text_input_icon(parts: &[String], line: &Line) -> Result<TextInputIcon, Error> {
+fn parse_text_input_icon(
+    parts: &[String],
+    line: &Line,
+    code: &'static str,
+    widget: &str,
+) -> Result<TextInputIcon, Error> {
     let mut code_point = None;
     let mut font = None;
     let mut size = None;
@@ -3200,9 +3207,9 @@ fn parse_text_input_icon(parts: &[String], line: &Line) -> Result<TextInputIcon,
             code_point = chars.next();
             if code_point.is_none() || chars.next().is_some() {
                 return Err(error(
-                    "E088",
+                    code,
                     line,
-                    "combo icon code must contain one character",
+                    format!("{widget} icon code must contain one character"),
                 ));
             }
         } else if let Some(value) = part.strip_prefix("font=") {
@@ -3215,19 +3222,25 @@ fn parse_text_input_icon(parts: &[String], line: &Line) -> Result<TextInputIcon,
             side = match value {
                 "left" => IconSide::Left,
                 "right" => IconSide::Right,
-                _ => return Err(error("E088", line, "combo icon side must be left or right")),
+                _ => {
+                    return Err(error(
+                        code,
+                        line,
+                        format!("{widget} icon side must be left or right"),
+                    ));
+                }
             };
         } else {
             return Err(error(
-                "E088",
+                code,
                 line,
-                format!("unknown combo icon property `{part}`"),
+                format!("unknown {widget} icon property `{part}`"),
             ));
         }
     }
     Ok(TextInputIcon {
         code_point: code_point
-            .ok_or_else(|| error("E088", line, "combo icon requires code=\"…\""))?,
+            .ok_or_else(|| error(code, line, format!("{widget} icon requires code=\"…\"")))?,
         font,
         size,
         spacing,
@@ -4374,7 +4387,6 @@ fn parse_rich_span(line: &Line) -> Result<RichSpan, Error> {
 }
 
 fn parse_input(parts: &[String], styles: Vec<String>, line: &Line) -> Result<ViewNode, Error> {
-    ensure_leaf(line)?;
     if parts.len() < 4 {
         return Err(error(
             "E065",
@@ -4388,6 +4400,11 @@ fn parse_input(parts: &[String], styles: Vec<String>, line: &Line) -> Result<Vie
     let mut hint = String::new();
     let mut disabled = None;
     let mut options = InputOptions::default();
+    let mut icon_code = None;
+    let mut icon_font = None;
+    let mut icon_size = None;
+    let mut icon_spacing = None;
+    let mut icon_side = IconSide::Left;
     let mut index = 2;
     while index < parts.len() {
         let part = &parts[index];
@@ -4441,17 +4458,19 @@ fn parse_input(parts: &[String], styles: Vec<String>, line: &Line) -> Result<Vie
             if chars.next().is_some() {
                 return Err(error("E065", line, "input icon must contain one character"));
             }
-            options.icon = Some(icon);
+            icon_code = Some(icon);
+        } else if let Some(value) = part.strip_prefix("icon-font=") {
+            icon_font = Some(parse_font_preset(value, line)?);
         } else if let Some(value) = part.strip_prefix("icon-side=") {
-            options.icon_side = Some(match value {
+            icon_side = match value {
                 "left" => IconSide::Left,
                 "right" => IconSide::Right,
                 _ => return Err(error("E065", line, "input icon side must be left or right")),
-            });
+            };
         } else if let Some(value) = part.strip_prefix("icon-size=") {
-            options.icon_size = Some(parse_expr(strip_wrapping_parens(value), line)?);
+            icon_size = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else if let Some(value) = part.strip_prefix("icon-spacing=") {
-            options.icon_spacing = Some(parse_expr(strip_wrapping_parens(value), line)?);
+            icon_spacing = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else {
             return Err(error(
                 "E065",
@@ -4460,6 +4479,45 @@ fn parse_input(parts: &[String], styles: Vec<String>, line: &Line) -> Result<Vie
             ));
         }
         index += 1;
+    }
+    if icon_code.is_some()
+        || icon_font.is_some()
+        || icon_size.is_some()
+        || icon_spacing.is_some()
+        || icon_side != IconSide::Left
+    {
+        options.icon = Some(TextInputIcon {
+            code_point: icon_code
+                .ok_or_else(|| error("E129", line, "input icon properties require `icon=\"x\"`"))?,
+            font: icon_font,
+            size: icon_size,
+            spacing: icon_spacing,
+            side: icon_side,
+            span: Span::line(line.number),
+        });
+    }
+    for child in &line.children {
+        let parts = split_words(&child.text);
+        match parts.first().map(String::as_str) {
+            Some("active" | "hovered" | "focused" | "focused-hovered" | "disabled") => {
+                ensure_leaf(child)?;
+                parse_text_input_status(&parts, child, &mut options.style, "E065", "input")?;
+            }
+            Some("icon") => {
+                ensure_leaf(child)?;
+                if options.icon.is_some() {
+                    return Err(error("E065", child, "duplicate input icon"));
+                }
+                options.icon = Some(parse_text_input_icon(&parts[1..], child, "E065", "input")?);
+            }
+            _ => {
+                return Err(error(
+                    "E065",
+                    child,
+                    "input blocks use active, hovered, focused, focused-hovered, disabled, or icon",
+                ));
+            }
+        }
     }
     Ok(ViewNode::Input {
         label,
