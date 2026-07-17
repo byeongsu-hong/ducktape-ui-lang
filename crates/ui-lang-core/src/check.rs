@@ -3171,6 +3171,18 @@ mod tests {
         let error = analyze(&source.replace("when auto_refresh", "when 1")).unwrap_err();
         assert_eq!(error.code, "E101");
         assert!(error.message.contains("expected `bool`"));
+
+        let error = analyze(&source.replace(
+            "every 250ms when auto_refresh",
+            "every 250ms status=captured when auto_refresh",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E084");
+        assert!(
+            error
+                .message
+                .contains("only available on non-frame runtime events")
+        );
     }
 
     #[test]
@@ -3192,8 +3204,8 @@ mod tests {
         );
 
         let error = analyze(&source.replace(
-            "input-method preedit -> preedit _ _ _",
-            "input-method preedit -> preedit _ _",
+            "input-method preedit status=any -> preedit _ _ _",
+            "input-method preedit status=any -> preedit _ _",
         ))
         .unwrap_err();
         assert_eq!(error.code, "E129");
@@ -3233,8 +3245,11 @@ mod tests {
         assert_eq!(handlers["released"], ["str"]);
         assert_eq!(handlers["wheel"], ["f64", "f64", "bool"]);
 
-        let error = analyze(&source.replace("mouse moved -> moved _ _", "mouse moved -> moved _"))
-            .unwrap_err();
+        let error = analyze(&source.replace(
+            "mouse moved status=captured -> moved _ _",
+            "mouse moved status=captured -> moved _",
+        ))
+        .unwrap_err();
         assert_eq!(error.code, "E129");
         assert!(error.message.contains("expects 2 payloads"));
 
@@ -3249,6 +3264,10 @@ mod tests {
             analyze(&source.replace("mouse left -> left", "mouse dragged -> left")).unwrap_err();
         assert_eq!(error.code, "E084");
         assert!(error.message.contains("mouse event must be"));
+
+        let error = analyze(&source.replace("status=captured", "status=handled")).unwrap_err();
+        assert_eq!(error.code, "E084");
+        assert!(error.message.contains("status must be"));
     }
 
     #[test]
@@ -3297,9 +3316,11 @@ mod tests {
             ["f64?", "f64?", "f64", "f64"]
         );
 
-        let error =
-            analyze(&source.replace("window moved -> moved _ _", "window moved -> moved _"))
-                .unwrap_err();
+        let error = analyze(&source.replace(
+            "window moved status=captured -> moved _ _",
+            "window moved status=captured -> moved _",
+        ))
+        .unwrap_err();
         assert_eq!(error.code, "E129");
         assert!(error.message.contains("expects 2 payloads"));
 

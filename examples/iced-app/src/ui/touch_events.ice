@@ -15,7 +15,7 @@ on lifted(finger, x, y)
 on lost(finger, x, y)
 
 subscribe
-  touch pressed -> pressed _ _ _
+  touch pressed status=ignored -> pressed _ _ _
   touch moved -> moved _ _ _
   touch lifted -> lifted _ _ _
   touch lost -> lost _ _ _

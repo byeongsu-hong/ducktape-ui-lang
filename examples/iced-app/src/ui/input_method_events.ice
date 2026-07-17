@@ -16,7 +16,7 @@ on closed
 
 subscribe
   input-method opened -> opened
-  input-method preedit -> preedit _ _ _
+  input-method preedit status=any -> preedit _ _ _
   input-method commit -> commit _
   input-method closed -> closed
 
