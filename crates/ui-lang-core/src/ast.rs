@@ -192,7 +192,7 @@ pub struct Id {
 pub enum ViewNode {
     Layout {
         kind: Layout,
-        options: LayoutOptions,
+        options: Box<LayoutOptions>,
         id: Option<Id>,
         styles: Vec<String>,
         children: Vec<ViewNode>,
@@ -762,8 +762,33 @@ pub struct LayoutOptions {
     pub clip: Option<Expr>,
     pub width: Option<LengthValue>,
     pub height: Option<LengthValue>,
+    pub spacing: Option<Expr>,
+    pub padding: PaddingOptions,
+    pub max_width: Option<Expr>,
+    pub align: Option<FlexAlignment>,
+    pub wrap: bool,
+    pub wrap_spacing: Option<Expr>,
+    pub wrap_align: Option<FlexAlignment>,
     pub under: u16,
     pub scroll: Option<ScrollOptions>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct PaddingOptions {
+    pub all: Option<Expr>,
+    pub x: Option<Expr>,
+    pub y: Option<Expr>,
+    pub top: Option<Expr>,
+    pub right: Option<Expr>,
+    pub bottom: Option<Expr>,
+    pub left: Option<Expr>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FlexAlignment {
+    Start,
+    Center,
+    End,
 }
 
 #[derive(Clone, Debug)]

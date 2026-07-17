@@ -1,4 +1,4 @@
-# Ice Language Specification 0.20
+# Ice Language Specification 0.21
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.20 syntax.
+marked “planned” is a design constraint, not accepted 0.21 syntax.
 
 ## 1. Design contract
 
@@ -79,7 +79,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.20.
+  block comments are not part of 0.21.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -155,10 +155,19 @@ node           = layout | text | input | button | checkbox | toggler
                | rule | space | float | pin | sensor | responsive
                | media | tooltip | mouse_area
                | component_call | extern_component_call | if_node | for_node
-layout         = ("col" | "row") id? styles? INDENT node+
+layout         = "col" id? column_property* styles? INDENT node+
+               | "row" id? flex_property* styles? INDENT node+
                | "scroll" id? scroll_property* styles? INDENT node
                | "grid" id? ("columns=" expr)? styles? INDENT node+
                | "stack" id? stack_property* styles? INDENT node+
+column_property = flex_property | "max-width=" expr
+flex_property  = ("width=" | "height=") length | "spacing=" expr
+               | ("padding=" | "padding-x=" | "padding-y="
+                 | "padding-top=" | "padding-right=" | "padding-bottom="
+                 | "padding-left=") expr
+               | "align=" ("start" | "center" | "end") | "clip=" expr
+               | "wrap" | "wrap-spacing=" expr
+               | "wrap-align=" ("start" | "center" | "end")
 stack_property = ("width=" | "height=") length | "clip=" expr
                | "under=" u16
 scroll_property = "direction=" ("vertical" | "horizontal" | "both")
@@ -398,6 +407,14 @@ children beneath that base without letting them determine intrinsic size,
 matching iced's `push_under`; values larger than the rendered child count simply
 leave the stack without an intrinsic base layer.
 
+`row` and `col` accept typed spacing, every iced `Length` for width/height,
+cross-axis `start`/`center`/`end` alignment, and clipping. Columns additionally
+accept `max-width=`. Padding can be uniform, axis-specific, or per-side; the
+more specific value wins regardless of property order. Bare `wrap` switches to
+iced's wrapping layout. `wrap-spacing=` controls spacing between wrapped rows or
+columns and `wrap-align=` controls their main-axis placement; both require
+`wrap`.
+
 Spaces inside a compound expression should be wrapped in parentheses when the
 expression shares a line with widget properties:
 
@@ -441,7 +458,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.20 message payloads.
+`Clone` for 0.21 message payloads.
 
 Three typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
@@ -562,8 +579,8 @@ The implemented native nodes are:
 
 | Node | Contract |
 | --- | --- |
-| `col` | vertical children |
-| `row` | horizontal children |
+| `col` | vertical children with full sizing, padding, spacing, alignment, clipping and wrapping behavior |
+| `row` | horizontal children with full sizing, padding, spacing, alignment, clipping and wrapping behavior |
 | `scroll` | one child; direction, bounds, scrollbar, anchors, auto-scroll and absolute/relative offset route |
 | `grid` | responsive grid; optional positive `i64` `columns` (default 3) |
 | `stack` | overlays children with typed width/height, optional clipping and `under=N` intrinsic-base control |
@@ -730,7 +747,7 @@ The implemented families are:
 `cargo check` so rustc verifies extern items and generated iced types. A missing
 Rust item is named by its `crate::module::item` path in rustc's diagnostic. A
 future source-map layer may remap those rustc spans into the precise extern line;
-0.20 does not claim that remapping.
+0.21 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -750,7 +767,7 @@ skips `.git` and `target`.
 
 ## 12. Current coverage and escape hatches
 
-The 0.20 native backend is enough for CRUD/settings-style screens, selection,
+The 0.21 native backend is enough for CRUD/settings-style screens, selection,
 media, hover
 overlays, and common pointer events, not all of iced. It still lacks direct
 syntax for canvas, general overlays/modals, rich text
@@ -782,8 +799,9 @@ its Rust boundary in
 [`examples/iced-app/src/main.rs`](examples/iced-app/src/main.rs). It exercises
 state inference, typed extern structs/functions, mount and result handlers,
 direct input binding, `if`, `for`, a pure component, dynamic component IDs,
-theme utilities, disabled controls, fallible asynchronous tasks, grid layouts
-and fully sized underlay stacks, toggles, sliders, progress, radio controls,
+theme utilities, disabled controls, fallible asynchronous tasks, complete
+wrapping row/column layouts, grids and fully sized underlay stacks, toggles,
+sliders, progress, radio controls,
 rules, fixed spacing, an
 optional selection value, pick list and searchable combo box, extern and native
 tooltip/mouse-area components including pointer movement and wheel payloads,

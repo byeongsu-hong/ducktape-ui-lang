@@ -207,7 +207,7 @@ view
         extern native_help(external_hover) -> external_hover_changed _
         if event_seen
           text "External subscription active" @text-xs text-muted
-        row @gap-3 items-center
+        row width=fill height=shrink spacing=12.0 padding-y=4.0 align=center clip=false wrap wrap-spacing=8.0 wrap-align=start
           image "examples/iced-app/assets/checker.ppm" width=48.0 height=48.0 fit=cover filter=nearest radius=8.0
           svg "examples/iced-app/assets/ice.svg" width=48.0 height=48.0 fit=contain opacity=0.9
           tooltip position=bottom gap=4.0 padding=8.0 delay=100 snap=true style=rounded background=surface text=foreground border=border border-width=1.0 radius=8.0 radius-tl=4.0 shadow=black/50 shadow-x=0.0 shadow-y=4.0 shadow-blur=12.0 pixel-snap=true
@@ -218,7 +218,7 @@ view
               if native_hover
                 text "Pointer is inside" @text-xs text-muted
               text pointer_x @text-xs text-muted
-      col @w-full gap-2 p-4 bg-surface rounded-lg
+      col width=fill height=shrink spacing=8.0 padding=16.0 max-width=672.0 align=start clip=false wrap wrap-spacing=8.0 wrap-align=start @bg-surface rounded-lg
         text "View mode" @text-lg font-bold text-foreground
         pick display_modes display_mode placeholder="Choose a view" width=fill menu-height=160.0 padding=8.0 text-size=14.0 open=picker_opened close=picker_closed -> display_mode_changed _
         combo searchable_modes display_mode "Search views" width=fill menu-height=160.0 padding=8.0 text-size=14.0 input=mode_searched hover=mode_hovered open=picker_opened close=picker_closed -> display_mode_changed _

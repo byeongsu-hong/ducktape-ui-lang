@@ -220,11 +220,36 @@ fn infer_view(
             if let Some(clip) = &options.clip {
                 require_type(&expr_type(clip, env, document, span)?, &Type::Bool, span)?;
             }
+            let layout_metric = match kind {
+                Layout::Column => "column metric",
+                Layout::Row => "row metric",
+                Layout::Stack => "stack size",
+                Layout::Scroll => "scroll metric",
+                Layout::Grid => "grid metric",
+            };
             for length in [&options.width, &options.height].into_iter().flatten() {
                 if let LengthValue::Fixed(value) = length {
                     require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                    require_literal_range(value, 0.0, None, "stack size", span)?;
+                    require_literal_range(value, 0.0, None, layout_metric, span)?;
                 }
+            }
+            for value in [
+                &options.spacing,
+                &options.padding.all,
+                &options.padding.x,
+                &options.padding.y,
+                &options.padding.top,
+                &options.padding.right,
+                &options.padding.bottom,
+                &options.padding.left,
+                &options.max_width,
+                &options.wrap_spacing,
+            ]
+            .into_iter()
+            .flatten()
+            {
+                require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+                require_literal_range(value, 0.0, None, layout_metric, span)?;
             }
             if let Some(scroll) = &options.scroll {
                 for length in [&scroll.width, &scroll.height].into_iter().flatten() {
@@ -2187,6 +2212,39 @@ view
         let error = analyze(&bad_under).unwrap_err();
         assert_eq!(error.code, "E074");
         assert!(error.message.contains("stack under"));
+    }
+
+    #[test]
+    fn checks_complete_flex_layout_options() {
+        let source = r#"app Layouts
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+view
+  col width=fill height=shrink spacing=8.0 padding=1.0 padding-x=2.0 padding-y=3.0 padding-top=4.0 padding-right=5.0 padding-bottom=6.0 padding-left=7.0 max-width=640.0 align=center clip=true wrap wrap-spacing=12.0 wrap-align=end
+    row width=fill(2) height=48.0 spacing=4.0 padding=2.0 align=end clip=false wrap wrap-spacing=6.0 wrap-align=start
+      text "One"
+      text "Two"
+"#;
+        analyze(source).unwrap();
+
+        let bad_metric = source.replace("spacing=8.0", "spacing=-1.0");
+        let error = analyze(&bad_metric).unwrap_err();
+        assert_eq!(error.code, "E128");
+        assert!(error.message.contains("column metric"));
+
+        let missing_wrap = source.replace("clip=true wrap wrap-spacing", "clip=true wrap-spacing");
+        let error = analyze(&missing_wrap).unwrap_err();
+        assert_eq!(error.code, "E074");
+        assert!(error.message.contains("require `wrap`"));
+
+        let wrong_property = source.replace("row width=", "row max-width=100.0 width=");
+        let error = analyze(&wrong_property).unwrap_err();
+        assert_eq!(error.code, "E074");
+        assert!(error.message.contains("unknown layout property"));
     }
 
     #[test]
