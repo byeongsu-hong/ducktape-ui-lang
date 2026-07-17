@@ -634,27 +634,67 @@ fn parse_view(line: &Line) -> Result<ViewNode, Error> {
         "tooltip" => parse_tooltip(&parts, styles, line),
         "mouse" => parse_mouse_area(&parts, styles, line),
         "theme" => parse_theme(&parts, styles, line),
+        "slot" => parse_slot(&parts, styles, line),
         "float" => parse_float(&parts, styles, line),
         "pin" => parse_pin(&parts, styles, line),
         "sensor" => parse_sensor(&parts, styles, line),
         "responsive" => parse_responsive(&parts, styles, line),
         _ if kind.chars().next().is_some_and(char::is_uppercase) => {
-            ensure_leaf(line)?;
+            if !styles.is_empty() {
+                return Err(error(
+                    "E040",
+                    line,
+                    "component calls do not accept `@` utilities; style the component root",
+                ));
+            }
             let (name, args_source) = parse_signature(kind, line)?;
             let id = parts
                 .get(1)
                 .filter(|part| part.starts_with('#'))
                 .map(|part| parse_id(part, line))
                 .transpose()?;
+            if parts.len() > 1 + usize::from(id.is_some()) {
+                return Err(error(
+                    "E040",
+                    line,
+                    "component calls only accept arguments, an optional ID, and one child",
+                ));
+            }
+            let content = match line.children.as_slice() {
+                [] => None,
+                [content] => Some(Box::new(parse_view(content)?)),
+                _ => {
+                    return Err(error(
+                        "E040",
+                        line,
+                        "component calls accept one child root; wrap siblings in row or col",
+                    ));
+                }
+            };
             Ok(ViewNode::Component {
                 name,
                 args: parse_expr_list(&args_source, line)?,
                 id,
+                content,
                 span,
             })
         }
         _ => Err(error("E064", line, format!("unknown view node `{kind}`"))),
     }
+}
+
+fn parse_slot(parts: &[String], styles: Vec<String>, line: &Line) -> Result<ViewNode, Error> {
+    ensure_leaf(line)?;
+    if parts.len() != 1 || !styles.is_empty() {
+        return Err(error(
+            "E040",
+            line,
+            "slot does not accept properties or styles",
+        ));
+    }
+    Ok(ViewNode::Slot {
+        span: Span::line(line.number),
+    })
 }
 
 fn parse_theme(parts: &[String], styles: Vec<String>, line: &Line) -> Result<ViewNode, Error> {

@@ -4,6 +4,7 @@ use std::collections::{HashMap, HashSet};
 
 pub fn check(document: &mut Document) -> Result<(), Error> {
     check_unique(document)?;
+    check_slots(document)?;
     check_declared_types(document)?;
     check_theme(document)?;
     check_qr_data(document)?;
@@ -189,6 +190,75 @@ fn check_unique(document: &Document) -> Result<(), Error> {
         }
     }
     Ok(())
+}
+
+fn check_slots(document: &Document) -> Result<(), Error> {
+    let view_slots = slots(&document.view);
+    if let Some(span) = view_slots.first() {
+        return Err(Error::new(
+            "E124",
+            span,
+            "slot is only valid inside a component definition",
+        ));
+    }
+    for component in &document.components {
+        if slots(&component.root).len() > 1 {
+            return Err(Error::new(
+                "E124",
+                &component.span,
+                format!("component `{}` may contain only one slot", component.name),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn slot_count(node: &ViewNode) -> usize {
+    slots(node).len()
+}
+
+fn slots(node: &ViewNode) -> Vec<&Span> {
+    fn collect<'a>(node: &'a ViewNode, output: &mut Vec<&'a Span>) {
+        match node {
+            ViewNode::Slot { span } => output.push(span),
+            ViewNode::Layout { children, .. }
+            | ViewNode::If { children, .. }
+            | ViewNode::For { children, .. } => {
+                for child in children {
+                    collect(child, output);
+                }
+            }
+            ViewNode::Button {
+                content: Some(content),
+                ..
+            }
+            | ViewNode::MouseArea { content, .. }
+            | ViewNode::Theme { content, .. }
+            | ViewNode::Float { content, .. }
+            | ViewNode::Pin { content, .. }
+            | ViewNode::Sensor { content, .. } => collect(content, output),
+            ViewNode::Tooltip { content, tip, .. } => {
+                collect(content, output);
+                collect(tip, output);
+            }
+            ViewNode::Component {
+                content: Some(content),
+                ..
+            } => collect(content, output),
+            ViewNode::Responsive { content, .. } => match content {
+                ResponsiveContent::Breakpoint { narrow, wide, .. } => {
+                    collect(narrow, output);
+                    collect(wide, output);
+                }
+                ResponsiveContent::Size { content, .. } => collect(content, output),
+            },
+            _ => {}
+        }
+    }
+
+    let mut output = Vec::new();
+    collect(node, &mut output);
+    output
 }
 
 fn check_qr_data(document: &Document) -> Result<(), Error> {
@@ -910,6 +980,7 @@ fn infer_view(
             name,
             args,
             id,
+            content,
             span,
         } => {
             check_id(id, env, document, ids, span)?;
@@ -933,7 +1004,30 @@ fn infer_view(
                 let actual = expr_type(arg, env, document, span)?;
                 require_type(&actual, expected, span)?;
             }
+            match (slot_count(&component.root) == 1, content) {
+                (true, None) => {
+                    return Err(Error::new(
+                        "E124",
+                        span,
+                        format!("component `{name}` requires one child for its slot"),
+                    ));
+                }
+                (false, Some(_)) => {
+                    return Err(Error::new(
+                        "E124",
+                        span,
+                        format!("component `{name}` does not declare a slot"),
+                    )
+                    .hint("add `slot` inside the component definition"));
+                }
+                _ => {}
+            }
+            if let Some(content) = content {
+                let mut child_ids = HashSet::new();
+                infer_view(content, env, document, signatures, &mut child_ids)?;
+            }
         }
+        ViewNode::Slot { .. } => {}
         ViewNode::ExternComponent {
             function,
             args,
@@ -2273,6 +2367,73 @@ view
         let error = analyze(source).unwrap_err();
         assert_eq!(error.code, "E137");
         assert!(error.message.contains("missing"));
+    }
+
+    #[test]
+    fn checks_component_slot_contracts() {
+        let source = r#"app Demo
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  draft = ""
+component Card(title:str)
+  col
+    text title
+    slot
+view
+  Card("Editor")
+    input "Name" <-> draft
+"#;
+        analyze(source).unwrap();
+
+        let error = analyze(&source.replace(
+            "  Card(\"Editor\")\n    input \"Name\" <-> draft",
+            "  Card(\"Editor\")",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E124");
+        assert!(error.message.contains("requires one child"));
+
+        let error =
+            analyze(&source.replace("    text title\n    slot", "    text title")).unwrap_err();
+        assert_eq!(error.code, "E124");
+        assert!(error.message.contains("does not declare a slot"));
+    }
+
+    #[test]
+    fn rejects_slots_outside_components_and_duplicate_slots() {
+        let outside = r#"app Demo
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+view
+  slot
+"#;
+        let error = analyze(outside).unwrap_err();
+        assert_eq!(error.code, "E124");
+        assert_eq!(error.line, 8);
+
+        let duplicate = r#"app Demo
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+component Card()
+  col
+    slot
+    slot
+view
+  text "Hello"
+"#;
+        let error = analyze(duplicate).unwrap_err();
+        assert_eq!(error.code, "E124");
+        assert!(error.message.contains("only one slot"));
     }
 
     #[test]

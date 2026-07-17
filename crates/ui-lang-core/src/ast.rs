@@ -353,6 +353,10 @@ pub enum ViewNode {
         name: String,
         args: Vec<Expr>,
         id: Option<Id>,
+        content: Option<Box<ViewNode>>,
+        span: Span,
+    },
+    Slot {
         span: Span,
     },
     ExternComponent {

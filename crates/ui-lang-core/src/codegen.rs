@@ -343,6 +343,7 @@ fn generate_view(out: &mut String, document: &Document, message: &str) -> Result
         message,
         &env,
         &rust_string(&document.app),
+        None,
     )?;
     writeln!(
         out,
@@ -436,6 +437,7 @@ fn render_node(
     message: &str,
     env: &HashMap<String, Binding>,
     scope: &str,
+    slot: Option<&SlotContext>,
 ) -> Result<String, Error> {
     match node {
         ViewNode::Layout {
@@ -446,7 +448,7 @@ fn render_node(
             children,
             ..
         } => render_layout(
-            *kind, options, id, styles, children, document, message, env, scope,
+            *kind, options, id, styles, children, document, message, env, scope, slot,
         ),
         ViewNode::Text {
             value,
@@ -628,7 +630,7 @@ fn render_node(
                     || Ok(scope.to_owned()),
                     |id| id_code(id, scope, env, document),
                 )?;
-                render_node(content, document, message, env, &child_scope)?
+                render_node(content, document, message, env, &child_scope, slot)?
             } else {
                 format!(
                     "::iced::widget::text({}).into()",
@@ -1033,6 +1035,7 @@ fn render_node(
             name,
             args,
             id,
+            content,
             span,
         } => {
             let component = document
@@ -1055,12 +1058,35 @@ fn render_node(
                 || format!("format!(\"{{}}/{}\", {scope})", name),
                 |id| id_code(id, scope, env, document).unwrap_or_else(|_| scope.into()),
             );
+            let component_slot = content.as_deref().map(|content| SlotContext {
+                node: content.clone(),
+                env: env.clone(),
+                parent: slot.cloned().map(Box::new),
+            });
             render_node(
                 &component.root,
                 document,
                 message,
                 &component_env,
                 &component_scope,
+                component_slot.as_ref(),
+            )
+        }
+        ViewNode::Slot { span } => {
+            let slot = slot.ok_or_else(|| {
+                Error::new(
+                    "E170",
+                    span,
+                    "slot reached codegen without component content",
+                )
+            })?;
+            render_node(
+                &slot.node,
+                document,
+                message,
+                &slot.env,
+                scope,
+                slot.parent.as_deref(),
             )
         }
         ViewNode::ExternComponent {
@@ -1182,8 +1208,8 @@ fn render_node(
             tip,
             ..
         } => {
-            let content = render_node(content, document, message, env, scope)?;
-            let tip = render_node(tip, document, message, env, scope)?;
+            let content = render_node(content, document, message, env, scope, slot)?;
+            let tip = render_node(tip, document, message, env, scope, slot)?;
             let position = match options.position {
                 TooltipPosition::Top => "Top",
                 TooltipPosition::Bottom => "Bottom",
@@ -1205,7 +1231,7 @@ fn render_node(
         ViewNode::MouseArea {
             options, content, ..
         } => {
-            let content = render_node(content, document, message, env, scope)?;
+            let content = render_node(content, document, message, env, scope, slot)?;
             let mut code = format!(
                 "{{ let __mouse_content: ::iced::Element<'_, {message}> = {content}; ::iced::widget::mouse_area(__mouse_content)"
             );
@@ -1281,7 +1307,7 @@ fn render_node(
             content,
             ..
         } => {
-            let content = render_node(content, document, message, env, scope)?;
+            let content = render_node(content, document, message, env, scope, slot)?;
             let mut code = format!(
                 "{{ let __theme_content: ::iced::Element<'_, {message}> = {content}; ::iced::widget::themer({}, __theme_content)",
                 theme_preset_code(preset)
@@ -1306,7 +1332,7 @@ fn render_node(
             content,
             ..
         } => {
-            let content = render_node(content, document, message, env, scope)?;
+            let content = render_node(content, document, message, env, scope, slot)?;
             let scale = expr_code(scale, env, document, ValueMode::Owned)?;
             let x = expr_code(x, env, document, ValueMode::Owned)?;
             let y = expr_code(y, env, document, ValueMode::Owned)?;
@@ -1322,7 +1348,7 @@ fn render_node(
             content,
             ..
         } => {
-            let content = render_node(content, document, message, env, scope)?;
+            let content = render_node(content, document, message, env, scope, slot)?;
             let x = expr_code(x, env, document, ValueMode::Owned)?;
             let y = expr_code(y, env, document, ValueMode::Owned)?;
             let mut code = format!(
@@ -1339,7 +1365,7 @@ fn render_node(
         ViewNode::Sensor {
             options, content, ..
         } => {
-            let content = render_node(content, document, message, env, scope)?;
+            let content = render_node(content, document, message, env, scope, slot)?;
             let mut code = format!(
                 "{{ let __sensor_content: ::iced::Element<'_, {message}> = {content}; ::iced::widget::sensor(__sensor_content)"
             );
@@ -1406,8 +1432,8 @@ fn render_node(
                     wide,
                 } => {
                     let breakpoint = expr_code(breakpoint, env, document, ValueMode::Owned)?;
-                    let narrow = render_node(narrow, document, message, env, scope)?;
-                    let wide = render_node(wide, document, message, env, scope)?;
+                    let narrow = render_node(narrow, document, message, env, scope, slot)?;
+                    let wide = render_node(wide, document, message, env, scope, slot)?;
                     format!(
                         "move |__size| {{ let __responsive: ::iced::Element<'_, {message}> = if __size.width < {breakpoint} as f32 {{ {narrow} }} else {{ {wide} }}; __responsive }}"
                     )
@@ -1434,7 +1460,7 @@ fn render_node(
                             local: true,
                         },
                     );
-                    let content = render_node(content, document, message, &child_env, scope)?;
+                    let content = render_node(content, document, message, &child_env, scope, slot)?;
                     format!(
                         "move |__size| {{ let __responsive: ::iced::Element<'_, {message}> = {content}; __responsive }}"
                     )
@@ -1468,6 +1494,7 @@ fn render_layout(
     message: &str,
     env: &HashMap<String, Binding>,
     scope: &str,
+    slot: Option<&SlotContext>,
 ) -> Result<String, Error> {
     let style = Style::parse(styles, document);
     if kind == Layout::Scroll {
@@ -1475,7 +1502,7 @@ fn render_layout(
             || Ok(scope.to_owned()),
             |id| id_code(id, scope, env, document),
         )?;
-        let child = render_node(&children[0], document, message, env, &child_scope)?;
+        let child = render_node(&children[0], document, message, env, &child_scope, slot)?;
         let mut code = String::from("::iced::widget::scrollable(__scroll_content)");
         let scroll = options.scroll.as_ref().expect("scroll options");
         let bar = scroll_bar_code(scroll, env, document)?;
@@ -1560,7 +1587,15 @@ fn render_layout(
         || Ok(scope.to_owned()),
         |id| id_code(id, scope, env, document),
     )?;
-    render_children(&mut body, children, document, message, env, &child_scope)?;
+    render_children(
+        &mut body,
+        children,
+        document,
+        message,
+        env,
+        &child_scope,
+        slot,
+    )?;
     let constructor = match kind {
         Layout::Column => "column",
         Layout::Row => "row",
@@ -1799,6 +1834,7 @@ fn render_children(
     message: &str,
     env: &HashMap<String, Binding>,
     scope: &str,
+    slot: Option<&SlotContext>,
 ) -> Result<(), Error> {
     for child in children {
         match child {
@@ -1809,7 +1845,7 @@ fn render_children(
             } => {
                 let condition = expr_code(condition, env, document, ValueMode::Owned)?;
                 write!(out, " if {condition} {{").unwrap();
-                render_children(out, children, document, message, env, scope)?;
+                render_children(out, children, document, message, env, scope, slot)?;
                 out.push_str(" }");
             }
             ViewNode::For {
@@ -1840,11 +1876,11 @@ fn render_children(
                         local: false,
                     },
                 );
-                render_children(out, children, document, message, &child_env, scope)?;
+                render_children(out, children, document, message, &child_env, scope, slot)?;
                 out.push_str(" }");
             }
             _ => {
-                let child = render_node(child, document, message, env, scope)?;
+                let child = render_node(child, document, message, env, scope, slot)?;
                 write!(out, " __children.push({child});").unwrap();
             }
         }
@@ -1857,6 +1893,13 @@ struct Binding {
     code: String,
     ty: Type,
     local: bool,
+}
+
+#[derive(Clone)]
+struct SlotContext {
+    node: ViewNode,
+    env: HashMap<String, Binding>,
+    parent: Option<Box<SlotContext>>,
 }
 
 #[derive(Clone, Copy)]
@@ -2112,6 +2155,10 @@ fn input_bindings(root: &ViewNode) -> Vec<String> {
             ViewNode::MouseArea { content, .. } | ViewNode::Theme { content, .. } => {
                 collect(content, output)
             }
+            ViewNode::Component {
+                content: Some(content),
+                ..
+            } => collect(content, output),
             ViewNode::Button {
                 content: Some(content),
                 ..
@@ -2145,6 +2192,10 @@ fn needs_extern_noop(document: &Document) -> bool {
             ViewNode::MouseArea { content, .. } | ViewNode::Theme { content, .. } => {
                 contains(content)
             }
+            ViewNode::Component {
+                content: Some(content),
+                ..
+            } => contains(content),
             ViewNode::Button {
                 content: Some(content),
                 ..
@@ -3308,6 +3359,35 @@ view
         assert!(generated.contains(".text_color(|_| ::iced::Color"));
         assert!(generated.contains(".background(|_| ::iced::Background::Color"));
         assert!(generated.contains("themer(::std::option::Option::None"));
+    }
+
+    #[test]
+    fn lowers_component_children_and_slot_forwarding() {
+        let source = r#"app Composition
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  draft = ""
+component Card(title:str)
+  col #card
+    text title
+    slot
+component Wrapper(title:str)
+  Card(title)
+    slot
+view
+  Wrapper("Editor") #editor
+    input "Name" #name <-> draft
+"#;
+        let generated = compile(source, "composition.ice").unwrap();
+        assert!(generated.contains("__BindDraft(::std::string::String)"));
+        assert!(generated.contains("::iced::widget::text_input(\"\", &self.draft)"));
+        assert!(generated.contains(
+            "format!(\"{}/name\", format!(\"{}/card\", format!(\"{}/Card\", format!(\"{}/editor\", \"Composition\"))))"
+        ));
     }
 
     #[test]

@@ -4,6 +4,7 @@ use "backend.ice"
 use "theme.ice"
 use "state.ice"
 use "components/task_row.ice"
+use "components/panel.ice"
 use "handlers/tasks.ice"
 
 view
@@ -27,7 +28,8 @@ view
     if empty(tasks) && !loading
       text "No tasks yet." @text-sm text-muted
 
-    scroll #task-list direction=vertical width=fill height=fill
-      col @w-full gap-2
-        for task in tasks
-          TaskRow(task, loading) #task(task.id)
+    Panel("Task list") #tasks-panel
+      scroll #task-list direction=vertical width=fill height=fill
+        col @w-full gap-2
+          for task in tasks
+            TaskRow(task, loading) #task(task.id)

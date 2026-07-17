@@ -1,4 +1,4 @@
-# Ice Language Specification 0.26
+# Ice Language Specification 0.27
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.26 syntax.
+marked “planned” is a design constraint, not accepted 0.27 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.26.
+  block comments are not part of 0.27.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -175,7 +175,7 @@ node           = layout | text | input | button | checkbox | toggler
                | slider | progress | radio | pick_list | combo_box
                | rule | qr_code | space | float | pin | sensor | responsive
                | media | tooltip | mouse_area | theme_boundary
-               | component_call | extern_component_call | if_node | for_node
+               | component_call | slot | extern_component_call | if_node | for_node
 layout         = "col" id? column_property* styles? INDENT node+
                | "row" id? flex_property* styles? INDENT node+
                | "scroll" id? scroll_property* styles? INDENT node
@@ -329,7 +329,8 @@ built_in_iced_theme
                | "kanagawa-wave" | "kanagawa-dragon" | "kanagawa-lotus"
                | "moonfly" | "nightfly" | "oxocarbon" | "ferra"
 theme_property = ("text=" | "background=") name ("/" u8)?
-component_call = PascalName "(" expr_list? ")" id?
+component_call = PascalName "(" expr_list? ")" id? (INDENT node)?
+slot           = "slot"
 extern_component_call
                = "extern" name "(" expr_list? ")" ("->" route)?
 if_node        = "if" expr INDENT node+
@@ -513,7 +514,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.26 message payloads.
+`Clone` for 0.27 message payloads.
 
 Three typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
@@ -689,6 +690,28 @@ implicit capture of app state. They may route events to app handlers. The
 compiler expands them into the typed view IR; they are not runtime component
 objects.
 
+A component may declare one required `slot` and receive one structured child
+tree at its call site:
+
+```ice
+component Panel(title:str)
+  col @p-4 bg-surface rounded-lg
+    text title @font-bold
+    slot
+
+Panel("Tasks") #tasks-panel
+  scroll height=fill
+    col
+      for task in tasks
+        TaskRow(task, loading) #task(task.id)
+```
+
+A call to a slotted component must provide exactly one child root; siblings can
+be wrapped in `row`, `col`, `grid`, or `stack`. A component without `slot`
+rejects child content. Slot content keeps the caller's state, loop bindings,
+handlers, and IDs while rendering under the component instance scope. A wrapper
+component can forward its own `slot` as another component's child.
+
 ### Extern components and subscriptions
 
 An extern component is an owned Rust `Element` adapter:
@@ -812,7 +835,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 0.26 does not claim that remapping.
+extern line; 0.27 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -833,7 +856,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 0.26 native backend is enough for CRUD/settings-style screens, selection,
+The 0.27 native backend is enough for CRUD/settings-style screens, selection,
 media, hover
 overlays, and common pointer events, not all of iced. It still lacks direct
 syntax for canvas, general overlays/modals, rich text
@@ -867,7 +890,8 @@ compile-tested widget example is
 [`examples/iced-app/src/ui/showcase.ice`](examples/iced-app/src/ui/showcase.ice).
 Together they exercise
 state inference, typed extern structs/functions, mount and result handlers,
-direct input binding, `if`, `for`, a pure component, dynamic component IDs,
+direct input binding, `if`, `for`, pure components, structured slot composition,
+dynamic component IDs,
 theme utilities, disabled controls, fallible asynchronous tasks, complete
 wrapping row/column layouts, grids and fully sized underlay stacks, toggles,
 sliders, progress, radio controls,
