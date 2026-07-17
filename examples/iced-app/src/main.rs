@@ -86,7 +86,28 @@ mod backend {
     }
 
     pub fn app_events() -> iced::Subscription<bool> {
-        iced::event::listen().map(|_| true)
+        iced::event::listen_with(|event, _status, _window| focus_event(event))
+    }
+
+    fn focus_event(event: iced::Event) -> Option<bool> {
+        matches!(event, iced::Event::Window(iced::window::Event::Focused)).then_some(true)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::focus_event;
+
+        #[test]
+        fn subscription_ignores_high_frequency_pointer_events() {
+            assert_eq!(
+                focus_event(iced::Event::Window(iced::window::Event::Focused)),
+                Some(true)
+            );
+            assert_eq!(
+                focus_event(iced::Event::Mouse(iced::mouse::Event::CursorLeft)),
+                None
+            );
+        }
     }
 }
 
