@@ -193,7 +193,7 @@ view
 
     rule horizontal thickness=1.0 style=weak fill=pad(12,4) color=border radius=2.0 snap=true
 
-    grid columns=2 @w-full gap-4
+    grid spacing=16.0 width=640.0 height=aspect(16.0,9.0) fluid=280.0 @w-full gap-4
       col @w-full gap-2 p-4 bg-surface rounded-lg
         text "Controls" width=fill height=30.0 size=18.0 line-height-px=22.0 font=default align-x=left align-y=center shaping=advanced wrapping=word @font-bold text-foreground
         toggler "Notifications" checked=notifications size=20.0 width=fill spacing=8.0 text-size=14.0 line-height=1.2 shaping=auto wrapping=word font=default align=left -> notifications_changed _
@@ -240,6 +240,15 @@ view
           text "Pinned label" @text-xs text-muted
         radio "List" value=0 selected=(view_mode == 0) -> view_mode_changed _
         radio "Board" value=1 selected=(view_mode == 1) -> view_mode_changed _
+        grid columns=2 height=shrink spacing=4.0 @w-full
+          text "Even" @text-xs text-muted
+          text "height" @text-xs text-muted
+        grid columns=1 height=fill @w-full
+          text "Fill height" @text-xs text-muted
+        grid columns=1 height=fill(2) @w-full
+          text "Fill portion height" @text-xs text-muted
+        grid columns=1 height=24.0 @w-full
+          text "Fixed height" @text-xs text-muted
         space width=fill(2) height=8.0
         stack clip=true width=fill height=shrink under=1 @p-4 bg-background rounded-lg
           text "Stack underlay" @text-sm text-muted
