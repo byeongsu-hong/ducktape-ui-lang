@@ -1411,7 +1411,7 @@ fn parse_view(line: &Line) -> Result<ViewNode, Error> {
         "qr" => parse_qr_code(&parts, styles, line),
         "space" => parse_space(&parts, styles, line),
         "extern" => parse_extern_component(&parts, styles, route_source, line),
-        "image" | "svg" => parse_media(kind, &parts, styles, line),
+        "image" | "svg" | "viewer" => parse_media(kind, &parts, styles, line),
         "tooltip" => parse_tooltip(&parts, styles, line),
         "mouse" => parse_mouse_area(&parts, styles, line),
         "theme" => parse_theme(&parts, styles, line),
@@ -3602,10 +3602,11 @@ fn parse_media(
     let source = parts
         .get(1)
         .ok_or_else(|| error("E085", line, format!("{kind} requires a source expression")))?;
-    let media_kind = if kind == "image" {
-        MediaKind::Image
-    } else {
-        MediaKind::Svg
+    let media_kind = match kind {
+        "image" => MediaKind::Image,
+        "svg" => MediaKind::Svg,
+        "viewer" => MediaKind::Viewer,
+        _ => unreachable!(),
     };
     let mut options = MediaOptions::default();
     for part in &parts[2..] {
@@ -3629,6 +3630,9 @@ fn parse_media(
                 }
             });
         } else if let Some(value) = part.strip_prefix("rotation=") {
+            if media_kind == MediaKind::Viewer {
+                return Err(error("E085", line, "rotation is not available on viewer"));
+            }
             let (value, solid) = value
                 .strip_prefix("solid(")
                 .and_then(|value| value.strip_suffix(')'))
@@ -3636,6 +3640,9 @@ fn parse_media(
             options.rotation = Some(parse_expr(strip_wrapping_parens(value), line)?);
             options.rotation_solid = solid;
         } else if let Some(value) = part.strip_prefix("opacity=") {
+            if media_kind == MediaKind::Viewer {
+                return Err(error("E085", line, "opacity is not available on viewer"));
+            }
             options.opacity = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else if part == "memory" {
             if media_kind != MediaKind::Svg {
@@ -3653,8 +3660,12 @@ fn parse_media(
             }
             options.svg_hover_color = Some((value != "none").then(|| value.to_owned()));
         } else if let Some(value) = part.strip_prefix("filter=") {
-            if media_kind != MediaKind::Image {
-                return Err(error("E085", line, "filter is only available on image"));
+            if media_kind == MediaKind::Svg {
+                return Err(error(
+                    "E085",
+                    line,
+                    "filter is only available on image and viewer",
+                ));
             }
             options.filter = Some(match value {
                 "linear" => ImageFilter::Linear,
@@ -3698,6 +3709,28 @@ fn parse_media(
                     .try_into()
                     .map_err(|_| error("E085", line, "crop requires x, y, width, and height"))?,
             );
+        } else if let Some((property, field, value)) = [
+            ("padding=", &mut options.padding),
+            ("min-scale=", &mut options.min_scale),
+            ("max-scale=", &mut options.max_scale),
+            ("scale-step=", &mut options.scale_step),
+        ]
+        .into_iter()
+        .find_map(|(property, field)| {
+            part.strip_prefix(property)
+                .map(|value| (property, field, value))
+        }) {
+            if media_kind != MediaKind::Viewer {
+                return Err(error(
+                    "E085",
+                    line,
+                    format!(
+                        "{} is only available on viewer",
+                        property.trim_end_matches('=')
+                    ),
+                ));
+            }
+            *field = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else {
             return Err(error(
                 "E085",
