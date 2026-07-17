@@ -4796,17 +4796,19 @@ fn parse_radio(
     route: Option<&str>,
     line: &Line,
 ) -> Result<ViewNode, Error> {
-    ensure_leaf(line)?;
     let label = parts
         .get(1)
         .ok_or_else(|| error("E078", line, "radio needs a label expression"))?;
     let mut value = None;
     let mut selected = None;
+    let mut options = BoolControlOptions::default();
+    let mut style = RadioStyleSet::default();
     for part in &parts[2..] {
         if let Some(source) = part.strip_prefix("value=") {
             value = Some(parse_expr(strip_wrapping_parens(source), line)?);
         } else if let Some(source) = part.strip_prefix("selected=") {
             selected = Some(parse_expr(strip_wrapping_parens(source), line)?);
+        } else if parse_bool_control_option(part, &mut options, false, false, line)? {
         } else {
             return Err(error(
                 "E078",
@@ -4815,11 +4817,16 @@ fn parse_radio(
             ));
         }
     }
+    for child in &line.children {
+        parse_radio_status_style(child, &mut style)?;
+    }
     Ok(ViewNode::Radio {
         label: parse_expr(label, line)?,
         value: value.ok_or_else(|| error("E078", line, "radio requires `value=value`"))?,
         selected: selected
             .ok_or_else(|| error("E078", line, "radio requires `selected=condition`"))?,
+        options,
+        style: Box::new(style),
         styles,
         route: parse_route(
             route.ok_or_else(|| error("E078", line, "radio requires `-> handler`"))?,
@@ -4827,6 +4834,62 @@ fn parse_radio(
         )?,
         span: Span::line(line.number),
     })
+}
+
+fn parse_radio_status_style(line: &Line, styles: &mut RadioStyleSet) -> Result<(), Error> {
+    ensure_leaf(line)?;
+    let parts = split_words(&line.text);
+    let status = parts.first().map(String::as_str);
+    let selected = parts.get(1).map(String::as_str);
+    let slot = match (status, selected) {
+        (Some("active"), Some("selected")) => &mut styles.active_selected,
+        (Some("active"), Some("unselected")) => &mut styles.active_unselected,
+        (Some("hovered"), Some("selected")) => &mut styles.hovered_selected,
+        (Some("hovered"), Some("unselected")) => &mut styles.hovered_unselected,
+        _ => {
+            return Err(error(
+                "E078",
+                line,
+                "radio style lines use `<active|hovered> <selected|unselected>`",
+            ));
+        }
+    };
+    if slot.is_some() {
+        return Err(error(
+            "E078",
+            line,
+            format!(
+                "duplicate radio {} {} style",
+                status.unwrap(),
+                selected.unwrap()
+            ),
+        ));
+    }
+    let mut style = RadioStatusStyle {
+        span: Some(Span::line(line.number)),
+        ..RadioStatusStyle::default()
+    };
+    for part in &parts[2..] {
+        if let Some(value) = part.strip_prefix("background=") {
+            style.background = Some(parse_background_value(value, line)?);
+        } else if let Some(value) = part.strip_prefix("dot=") {
+            style.dot_color = Some(value.to_owned());
+        } else if let Some(value) = part.strip_prefix("border=") {
+            style.border_color = Some(value.to_owned());
+        } else if let Some(value) = part.strip_prefix("border-width=") {
+            style.border_width = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("text=") {
+            style.text_color = Some(value.to_owned());
+        } else {
+            return Err(error(
+                "E078",
+                line,
+                format!("unknown radio style property `{part}`"),
+            ));
+        }
+    }
+    *slot = Some(style);
+    Ok(())
 }
 
 fn parse_rule(parts: &[String], styles: Vec<String>, line: &Line) -> Result<ViewNode, Error> {

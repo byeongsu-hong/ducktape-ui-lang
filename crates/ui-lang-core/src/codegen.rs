@@ -1913,16 +1913,21 @@ fn render_node(
             label,
             value,
             selected,
+            options,
+            style,
             route,
             ..
         } => {
             let label = expr_code(label, env, document, ValueMode::Owned)?;
             let value = expr_code(value, env, document, ValueMode::Owned)?;
             let selected = expr_code(selected, env, document, ValueMode::Owned)?;
-            let message_code = route_code(route, "__value", env, document, message)?;
-            Ok(format!(
-                "::iced::widget::radio({label}, {value}, if {selected} {{ Some({value}) }} else {{ None }}, move |__value| {message_code}).into()"
-            ))
+            let message_code = route_code(route, &value, env, document, message)?;
+            let mut code = format!(
+                "::iced::widget::radio({label}, true, if {selected} {{ Some(true) }} else {{ None }}, move |_| {message_code})"
+            );
+            append_bool_control_options(&mut code, options, env, document, false)?;
+            code.push_str(&radio_style_code(style, env, document)?);
+            Ok(format!("{code}.into()"))
         }
         ViewNode::PickList {
             options,
@@ -5420,6 +5425,75 @@ fn toggler_style_code(
     Ok(code)
 }
 
+fn radio_style_code(
+    styles: &RadioStyleSet,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<String, Error> {
+    let overrides = [
+        ("Active", true, &styles.active_selected),
+        ("Active", false, &styles.active_unselected),
+        ("Hovered", true, &styles.hovered_selected),
+        ("Hovered", false, &styles.hovered_unselected),
+    ];
+    if overrides.iter().all(|(_, _, style)| style.is_none()) {
+        return Ok(String::new());
+    }
+
+    let mut code = ".style(move |__theme, __status| { let mut __style = ::iced::widget::radio::default(__theme, __status); match __status {".to_owned();
+    for (status, selected, style) in overrides {
+        let Some(style) = style else { continue };
+        write!(
+            code,
+            " ::iced::widget::radio::Status::{status} {{ is_selected: {selected} }} => {{"
+        )
+        .unwrap();
+        if let Some(background) = &style.background {
+            write!(
+                code,
+                " __style.background = {};",
+                background_code(background, env, document)?
+            )
+            .unwrap();
+        }
+        if let Some(color) = &style.dot_color {
+            write!(
+                code,
+                " __style.dot_color = {};",
+                theme_color(document, color)
+            )
+            .unwrap();
+        }
+        if let Some(color) = &style.border_color {
+            write!(
+                code,
+                " __style.border_color = {};",
+                theme_color(document, color)
+            )
+            .unwrap();
+        }
+        if let Some(width) = &style.border_width {
+            write!(
+                code,
+                " __style.border_width = {} as f32;",
+                expr_code(width, env, document, ValueMode::Owned)?
+            )
+            .unwrap();
+        }
+        if let Some(color) = &style.text_color {
+            write!(
+                code,
+                " __style.text_color = ::std::option::Option::Some({});",
+                theme_color(document, color)
+            )
+            .unwrap();
+        }
+        code.push_str(" }");
+    }
+    code.push_str(" _ => {} } __style })");
+    Ok(code)
+}
+
 fn text_shaping_code(shaping: TextShaping) -> &'static str {
     match shaping {
         TextShaping::Auto => "Auto",
@@ -6403,7 +6477,7 @@ theme
 state
   amount = 50.0
   enabled = false
-  choice = 0
+  choice = "first"
 on amount_changed(next)
   amount = next
 on released
@@ -6424,7 +6498,11 @@ view
       progress amount style=success
       progress amount style=warning
       progress amount style=danger
-      radio "First" value=0 selected=(choice == 0) -> choice_changed _
+      radio "First" value="first" selected=(choice == "first") size=20.0 width=fill spacing=8.0 text-size=14.0 line-height=1.2 shaping=advanced wrapping=word-or-glyph font=mono -> choice_changed _
+        active selected background=linear(1.57, primary@0.0, background@1.0) dot=foreground border=primary border-width=2.0 text=foreground
+        active unselected background=background dot=primary border=foreground text=foreground
+        hovered selected background=primary dot=foreground border=foreground text=foreground
+        hovered unselected background=foreground dot=background border=primary text=primary
       rule horizontal thickness=2.0 style=weak fill=full color=primary/50 radius=4.0 radius-tl=2.0 snap=false
       rule horizontal fill=percent(75.0)
       rule horizontal fill=pad(4)
@@ -6469,7 +6547,29 @@ view
         assert!(generated.contains("::iced::gradient::Linear::new(1.57 as f32)"));
         assert!(generated.contains("::iced::gradient::Linear::new(0.0 as f32)"));
         assert!(generated.contains("__style.border.radius"));
-        assert!(generated.contains("::iced::widget::radio"));
+        assert!(generated.contains("::iced::widget::radio(\"First\".to_owned(), true"));
+        assert!(
+            generated.contains("move |_| __ControlsMessage::ChoiceChanged(\"first\".to_owned())")
+        );
+        assert!(generated.contains(".size(20.0 as f32).spacing(8.0 as f32)"));
+        assert!(generated.contains(".text_shaping(::iced::widget::text::Shaping::Advanced)"));
+        assert!(generated.contains(".text_wrapping(::iced::widget::text::Wrapping::WordOrGlyph)"));
+        assert!(generated.contains(".font(::iced::Font::MONOSPACE)"));
+        assert!(generated.contains("radio::default(__theme, __status)"));
+        for (status, selected) in [
+            ("Active", true),
+            ("Active", false),
+            ("Hovered", true),
+            ("Hovered", false),
+        ] {
+            assert!(generated.contains(&format!(
+                "radio::Status::{status} {{ is_selected: {selected} }}"
+            )));
+        }
+        assert!(generated.contains("__style.background = ::iced::Background::from"));
+        assert!(generated.contains("__style.dot_color ="));
+        assert!(generated.contains("__style.border_width = 2.0 as f32"));
+        assert!(generated.contains("__style.text_color = ::std::option::Option::Some"));
         assert!(generated.contains("::iced::widget::rule::weak(__theme)"));
         assert!(generated.contains("rule::FillMode::Full"));
         assert!(generated.contains("rule::FillMode::Percent(75.0 as f32)"));

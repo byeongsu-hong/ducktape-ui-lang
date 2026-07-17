@@ -15,7 +15,7 @@ counts toward the row below.
 
 ## Typed system reachability
 
-Ice 0.68 has three checked Rust boundaries:
+Ice 0.69 has three checked Rust boundaries:
 
 | Boundary | Rust ABI | Covers |
 | --- | --- | --- |
@@ -50,7 +50,7 @@ public behavior has direct documented Ice syntax and tests.
 | `pin` | native | one child, all `Length` bounds and pixel x/y positioning; x/y is behaviorally identical to iced's `position(Point)` helper |
 | `progress_bar` | partial | native range/value, all length/girth variants, horizontal/vertical, five presets, checked solid/linear track and bar backgrounds, border and per-corner radius; arbitrary runtime closures and advanced classes missing |
 | `qr_code` | native | named UTF-8 or arbitrary byte data, all correction levels and normal/micro versions, cell/total size, and checked cell/background colors |
-| `radio` | partial | native bool/i64 values and selection event; generic values/style API missing |
+| `radio` | partial | native bool/i64/f64/str/extern payload values, explicit bool selection, complete sizing/typography/font setters and every concrete Style field across active/hovered selected/unselected statuses; advanced classes remain |
 | `responsive` | native | arbitrary size-dependent child tree with scoped width/height bindings, breakpoint sugar and all `Length` bounds |
 | `row` | native | children, typed spacing/per-side padding, all `Length` bounds, cross-axis alignment, clipping and wrapping row spacing/alignment |
 | `rule` | native | axis/thickness, every fill mode, default/weak presets, checked color/opacity, per-corner radius and snap cover all concrete style fields; advanced classes are an alternate extension mechanism |

@@ -4,3 +4,4 @@ state
   loading = false
   error = ""
   about_open = false
+  detail_mode = "summary"
