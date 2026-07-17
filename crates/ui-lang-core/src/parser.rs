@@ -480,7 +480,7 @@ fn parse_view(line: &Line) -> Result<ViewNode, Error> {
     if route_source.is_some()
         && !matches!(
             kind,
-            "button" | "checkbox" | "toggler" | "slider" | "radio" | "pick" | "extern"
+            "button" | "checkbox" | "toggler" | "slider" | "radio" | "pick" | "combo" | "extern"
         )
     {
         return Err(error(
@@ -545,6 +545,7 @@ fn parse_view(line: &Line) -> Result<ViewNode, Error> {
         "progress" => parse_progress(&parts, styles, line),
         "radio" => parse_radio(&parts, styles, route_source, line),
         "pick" => parse_pick_list(&parts, styles, route_source, line),
+        "combo" => parse_combo_box(&parts, styles, route_source, line),
         "rule" => parse_rule(&parts, styles, line),
         "space" => parse_space(&parts, styles, line),
         "extern" => parse_extern_component(&parts, styles, route_source, line),
@@ -568,6 +569,72 @@ fn parse_view(line: &Line) -> Result<ViewNode, Error> {
         }
         _ => Err(error("E064", line, format!("unknown view node `{kind}`"))),
     }
+}
+
+fn parse_combo_box(
+    parts: &[String],
+    styles: Vec<String>,
+    route_source: Option<&str>,
+    line: &Line,
+) -> Result<ViewNode, Error> {
+    ensure_leaf(line)?;
+    if !styles.is_empty() {
+        return Err(error(
+            "E088",
+            line,
+            "combo uses typed properties instead of `@` utilities",
+        ));
+    }
+    if parts.len() < 4 {
+        return Err(error(
+            "E088",
+            line,
+            "combo expects `combo state selected \"Placeholder\" -> handler _`",
+        ));
+    }
+    let route = route_source.ok_or_else(|| error("E088", line, "combo requires `-> handler _`"))?;
+    let mut options = ComboBoxOptions::default();
+    for part in &parts[4..] {
+        if let Some(value) = part.strip_prefix("width=") {
+            options.width = Some(parse_length(value, line)?);
+        } else if let Some(value) = part.strip_prefix("menu-height=") {
+            options.menu_height = Some(parse_length(value, line)?);
+        } else if let Some(value) = part.strip_prefix("padding=") {
+            options.padding = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("text-size=") {
+            options.text_size = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("input=") {
+            let mut route = parse_route(value, line)?;
+            if route.args.is_empty() {
+                route.args.push(RouteArg::Payload);
+            }
+            options.input = Some(route);
+        } else if let Some(value) = part.strip_prefix("hover=") {
+            let mut route = parse_route(value, line)?;
+            if route.args.is_empty() {
+                route.args.push(RouteArg::Payload);
+            }
+            options.hover = Some(route);
+        } else if let Some(value) = part.strip_prefix("open=") {
+            options.open = Some(parse_route(value, line)?);
+        } else if let Some(value) = part.strip_prefix("close=") {
+            options.close = Some(parse_route(value, line)?);
+        } else {
+            return Err(error(
+                "E088",
+                line,
+                format!("unknown combo property `{part}`"),
+            ));
+        }
+    }
+    Ok(ViewNode::ComboBox {
+        state: identifier(&parts[1], line)?,
+        selected: parse_expr(&parts[2], line)?,
+        placeholder: string_literal(&parts[3], line)?,
+        options,
+        route: parse_route(route.trim(), line)?,
+        span: Span::line(line.number),
+    })
 }
 
 fn parse_pick_list(
@@ -1339,6 +1406,12 @@ fn parse_type(source: &str, line: &Line) -> Result<Type, Error> {
     let source = source.trim();
     if let Some(inner) = source.strip_suffix('?') {
         return Ok(Type::Option(Box::new(parse_type(inner, line)?)));
+    }
+    if let Some(inner) = source
+        .strip_prefix("combo[")
+        .and_then(|source| source.strip_suffix(']'))
+    {
+        return Ok(Type::Combo(Box::new(parse_type(inner, line)?)));
     }
     if source.starts_with('[') && source.ends_with(']') {
         return Ok(Type::List(Box::new(parse_type(

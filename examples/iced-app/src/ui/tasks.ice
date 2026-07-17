@@ -28,8 +28,11 @@ state
   notifications = true
   view_mode = 0
   display_modes = ["List", "Board", "Timeline"]
+  searchable_modes:combo[str] = ["List", "Board", "Timeline"]
   display_mode:str? = none
   picker_open = false
+  mode_query = ""
+  hovered_mode = ""
   external_hover = false
   event_seen = false
   native_hover = false
@@ -95,6 +98,12 @@ on picker_opened
 
 on picker_closed
   picker_open = false
+
+on mode_searched(next)
+  mode_query = next
+
+on mode_hovered(next)
+  hovered_mode = next
 
 on copy_draft
   return if empty(trim(draft))
@@ -167,8 +176,13 @@ view
       col @w-full gap-2 p-4 bg-surface rounded-lg
         text "View mode" @text-lg font-bold text-foreground
         pick display_modes display_mode placeholder="Choose a view" width=fill menu-height=160.0 padding=8.0 text-size=14.0 open=picker_opened close=picker_closed -> display_mode_changed _
+        combo searchable_modes display_mode "Search views" width=fill menu-height=160.0 padding=8.0 text-size=14.0 input=mode_searched hover=mode_hovered open=picker_opened close=picker_closed -> display_mode_changed _
         if picker_open
           text "Picker is open" @text-xs text-muted
+        if mode_query != ""
+          text mode_query @text-xs text-muted
+        if hovered_mode != ""
+          text hovered_mode @text-xs text-muted
         radio "List" value=0 selected=(view_mode == 0) -> view_mode_changed _
         radio "Board" value=1 selected=(view_mode == 1) -> view_mode_changed _
         space height=8.0

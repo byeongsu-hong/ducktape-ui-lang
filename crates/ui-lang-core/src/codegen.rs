@@ -699,6 +699,85 @@ fn render_node(
             }
             Ok(format!("{code}.into()"))
         }
+        ViewNode::ComboBox {
+            state,
+            selected,
+            placeholder,
+            options,
+            route,
+            span,
+        } => {
+            let state = env.get(state).ok_or_else(|| {
+                Error::new("E150", span, format!("unknown combo state `{state}`"))
+            })?;
+            let selected = expr_code(selected, env, document, ValueMode::Owned)?;
+            let message_code = route_code(route, "__value", env, document, message)?;
+            let mut code = format!(
+                "{{ let __combo_selection = {selected}; ::iced::widget::combo_box(&{}, {}, __combo_selection.as_ref(), move |__value| {message_code})",
+                state.code,
+                rust_string(placeholder)
+            );
+            if let Some(width) = &options.width {
+                write!(code, ".width({})", length_code(width, env, document)?).unwrap();
+            }
+            if let Some(height) = &options.menu_height {
+                write!(
+                    code,
+                    ".menu_height({})",
+                    length_code(height, env, document)?
+                )
+                .unwrap();
+            }
+            if let Some(padding) = &options.padding {
+                write!(
+                    code,
+                    ".padding({} as f32)",
+                    expr_code(padding, env, document, ValueMode::Owned)?
+                )
+                .unwrap();
+            }
+            if let Some(size) = &options.text_size {
+                write!(
+                    code,
+                    ".size({} as f32)",
+                    expr_code(size, env, document, ValueMode::Owned)?
+                )
+                .unwrap();
+            }
+            if let Some(route) = &options.input {
+                write!(
+                    code,
+                    ".on_input(move |__value| {})",
+                    route_code(route, "__value", env, document, message)?
+                )
+                .unwrap();
+            }
+            if let Some(route) = &options.hover {
+                write!(
+                    code,
+                    ".on_option_hovered(move |__value| {})",
+                    route_code(route, "__value", env, document, message)?
+                )
+                .unwrap();
+            }
+            if let Some(route) = &options.open {
+                write!(
+                    code,
+                    ".on_open({})",
+                    route_code(route, "", env, document, message)?
+                )
+                .unwrap();
+            }
+            if let Some(route) = &options.close {
+                write!(
+                    code,
+                    ".on_close({})",
+                    route_code(route, "", env, document, message)?
+                )
+                .unwrap();
+            }
+            Ok(format!("{code}.into() }}"))
+        }
         ViewNode::Rule {
             axis, thickness, ..
         } => {
@@ -1291,6 +1370,20 @@ fn initial_code(expr: &Expr, ty: &Type, document: &Document) -> String {
     match (expr, ty) {
         (Expr::Str(value), Type::Str) => format!("{}.to_owned()", rust_string(value)),
         (Expr::EmptyList, Type::List(_)) => "::std::vec::Vec::new()".into(),
+        (Expr::EmptyList, Type::Combo(_)) => {
+            "::iced::widget::combo_box::State::new(::std::vec::Vec::new())".into()
+        }
+        (Expr::List(values), Type::Combo(_)) => format!(
+            "::iced::widget::combo_box::State::new(::std::vec![{}])",
+            values
+                .iter()
+                .map(|value| {
+                    expr_code(value, &HashMap::new(), document, ValueMode::Owned)
+                        .unwrap_or_else(|_| "::core::default::Default::default()".into())
+                })
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
         (Expr::None, Type::Option(_)) => "::std::option::Option::None".into(),
         (Expr::Bool(value), _) => value.to_string(),
         (Expr::I64(value), _) => value.to_string(),
@@ -1807,6 +1900,47 @@ view
         );
         assert!(generated.contains(".on_open(__SelectionMessage::Opened)"));
         assert!(generated.contains("self.selected = ::std::option::Option::Some(next);"));
+    }
+
+    #[test]
+    fn lowers_searchable_combo_boxes() {
+        let source = r#"app Search
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  modes:combo[str] = ["List", "Board"]
+  selected:str? = none
+  query = ""
+on selected(next)
+  selected = some(next)
+on searched(next)
+  query = next
+on hovered(next)
+on opened
+on closed
+view
+  combo modes selected "Search modes" width=fill menu-height=120.0 padding=8.0 text-size=14.0 input=searched hover=hovered open=opened close=closed -> selected _
+"#;
+        let generated = compile(source, "search.ice").unwrap();
+        assert!(
+            generated.contains(
+                "pub(crate) modes: ::iced::widget::combo_box::State<::std::string::String>"
+            )
+        );
+        assert!(generated.contains(
+            "::iced::widget::combo_box::State::new(::std::vec![\"List\".to_owned(), \"Board\".to_owned()])"
+        ));
+        assert!(generated.contains(
+            "::iced::widget::combo_box(&self.modes, \"Search modes\", __combo_selection.as_ref()"
+        ));
+        assert!(generated.contains(".on_input(move |__value| __SearchMessage::Searched(__value))"));
+        assert!(
+            generated
+                .contains(".on_option_hovered(move |__value| __SearchMessage::Hovered(__value))")
+        );
     }
 
     #[test]

@@ -20,6 +20,7 @@ pub enum Type {
     Str,
     List(Box<Type>),
     Option(Box<Type>),
+    Combo(Box<Type>),
     Named(String),
     Unit,
     Unknown,
@@ -34,6 +35,9 @@ impl Type {
             Self::Str => "::std::string::String".into(),
             Self::List(inner) => format!("::std::vec::Vec<{}>", inner.rust(structs)),
             Self::Option(inner) => format!("::std::option::Option<{}>", inner.rust(structs)),
+            Self::Combo(inner) => {
+                format!("::iced::widget::combo_box::State<{}>", inner.rust(structs))
+            }
             Self::Named(name) => structs
                 .iter()
                 .find(|item| item.name == *name)
@@ -51,6 +55,7 @@ impl Type {
             Self::Str => "str".into(),
             Self::List(inner) => format!("[{}]", inner.display()),
             Self::Option(inner) => format!("{}?", inner.display()),
+            Self::Combo(inner) => format!("combo[{}]", inner.display()),
             Self::Named(name) => name.clone(),
             Self::Unit => "unit".into(),
             Self::Unknown => "unknown".into(),
@@ -266,6 +271,14 @@ pub enum ViewNode {
         route: Route,
         span: Span,
     },
+    ComboBox {
+        state: String,
+        selected: Expr,
+        placeholder: String,
+        options: ComboBoxOptions,
+        route: Route,
+        span: Span,
+    },
     Rule {
         axis: Axis,
         thickness: Expr,
@@ -327,6 +340,18 @@ pub struct PickListOptions {
     pub menu_height: Option<LengthValue>,
     pub padding: Option<Expr>,
     pub text_size: Option<Expr>,
+    pub open: Option<Route>,
+    pub close: Option<Route>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct ComboBoxOptions {
+    pub width: Option<LengthValue>,
+    pub menu_height: Option<LengthValue>,
+    pub padding: Option<Expr>,
+    pub text_size: Option<Expr>,
+    pub input: Option<Route>,
+    pub hover: Option<Route>,
     pub open: Option<Route>,
     pub close: Option<Route>,
 }

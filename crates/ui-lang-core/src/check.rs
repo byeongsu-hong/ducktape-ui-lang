@@ -14,7 +14,16 @@ pub fn check(document: &mut Document) -> Result<(), Error> {
         .collect();
     for state in &document.states {
         let actual = expr_type(&state.initial, &HashMap::new(), document, &state.span)?;
-        if actual != Type::Unknown && !compatible(&state.ty, &actual) {
+        if let Type::Combo(expected) = &state.ty {
+            let Type::List(actual) = actual else {
+                return Err(Error::new(
+                    "E104",
+                    &state.span,
+                    "combo state must be initialized with a list",
+                ));
+            };
+            require_type(&actual, expected, &state.span)?;
+        } else if actual != Type::Unknown && !compatible(&state.ty, &actual) {
             return Err(type_error(&state.span, &state.ty, &actual));
         }
     }
@@ -95,7 +104,9 @@ fn check_declared_types(document: &Document) -> Result<(), Error> {
 
 fn check_declared_type(ty: &Type, span: &Span, known: &HashSet<&str>) -> Result<(), Error> {
     match ty {
-        Type::List(inner) | Type::Option(inner) => check_declared_type(inner, span, known),
+        Type::List(inner) | Type::Option(inner) | Type::Combo(inner) => {
+            check_declared_type(inner, span, known)
+        }
         Type::Named(name) if !known.contains(name.as_str()) => {
             Err(
                 Error::new("E103", span, format!("unknown extern type `{name}`")).hint(format!(
@@ -422,6 +433,82 @@ fn infer_view(
                 .into_iter()
                 .flatten()
             {
+                infer_route(route, None, env, document, signatures)?;
+            }
+        }
+        ViewNode::ComboBox {
+            state,
+            selected,
+            options,
+            route,
+            span,
+            ..
+        } => {
+            let Some(Type::Combo(option_type)) = env.get(state) else {
+                return Err(Error::new(
+                    "E129",
+                    span,
+                    format!("combo state `{state}` must have type `combo[T]`"),
+                ));
+            };
+            let Type::Option(selected_type) = expr_type(selected, env, document, span)? else {
+                return Err(Error::new(
+                    "E129",
+                    span,
+                    "combo selection must use an optional `T?` value",
+                ));
+            };
+            require_type(option_type, &selected_type, span)?;
+            if !matches!(
+                option_type.as_ref(),
+                Type::Bool | Type::I64 | Type::F64 | Type::Str | Type::Named(_)
+            ) {
+                return Err(Error::new(
+                    "E129",
+                    span,
+                    "combo values must be bool, i64, f64, str, or an extern type",
+                ));
+            }
+            for length in [&options.width, &options.menu_height].into_iter().flatten() {
+                if let LengthValue::Fixed(value) = length {
+                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+                    require_literal_range(value, 0.0, None, "combo size", span)?;
+                }
+            }
+            for (value, label) in [
+                (&options.padding, "combo padding"),
+                (&options.text_size, "combo text size"),
+            ] {
+                if let Some(value) = value {
+                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+                    require_literal_range(value, 0.0, None, label, span)?;
+                }
+            }
+            for (route, payload, label) in [
+                (Some(route), Some((**option_type).clone()), "selection"),
+                (options.input.as_ref(), Some(Type::Str), "input"),
+                (
+                    options.hover.as_ref(),
+                    Some((**option_type).clone()),
+                    "hover",
+                ),
+            ] {
+                if let Some(route) = route {
+                    if route
+                        .args
+                        .iter()
+                        .any(|arg| !matches!(arg, RouteArg::Payload))
+                    {
+                        return Err(Error::new(
+                            "E129",
+                            span,
+                            format!("combo {label} routes only accept `_` payloads"),
+                        ));
+                    }
+                    infer_route(route, payload, env, document, signatures)?;
+                }
+            }
+            for route in [&options.open, &options.close].into_iter().flatten() {
                 infer_route(route, None, env, document, signatures)?;
             }
         }
@@ -817,6 +904,13 @@ fn check_handler(
                 let expected = states.get(target).ok_or_else(|| {
                     Error::new("E140", span, format!("`{target}` is not writable state"))
                 })?;
+                if matches!(expected, Type::Combo(_)) {
+                    return Err(Error::new(
+                        "E140",
+                        span,
+                        "combo search state is initialized once and cannot be assigned",
+                    ));
+                }
                 let actual = expr_type(value, &env, document, span)?;
                 require_type(&actual, expected, span)?;
             }
@@ -1393,6 +1487,58 @@ view
         let error = analyze(source).unwrap_err();
         assert_eq!(error.code, "E129");
         assert!(error.message.contains("optional"));
+    }
+
+    #[test]
+    fn checks_combo_search_state_and_routes() {
+        let source = r#"app Demo
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  modes:combo[str] = ["List", "Board"]
+  selected:str? = none
+  query = ""
+on selected(next)
+  selected = some(next)
+on searched(next)
+  query = next
+on hovered(next)
+on opened
+on closed
+view
+  combo modes selected "Search modes" input=searched hover=hovered open=opened close=closed -> selected _
+"#;
+        let document = analyze(source).unwrap();
+        assert_eq!(document.states[0].ty.display(), "combo[str]");
+        assert_eq!(document.handlers[0].params[0].ty.display(), "str");
+        assert_eq!(document.handlers[1].params[0].ty.display(), "str");
+        assert_eq!(document.handlers[2].params[0].ty.display(), "str");
+    }
+
+    #[test]
+    fn rejects_assignment_to_combo_search_state() {
+        let source = r#"app Demo
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  modes:combo[str] = ["List", "Board"]
+  selected:str? = none
+on reset
+  modes = []
+on selected(next)
+  selected = some(next)
+view
+  combo modes selected "Search modes" -> selected _
+"#;
+        let error = analyze(source).unwrap_err();
+        assert_eq!(error.code, "E140");
+        assert!(error.message.contains("cannot be assigned"));
     }
 
     #[test]
