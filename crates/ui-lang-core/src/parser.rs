@@ -579,6 +579,9 @@ fn parse_statement(line: &Line) -> Result<Statement, Error> {
             span: Span::line(line.number),
         });
     }
+    if let Some(source) = line.text.strip_prefix("task widget ") {
+        return parse_widget_operation(source, line);
+    }
     for (prefix, primary) in [
         ("task clipboard write-primary ", true),
         ("task clipboard write ", false),
@@ -666,6 +669,81 @@ fn parse_statement(line: &Line) -> Result<Statement, Error> {
         line,
         format!("unknown statement `{}`", line.text),
     ))
+}
+
+fn parse_widget_operation(source: &str, line: &Line) -> Result<Statement, Error> {
+    let (source, route) = split_top_marker(source, "->")
+        .map_or((source, None), |(source, route)| (source, Some(route)));
+    let parts = split_words(source);
+    let id = |index: usize| {
+        let value = parts
+            .get(index)
+            .ok_or_else(|| error("E052", line, "widget operation is missing `#id`"))?;
+        kebab_identifier(
+            value
+                .strip_prefix('#')
+                .ok_or_else(|| error("E052", line, "widget operation target must use `#id`"))?,
+            line,
+        )
+    };
+    let expr = |index: usize| {
+        parse_expr(
+            strip_wrapping_parens(
+                parts
+                    .get(index)
+                    .ok_or_else(|| error("E052", line, "widget operation is missing a value"))?,
+            ),
+            line,
+        )
+    };
+    let operation = match parts.first().map(String::as_str) {
+        Some("focus-previous") if parts.len() == 1 => WidgetOperation::FocusPrevious,
+        Some("focus-next") if parts.len() == 1 => WidgetOperation::FocusNext,
+        Some("focus") if parts.len() == 2 => WidgetOperation::Focus { id: id(1)? },
+        Some("focused") if parts.len() == 2 => WidgetOperation::Focused { id: id(1)? },
+        Some("cursor-front") if parts.len() == 2 => WidgetOperation::CursorFront { id: id(1)? },
+        Some("cursor-end") if parts.len() == 2 => WidgetOperation::CursorEnd { id: id(1)? },
+        Some("cursor") if parts.len() == 3 => WidgetOperation::Cursor {
+            id: id(1)?,
+            position: expr(2)?,
+        },
+        Some("select-all") if parts.len() == 2 => WidgetOperation::SelectAll { id: id(1)? },
+        Some("select") if parts.len() == 4 => WidgetOperation::Select {
+            id: id(1)?,
+            start: expr(2)?,
+            end: expr(3)?,
+        },
+        Some("snap") if parts.len() == 4 => WidgetOperation::Snap {
+            id: id(1)?,
+            x: expr(2)?,
+            y: expr(3)?,
+        },
+        Some("snap-end") if parts.len() == 2 => WidgetOperation::SnapEnd { id: id(1)? },
+        Some("scroll-to") if parts.len() == 4 => WidgetOperation::ScrollTo {
+            id: id(1)?,
+            x: expr(2)?,
+            y: expr(3)?,
+        },
+        Some("scroll-by") if parts.len() == 4 => WidgetOperation::ScrollBy {
+            id: id(1)?,
+            x: expr(2)?,
+            y: expr(3)?,
+        },
+        _ => {
+            return Err(error(
+                "E052",
+                line,
+                "unknown widget operation or wrong arguments",
+            ));
+        }
+    };
+    Ok(Statement::WidgetOperation {
+        operation,
+        route: route
+            .map(|route| parse_route(route.trim(), line))
+            .transpose()?,
+        span: Span::line(line.number),
+    })
 }
 
 fn parse_view(line: &Line) -> Result<ViewNode, Error> {

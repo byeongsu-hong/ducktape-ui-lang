@@ -1,4 +1,4 @@
-# Ice Language Specification 0.36
+# Ice Language Specification 0.37
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.36 syntax.
+marked “planned” is a design constraint, not accepted 0.37 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.36.
+  block comments are not part of 0.37.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -178,6 +178,13 @@ statement      = name "=" expr
                | "task system" ("info" | "theme") "->" route
                | "task clipboard" ("read" | "read-primary") "->" route
                | "task clipboard" ("write" | "write-primary") expr
+               | "task widget" widget_operation ("->" route)?
+widget_operation = "focus-previous" | "focus-next"
+                 | ("focus" | "focused" | "cursor-front" | "cursor-end"
+                   | "select-all" | "snap-end") id
+                 | "cursor" id expr
+                 | "select" id expr expr
+                 | ("snap" | "scroll-to" | "scroll-by") id expr expr
 
 subscribe_decl = "subscribe" INDENT subscription_use+
 subscription_use
@@ -641,7 +648,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.36 message payloads.
+`Clone` for 0.37 message payloads.
 
 Three typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
@@ -929,7 +936,27 @@ The family may be a named family or any of iced's five generic families. Every
 weight, stretch, and style variant is accepted. At most one declaration may be
 the application default. `font=default` and `font=mono` remain built-ins;
 declared fonts also work on text, input, editor, checkbox, and toggler. Font
-byte loading is not part of 0.36.
+byte loading is not part of 0.37.
+
+Widget operation tasks target checked static IDs in the app view:
+
+```ice
+task widget focus #search
+task widget focused #search -> focus_checked _
+task widget cursor #search 3
+task widget select #search 0 5
+task widget snap #results 0.0 1.0
+task widget scroll-by #results 0.0 24.0
+```
+
+Ice exposes all 13 functions in `iced::widget::operation`: previous/next/direct
+focus and focus query; cursor front/end/position; select all/range; relative
+snap/end; and absolute scroll-to/scroll-by. Effects have no route and
+`focused` requires a `bool` route. Cursor and selection positions are
+non-negative `i64`; relative offsets are `f64` in `0.0..=1.0`; absolute
+offsets are unrestricted `f64`. Targets must be real static IDs in the app
+scope. Repeated/component scopes and the feature-gated selector API remain
+outside 0.37.
 
 ### IDs
 
@@ -1029,7 +1056,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 0.36 does not claim that remapping.
+extern line; 0.37 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -1050,10 +1077,10 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 0.36 native backend is enough for CRUD/settings-style screens, selection,
+The 0.37 native backend is enough for CRUD/settings-style screens, selection,
 media, hover
 overlays, and common pointer events, not all of iced. It still lacks direct
-syntax for canvas, general overlays/modals, rich text, widget operations, multiple
+syntax for canvas, general overlays/modals, rich text, multiple
 windows, and custom widgets. [`COVERAGE.md`](COVERAGE.md) is the exact versioned
 ledger.
 

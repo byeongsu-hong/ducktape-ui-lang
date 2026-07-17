@@ -637,6 +637,102 @@ fn generate_statements(
                 )
                 .unwrap();
             }
+            Statement::WidgetOperation {
+                operation, route, ..
+            } => {
+                has_task = true;
+                let id = |id: &str| {
+                    format!(
+                        "::iced::widget::Id::new({})",
+                        rust_string(&format!("{}/{}", document.app, id))
+                    )
+                };
+                let value = |value: &Expr, cast: &str| {
+                    Ok::<_, Error>(format!(
+                        "({}) as {cast}",
+                        expr_code(value, env, document, ValueMode::Owned)?
+                    ))
+                };
+                let task = match operation {
+                    WidgetOperation::FocusPrevious => {
+                        format!("::iced::widget::operation::focus_previous::<{message}>()")
+                    }
+                    WidgetOperation::FocusNext => {
+                        format!("::iced::widget::operation::focus_next::<{message}>()")
+                    }
+                    WidgetOperation::Focus { id: target } => format!(
+                        "::iced::widget::operation::focus::<{message}>({})",
+                        id(target)
+                    ),
+                    WidgetOperation::Focused { id: target } => {
+                        let route = route.as_ref().expect("checker requires focused route");
+                        let message_code = route_code(route, "value", env, document, message)?;
+                        format!(
+                            "::iced::widget::operation::is_focused({}).map(move |value| {message_code})",
+                            id(target)
+                        )
+                    }
+                    WidgetOperation::CursorFront { id: target } => format!(
+                        "::iced::widget::operation::move_cursor_to_front::<{message}>({})",
+                        id(target)
+                    ),
+                    WidgetOperation::CursorEnd { id: target } => format!(
+                        "::iced::widget::operation::move_cursor_to_end::<{message}>({})",
+                        id(target)
+                    ),
+                    WidgetOperation::Cursor {
+                        id: target,
+                        position,
+                    } => format!(
+                        "::iced::widget::operation::move_cursor_to::<{message}>({}, {})",
+                        id(target),
+                        value(position, "usize")?
+                    ),
+                    WidgetOperation::SelectAll { id: target } => format!(
+                        "::iced::widget::operation::select_all::<{message}>({})",
+                        id(target)
+                    ),
+                    WidgetOperation::Select {
+                        id: target,
+                        start,
+                        end,
+                    } => format!(
+                        "::iced::widget::operation::select_range::<{message}>({}, {}, {})",
+                        id(target),
+                        value(start, "usize")?,
+                        value(end, "usize")?
+                    ),
+                    WidgetOperation::Snap { id: target, x, y } => format!(
+                        "::iced::widget::operation::snap_to::<{message}>({}, ::iced::widget::operation::RelativeOffset {{ x: {}, y: {} }})",
+                        id(target),
+                        value(x, "f32")?,
+                        value(y, "f32")?
+                    ),
+                    WidgetOperation::SnapEnd { id: target } => format!(
+                        "::iced::widget::operation::snap_to_end::<{message}>({})",
+                        id(target)
+                    ),
+                    WidgetOperation::ScrollTo { id: target, x, y } => format!(
+                        "::iced::widget::operation::scroll_to::<{message}>({}, ::iced::widget::operation::AbsoluteOffset {{ x: {}, y: {} }})",
+                        id(target),
+                        value(x, "f32")?,
+                        value(y, "f32")?
+                    ),
+                    WidgetOperation::ScrollBy { id: target, x, y } => format!(
+                        "::iced::widget::operation::scroll_by::<{message}>({}, ::iced::widget::operation::AbsoluteOffset {{ x: {}, y: {} }})",
+                        id(target),
+                        value(x, "f32")?,
+                        value(y, "f32")?
+                    ),
+                };
+                writeln!(
+                    out,
+                    "{}{task}{}",
+                    if return_task { "return " } else { "" },
+                    if return_task { ";" } else { "" }
+                )
+                .unwrap();
+            }
         }
     }
     Ok(has_task)
@@ -4787,6 +4883,74 @@ view
         assert!(generated.contains("::iced::clipboard::read_primary().map"));
         assert!(generated.contains("::iced::clipboard::write::<__ClipboardMessage>"));
         assert!(generated.contains("::iced::clipboard::write_primary::<__ClipboardMessage>"));
+    }
+
+    #[test]
+    fn lowers_all_static_widget_operations() {
+        let source = r#"app Operations
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  value = ""
+on checked(value)
+on previous
+  task widget focus-previous
+on next
+  task widget focus-next
+on focus
+  task widget focus #field
+on check
+  task widget focused #field -> checked _
+on front
+  task widget cursor-front #field
+on end
+  task widget cursor-end #field
+on cursor
+  task widget cursor #field 2
+on all
+  task widget select-all #field
+on range
+  task widget select #field 1 3
+on snap
+  task widget snap #list 0.0 1.0
+on snap_end
+  task widget snap-end #list
+on scroll_to
+  task widget scroll-to #list 0.0 24.0
+on scroll_by
+  task widget scroll-by #list -4.0 8.0
+view
+  col
+    input "Value" #field <-> value
+    scroll #list
+      text "Content"
+"#;
+        let generated = compile(source, "operations.ice").unwrap();
+        for function in [
+            "focus_previous",
+            "focus_next",
+            "focus::<",
+            "is_focused",
+            "move_cursor_to_front",
+            "move_cursor_to_end",
+            "move_cursor_to::<",
+            "select_all",
+            "select_range",
+            "snap_to::<",
+            "snap_to_end",
+            "scroll_to::<",
+            "scroll_by::<",
+        ] {
+            assert!(generated.contains(function), "missing {function}");
+        }
+        assert!(generated.contains("Id::new(\"Operations/field\")"));
+        assert!(generated.contains("Id::new(\"Operations/list\")"));
+        assert!(generated.contains("RelativeOffset { x: (0.0) as f32, y: (1.0) as f32 }"));
+        assert!(generated.contains("AbsoluteOffset"));
+        assert!(generated.contains("(-4.0)"));
     }
 
     #[test]

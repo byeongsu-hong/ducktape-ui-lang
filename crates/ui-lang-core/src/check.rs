@@ -43,6 +43,7 @@ pub fn check(document: &mut Document) -> Result<(), Error> {
 
     let mut ids = HashSet::new();
     infer_view(&document.view, &states, document, &mut signatures, &mut ids)?;
+    let operation_ids = static_widget_ids(&document.view);
     for component in &document.components {
         if let Some(span) = editor_span(&component.root) {
             return Err(
@@ -77,9 +78,62 @@ pub fn check(document: &mut Document) -> Result<(), Error> {
     }
 
     for handler in &document.handlers {
-        check_handler(handler, &states, document)?;
+        check_handler(handler, &states, document, &operation_ids)?;
     }
     Ok(())
+}
+
+fn static_widget_ids(root: &ViewNode) -> HashSet<String> {
+    fn insert(id: &Option<Id>, output: &mut HashSet<String>) {
+        if let Some(Id { name, key: None }) = id {
+            output.insert(name.clone());
+        }
+    }
+    fn collect(node: &ViewNode, output: &mut HashSet<String>) {
+        match node {
+            ViewNode::Layout { id, children, .. } => {
+                insert(id, output);
+                for child in children {
+                    collect(child, output);
+                }
+            }
+            ViewNode::Input { id, .. }
+            | ViewNode::Checkbox { id, .. }
+            | ViewNode::TextEditor { id, .. } => insert(id, output),
+            ViewNode::Button { id, content, .. } => {
+                insert(id, output);
+                if let Some(content) = content {
+                    collect(content, output);
+                }
+            }
+            ViewNode::If { children, .. } => {
+                for child in children {
+                    collect(child, output);
+                }
+            }
+            ViewNode::Tooltip { content, tip, .. } => {
+                collect(content, output);
+                collect(tip, output);
+            }
+            ViewNode::MouseArea { content, .. }
+            | ViewNode::Theme { content, .. }
+            | ViewNode::Float { content, .. }
+            | ViewNode::Pin { content, .. }
+            | ViewNode::Sensor { content, .. }
+            | ViewNode::Lazy { child: content, .. } => collect(content, output),
+            ViewNode::Responsive { content, .. } => match content {
+                ResponsiveContent::Breakpoint { narrow, wide, .. } => {
+                    collect(narrow, output);
+                    collect(wide, output);
+                }
+                ResponsiveContent::Size { content, .. } => collect(content, output),
+            },
+            _ => {}
+        }
+    }
+    let mut output = HashSet::new();
+    collect(root, &mut output);
+    output
 }
 
 fn check_declared_types(document: &Document) -> Result<(), Error> {
@@ -1999,6 +2053,14 @@ fn infer_runs(
         .map(|param| (param.name.clone(), Type::Unknown))
         .collect();
     for statement in &handler.statements {
+        if let Statement::WidgetOperation {
+            operation: WidgetOperation::Focused { .. },
+            route: Some(route),
+            ..
+        } = statement
+        {
+            infer_route(route, Some(Type::Bool), &unknown_env, document, signatures)?;
+        }
         if let Statement::Run {
             kind,
             function,
@@ -2148,6 +2210,7 @@ fn check_handler(
     handler: &Handler,
     states: &HashMap<String, Type>,
     document: &Document,
+    operation_ids: &HashSet<String>,
 ) -> Result<(), Error> {
     let mut env = states.clone();
     env.extend(
@@ -2212,6 +2275,107 @@ fn check_handler(
                     ));
                 }
                 require_type(&expr_type(value, &env, document, span)?, &Type::Str, span)?;
+            }
+            Statement::WidgetOperation {
+                operation,
+                route,
+                span,
+            } => {
+                if index + 1 != handler.statements.len() {
+                    return Err(Error::new(
+                        "E172",
+                        span,
+                        "widget operation must be the final statement in a handler",
+                    ));
+                }
+                let target = match operation {
+                    WidgetOperation::FocusPrevious | WidgetOperation::FocusNext => None,
+                    WidgetOperation::Focus { id }
+                    | WidgetOperation::Focused { id }
+                    | WidgetOperation::CursorFront { id }
+                    | WidgetOperation::CursorEnd { id }
+                    | WidgetOperation::Cursor { id, .. }
+                    | WidgetOperation::SelectAll { id }
+                    | WidgetOperation::Select { id, .. }
+                    | WidgetOperation::Snap { id, .. }
+                    | WidgetOperation::SnapEnd { id }
+                    | WidgetOperation::ScrollTo { id, .. }
+                    | WidgetOperation::ScrollBy { id, .. } => Some(id),
+                };
+                if let Some(id) = target
+                    && !operation_ids.contains(id)
+                {
+                    return Err(Error::new(
+                        "E172",
+                        span,
+                        format!("unknown static app widget `#{id}`"),
+                    )
+                    .hint("declare this ID in the app view; repeated and component IDs need a scoped selector"));
+                }
+                match (operation, route) {
+                    (WidgetOperation::Focused { .. }, None) => {
+                        return Err(Error::new(
+                            "E172",
+                            span,
+                            "widget focused requires `-> handler _`",
+                        ));
+                    }
+                    (WidgetOperation::Focused { .. }, Some(_)) => {}
+                    (_, Some(_)) => {
+                        return Err(Error::new(
+                            "E172",
+                            span,
+                            "widget effects do not produce a route",
+                        ));
+                    }
+                    (_, None) => {}
+                }
+                for value in match operation {
+                    WidgetOperation::Cursor { position, .. } => vec![(position, "cursor position")],
+                    WidgetOperation::Select { start, end, .. } => {
+                        vec![(start, "selection start"), (end, "selection end")]
+                    }
+                    _ => Vec::new(),
+                } {
+                    require_type(&expr_type(value.0, &env, document, span)?, &Type::I64, span)?;
+                    if matches!(value.0, Expr::I64(number) if *number < 0) {
+                        return Err(Error::new(
+                            "E172",
+                            span,
+                            format!("{} cannot be negative", value.1),
+                        ));
+                    }
+                }
+                if let WidgetOperation::Select {
+                    start: Expr::I64(start),
+                    end: Expr::I64(end),
+                    ..
+                } = operation
+                    && start > end
+                {
+                    return Err(Error::new(
+                        "E172",
+                        span,
+                        "selection start cannot exceed end",
+                    ));
+                }
+                for (value, relative) in match operation {
+                    WidgetOperation::Snap { x, y, .. } => vec![(x, true), (y, true)],
+                    WidgetOperation::ScrollTo { x, y, .. }
+                    | WidgetOperation::ScrollBy { x, y, .. } => vec![(x, false), (y, false)],
+                    _ => Vec::new(),
+                } {
+                    require_type(&expr_type(value, &env, document, span)?, &Type::F64, span)?;
+                    if relative {
+                        require_literal_range(
+                            value,
+                            0.0,
+                            Some(1.0),
+                            "relative scroll offset",
+                            span,
+                        )?;
+                    }
+                }
             }
         }
     }
@@ -3944,6 +4108,63 @@ view
         .unwrap_err();
         assert_eq!(error.code, "E101");
         assert!(error.message.contains("expected `str`"));
+    }
+
+    #[test]
+    fn checks_all_static_widget_operations() {
+        let source = r#"app Operations
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  value = ""
+  focused = false
+on previous
+  task widget focus-previous
+on next
+  task widget focus-next
+on focus
+  task widget focus #field
+on check
+  task widget focused #field -> checked _
+on checked(value)
+  focused = value
+on front
+  task widget cursor-front #field
+on end
+  task widget cursor-end #field
+on cursor
+  task widget cursor #field 2
+on all
+  task widget select-all #field
+on range
+  task widget select #field 1 3
+on snap
+  task widget snap #list 0.0 1.0
+on snap_end
+  task widget snap-end #list
+on scroll_to
+  task widget scroll-to #list 0.0 24.0
+on scroll_by
+  task widget scroll-by #list -4.0 8.0
+view
+  col
+    input "Value" #field <-> value
+    scroll #list
+      text "Content"
+"#;
+        let document = analyze(source).unwrap();
+        assert_eq!(document.handlers[4].params[0].ty.display(), "bool");
+
+        let error = analyze(&source.replace("focus #field", "focus #missing")).unwrap_err();
+        assert_eq!(error.code, "E172");
+        assert!(error.message.contains("#missing"));
+
+        let error =
+            analyze(&source.replace("snap #list 0.0 1.0", "snap #list 0.0 1.1")).unwrap_err();
+        assert_eq!(error.code, "E128");
     }
 
     #[test]
