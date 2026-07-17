@@ -153,3 +153,13 @@ mod input_method_events {
 mod timer {
     ui_lang::include_app!("src/ui/timer.ice");
 }
+
+#[cfg(test)]
+mod canvas_events {
+    ui_lang::include_app!("src/ui/canvas_events.ice");
+
+    #[test]
+    fn initializes() {
+        let _ = CanvasEvents::__boot();
+    }
+}

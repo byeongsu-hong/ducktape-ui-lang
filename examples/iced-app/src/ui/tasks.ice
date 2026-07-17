@@ -82,6 +82,9 @@ view
                 col @gap-3
                   text "Drag, resize, or arrange this pane." @text-sm text-muted
                   canvas width=fill height=160.0 cache=detail_mode cache-group=details capture=true cursor=crosshair press=canvas_pressed
+                    event keyboard press -> canvas_key _
+                    redraw window frame after=1s
+                    capture touch lost
                     rect x=0.0 y=0.0 width=canvas_width height=canvas_height fill=linear(1.57, background@0.0, surface@1.0) stroke=border
                     circle x=48.0 y=48.0 radius=28.0 fill=primary stroke=foreground stroke-width=2.0
                     path fill=primary/25 stroke=primary stroke-width=2.0 cap=round join=round

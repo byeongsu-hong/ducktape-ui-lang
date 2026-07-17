@@ -4031,11 +4031,110 @@ fn parse_canvas(parts: &[String], styles: Vec<String>, line: &Line) -> Result<Vi
             ));
         }
     }
+    let mut commands = Vec::new();
+    let mut events = Vec::new();
+    for child in &line.children {
+        if child.text.starts_with("event ")
+            || child.text.starts_with("capture ")
+            || child.text.starts_with("redraw ")
+        {
+            events.push(parse_canvas_event(child)?);
+        } else {
+            commands.push(parse_canvas_command(child)?);
+        }
+    }
     Ok(ViewNode::Canvas {
         options: Box::new(options),
-        commands: parse_canvas_commands(&line.children)?,
+        commands,
+        events,
         span: Span::line(line.number),
     })
+}
+
+fn parse_canvas_event(line: &Line) -> Result<CanvasEvent, Error> {
+    ensure_leaf(line)?;
+    let (source, action) = if let Some(source) = line.text.strip_prefix("event ") {
+        let mut event_line = line.clone();
+        event_line.text = source.to_owned();
+        let subscription = parse_subscription(&event_line)?;
+        if subscription.condition.is_some() || subscription.status.is_some() {
+            return Err(error(
+                "E190",
+                line,
+                "canvas events do not use subscription `when` or `status` filters",
+            ));
+        }
+        (
+            subscription.source,
+            CanvasEventAction::Route(subscription.route),
+        )
+    } else {
+        let (source, redraw) = line
+            .text
+            .strip_prefix("capture ")
+            .map(|source| (source, false))
+            .or_else(|| {
+                line.text
+                    .strip_prefix("redraw ")
+                    .map(|source| (source, true))
+            })
+            .expect("canvas event prefix checked by caller");
+        let mut parts = split_words(source);
+        let after_ms = if redraw && parts.len() == 3 {
+            let after = parts
+                .pop()
+                .and_then(|part| part.strip_prefix("after=").map(str::to_owned))
+                .ok_or_else(|| {
+                    error(
+                        "E190",
+                        line,
+                        "scheduled canvas redraw uses `after=16ms` or `after=1s`",
+                    )
+                })?;
+            Some(parse_duration(&after, line)?)
+        } else {
+            None
+        };
+        if parts.len() != 2 {
+            return Err(error(
+                "E190",
+                line,
+                "canvas capture/redraw requires an event family and kind",
+            ));
+        }
+        let source = parse_canvas_event_source(&parts.join(" "), line)?;
+        let action = if redraw {
+            CanvasEventAction::Redraw { after_ms }
+        } else {
+            CanvasEventAction::Capture
+        };
+        (source, action)
+    };
+    if !matches!(
+        source,
+        SubscriptionSource::InputMethod(_)
+            | SubscriptionSource::Keyboard(_)
+            | SubscriptionSource::Mouse(_)
+            | SubscriptionSource::Touch(_)
+            | SubscriptionSource::Window(_)
+    ) {
+        return Err(error(
+            "E190",
+            line,
+            "canvas events accept input-method, keyboard, mouse, touch, or window sources",
+        ));
+    }
+    Ok(CanvasEvent {
+        source,
+        action,
+        span: Span::line(line.number),
+    })
+}
+
+fn parse_canvas_event_source(source: &str, line: &Line) -> Result<SubscriptionSource, Error> {
+    let mut event_line = line.clone();
+    event_line.text = format!("{source} -> __canvas_event");
+    Ok(parse_subscription(&event_line)?.source)
 }
 
 fn parse_canvas_commands(lines: &[Line]) -> Result<Vec<CanvasCommand>, Error> {

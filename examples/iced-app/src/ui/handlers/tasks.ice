@@ -37,6 +37,8 @@ on pane_clicked(name)
 
 on canvas_pressed(x, y)
 
+on canvas_key(value)
+
 on maximize_details
   pane #workspace maximize details
 
