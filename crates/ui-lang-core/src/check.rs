@@ -4455,6 +4455,74 @@ fn infer_runs(
                 (None, None) => {}
             }
         }
+        if let Statement::TaskFlow {
+            source,
+            transforms,
+            success,
+            error,
+            units,
+            span,
+        } = statement
+        {
+            if success
+                .iter()
+                .chain(error.iter())
+                .chain(units.iter())
+                .any(|route| {
+                    route.args.len() > 1
+                        || route
+                            .args
+                            .iter()
+                            .any(|arg| !matches!(arg, RouteArg::Payload))
+                })
+            {
+                return Err(Error::new(
+                    "E127",
+                    span,
+                    "flow routes accept at most one `_`; read other state in the handler",
+                ));
+            }
+            let (output, error_ty) = task_flow_type(source, transforms, document, None)?;
+            if let Some(route) = units {
+                infer_route(route, Some(Type::I64), &unknown_env, document, signatures)?;
+            }
+            match (output, success) {
+                (Some(output), Some(route)) => {
+                    infer_route(route, Some(output), &unknown_env, document, signatures)?
+                }
+                (Some(_), None) => {
+                    return Err(Error::new("E131", span, "flow requires a done route"));
+                }
+                (None, Some(_)) => {
+                    return Err(Error::new(
+                        "E131",
+                        span,
+                        "discarded flow cannot have a done route",
+                    ));
+                }
+                (None, None) => {}
+            }
+            match (error_ty, error) {
+                (Some(error_ty), Some(route)) => {
+                    infer_route(route, Some(error_ty), &unknown_env, document, signatures)?
+                }
+                (Some(_), None) => {
+                    return Err(Error::new(
+                        "E131",
+                        span,
+                        "fallible flow requires an error route",
+                    ));
+                }
+                (None, Some(_)) => {
+                    return Err(Error::new(
+                        "E131",
+                        span,
+                        "infallible or discarded flow cannot have an error route",
+                    ));
+                }
+                (None, None) => {}
+            }
+        }
     }
     Ok(())
 }
@@ -4632,6 +4700,21 @@ fn check_handler(
                 }
                 let action = extern_function(document, function, ExternKind::Sip, span)?;
                 check_call_args(action, args, &env, document, span)?;
+            }
+            Statement::TaskFlow {
+                source,
+                transforms,
+                span,
+                ..
+            } => {
+                if index + 1 != handler.statements.len() {
+                    return Err(Error::new(
+                        "E141",
+                        span,
+                        "flow must be the final statement in a handler",
+                    ));
+                }
+                task_flow_type(source, transforms, document, Some(&env))?;
             }
             Statement::TaskGroup { statements, .. } => {
                 for statement in statements {
@@ -4967,6 +5050,7 @@ fn invalid_task_producer(statement: &Statement) -> Option<&Span> {
     match statement {
         Statement::Run { .. }
         | Statement::Sip { .. }
+        | Statement::TaskFlow { .. }
         | Statement::ClipboardWrite { .. }
         | Statement::WidgetOperation { .. }
         | Statement::WindowOperation { .. }
@@ -5007,6 +5091,7 @@ fn statement_span(statement: &Statement) -> &Span {
         | Statement::ReturnIf { span, .. }
         | Statement::Run { span, .. }
         | Statement::Sip { span, .. }
+        | Statement::TaskFlow { span, .. }
         | Statement::TaskGroup { span, .. }
         | Statement::Abortable { span, .. }
         | Statement::Abort { span, .. }
@@ -5103,6 +5188,131 @@ fn builtin_task_output(
         ));
     }
     Ok(output)
+}
+
+fn task_source_type(
+    source: &TaskSource,
+    document: &Document,
+    env: Option<&HashMap<String, Type>>,
+) -> Result<(Type, Option<Type>), Error> {
+    if let Some(output) =
+        builtin_task_output(source.kind, &source.function, &source.args, &source.span)?
+    {
+        if source.function == "__ice_font_load"
+            && let Some(env) = env
+        {
+            require_type(
+                &expr_type(&source.args[0], env, document, &source.span)?,
+                &Type::Bytes,
+                &source.span,
+            )?;
+        }
+        return Ok((output, None));
+    }
+    let action = extern_function(document, &source.function, source.kind.into(), &source.span)?;
+    if let Some(env) = env {
+        check_call_args(action, &source.args, env, document, &source.span)?;
+    }
+    Ok((action.output.clone(), action.error.clone()))
+}
+
+pub(crate) fn task_flow_type(
+    source: &TaskSource,
+    transforms: &[TaskTransform],
+    document: &Document,
+    root_env: Option<&HashMap<String, Type>>,
+) -> Result<(Option<Type>, Option<Type>), Error> {
+    let (mut output, mut error_ty) = task_source_type(source, document, root_env)?;
+    for (index, transform) in transforms.iter().enumerate() {
+        match transform {
+            TaskTransform::Then {
+                binding,
+                source,
+                span,
+            } => {
+                if error_ty.is_some() {
+                    return Err(Error::new(
+                        "E144",
+                        span,
+                        "then cannot unwrap a fallible task; use and-then",
+                    ));
+                }
+                let env = HashMap::from([(binding.clone(), output)]);
+                let next = task_source_type(source, document, Some(&env)).map_err(|error| {
+                    if error.code == "E150" {
+                        error.hint(format!(
+                            "a flow transform may only read its `{binding}` binding"
+                        ))
+                    } else {
+                        error
+                    }
+                })?;
+                output = next.0;
+                error_ty = next.1;
+            }
+            TaskTransform::AndThen {
+                binding,
+                source,
+                span,
+            } => {
+                let (binding_ty, result_error) = if let Some(error) = &error_ty {
+                    (output.clone(), Some(error.clone()))
+                } else if let Type::Option(inner) = &output {
+                    ((**inner).clone(), None)
+                } else {
+                    return Err(Error::new(
+                        "E144",
+                        span,
+                        "and-then requires an optional or fallible task output",
+                    ));
+                };
+                let env = HashMap::from([(binding.clone(), binding_ty)]);
+                let next = task_source_type(source, document, Some(&env)).map_err(|error| {
+                    if error.code == "E150" {
+                        error.hint(format!(
+                            "a flow transform may only read its `{binding}` binding"
+                        ))
+                    } else {
+                        error
+                    }
+                })?;
+                if let Some(expected) = result_error {
+                    let Some(actual) = &next.1 else {
+                        return Err(Error::new(
+                            "E144",
+                            span,
+                            "and-then after a fallible task must return a fallible task",
+                        ));
+                    };
+                    require_type(actual, &expected, span)?;
+                    error_ty = Some(expected);
+                } else {
+                    error_ty = next.1;
+                }
+                output = next.0;
+            }
+            TaskTransform::Collect { span } => {
+                if error_ty.is_some() {
+                    return Err(
+                        Error::new("E144", span, "collect requires an infallible flow")
+                            .hint("use and-then to handle fallible output before collect"),
+                    );
+                }
+                output = Type::List(Box::new(output));
+            }
+            TaskTransform::Discard { span } => {
+                if index + 1 != transforms.len() {
+                    return Err(Error::new(
+                        "E144",
+                        span,
+                        "discard must be the final flow transform",
+                    ));
+                }
+                return Ok((None, None));
+            }
+        }
+    }
+    Ok((Some(output), error_ty))
 }
 
 pub(crate) fn expr_type(
@@ -6085,6 +6295,93 @@ view
         let error = analyze(&source.replace("sip transfer(3)", "sip missing(3)")).unwrap_err();
         assert_eq!(error.code, "E130");
         assert!(error.message.contains("extern sip"));
+    }
+
+    #[test]
+    fn checks_structured_task_flows() {
+        let source = r#"app Flows
+extern crate::backend
+  AppError(message:str)
+  OtherError(message:str)
+  stream numbers(limit:i64) -> i64
+  task double(value:i64) -> i64
+  task optional(value:i64) -> i64?
+  task fallible(value:i64) -> i64 ! AppError
+  task fallible_double(value:i64) -> i64 ! AppError
+  task wrong_error(value:i64) -> i64 ! OtherError
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  limit = 3
+on start
+  parallel
+    flow
+      from stream numbers(limit)
+      then value -> task double(value)
+      collect
+      done -> collected _
+      units -> planned _
+    flow
+      from task optional(2)
+      and-then value -> task double(value)
+      done -> finished _
+    flow
+      from task fallible(2)
+      and-then value -> task fallible_double(value)
+      done -> finished _
+      error -> failed _
+on collected(values)
+on planned(units)
+on finished(value)
+on failed(error)
+view
+  text "Flows"
+"#;
+        let document = analyze(source).unwrap();
+        assert_eq!(
+            document.handlers[1].params[0].ty,
+            Type::List(Box::new(Type::I64))
+        );
+        assert_eq!(document.handlers[2].params[0].ty, Type::I64);
+        assert_eq!(document.handlers[3].params[0].ty, Type::I64);
+        assert_eq!(
+            document.handlers[4].params[0].ty,
+            Type::Named("AppError".into())
+        );
+
+        let error = analyze(&source.replace(
+            "from task fallible(2)",
+            "from task fallible(2)\n      collect",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E144");
+        assert!(error.message.contains("infallible"));
+
+        let error = analyze(&source.replace(
+            "and-then value -> task fallible_double(value)",
+            "then value -> task fallible_double(value)",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E144");
+        assert!(error.message.contains("use and-then"));
+
+        let error = analyze(&source.replace(
+            "and-then value -> task fallible_double(value)",
+            "and-then value -> task wrong_error(value)",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E101");
+
+        let error = analyze(&source.replace(
+            "then value -> task double(value)",
+            "then value -> task double(limit)",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E150");
+        assert!(error.hint.unwrap().contains("only read its `value`"));
     }
 
     #[test]

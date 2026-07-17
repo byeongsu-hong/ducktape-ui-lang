@@ -406,6 +406,14 @@ pub enum Statement {
         error: Option<Route>,
         span: Span,
     },
+    TaskFlow {
+        source: TaskSource,
+        transforms: Vec<TaskTransform>,
+        success: Option<Route>,
+        error: Option<Route>,
+        units: Option<Route>,
+        span: Span,
+    },
     TaskGroup {
         kind: TaskGroupKind,
         statements: Vec<Statement>,
@@ -440,6 +448,34 @@ pub enum Statement {
         grid: String,
         operation: PaneOperation,
         route: Option<Route>,
+        span: Span,
+    },
+}
+
+#[derive(Clone, Debug)]
+pub struct TaskSource {
+    pub kind: EffectKind,
+    pub function: String,
+    pub args: Vec<Expr>,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug)]
+pub enum TaskTransform {
+    Then {
+        binding: String,
+        source: TaskSource,
+        span: Span,
+    },
+    AndThen {
+        binding: String,
+        source: TaskSource,
+        span: Span,
+    },
+    Collect {
+        span: Span,
+    },
+    Discard {
         span: Span,
     },
 }
