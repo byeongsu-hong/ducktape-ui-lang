@@ -32,6 +32,7 @@ pub fn check(document: &mut Document) -> Result<(), Error> {
         let mut ids = HashSet::new();
         infer_view(&component.root, &env, document, &mut signatures, &mut ids)?;
     }
+    infer_subscriptions(document, &states, &mut signatures)?;
     for handler in &document.handlers {
         infer_runs(handler, document, &mut signatures)?;
     }
@@ -444,6 +445,77 @@ fn infer_view(
                 require_type(&actual, expected, span)?;
             }
         }
+        ViewNode::ExternComponent {
+            function,
+            args,
+            route,
+            span,
+        } => {
+            let component = extern_function(document, function, ExternKind::Component, span)?;
+            check_call_args(component, args, env, document, span)?;
+            match (&component.output, route) {
+                (Type::Unit, None) => {}
+                (_, Some(route)) => infer_route(
+                    route,
+                    Some(component.output.clone()),
+                    env,
+                    document,
+                    signatures,
+                )?,
+                (_, None) => {
+                    return Err(Error::new(
+                        "E126",
+                        span,
+                        format!(
+                            "extern component `{function}` emits `{}` and requires a route",
+                            component.output.display()
+                        ),
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn infer_subscriptions(
+    document: &Document,
+    states: &HashMap<String, Type>,
+    signatures: &mut HashMap<String, Vec<Option<Type>>>,
+) -> Result<(), Error> {
+    for subscription in &document.subscriptions {
+        let source = extern_function(
+            document,
+            &subscription.function,
+            ExternKind::Subscription,
+            &subscription.span,
+        )?;
+        check_call_args(
+            source,
+            &subscription.args,
+            states,
+            document,
+            &subscription.span,
+        )?;
+        if subscription
+            .route
+            .args
+            .iter()
+            .any(|arg| !matches!(arg, RouteArg::Payload))
+        {
+            return Err(Error::new(
+                "E127",
+                &subscription.span,
+                "subscription routes only accept `_`; read other state in the handler",
+            ));
+        }
+        infer_route(
+            &subscription.route,
+            Some(source.output.clone()),
+            states,
+            document,
+            signatures,
+        )?;
     }
     Ok(())
 }
@@ -460,6 +532,7 @@ fn infer_runs(
         .collect();
     for statement in &handler.statements {
         if let Statement::Run {
+            kind,
             function,
             success,
             error,
@@ -467,13 +540,7 @@ fn infer_runs(
             ..
         } = statement
         {
-            let action = document
-                .functions
-                .iter()
-                .find(|item| item.name == *function)
-                .ok_or_else(|| {
-                    Error::new("E130", span, format!("unknown extern fn `{function}`"))
-                })?;
+            let action = extern_function(document, function, (*kind).into(), span)?;
             infer_route(
                 success,
                 Some(action.output.clone()),
@@ -517,6 +584,13 @@ fn infer_route(
     document: &Document,
     signatures: &mut HashMap<String, Vec<Option<Type>>>,
 ) -> Result<(), Error> {
+    if route.handler == "mount" {
+        return Err(Error::new(
+            "E135",
+            &route.span,
+            "`mount` is initialization-only and cannot receive events",
+        ));
+    }
     let signature = signatures.get_mut(&route.handler).ok_or_else(|| {
         Error::new(
             "E132",
@@ -590,6 +664,7 @@ fn check_handler(
                 )?;
             }
             Statement::Run {
+                kind,
                 function,
                 args,
                 span,
@@ -602,30 +677,66 @@ fn check_handler(
                         "run must be the final statement in a handler",
                     ));
                 }
-                let action = document
-                    .functions
-                    .iter()
-                    .find(|item| item.name == *function)
-                    .ok_or_else(|| {
-                        Error::new("E130", span, format!("unknown extern fn `{function}`"))
-                    })?;
-                if args.len() != action.params.len() {
-                    return Err(Error::new(
-                        "E142",
-                        span,
-                        format!(
-                            "extern fn `{function}` expects {} arguments, got {}",
-                            action.params.len(),
-                            args.len()
-                        ),
-                    ));
-                }
-                for (arg, (_, expected)) in args.iter().zip(&action.params) {
-                    let actual = expr_type(arg, &env, document, span)?;
-                    require_type(&actual, expected, span)?;
-                }
+                let action = extern_function(document, function, (*kind).into(), span)?;
+                check_call_args(action, args, &env, document, span)?;
             }
         }
+    }
+    Ok(())
+}
+
+impl From<EffectKind> for ExternKind {
+    fn from(value: EffectKind) -> Self {
+        match value {
+            EffectKind::Future => Self::Future,
+            EffectKind::Task => Self::Task,
+        }
+    }
+}
+
+fn extern_function<'a>(
+    document: &'a Document,
+    name: &str,
+    kind: ExternKind,
+    span: &Span,
+) -> Result<&'a ExternFn, Error> {
+    document
+        .functions
+        .iter()
+        .find(|item| item.name == name && item.kind == kind)
+        .ok_or_else(|| {
+            let label = match kind {
+                ExternKind::Future => "function",
+                ExternKind::Component => "component",
+                ExternKind::Task => "task",
+                ExternKind::Subscription => "subscription",
+            };
+            Error::new("E130", span, format!("unknown extern {label} `{name}`"))
+        })
+}
+
+fn check_call_args(
+    function: &ExternFn,
+    args: &[Expr],
+    env: &HashMap<String, Type>,
+    document: &Document,
+    span: &Span,
+) -> Result<(), Error> {
+    if args.len() != function.params.len() {
+        return Err(Error::new(
+            "E142",
+            span,
+            format!(
+                "extern `{}` expects {} arguments, got {}",
+                function.name,
+                function.params.len(),
+                args.len()
+            ),
+        ));
+    }
+    for (arg, (_, expected)) in args.iter().zip(&function.params) {
+        let actual = expr_type(arg, env, document, span)?;
+        require_type(&actual, expected, span)?;
     }
     Ok(())
 }
@@ -1080,5 +1191,61 @@ view
         let error = analyze(source).unwrap_err();
         assert_eq!(error.code, "E103");
         assert!(error.message.contains("`Missing`"));
+    }
+
+    #[test]
+    fn requires_a_route_for_an_emitting_extern_component() {
+        let source = r#"app Demo
+extern crate::backend
+  component native_control() -> bool
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+view
+  extern native_control()
+"#;
+        let error = analyze(source).unwrap_err();
+        assert_eq!(error.code, "E126");
+        assert!(error.message.contains("requires a route"));
+    }
+
+    #[test]
+    fn rejects_state_capture_in_subscription_routes() {
+        let source = r#"app Demo
+extern crate::backend
+  subscription events() -> bool
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  count = 1
+on event(count, next)
+subscribe
+  events() -> event(count, _)
+view
+  text count
+"#;
+        let error = analyze(source).unwrap_err();
+        assert_eq!(error.code, "E127");
+    }
+
+    #[test]
+    fn rejects_events_routed_to_mount() {
+        let source = r#"app Demo
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+on mount
+view
+  button "Invalid" -> mount
+"#;
+        let error = analyze(source).unwrap_err();
+        assert_eq!(error.code, "E135");
     }
 }

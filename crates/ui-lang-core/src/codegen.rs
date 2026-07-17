@@ -47,21 +47,26 @@ pub fn generate(document: &Document, source_path: &str) -> Result<String, Error>
     for binding in input_bindings(&document.view) {
         writeln!(out, "{}(::std::string::String),", binding_variant(&binding)).unwrap();
     }
+    if needs_extern_noop(document) {
+        writeln!(out, "__ExternNoop,").unwrap();
+    }
     writeln!(out, "}}").unwrap();
 
     generate_extern_probes(&mut out, document);
     writeln!(out, "impl {} {{", document.app).unwrap();
     writeln!(out, "pub fn run() -> ::iced::Result {{").unwrap();
-    writeln!(
-        out,
-        "::iced::application(Self::__boot, Self::__update, Self::__view).theme(Self::__theme).run()"
-    )
-    .unwrap();
+    let subscription = if document.subscriptions.is_empty() {
+        ""
+    } else {
+        ".subscription(Self::__subscription)"
+    };
+    writeln!(out, "::iced::application(Self::__boot, Self::__update, Self::__view){subscription}.theme(Self::__theme).run()").unwrap();
     writeln!(out, "}}").unwrap();
 
     generate_theme(&mut out, document);
     generate_boot(&mut out, document, &message)?;
     generate_update(&mut out, document, &message)?;
+    generate_subscription(&mut out, document, &message)?;
     generate_view(&mut out, document, &message)?;
     writeln!(out, "}}").unwrap();
     Ok(out)
@@ -108,12 +113,32 @@ fn generate_extern_probes(out: &mut String, document: &Document) {
                 )
             },
         );
-        writeln!(
-            out,
-            "#[allow(dead_code)] async fn __ui_lang_check_{}({params}) {{ let _: {output} = {}({args}).await; }}",
-            item.name, item.rust_path
-        )
-        .unwrap();
+        match item.kind {
+            ExternKind::Future => writeln!(
+                out,
+                "#[allow(dead_code)] async fn __ui_lang_check_{}({params}) {{ let _: {output} = {}({args}).await; }}",
+                item.name, item.rust_path
+            )
+            .unwrap(),
+            ExternKind::Component => writeln!(
+                out,
+                "#[allow(dead_code)] fn __ui_lang_check_component_{}({params}) {{ let _: ::iced::Element<'static, {output}> = {}({args}); }}",
+                item.name, item.rust_path
+            )
+            .unwrap(),
+            ExternKind::Task => writeln!(
+                out,
+                "#[allow(dead_code)] fn __ui_lang_check_task_{}({params}) {{ let _: ::iced::Task<{output}> = {}({args}); }}",
+                item.name, item.rust_path
+            )
+            .unwrap(),
+            ExternKind::Subscription => writeln!(
+                out,
+                "#[allow(dead_code)] fn __ui_lang_check_subscription_{}({params}) {{ let _: ::iced::Subscription<{output}> = {}({args}); }}",
+                item.name, item.rust_path
+            )
+            .unwrap(),
+        }
     }
 }
 
@@ -245,7 +270,57 @@ fn generate_update(out: &mut String, document: &Document, message: &str) -> Resu
         )
         .unwrap();
     }
+    if needs_extern_noop(document) {
+        writeln!(out, "{message}::__ExternNoop => ::iced::Task::none(),").unwrap();
+    }
     writeln!(out, "}}\n}}").unwrap();
+    Ok(())
+}
+
+fn generate_subscription(
+    out: &mut String,
+    document: &Document,
+    message: &str,
+) -> Result<(), Error> {
+    if document.subscriptions.is_empty() {
+        return Ok(());
+    }
+    let env = state_env(document, "self");
+    writeln!(
+        out,
+        "fn __subscription(&self) -> ::iced::Subscription<{message}> {{"
+    )
+    .unwrap();
+    writeln!(out, "::iced::Subscription::batch([").unwrap();
+    for subscription in &document.subscriptions {
+        let source = document
+            .functions
+            .iter()
+            .find(|item| {
+                item.name == subscription.function && item.kind == ExternKind::Subscription
+            })
+            .ok_or_else(|| {
+                Error::new(
+                    "E130",
+                    &subscription.span,
+                    format!("unknown extern subscription `{}`", subscription.function),
+                )
+            })?;
+        let args = subscription
+            .args
+            .iter()
+            .map(|arg| expr_code(arg, &env, document, ValueMode::Owned))
+            .collect::<Result<Vec<_>, _>>()?
+            .join(", ");
+        let route = route_code(&subscription.route, "__value", &env, document, message)?;
+        writeln!(
+            out,
+            "{}({args}).map(move |__value| {route}),",
+            source.rust_path
+        )
+        .unwrap();
+    }
+    writeln!(out, "])\n}}").unwrap();
     Ok(())
 }
 
@@ -287,6 +362,7 @@ fn generate_statements(
                 writeln!(out, "if {code} {{ return ::iced::Task::none(); }}").unwrap();
             }
             Statement::Run {
+                kind,
                 function,
                 args,
                 success,
@@ -294,10 +370,14 @@ fn generate_statements(
                 span,
             } => {
                 has_task = true;
+                let extern_kind = match kind {
+                    EffectKind::Future => ExternKind::Future,
+                    EffectKind::Task => ExternKind::Task,
+                };
                 let action = document
                     .functions
                     .iter()
-                    .find(|item| item.name == *function)
+                    .find(|item| item.name == *function && item.kind == extern_kind)
                     .ok_or_else(|| {
                         Error::new("E130", span, format!("unknown extern fn `{function}`"))
                     })?;
@@ -309,17 +389,29 @@ fn generate_statements(
                 let success_message = route_code(success, "value", env, document, message)?;
                 if let (Some(error_route), Some(_)) = (error, &action.error) {
                     let error_message = route_code(error_route, "error", env, document, message)?;
-                    writeln!(out, "{}::iced::Task::perform({}({args}), |result| match result {{ ::std::result::Result::Ok(value) => {success_message}, ::std::result::Result::Err(error) => {error_message} }}){}", if return_task { "return " } else { "" }, action.rust_path, if return_task { ";" } else { "" })
-                    .unwrap();
+                    match kind {
+                        EffectKind::Future => writeln!(out, "{}::iced::Task::perform({}({args}), |result| match result {{ ::std::result::Result::Ok(value) => {success_message}, ::std::result::Result::Err(error) => {error_message} }}){}", if return_task { "return " } else { "" }, action.rust_path, if return_task { ";" } else { "" }).unwrap(),
+                        EffectKind::Task => writeln!(out, "{}{}({args}).map(|result| match result {{ ::std::result::Result::Ok(value) => {success_message}, ::std::result::Result::Err(error) => {error_message} }}){}", if return_task { "return " } else { "" }, action.rust_path, if return_task { ";" } else { "" }).unwrap(),
+                    }
                 } else {
-                    writeln!(
-                        out,
-                        "{}::iced::Task::perform({}({args}), |value| {success_message}){}",
-                        if return_task { "return " } else { "" },
-                        action.rust_path,
-                        if return_task { ";" } else { "" }
-                    )
-                    .unwrap();
+                    match kind {
+                        EffectKind::Future => writeln!(
+                            out,
+                            "{}::iced::Task::perform({}({args}), |value| {success_message}){}",
+                            if return_task { "return " } else { "" },
+                            action.rust_path,
+                            if return_task { ";" } else { "" }
+                        )
+                        .unwrap(),
+                        EffectKind::Task => writeln!(
+                            out,
+                            "{}{}({args}).map(|value| {success_message}){}",
+                            if return_task { "return " } else { "" },
+                            action.rust_path,
+                            if return_task { ";" } else { "" }
+                        )
+                        .unwrap(),
+                    }
                 }
             }
         }
@@ -606,6 +698,38 @@ fn render_node(
                 &component_env,
                 &component_scope,
             )
+        }
+        ViewNode::ExternComponent {
+            function,
+            args,
+            route,
+            span,
+        } => {
+            let component = document
+                .functions
+                .iter()
+                .find(|item| item.name == *function && item.kind == ExternKind::Component)
+                .ok_or_else(|| {
+                    Error::new(
+                        "E130",
+                        span,
+                        format!("unknown extern component `{function}`"),
+                    )
+                })?;
+            let args = args
+                .iter()
+                .map(|arg| expr_code(arg, env, document, ValueMode::Owned))
+                .collect::<Result<Vec<_>, _>>()?
+                .join(", ");
+            let mapped = if let Some(route) = route {
+                route_code(route, "__value", env, document, message)?
+            } else {
+                format!("{message}::__ExternNoop")
+            };
+            Ok(format!(
+                "{}({args}).map(move |__value| {mapped}).into()",
+                component.rust_path
+            ))
         }
         ViewNode::If { span, .. } | ViewNode::For { span, .. } => Err(Error::new(
             "E170",
@@ -976,6 +1100,19 @@ fn input_bindings(root: &ViewNode) -> Vec<String> {
     let mut output = Vec::new();
     collect(root, &mut output);
     output
+}
+
+fn needs_extern_noop(document: &Document) -> bool {
+    fn contains(node: &ViewNode) -> bool {
+        match node {
+            ViewNode::ExternComponent { route: None, .. } => true,
+            ViewNode::Layout { children, .. }
+            | ViewNode::If { children, .. }
+            | ViewNode::For { children, .. } => children.iter().any(contains),
+            _ => false,
+        }
+    }
+    contains(&document.view) || document.components.iter().any(|item| contains(&item.root))
 }
 
 fn binding_variant(binding: &str) -> String {
@@ -1364,5 +1501,58 @@ view
         assert!(generated.contains(".vertical()"));
         assert!(generated.contains("::iced::widget::radio"));
         assert!(generated.contains("::iced::widget::stack(__children).clip(true)"));
+    }
+
+    #[test]
+    fn lowers_typed_iced_extern_boundaries() {
+        let source = r#"app Interop
+extern crate::backend
+  Failure(code:i64)
+  component native_meter(value:f64) -> f64
+  component passive() -> unit
+  task focus_next() -> unit
+  task save() -> i64 ! Failure
+  subscription events() -> bool
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  amount = 1.0
+  count = 0
+  seen = false
+on changed(next)
+  amount = next
+on focused
+on focus
+  task focus_next() -> focused
+on save
+  task save() -> saved _ | failed _
+on saved(next)
+  count = next
+on failed(error)
+  count = error.code
+on event(next)
+  seen = next
+subscribe
+  events() -> event _
+view
+  col
+    extern native_meter(amount) -> changed _
+    extern passive()
+    button "Focus" -> focus
+    button "Save" -> save
+"#;
+        let generated = compile(source, "interop.ice").unwrap();
+        assert!(generated.contains("::iced::Element<'static, f64>"));
+        assert!(generated.contains("::iced::Task<()>"));
+        assert!(generated.contains("::iced::Subscription<bool>"));
+        assert!(generated.contains(".subscription(Self::__subscription)"));
+        assert!(generated.contains("native_meter(self.amount).map"));
+        assert!(generated.contains("passive().map(move |__value| __InteropMessage::__ExternNoop)"));
+        assert!(generated.contains("focus_next().map(|value| __InteropMessage::Focused)"));
+        assert!(generated.contains("save().map(|result| match result"));
+        assert!(generated.contains("Result::Err(error) => __InteropMessage::Failed(error)"));
     }
 }
