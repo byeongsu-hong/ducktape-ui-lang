@@ -81,7 +81,7 @@ view
               container width=fill height=fill padding=16.0
                 col @gap-3
                   text "Drag, resize, or arrange this pane." @text-sm text-muted
-                  canvas width=fill height=160.0 cache=detail_mode capture=true cursor=crosshair press=canvas_pressed
+                  canvas width=fill height=160.0 cache=detail_mode cache-group=details capture=true cursor=crosshair press=canvas_pressed
                     rect x=0.0 y=0.0 width=canvas_width height=canvas_height fill=linear(1.57, background@0.0, surface@1.0) stroke=border
                     circle x=48.0 y=48.0 radius=28.0 fill=primary stroke=foreground stroke-width=2.0
                     path fill=primary/25 stroke=primary stroke-width=2.0 cap=round join=round
@@ -90,6 +90,8 @@ view
                       line x=224.0 y=112.0
                       close
                     text detail_mode x=16.0 y=136.0 color=foreground size=14.0 font=default
+                    image "examples/iced-app/assets/checker.ppm" x=256.0 y=16.0 width=48.0 height=48.0 filter=nearest opacity=0.9 snap=true radius=6.0
+                    svg "examples/iced-app/assets/ice.svg" x=312.0 y=16.0 width=48.0 height=48.0 color=primary opacity=0.9
                   row wrap @gap-2
                     radio "Summary" value="summary" selected=(detail_mode == "summary") size=16.0 spacing=6.0 text-size=14.0 line-height=1.2 shaping=advanced wrapping=word font=default -> detail_mode_changed _
                       active selected background=linear(1.57, primary@0.0, surface@1.0) dot=foreground border=primary border-width=2.0 text=foreground

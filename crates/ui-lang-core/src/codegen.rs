@@ -384,14 +384,14 @@ fn generate_canvas_types(out: &mut String, document: &Document) {
     }
     out.push_str(
         r#"struct __IceCanvasState {
-    cache: ::iced::widget::canvas::Cache,
+    cache: ::std::cell::OnceCell<::iced::widget::canvas::Cache>,
     cache_key: ::std::cell::Cell<::std::option::Option<u64>>,
     inside: bool,
 }
 impl ::std::default::Default for __IceCanvasState {
     fn default() -> Self {
         Self {
-            cache: ::iced::widget::canvas::Cache::new(),
+            cache: ::std::cell::OnceCell::new(),
             cache_key: ::std::cell::Cell::new(::std::option::Option::None),
             inside: false,
         }
@@ -402,6 +402,7 @@ struct __IceCanvasProgram<Message, Draw, Update> {
     update: Update,
     interaction: ::iced::mouse::Interaction,
     cache_key: ::std::option::Option<u64>,
+    cache_group: ::std::option::Option<::iced::widget::canvas::Group>,
     use_cache: bool,
     message: ::std::marker::PhantomData<fn() -> Message>,
 }
@@ -442,9 +443,15 @@ where
         bounds: ::iced::Rectangle,
         cursor: ::iced::mouse::Cursor,
     ) -> ::std::vec::Vec<::iced::widget::canvas::Geometry> {
-        if self.use_cache && state.cache_key.get() != self.cache_key {
-            state.cache.clear();
-            state.cache_key.set(self.cache_key);
+        if self.use_cache {
+            let cache = state.cache.get_or_init(|| match self.cache_group {
+                ::std::option::Option::Some(group) => ::iced::widget::canvas::Cache::with_group(group),
+                ::std::option::Option::None => ::iced::widget::canvas::Cache::new(),
+            });
+            if state.cache_key.get() != self.cache_key {
+                cache.clear();
+                state.cache_key.set(self.cache_key);
+            }
         }
         (self.draw)(state, renderer, theme, bounds, cursor)
     }
@@ -464,6 +471,14 @@ where
 }
 "#,
     );
+    for group in canvas_cache_groups(document) {
+        writeln!(
+            out,
+            "static {}: ::std::sync::OnceLock<::iced::widget::canvas::Group> = ::std::sync::OnceLock::new();",
+            canvas_group_symbol(group)
+        )
+        .unwrap();
+    }
 }
 
 fn uses_system_task(document: &Document, name: &str) -> bool {
@@ -4313,8 +4328,17 @@ fn render_canvas(
         .interaction
         .map(mouse_interaction_code)
         .unwrap_or("None");
+    let cache_group = options.cache_group.as_ref().map_or_else(
+        || "::std::option::Option::None".into(),
+        |group| {
+            format!(
+                "::std::option::Option::Some(*{}.get_or_init(::iced::widget::canvas::Group::unique))",
+                canvas_group_symbol(group)
+            )
+        },
+    );
     let mut code = format!(
-        "{{ let __program = __IceCanvasProgram::<{message}, _, _> {{ draw: move |__state: &__IceCanvasState, __renderer: &::iced::Renderer, __theme: &::iced::Theme, __bounds: ::iced::Rectangle, __cursor: ::iced::mouse::Cursor| {{ let __paint = move |__frame: &mut ::iced::widget::canvas::Frame| {{ {draw_commands} }}; let __geometry = if {use_cache} {{ __state.cache.draw(__renderer, __bounds.size(), __paint) }} else {{ let mut __frame = ::iced::widget::canvas::Frame::new(__renderer, __bounds.size()); __paint(&mut __frame); __frame.into_geometry() }}; ::std::vec![__geometry] }}, update: {update}, interaction: ::iced::mouse::Interaction::{interaction}, cache_key: {cache_key}, use_cache: {use_cache}, message: ::std::marker::PhantomData }}; let __canvas = ::iced::widget::canvas(__program)"
+        "{{ let __program = __IceCanvasProgram::<{message}, _, _> {{ draw: move |__state: &__IceCanvasState, __renderer: &::iced::Renderer, __theme: &::iced::Theme, __bounds: ::iced::Rectangle, __cursor: ::iced::mouse::Cursor| {{ let __paint = move |__frame: &mut ::iced::widget::canvas::Frame| {{ {draw_commands} }}; let __geometry = if {use_cache} {{ __state.cache.get().expect(\"initialized canvas cache\").draw(__renderer, __bounds.size(), __paint) }} else {{ let mut __frame = ::iced::widget::canvas::Frame::new(__renderer, __bounds.size()); __paint(&mut __frame); __frame.into_geometry() }}; ::std::vec![__geometry] }}, update: {update}, interaction: ::iced::mouse::Interaction::{interaction}, cache_key: {cache_key}, cache_group: {cache_group}, use_cache: {use_cache}, message: ::std::marker::PhantomData }}; let __canvas = ::iced::widget::canvas(__program)"
     );
     if let Some(width) = &options.width {
         write!(code, ".width({})", length_code(width, env, document)?).unwrap();
@@ -4593,6 +4617,96 @@ fn canvas_commands_code(
                 write!(
                     code,
                     " __frame.fill_text(::iced::widget::canvas::Text {{ content: {content}, position: {position}, max_width: {max_width}, color: {color}, size: ::iced::Pixels({size} as f32), line_height: {line_height}, font: {font}, align_x: ::iced::widget::text::Alignment::{align_x}, align_y: ::iced::alignment::Vertical::{align_y}, shaping: ::iced::widget::text::Shaping::{shaping} }});"
+                )
+                .unwrap();
+            }
+            CanvasCommand::Image {
+                source,
+                x,
+                y,
+                width,
+                height,
+                filter,
+                rotation,
+                opacity,
+                snap,
+                radius,
+                span,
+            } => {
+                let source_ty = expr_type(
+                    source,
+                    &env.iter()
+                        .map(|(name, binding)| (name.clone(), binding.ty.clone()))
+                        .collect(),
+                    document,
+                    span,
+                )?;
+                let source = expr_code(source, env, document, ValueMode::Owned)?;
+                let handle = if source_ty == Type::Str {
+                    format!("::iced::widget::image::Handle::from_path({source})")
+                } else {
+                    source
+                };
+                let filter = match filter {
+                    ImageFilter::Linear => "Linear",
+                    ImageFilter::Nearest => "Nearest",
+                };
+                write!(
+                    code,
+                    " __frame.draw_image(::iced::Rectangle::new({}, {}), ::iced::widget::canvas::Image {{ handle: {handle}, filter_method: ::iced::widget::image::FilterMethod::{filter}, rotation: ::iced::Radians({} as f32), border_radius: {}, opacity: {} as f32, snap: {} }});",
+                    canvas_point_code(x, y, env, document)?,
+                    canvas_size_code(width, height, env, document)?,
+                    canvas_expr_code(rotation, env, document)?,
+                    canvas_radius_code(radius, env, document)?,
+                    canvas_expr_code(opacity, env, document)?,
+                    canvas_expr_code(snap, env, document)?
+                )
+                .unwrap();
+            }
+            CanvasCommand::Svg {
+                source,
+                memory,
+                x,
+                y,
+                width,
+                height,
+                color,
+                rotation,
+                opacity,
+                span,
+            } => {
+                let source_ty = expr_type(
+                    source,
+                    &env.iter()
+                        .map(|(name, binding)| (name.clone(), binding.ty.clone()))
+                        .collect(),
+                    document,
+                    span,
+                )?;
+                let source = expr_code(source, env, document, ValueMode::Owned)?;
+                let handle = if *memory && source_ty == Type::Bytes {
+                    format!("::iced::advanced::svg::Handle::from_memory({source})")
+                } else if *memory {
+                    format!("::iced::advanced::svg::Handle::from_memory(({source}).into_bytes())")
+                } else {
+                    format!("::iced::advanced::svg::Handle::from_path({source})")
+                };
+                let color = color.as_ref().map_or_else(
+                    || "::std::option::Option::None".into(),
+                    |color| {
+                        format!(
+                            "::std::option::Option::Some({})",
+                            theme_color(document, color)
+                        )
+                    },
+                );
+                write!(
+                    code,
+                    " __frame.draw_svg(::iced::Rectangle::new({}, {}), ::iced::advanced::svg::Svg {{ handle: {handle}, color: {color}, rotation: ::iced::Radians({} as f32), opacity: {} as f32 }});",
+                    canvas_point_code(x, y, env, document)?,
+                    canvas_size_code(width, height, env, document)?,
+                    canvas_expr_code(rotation, env, document)?,
+                    canvas_expr_code(opacity, env, document)?
                 )
                 .unwrap();
             }
@@ -5566,20 +5680,39 @@ fn editor_bindings(root: &ViewNode) -> Vec<String> {
 }
 
 fn uses_canvas(document: &Document) -> bool {
-    fn contains(node: &ViewNode) -> bool {
+    !canvas_options(document).is_empty()
+}
+
+fn canvas_options(document: &Document) -> Vec<&CanvasOptions> {
+    fn collect<'a>(node: &'a ViewNode, output: &mut Vec<&'a CanvasOptions>) {
         match node {
-            ViewNode::Canvas { .. } => true,
+            ViewNode::Canvas { options, .. } => output.push(options),
             ViewNode::Layout { children, .. }
             | ViewNode::If { children, .. }
-            | ViewNode::For { children, .. } => children.iter().any(contains),
-            ViewNode::Tooltip { content, tip, .. } => contains(content) || contains(tip),
-            ViewNode::Overlay { content, layer, .. } => contains(content) || contains(layer),
-            ViewNode::PaneGrid { panes, .. } => {
-                panes.iter().flat_map(PaneView::nodes).any(contains)
+            | ViewNode::For { children, .. } => {
+                for child in children {
+                    collect(child, output);
+                }
             }
-            ViewNode::Table { columns, .. } => columns
-                .iter()
-                .any(|column| contains(&column.header) || contains(&column.cell)),
+            ViewNode::Tooltip { content, tip, .. } => {
+                collect(content, output);
+                collect(tip, output);
+            }
+            ViewNode::Overlay { content, layer, .. } => {
+                collect(content, output);
+                collect(layer, output);
+            }
+            ViewNode::PaneGrid { panes, .. } => {
+                for node in panes.iter().flat_map(PaneView::nodes) {
+                    collect(node, output);
+                }
+            }
+            ViewNode::Table { columns, .. } => {
+                for column in columns {
+                    collect(&column.header, output);
+                    collect(&column.cell, output);
+                }
+            }
             ViewNode::MouseArea { content, .. }
             | ViewNode::Container { content, .. }
             | ViewNode::Theme { content, .. }
@@ -5587,22 +5720,49 @@ fn uses_canvas(document: &Document) -> bool {
             | ViewNode::Pin { content, .. }
             | ViewNode::Sensor { content, .. }
             | ViewNode::KeyedColumn { child: content, .. }
-            | ViewNode::Lazy { child: content, .. } => contains(content),
-            ViewNode::Component { slots, .. } => slots.iter().any(|slot| contains(&slot.content)),
+            | ViewNode::Lazy { child: content, .. } => collect(content, output),
+            ViewNode::Component { slots, .. } => {
+                for slot in slots {
+                    collect(&slot.content, output);
+                }
+            }
             ViewNode::Button {
                 content: Some(content),
                 ..
-            } => contains(content),
+            } => collect(content, output),
             ViewNode::Responsive { content, .. } => match content {
                 ResponsiveContent::Breakpoint { narrow, wide, .. } => {
-                    contains(narrow) || contains(wide)
+                    collect(narrow, output);
+                    collect(wide, output);
                 }
-                ResponsiveContent::Size { content, .. } => contains(content),
+                ResponsiveContent::Size { content, .. } => collect(content, output),
             },
-            _ => false,
+            _ => {}
         }
     }
-    contains(&document.view) || document.components.iter().any(|item| contains(&item.root))
+    let mut output = Vec::new();
+    collect(&document.view, &mut output);
+    for component in &document.components {
+        collect(&component.root, &mut output);
+    }
+    output
+}
+
+fn canvas_cache_groups(document: &Document) -> Vec<&str> {
+    let mut groups = Vec::new();
+    for group in canvas_options(document)
+        .into_iter()
+        .filter_map(|options| options.cache_group.as_deref())
+    {
+        if !groups.contains(&group) {
+            groups.push(group);
+        }
+    }
+    groups
+}
+
+fn canvas_group_symbol(group: &str) -> String {
+    format!("__ICE_CANVAS_GROUP_{}", group.to_ascii_uppercase())
 }
 
 fn needs_extern_noop(document: &Document) -> bool {
@@ -9358,6 +9518,7 @@ theme
   danger #dc2626
 state
   cached = true
+  picture = rgba(1, 1, bytes(ff 00 ff ff))
 on pressed(x, y)
 on released(x, y)
 on moved(x, y)
@@ -9365,12 +9526,14 @@ on scrolled(x, y, pixels)
 on entered
 on exited
 view
-  canvas width=fill height=240.0 cache=cached capture=true cursor=crosshair press=pressed release=released move=moved scroll=scrolled enter=entered exit=exited
+  canvas width=fill height=240.0 cache=cached cache-group=drawings capture=true cursor=crosshair press=pressed release=released move=moved scroll=scrolled enter=entered exit=exited
     rect x=0.0 y=0.0 width=canvas_width height=canvas_height fill=linear(1.57, background@0.0, primary@1.0) stroke=foreground
     rect x=8.0 y=8.0 width=72.0 height=40.0 radius=8.0 radius-tl=4.0 stroke=foreground stroke-width=2.0 dash=(4.0, 2.0) dash-offset=1 cap=round join=bevel
     circle x=120.0 y=60.0 radius=24.0 fill=primary fill-rule=even-odd stroke=foreground
     line x1=16.0 y1=120.0 x2=200.0 y2=120.0 stroke=foreground stroke-width=3.0 cap=square
     text "Canvas" x=16.0 y=150.0 max-width=180.0 color=foreground size=18.0 line-height=1.2 font=default align-x=left align-y=top shaping=advanced
+    image picture x=8.0 y=160.0 width=32.0 height=24.0 filter=nearest rotation=0.2 opacity=0.8 snap=true radius=4.0 radius-tl=2.0
+    svg "<svg/>" memory x=48.0 y=160.0 width=24.0 height=24.0 color=foreground rotation=0.1 opacity=0.9
     path fill=primary stroke=foreground stroke-width=1.0
       move x=220.0 y=20.0
       line x=260.0 y=20.0
@@ -9393,12 +9556,17 @@ view
         let generated = compile(source, "drawing.ice").unwrap();
         for expected in [
             "impl<Message, Draw, Update> ::iced::widget::canvas::Program<Message>",
-            "__state.cache.draw",
+            "__state.cache.get().expect",
+            "Cache::with_group",
+            "__ICE_CANVAS_GROUP_DRAWINGS",
             "::std::hash::Hash::hash",
             "::iced::widget::canvas::Path::rounded_rectangle",
             "__frame.fill_rectangle",
             "__frame.stroke_rectangle",
             "__frame.fill_text",
+            "__frame.draw_image",
+            "__frame.draw_svg",
+            "::iced::advanced::svg::Svg",
             "__path.arc(",
             "__path.arc_to(",
             "__path.ellipse(",

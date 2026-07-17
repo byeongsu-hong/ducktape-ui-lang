@@ -1,4 +1,4 @@
-# Ice Language Specification 0.77
+# Ice Language Specification 0.78
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.77 syntax.
+marked “planned” is a design constraint, not accepted 0.78 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.77.
+  block comments are not part of 0.78.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -742,7 +742,7 @@ default/centered/fixed position, visibility, resizability, close/minimize
 buttons, decorations, transparency, blur, level, and close-request behavior.
 Sizes, text size, and scale factor must be positive; minimum size cannot exceed
 maximum size. Window icons and platform-specific settings are not part of
-0.77.
+0.78.
 
 Media fixed lengths, rotation, opacity, scale, and radius are `f64`; rotation
 is radians and defaults to floating layout behavior, while `solid(angle)` makes
@@ -1146,7 +1146,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.77 message payloads.
+`Clone` for 0.78 message payloads.
 
 Three typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
@@ -1313,7 +1313,7 @@ The implemented native nodes are:
 | `svg` | SVG path or UTF-8/raw-byte memory expression with typed layout and idle/hover color properties |
 | `tooltip` | exactly two children (content then tip), full positioning/timing plus preset, color, border, radius, shadow and pixel-snap styles |
 | `mouse` | one child; all button/enter/move/scroll/exit events and every iced cursor interaction |
-| `canvas` | declarative native geometry, path building, transforms, clipping, typed control flow, dependency cache and pointer events |
+| `canvas` | declarative native geometry, raster/SVG drawing, path building, transforms, clipping, typed control flow, grouped dependency caches and pointer events |
 | `theme` | one child with default/app/all built-in iced themes and checked text color plus solid/linear background |
 | `if` | includes its children when a bool expression is true |
 | `for` | iterates a list and adds one typed item binding |
@@ -1455,7 +1455,7 @@ Canvas is a checked declarative layer over iced's native `Canvas`, `Program`,
 `Frame`, `Path`, and `Cache`. Its body is drawing code, not a widget subtree:
 
 ```ice
-canvas width=fill height=220.0 cache=chart_version capture=true cursor=crosshair press=chart_pressed
+canvas width=fill height=220.0 cache=chart_version cache-group=charts capture=true cursor=crosshair press=chart_pressed
   rect x=0.0 y=0.0 width=canvas_width height=canvas_height fill=background
   circle x=64.0 y=64.0 radius=28.0 fill=primary stroke=foreground stroke-width=2.0
   path fill=primary/25 stroke=primary stroke-width=2.0 cap=round join=round
@@ -1464,6 +1464,8 @@ canvas width=fill height=220.0 cache=chart_version capture=true cursor=crosshair
     line x=240.0 y=160.0
     close
   text "Drag me" x=16.0 y=196.0 color=foreground size=14.0
+  image logo x=264.0 y=16.0 width=48.0 height=48.0 filter=nearest opacity=0.9 snap=true radius=6.0
+  svg "icon.svg" x=320.0 y=16.0 width=48.0 height=48.0 color=primary rotation=0.1 opacity=0.9
 ```
 
 `canvas_width` and `canvas_height` are scoped `f64` bindings containing the
@@ -1481,10 +1483,21 @@ Bézier, quadratic, rectangle, per-corner rounded rectangle, circle, and close
 builder calls. Canvas text accepts string/numeric content, position, maximum
 width, color, size, relative/absolute line height, font, alignment and shaping.
 
+`image source` draws either a path string or an `image` handle produced by
+`encoded(...)`/`rgba(...)`. It requires `x`, `y`, `width`, and `height`, and
+exposes every concrete `iced::Image` field: linear/nearest filtering, rotation,
+opacity, pixel snapping, and per-corner radius. `svg source` has the same bounds,
+rotation, and opacity contract plus an optional checked color. Add the bare
+`memory` flag to accept UTF-8 SVG text or raw bytes instead of a path. Both
+commands draw inside the current frame transform and clip.
+
 `cache=dependency` uses iced's geometry cache and clears it when the checked
 hashable dependency changes or the bounds change. Include every state value
 that affects drawing in that dependency; omit `cache=` for always-fresh
-geometry. Pointer press/release variants and move emit local `(x, y)` values;
+geometry. `cache-group=name` requires `cache=` and gives every canvas carrying
+the same static name a shared native `canvas::Group`; this maps directly to
+iced's grouped cache storage without changing invalidation keys. Pointer
+press/release variants and move emit local `(x, y)` values;
 scroll emits `(x, y, pixels)`. `enter`/`exit` have no payload. `capture=true`
 marks emitted pointer events captured. Native consumers must enable iced's
 `canvas` Cargo feature.
@@ -1743,7 +1756,7 @@ weight, stretch, and style variant is accepted. At most one declaration may be
 the application default. `font=default` and `font=mono` remain built-ins;
 declared fonts also work on text, rich text and spans, input, editor, checkbox,
 toggler, radio, pick, combo, and their custom icons. Font
-byte loading is not part of 0.77.
+byte loading is not part of 0.78.
 
 Widget operation tasks target checked static IDs in the app view:
 
@@ -1763,7 +1776,7 @@ snap/end; and absolute scroll-to/scroll-by. Effects have no route and
 non-negative `i64`; relative offsets are `f64` in `0.0..=1.0`; absolute
 offsets are unrestricted `f64`. Targets must be real static IDs in the app
 scope. Repeated/component scopes and the feature-gated selector API remain
-outside 0.77.
+outside 0.78.
 
 Persistent pane grids expose their native layout-state operations directly in
 handlers:
@@ -1810,7 +1823,7 @@ and constraints, resizability, maximize/minimize state, position and movement,
 all modes, decorations, user attention, focus, level, system menu, mouse
 passthrough, monitor size, and automatic tabbing. Positive sizes and bool
 arguments are checked before Rust generation. New-window IDs, open/oldest/latest,
-icons, raw handles, screenshots, and callbacks remain outside 0.77.
+icons, raw handles, screenshots, and callbacks remain outside 0.78.
 
 Every iced window event has a direct subscription form:
 
@@ -1963,7 +1976,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 0.77 does not claim that remapping.
+extern line; 0.78 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -1984,7 +1997,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 0.77 native backend is enough for CRUD/settings-style screens, selection,
+The 0.78 native backend is enough for CRUD/settings-style screens, selection,
 media, hover overlays, declarative canvas geometry, and common pointer events,
 not all of iced. It still lacks direct syntax for shaders, arbitrary custom
 overlays, multiple windows, and custom widgets. [`COVERAGE.md`](COVERAGE.md) is

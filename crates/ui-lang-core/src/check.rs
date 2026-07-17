@@ -2295,6 +2295,13 @@ fn infer_view(
                     .hint("use bool, i64, str, bytes, an extern Hash + Clone type, or a list/optional of those"));
                 }
             }
+            if options.cache_group.is_some() && options.cache.is_none() {
+                return Err(Error::new(
+                    "E190",
+                    span,
+                    "canvas cache-group requires `cache=`",
+                ));
+            }
             if let Some(capture) = &options.capture {
                 require_type(&expr_type(capture, env, document, span)?, &Type::Bool, span)?;
             }
@@ -2614,6 +2621,82 @@ fn check_canvas_commands(
                     return Err(Error::new("E190", span, "unknown canvas text color"));
                 }
                 check_font(font.as_ref(), document, span)?;
+            }
+            CanvasCommand::Image {
+                source,
+                x,
+                y,
+                width,
+                height,
+                rotation,
+                opacity,
+                snap,
+                radius,
+                span,
+                ..
+            } => {
+                let source_ty = expr_type(source, env, document, span)?;
+                if !matches!(source_ty, Type::Str | Type::Image) {
+                    return Err(type_error(span, &Type::Image, &source_ty)
+                        .hint("canvas image accepts a path string or image handle"));
+                }
+                for (value, label, min) in [
+                    (x, "image x", None),
+                    (y, "image y", None),
+                    (width, "image width", Some(0.0)),
+                    (height, "image height", Some(0.0)),
+                    (rotation, "image rotation", None),
+                    (opacity, "image opacity", Some(0.0)),
+                ] {
+                    check_canvas_number(value, env, document, span, label, min)?;
+                }
+                require_literal_range(opacity, 0.0, Some(1.0), "image opacity", span)?;
+                require_type(&expr_type(snap, env, document, span)?, &Type::Bool, span)?;
+                check_canvas_radius(radius, env, document, span)?;
+            }
+            CanvasCommand::Svg {
+                source,
+                memory,
+                x,
+                y,
+                width,
+                height,
+                color,
+                rotation,
+                opacity,
+                span,
+            } => {
+                let source_ty = expr_type(source, env, document, span)?;
+                let valid_source = if *memory {
+                    matches!(source_ty, Type::Str | Type::Bytes)
+                } else {
+                    source_ty == Type::Str
+                };
+                if !valid_source {
+                    return Err(type_error(
+                        span,
+                        if *memory { &Type::Bytes } else { &Type::Str },
+                        &source_ty,
+                    )
+                    .hint("canvas svg accepts a path string, or UTF-8/raw bytes with `memory`"));
+                }
+                for (value, label, min) in [
+                    (x, "svg x", None),
+                    (y, "svg y", None),
+                    (width, "svg width", Some(0.0)),
+                    (height, "svg height", Some(0.0)),
+                    (rotation, "svg rotation", None),
+                    (opacity, "svg opacity", Some(0.0)),
+                ] {
+                    check_canvas_number(value, env, document, span, label, min)?;
+                }
+                require_literal_range(opacity, 0.0, Some(1.0), "svg opacity", span)?;
+                if color
+                    .as_ref()
+                    .is_some_and(|color| !valid_theme_color(color, document))
+                {
+                    return Err(Error::new("E190", span, "unknown canvas svg color"));
+                }
             }
             CanvasCommand::Path {
                 segments,
@@ -7173,10 +7256,13 @@ theme
   danger #ff0000
 state
   cached = true
+  picture = rgba(1, 1, bytes(ff 00 ff ff))
 on pressed(x, y)
 view
-  canvas width=fill height=120.0 cache=cached press=pressed
+  canvas width=fill height=120.0 cache=cached cache-group=drawings press=pressed
     circle x=60.0 y=60.0 radius=24.0 fill=primary
+    image picture x=4.0 y=4.0 width=16.0 height=16.0 opacity=0.8 snap=true
+    svg "<svg/>" memory x=24.0 y=4.0 width=16.0 height=16.0 color=foreground opacity=0.9
 "#;
         analyze(source).unwrap();
 
@@ -7187,6 +7273,18 @@ view
         let error = analyze(&source.replace("cache=cached", "cache=1.0")).unwrap_err();
         assert_eq!(error.code, "E190");
         assert!(error.message.contains("stable hashing"));
+
+        let error = analyze(&source.replace("cache=cached ", "")).unwrap_err();
+        assert_eq!(error.code, "E190");
+        assert!(error.message.contains("cache-group requires"));
+
+        let error = analyze(&source.replace("opacity=0.8", "opacity=1.1")).unwrap_err();
+        assert_eq!(error.code, "E128");
+        assert!(error.message.contains("image opacity"));
+
+        let error = analyze(&source.replace("color=foreground", "color=missing")).unwrap_err();
+        assert_eq!(error.code, "E190");
+        assert!(error.message.contains("svg color"));
 
         let error = analyze(&source.replace(" radius=24.0", "")).unwrap_err();
         assert_eq!(error.code, "E190");
