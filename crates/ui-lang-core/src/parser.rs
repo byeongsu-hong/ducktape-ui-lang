@@ -636,6 +636,7 @@ fn parse_view(line: &Line) -> Result<ViewNode, Error> {
         "theme" => parse_theme(&parts, styles, line),
         "slot" => parse_slot(&parts, styles, line),
         "keyed" => parse_keyed_column(&parts, styles, line),
+        "lazy" => parse_lazy(&parts, styles, line),
         "float" => parse_float(&parts, styles, line),
         "pin" => parse_pin(&parts, styles, line),
         "sensor" => parse_sensor(&parts, styles, line),
@@ -682,6 +683,28 @@ fn parse_view(line: &Line) -> Result<ViewNode, Error> {
         }
         _ => Err(error("E064", line, format!("unknown view node `{kind}`"))),
     }
+}
+
+fn parse_lazy(parts: &[String], styles: Vec<String>, line: &Line) -> Result<ViewNode, Error> {
+    if !styles.is_empty() {
+        return Err(error("E096", line, "lazy does not accept `@` utilities"));
+    }
+    if parts.len() != 4 || parts[2] != "as" {
+        return Err(error("E096", line, "lazy uses `lazy dependency as name`"));
+    }
+    if line.children.len() != 1 {
+        return Err(error(
+            "E096",
+            line,
+            "lazy requires exactly one child subtree",
+        ));
+    }
+    Ok(ViewNode::Lazy {
+        dependency: parse_expr(strip_wrapping_parens(&parts[1]), line)?,
+        binding: identifier(&parts[3], line)?,
+        child: Box::new(parse_view(&line.children[0])?),
+        span: Span::line(line.number),
+    })
 }
 
 fn parse_keyed_column(

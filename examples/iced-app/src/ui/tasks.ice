@@ -22,8 +22,10 @@ view
         text error @text-sm text-white
         button "Retry" disabled=loading @px-4 py-2 bg-white text-danger rounded-md -> retry
 
-    if loading
-      text "Working..." @text-sm text-muted
+    lazy loading as busy
+      col
+        if busy
+          text "Working..." @text-sm text-muted
 
     if empty(tasks) && !loading
       text "No tasks yet." @text-sm text-muted
