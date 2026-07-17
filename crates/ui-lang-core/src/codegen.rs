@@ -529,6 +529,17 @@ fn statements_use_system_task(statements: &[Statement], name: &str) -> bool {
         Statement::Abortable { task, .. } => {
             statements_use_system_task(::std::slice::from_ref(task), name)
         }
+        Statement::TaskFlow {
+            source, transforms, ..
+        } => {
+            source.function == name
+                || transforms.iter().any(|transform| match transform {
+                    TaskTransform::Then { source, .. } | TaskTransform::AndThen { source, .. } => {
+                        source.function == name
+                    }
+                    TaskTransform::Collect { .. } | TaskTransform::Discard { .. } => false,
+                })
+        }
         _ => false,
     })
 }
@@ -1122,6 +1133,117 @@ fn generate_view(out: &mut String, document: &Document, message: &str) -> Result
     Ok(())
 }
 
+fn task_source_code(
+    source: &TaskSource,
+    document: &Document,
+    env: &HashMap<String, Binding>,
+) -> Result<String, Error> {
+    if source.kind == EffectKind::Task {
+        match source.function.as_str() {
+            "__ice_system_info" => {
+                return Ok("::iced::system::information().map(__ice_system_info)".into());
+            }
+            "__ice_system_theme" => {
+                return Ok("::iced::system::theme().map(__ice_system_theme)".into());
+            }
+            "__ice_clipboard_read" => return Ok("::iced::clipboard::read()".into()),
+            "__ice_clipboard_read_primary" => {
+                return Ok("::iced::clipboard::read_primary()".into());
+            }
+            "__ice_font_load" => {
+                let bytes = expr_code(&source.args[0], env, document, ValueMode::Owned)?;
+                return Ok(format!(
+                    "::iced::font::load({bytes}).map(|result| match result {{ ::std::result::Result::Ok(value) => value, ::std::result::Result::Err(error) => match error {{}} }})"
+                ));
+            }
+            _ => {}
+        }
+    }
+    let action = document
+        .functions
+        .iter()
+        .find(|item| item.name == source.function && item.kind == source.kind.into())
+        .ok_or_else(|| {
+            Error::new(
+                "E130",
+                &source.span,
+                format!("unknown extern task source `{}`", source.function),
+            )
+        })?;
+    let args = source
+        .args
+        .iter()
+        .map(|arg| expr_code(arg, env, document, ValueMode::Owned))
+        .collect::<Result<Vec<_>, _>>()?
+        .join(", ");
+    Ok(match source.kind {
+        EffectKind::Future => {
+            format!(
+                "::iced::Task::perform({}({args}), |value| value)",
+                action.rust_path
+            )
+        }
+        EffectKind::Task => format!("{}({args})", action.rust_path),
+        EffectKind::Stream => {
+            format!(
+                "::iced::Task::run({}({args}), |value| value)",
+                action.rust_path
+            )
+        }
+    })
+}
+
+fn task_flow_code(
+    root: &TaskSource,
+    transforms: &[TaskTransform],
+    document: &Document,
+    message: &str,
+    env: &HashMap<String, Binding>,
+) -> Result<String, Error> {
+    let mut task = task_source_code(root, document, env)?;
+    for (index, transform) in transforms.iter().enumerate() {
+        match transform {
+            TaskTransform::Then {
+                binding, source, ..
+            }
+            | TaskTransform::AndThen {
+                binding, source, ..
+            } => {
+                let (output, error) =
+                    crate::check::task_flow_type(root, &transforms[..index], document, None)?;
+                let output = output.expect("discard is the final transform");
+                let binding_ty =
+                    if matches!(transform, TaskTransform::AndThen { .. }) && error.is_none() {
+                        let Type::Option(inner) = output else {
+                            unreachable!("checked optional and-then")
+                        };
+                        *inner
+                    } else {
+                        output
+                    };
+                let next_env = HashMap::from([(
+                    binding.clone(),
+                    Binding {
+                        code: binding.clone(),
+                        ty: binding_ty,
+                        local: false,
+                    },
+                )]);
+                let next = task_source_code(source, document, &next_env)?;
+                let method = if matches!(transform, TaskTransform::Then { .. }) {
+                    "then"
+                } else {
+                    "and_then"
+                };
+                task = format!("({task}).{method}(move |{binding}| {next})");
+            }
+            TaskTransform::Collect { .. } => task = format!("({task}).collect()"),
+            TaskTransform::Discard { .. } => task = format!("({task}).discard::<{message}>()"),
+        }
+    }
+    Ok(task)
+}
+
 fn generate_statements(
     out: &mut String,
     statements: &[Statement],
@@ -1289,6 +1411,49 @@ fn generate_statements(
                 } else {
                     writeln!(out, "{prefix}::iced::Task::sip({}({args}), |value| {progress_message}, |value| {success_message}){suffix}", action.rust_path).unwrap();
                 }
+            }
+            Statement::TaskFlow {
+                source,
+                transforms,
+                success,
+                error,
+                units,
+                ..
+            } => {
+                has_task = true;
+                let (output, error_ty) =
+                    crate::check::task_flow_type(source, transforms, document, None)?;
+                let task = task_flow_code(source, transforms, document, message, env)?;
+                let mapped = if output.is_none() {
+                    task
+                } else {
+                    let success = success.as_ref().expect("checked flow done route");
+                    let success_message = route_code(success, "value", env, document, message)?;
+                    if error_ty.is_some() {
+                        let error = error.as_ref().expect("checked flow error route");
+                        let error_message = route_code(error, "error", env, document, message)?;
+                        format!(
+                            "({task}).map(|result| match result {{ ::std::result::Result::Ok(value) => {success_message}, ::std::result::Result::Err(error) => {error_message} }})"
+                        )
+                    } else {
+                        format!("({task}).map(|value| {success_message})")
+                    }
+                };
+                let task = if let Some(units) = units {
+                    let units_message = route_code(units, "__units", env, document, message)?;
+                    format!(
+                        "{{ let __task = {mapped}; let __units = i64::try_from(__task.units()).unwrap_or(i64::MAX); ::iced::Task::batch([__task, ::iced::Task::done({units_message})]) }}"
+                    )
+                } else {
+                    mapped
+                };
+                writeln!(
+                    out,
+                    "{}{task}{}",
+                    if return_task { "return " } else { "" },
+                    if return_task { ";" } else { "" }
+                )
+                .unwrap();
             }
             Statement::TaskGroup {
                 kind, statements, ..
@@ -8645,6 +8810,51 @@ view
         assert!(generated.contains("Task::sip(crate::backend::transfer(3), |value|"));
         assert!(generated.contains("Task::sip(crate::backend::fallible(), |value|"));
         assert!(generated.contains("Result::Err(error) => __SipsMessage::Failed(error)"));
+    }
+
+    #[test]
+    fn lowers_structured_task_flows() {
+        let source = r#"app Flows
+extern crate::backend
+  AppError(message:str)
+  stream numbers(limit:i64) -> i64
+  task double(value:i64) -> i64
+  task fallible(value:i64) -> i64 ! AppError
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+on start
+  parallel
+    flow
+      from stream numbers(3)
+      then value -> task double(value)
+      collect
+      done -> collected _
+      units -> planned _
+    flow
+      from task fallible(2)
+      and-then value -> task fallible(value)
+      done -> finished _
+      error -> failed _
+    flow
+      from stream numbers(1)
+      discard
+on collected(values)
+on planned(units)
+on finished(value)
+on failed(error)
+view
+  text "Flows"
+"#;
+        let generated = compile(source, "flows.ice").unwrap();
+        assert!(generated.contains("Task::run(crate::backend::numbers(3), |value| value)"));
+        assert!(generated.contains(".then(move |value| crate::backend::double(value))"));
+        assert!(generated.contains(".and_then(move |value| crate::backend::fallible(value))"));
+        assert!(generated.contains(".collect()"));
+        assert!(generated.contains(".discard::<__FlowsMessage>()"));
+        assert!(generated.contains("i64::try_from(__task.units())"));
     }
 
     #[test]

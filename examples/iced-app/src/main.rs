@@ -210,6 +210,27 @@ mod backend {
     }
 
     #[cfg(test)]
+    pub fn double_task(value: i64) -> iced::Task<i64> {
+        iced::Task::done(value * 2)
+    }
+
+    #[cfg(test)]
+    pub fn optional_task(value: i64) -> iced::Task<Option<i64>> {
+        iced::Task::done((value > 0).then_some(value))
+    }
+
+    #[cfg(test)]
+    pub fn fallible_task(value: i64) -> iced::Task<Result<i64, AppError>> {
+        iced::Task::done(if value >= 0 {
+            Ok(value)
+        } else {
+            Err(AppError {
+                message: "task failed".into(),
+            })
+        })
+    }
+
+    #[cfg(test)]
     pub fn app_events() -> iced::Subscription<bool> {
         iced::event::listen_with(|event, _status, _window| focus_event(event))
     }
@@ -316,6 +337,17 @@ mod task_sip {
     fn constructs_both_native_sipper_units() {
         let (mut app, _) = TaskSip::__boot();
         assert_eq!(app.__update(__TaskSipMessage::Start).units(), 2);
+    }
+}
+
+#[cfg(test)]
+mod task_flow {
+    ui_lang::include_app!("src/ui/task_flow.ice");
+
+    #[test]
+    fn constructs_native_task_combinators() {
+        let (mut app, _) = TaskFlow::__boot();
+        assert_eq!(app.__update(__TaskFlowMessage::Start).units(), 6);
     }
 }
 

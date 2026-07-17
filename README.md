@@ -128,7 +128,7 @@ cargo fmt --all
 
 ## Status
 
-This is an executable v0.87 language slice, not yet a complete iced replacement.
+This is an executable v0.88 language slice, not yet a complete iced replacement.
 It implements typed extern data/actions, state, handlers, async tasks, pure
 components with named props, default children, named structural slots, and
 React-like qualified compound children, scoped IDs, relative
@@ -139,7 +139,7 @@ dependency-keyed lazy subtrees, checked style utilities, formatting, analysis,
 direct typed keyboard, mouse, touch, input-method, conditional timer, event
 status filtering, structured parallel/sequential tasks, system and clipboard
 operations, native task cancellation, typed repeated task streams, typed
-progress-and-completion sippers, and iced
+progress-and-completion sippers, output-dependent typed task flows, and iced
 code generation,
 plus checked startup font embedding, complete iced font descriptors, stateful
 native Canvas programs, and typed native wgpu Shader programs.

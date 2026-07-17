@@ -1,4 +1,4 @@
-# Ice Language Specification 0.87
+# Ice Language Specification 0.88
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.87 syntax.
+marked “planned” is a design constraint, not accepted 0.88 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.87.
+  block comments are not part of 0.88.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -200,6 +200,7 @@ statement      = name "=" expr
                | "task" call "->" route ("|" route)?
                | "stream" call "->" route ("|" route)?
                | sip_task
+               | task_flow
                | "task system" ("info" | "theme") "->" route
                | "task clipboard" ("read" | "read-primary") "->" route
                | "task clipboard" ("write" | "write-primary") expr
@@ -214,11 +215,21 @@ sip_route      = sip_progress | sip_done | sip_error
 sip_progress   = "progress" "->" route
 sip_done       = "done" "->" route
 sip_error      = "error" "->" route
+task_flow      = "flow" INDENT flow_source flow_item+
+flow_source    = "from" task_source
+task_source    = ("run" | "task" | "stream") call
+               | "task system" ("info" | "theme")
+               | "task clipboard" ("read" | "read-primary")
+               | "task font load" expr
+flow_item      = ("then" | "and-then") name "->" task_source
+               | "collect" | "discard"
+               | ("done" | "error" | "units") "->" route
 task_member    = task_group | abortable_task
                | "run" call "->" route ("|" route)?
                | "task" call "->" route ("|" route)?
                | "stream" call "->" route ("|" route)?
                | sip_task
+               | task_flow
                | native_task
 native_task    = "task system" ("info" | "theme") "->" route
                | "task clipboard" ("read" | "read-primary") "->" route
@@ -803,7 +814,7 @@ default/centered/fixed position, visibility, resizability, close/minimize
 buttons, decorations, transparency, blur, level, and close-request behavior.
 Sizes, text size, and scale factor must be positive; minimum size cannot exceed
 maximum size. Window icons and platform-specific settings are not part of
-0.87.
+0.88.
 
 Media fixed lengths, rotation, opacity, scale, and radius are `f64`; rotation
 is radians and defaults to floating layout behavior, while `solid(angle)` makes
@@ -1220,7 +1231,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.87 message payloads.
+`Clone` for 0.88 message payloads.
 
 Six typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
@@ -1344,7 +1355,7 @@ Rules:
 - assignment targets must be declared state;
 - assigned expressions must have the state type;
 - `return if` requires `bool`;
-- `run`, `task`, `sip`, or a task group must be the final statement because each
+- `run`, `task`, `sip`, `flow`, or a task group must be the final statement because each
   returns one iced `Task`;
 - fallible externs require both success and error routes;
 - infallible externs permit only the success route;
@@ -1451,6 +1462,36 @@ The Rust factory returns
 `_` or discard its payload, and may not capture other expressions. A sip is a
 task-producing statement and can be nested in `parallel`, `sequential`, and
 `abortable`. Consumers must enable iced's `sipper` Cargo feature.
+
+Typed task flows keep domain output unwrapped until the final UI route, so
+native task combinators can depend on earlier output:
+
+```ice
+on start
+  flow
+    from stream page_ids(4)
+    then id -> task load_page(id)
+    collect
+    done -> pages_loaded _
+    units -> work_planned _
+```
+
+`from` accepts an extern `run`, `task`, or `stream` source and the built-in
+system, clipboard-read, and font-load tasks. `then name -> source` lowers to
+`Task::then` and binds each output only inside the next source call. Use
+`and-then` for `T?` output or a fallible task; fallible steps must keep the same
+error type required by iced's `Result` overload. A transform cannot capture UI
+state because the native closure is static; pass stable input to the first
+source or read current state in the destination handler.
+
+`collect` lowers to `Task::collect` and changes `T` into `[T]`; it currently
+requires an infallible flow because Ice has no first-class `Result<T, E>` value.
+`discard` must be last, suppresses both output routes, and lowers to
+`Task::discard`. `units -> handler _` reads native `Task::units` during flow
+construction and emits an `i64` notification alongside the task. Non-discarded
+flows require `done`; fallible flows also require `error`. All three routes may
+pass one `_` or discard their payload. Flows are task-producing and work inside
+task groups and `abortable`.
 
 Examples of payload flow:
 
@@ -2041,7 +2082,7 @@ snap/end; and absolute scroll-to/scroll-by. Effects have no route and
 non-negative `i64`; relative offsets are `f64` in `0.0..=1.0`; absolute
 offsets are unrestricted `f64`. Targets must be real static IDs in the app
 scope. Repeated/component scopes and the feature-gated selector API remain
-outside 0.87.
+outside 0.88.
 
 Persistent pane grids expose their native layout-state operations directly in
 handlers:
@@ -2088,7 +2129,7 @@ and constraints, resizability, maximize/minimize state, position and movement,
 all modes, decorations, user attention, focus, level, system menu, mouse
 passthrough, monitor size, and automatic tabbing. Positive sizes and bool
 arguments are checked before Rust generation. New-window IDs, open/oldest/latest,
-icons, raw handles, screenshots, and callbacks remain outside 0.87.
+icons, raw handles, screenshots, and callbacks remain outside 0.88.
 
 Every iced window event has a direct subscription form:
 
@@ -2241,7 +2282,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 0.87 does not claim that remapping.
+extern line; 0.88 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -2262,7 +2303,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 0.87 native backend is enough for CRUD/settings-style screens, selection,
+The 0.88 native backend is enough for CRUD/settings-style screens, selection,
 media, hover overlays, declarative canvas geometry, and common pointer events,
 not all of iced. It still lacks direct syntax for arbitrary custom overlays,
 multiple windows, and custom widgets. [`COVERAGE.md`](COVERAGE.md) is

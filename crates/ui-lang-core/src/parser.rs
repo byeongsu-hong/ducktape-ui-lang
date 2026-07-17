@@ -987,6 +987,9 @@ fn parse_statement(line: &Line) -> Result<Statement, Error> {
     if line.text == "abortable" {
         return Err(error("E050", line, "abortable requires a handle state"));
     }
+    if line.text == "flow" {
+        return parse_task_flow(line);
+    }
     if let Some(source) = line.text.strip_prefix("sip ") {
         return parse_sip_statement(source, line);
     }
@@ -1054,47 +1057,7 @@ fn parse_statement(line: &Line) -> Result<Statement, Error> {
                 format!("{keyword} requires `-> success _ | error _`"),
             ));
         };
-        let call = call.trim();
-        let (function, args) = if kind == EffectKind::Task && call == "system info" {
-            ("__ice_system_info".into(), Vec::new())
-        } else if kind == EffectKind::Task && call == "system theme" {
-            ("__ice_system_theme".into(), Vec::new())
-        } else if kind == EffectKind::Task && call == "clipboard read" {
-            ("__ice_clipboard_read".into(), Vec::new())
-        } else if kind == EffectKind::Task && call == "clipboard read-primary" {
-            ("__ice_clipboard_read_primary".into(), Vec::new())
-        } else if kind == EffectKind::Task
-            && let Some(value) = call.strip_prefix("font load ")
-        {
-            if value.trim().is_empty() {
-                return Err(error("E050", line, "font load requires bytes"));
-            }
-            (
-                "__ice_font_load".into(),
-                vec![parse_expr(value.trim(), line)?],
-            )
-        } else if call.starts_with("system ") {
-            return Err(error(
-                "E050",
-                line,
-                "system task must be `task system info` or `task system theme`",
-            ));
-        } else if call.starts_with("clipboard ") {
-            return Err(error(
-                "E050",
-                line,
-                "clipboard task must read, read-primary, write, or write-primary",
-            ));
-        } else if call.starts_with("font ") {
-            return Err(error(
-                "E050",
-                line,
-                "font task must be `task font load bytes -> loaded`",
-            ));
-        } else {
-            let (function, args_source) = parse_signature(call, line)?;
-            (function, parse_expr_list(&args_source, line)?)
-        };
+        let (function, args) = parse_effect_call(kind, call.trim(), line)?;
         let (success, error_route) = match split_top_once(routes.trim(), '|') {
             Some((success, failure)) => (
                 parse_route(success.trim(), line)?,
@@ -1123,6 +1086,190 @@ fn parse_statement(line: &Line) -> Result<Statement, Error> {
         line,
         format!("unknown statement `{}`", line.text),
     ))
+}
+
+fn parse_task_flow(line: &Line) -> Result<Statement, Error> {
+    let Some(first) = line.children.first() else {
+        return Err(error(
+            "E050",
+            line,
+            "flow requires an indented `from run|task|stream ...` source",
+        ));
+    };
+    ensure_leaf(first)?;
+    let source = first.text.strip_prefix("from ").ok_or_else(|| {
+        error(
+            "E050",
+            first,
+            "the first flow line must be `from run|task|stream ...`",
+        )
+    })?;
+    let source = parse_task_source(source, first)?;
+    let mut transforms = Vec::new();
+    let mut success = None;
+    let mut failure = None;
+    let mut units = None;
+    for item in &line.children[1..] {
+        ensure_leaf(item)?;
+        if item.text == "collect" {
+            transforms.push(TaskTransform::Collect {
+                span: Span::line(item.number),
+            });
+            continue;
+        }
+        if item.text == "discard" {
+            transforms.push(TaskTransform::Discard {
+                span: Span::line(item.number),
+            });
+            continue;
+        }
+        let transform = item
+            .text
+            .strip_prefix("then ")
+            .map(|source| (false, source))
+            .or_else(|| {
+                item.text
+                    .strip_prefix("and-then ")
+                    .map(|source| (true, source))
+            });
+        if let Some((and_then, source)) = transform {
+            let Some((binding, source)) = split_top_marker(source, "->") else {
+                return Err(error(
+                    "E050",
+                    item,
+                    "flow transforms use `then value -> task call(...)` or `and-then value -> task call(...)`",
+                ));
+            };
+            let binding = identifier(binding.trim(), item)?;
+            let source = parse_task_source(source.trim(), item)?;
+            transforms.push(if and_then {
+                TaskTransform::AndThen {
+                    binding,
+                    source,
+                    span: Span::line(item.number),
+                }
+            } else {
+                TaskTransform::Then {
+                    binding,
+                    source,
+                    span: Span::line(item.number),
+                }
+            });
+            continue;
+        }
+        let Some((kind, route)) = split_top_marker(&item.text, "->") else {
+            return Err(error(
+                "E050",
+                item,
+                "flow lines must be then, and-then, collect, discard, done, error, or units",
+            ));
+        };
+        let slot = match kind.trim() {
+            "done" => &mut success,
+            "error" => &mut failure,
+            "units" => &mut units,
+            _ => {
+                return Err(error(
+                    "E050",
+                    item,
+                    "flow route must be done, error, or units",
+                ));
+            }
+        };
+        if slot.is_some() {
+            return Err(error(
+                "E050",
+                item,
+                format!("duplicate flow {} route", kind.trim()),
+            ));
+        }
+        *slot = Some(parse_route(route.trim(), item)?);
+    }
+    Ok(Statement::TaskFlow {
+        source,
+        transforms,
+        success,
+        error: failure,
+        units,
+        span: Span::line(line.number),
+    })
+}
+
+fn parse_task_source(source: &str, line: &Line) -> Result<TaskSource, Error> {
+    let (kind, call) = source
+        .strip_prefix("run ")
+        .map(|call| (EffectKind::Future, call))
+        .or_else(|| {
+            source
+                .strip_prefix("task ")
+                .map(|call| (EffectKind::Task, call))
+        })
+        .or_else(|| {
+            source
+                .strip_prefix("stream ")
+                .map(|call| (EffectKind::Stream, call))
+        })
+        .ok_or_else(|| {
+            error(
+                "E050",
+                line,
+                "task source must start with run, task, or stream",
+            )
+        })?;
+    let (function, args) = parse_effect_call(kind, call.trim(), line)?;
+    Ok(TaskSource {
+        kind,
+        function,
+        args,
+        span: Span::line(line.number),
+    })
+}
+
+fn parse_effect_call(
+    kind: EffectKind,
+    call: &str,
+    line: &Line,
+) -> Result<(String, Vec<Expr>), Error> {
+    if kind == EffectKind::Task && call == "system info" {
+        Ok(("__ice_system_info".into(), Vec::new()))
+    } else if kind == EffectKind::Task && call == "system theme" {
+        Ok(("__ice_system_theme".into(), Vec::new()))
+    } else if kind == EffectKind::Task && call == "clipboard read" {
+        Ok(("__ice_clipboard_read".into(), Vec::new()))
+    } else if kind == EffectKind::Task && call == "clipboard read-primary" {
+        Ok(("__ice_clipboard_read_primary".into(), Vec::new()))
+    } else if kind == EffectKind::Task
+        && let Some(value) = call.strip_prefix("font load ")
+    {
+        if value.trim().is_empty() {
+            return Err(error("E050", line, "font load requires bytes"));
+        }
+        Ok((
+            "__ice_font_load".into(),
+            vec![parse_expr(value.trim(), line)?],
+        ))
+    } else if call.starts_with("system ") {
+        Err(error(
+            "E050",
+            line,
+            "system task must be `task system info` or `task system theme`",
+        ))
+    } else if call.starts_with("clipboard ") {
+        Err(error(
+            "E050",
+            line,
+            "clipboard task must read, read-primary, write, or write-primary",
+        ))
+    } else if call.starts_with("font ") {
+        Err(error(
+            "E050",
+            line,
+            "font task must be `task font load bytes -> loaded`",
+        ))
+    } else {
+        let (function, args_source) = parse_signature(call, line)?;
+        Ok((function, parse_expr_list(&args_source, line)?))
+    }
 }
 
 fn parse_sip_statement(source: &str, line: &Line) -> Result<Statement, Error> {
@@ -7868,6 +8015,50 @@ view
         let error = parse(&source.replace("      progress -> advanced _\n", "")).unwrap_err();
         assert_eq!(error.code, "E050");
         assert!(error.message.contains("progress"));
+    }
+
+    #[test]
+    fn parses_structured_task_flows() {
+        let source = r#"app Flows
+extern crate::backend
+  stream numbers(limit:i64) -> i64
+  task double(value:i64) -> i64
+theme
+  background #000000
+on start
+  flow
+    from stream numbers(3)
+    then value -> task double(value)
+    collect
+    done -> collected _
+    units -> planned _
+on collected(values)
+on planned(units)
+view
+  text "Flows"
+"#;
+        let document = parse(source).unwrap();
+        let Statement::TaskFlow {
+            source: task_source,
+            transforms,
+            success,
+            units,
+            ..
+        } = &document.handlers[0].statements[0]
+        else {
+            panic!("expected task flow");
+        };
+        assert_eq!(task_source.kind, EffectKind::Stream);
+        assert_eq!(transforms.len(), 2);
+        assert!(matches!(transforms[0], TaskTransform::Then { .. }));
+        assert!(matches!(transforms[1], TaskTransform::Collect { .. }));
+        assert!(success.is_some());
+        assert!(units.is_some());
+
+        let error =
+            parse(&source.replace("    from stream numbers(3)", "    collect")).unwrap_err();
+        assert_eq!(error.code, "E050");
+        assert!(error.message.contains("first flow line"));
     }
 
     #[test]
