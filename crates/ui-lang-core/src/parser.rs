@@ -839,7 +839,7 @@ fn parse_component(header: &str, line: &Line) -> Result<Component, Error> {
             "component must have exactly one root node",
         ));
     }
-    let (name, params_source) = parse_signature(header, line)?;
+    let (name, params_source) = parse_component_signature(header, line)?;
     let mut params = Vec::new();
     if !params_source.trim().is_empty() {
         for param in split_top(&params_source, ',') {
@@ -1428,7 +1428,7 @@ fn parse_view(line: &Line) -> Result<ViewNode, Error> {
                 ));
             }
             let (name, args, id) = parse_component_call(&parts, line)?;
-            let slots = parse_component_slots(line)?;
+            let slots = parse_component_slots(&name, line)?;
             Ok(ViewNode::Component {
                 name,
                 args,
@@ -1441,12 +1441,41 @@ fn parse_view(line: &Line) -> Result<ViewNode, Error> {
     }
 }
 
-fn parse_component_slots(line: &Line) -> Result<Vec<ComponentSlot>, Error> {
+fn parse_component_slots(component: &str, line: &Line) -> Result<Vec<ComponentSlot>, Error> {
     if line.children.is_empty() {
         return Ok(Vec::new());
     }
     let named = line.children.iter().any(|child| child.text.ends_with(':'));
     if !named {
+        let compound = line
+            .children
+            .iter()
+            .map(|child| compound_slot_name(component, child))
+            .collect::<Vec<_>>();
+        if compound.iter().all(Option::is_some) {
+            return line
+                .children
+                .iter()
+                .zip(compound)
+                .map(|(child, name)| {
+                    Ok(ComponentSlot {
+                        name: name.expect("all compound slots are present"),
+                        content: Box::new(parse_view(child)?),
+                        span: Span::line(child.number),
+                    })
+                })
+                .collect();
+        }
+        if compound.iter().any(Option::is_some) {
+            return Err(error(
+                "E040",
+                line,
+                "cannot mix compound components with direct component children",
+            )
+            .hint(format!(
+                "use only `{component}.Name` children, or wrap direct children in one layout"
+            )));
+        }
         return match line.children.as_slice() {
             [content] => Ok(vec![ComponentSlot {
                 name: "children".into(),
@@ -1486,6 +1515,15 @@ fn parse_component_slots(line: &Line) -> Result<Vec<ComponentSlot>, Error> {
             })
         })
         .collect()
+}
+
+fn compound_slot_name(component: &str, line: &Line) -> Option<String> {
+    let head = line.text.split_ascii_whitespace().next()?;
+    let name = head.split_once('(').map_or(head, |(name, _)| name);
+    let slot = name.strip_prefix(component)?.strip_prefix('.')?;
+    (!slot.contains('.'))
+        .then(|| identifier(slot, line).ok())
+        .flatten()
 }
 
 fn parse_container(parts: &[String], styles: Vec<String>, line: &Line) -> Result<ViewNode, Error> {
@@ -1851,7 +1889,7 @@ fn parse_component_call(
 ) -> Result<(String, Vec<ComponentArg>, Option<Id>), Error> {
     let head = &parts[0];
     if head.contains('(') {
-        let (name, args) = parse_signature(head, line)?;
+        let (name, args) = parse_component_signature(head, line)?;
         let id = parts
             .get(1)
             .filter(|part| part.starts_with('#'))
@@ -1874,7 +1912,7 @@ fn parse_component_call(
         ));
     }
 
-    let name = identifier(head, line)?;
+    let name = component_identifier(head, line)?;
     let mut args = Vec::new();
     let mut id = None;
     for part in &parts[1..] {
@@ -4683,6 +4721,16 @@ fn lex_expr(source: &str, line: &Line) -> Result<Vec<Token>, Error> {
 }
 
 fn parse_signature(source: &str, line: &Line) -> Result<(String, String), Error> {
+    let (name, args) = signature_parts(source, line)?;
+    Ok((identifier(name, line)?, args))
+}
+
+fn parse_component_signature(source: &str, line: &Line) -> Result<(String, String), Error> {
+    let (name, args) = signature_parts(source, line)?;
+    Ok((component_identifier(name, line)?, args))
+}
+
+fn signature_parts<'a>(source: &'a str, line: &Line) -> Result<(&'a str, String), Error> {
     let open = source
         .find('(')
         .ok_or_else(|| error("E024", line, "expected `(`"))?;
@@ -4690,10 +4738,7 @@ fn parse_signature(source: &str, line: &Line) -> Result<(String, String), Error>
     if !source[close + 1..].trim().is_empty() {
         return Err(error("E024", line, "unexpected text after `)`"));
     }
-    Ok((
-        identifier(source[..open].trim(), line)?,
-        source[open + 1..close].into(),
-    ))
+    Ok((source[..open].trim(), source[open + 1..close].into()))
 }
 
 fn matching_paren(source: &str, line: &Line) -> Result<usize, Error> {
@@ -4863,6 +4908,18 @@ fn identifier(source: &str, line: &Line) -> Result<String, Error> {
             "E072",
             line,
             format!("invalid identifier `{source}`"),
+        ))
+    }
+}
+
+fn component_identifier(source: &str, line: &Line) -> Result<String, Error> {
+    if source.split('.').all(|part| identifier(part, line).is_ok()) {
+        Ok(source.into())
+    } else {
+        Err(error(
+            "E072",
+            line,
+            format!("invalid component name `{source}`"),
         ))
     }
 }
