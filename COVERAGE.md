@@ -15,7 +15,7 @@ container API, so container remains partial.
 
 ## Typed system reachability
 
-Ice 0.11 has three checked Rust boundaries:
+Ice 0.12 has three checked Rust boundaries:
 
 | Boundary | Rust ABI | Covers |
 | --- | --- | --- |
@@ -33,7 +33,7 @@ public behavior has direct documented Ice syntax and tests.
 | --- | --- | --- |
 | `button` | partial | native string or arbitrary child content, disabled route, typed size/padding/clip and basic styles; full style catalog missing |
 | `canvas` | missing | drawing program, geometry, cache, events |
-| `checkbox` | partial | native label/value/disabled event; size/spacing/icon/style API missing |
+| `checkbox` | partial | native label/value/disabled event, size/width/spacing, text typography/wrapping/default-mono font and custom icon; arbitrary fonts and full style catalog missing |
 | `column` | partial | native children, spacing, padding, size/alignment/basic decoration; full sizing API missing |
 | `combo_box` | partial | native typed search state/selection, input, hover, open/close, sizing, padding and text size; dynamic option replacement, icon/font/shaping and style catalogs missing |
 | `container` | partial | generated around layouts; explicit alignment, clipping, sizing, style API missing |
@@ -66,7 +66,7 @@ public behavior has direct documented Ice syntax and tests.
 | `text_editor` | missing | content state, actions, highlight, key bindings |
 | `text_input` | partial | native binding, hint, disabled/secure, ID, submit/paste, typed width/padding/size/line-height, alignment, default/mono font, icon and basic style; arbitrary fonts and full style catalog missing |
 | `themer` | missing | nested theme boundary |
-| `toggler` | partial | native label/value/disabled event; size/spacing/style API missing |
+| `toggler` | partial | native label/value/disabled event, size/width/spacing, text typography/wrapping/alignment and default-mono font; arbitrary fonts and full style catalog missing |
 | `tooltip` | partial | native two-child content, all positions, gap, padding, snap and delay; custom tooltip style missing |
 
 ## Application and runtime

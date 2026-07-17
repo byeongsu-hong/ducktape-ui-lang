@@ -1288,8 +1288,8 @@ fn parse_input(parts: &[String], styles: Vec<String>, line: &Line) -> Result<Vie
             });
         } else if let Some(value) = part.strip_prefix("font=") {
             options.font = Some(match value {
-                "default" => InputFont::Default,
-                "mono" => InputFont::Monospace,
+                "default" => FontPreset::Default,
+                "mono" => FontPreset::Monospace,
                 _ => return Err(error("E065", line, "input font must be default or mono")),
             });
         } else if let Some(value) = part.strip_prefix("icon=") {
@@ -1415,6 +1415,7 @@ fn parse_checkbox(
     let mut id = None;
     let mut checked = None;
     let mut disabled = None;
+    let mut options = BoolControlOptions::default();
     for part in &parts[2..] {
         if part.starts_with('#') {
             id = Some(parse_id(part, line)?);
@@ -1422,6 +1423,7 @@ fn parse_checkbox(
             checked = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else if let Some(value) = part.strip_prefix("disabled=") {
             disabled = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if parse_bool_control_option(part, &mut options, false, true, line)? {
         } else {
             return Err(error(
                 "E067",
@@ -1435,6 +1437,7 @@ fn parse_checkbox(
         id,
         checked: checked.ok_or_else(|| error("E067", line, "checkbox requires `checked=value`"))?,
         disabled,
+        options,
         styles,
         route: parse_route(
             route.ok_or_else(|| error("E067", line, "checkbox requires `-> handler`"))?,
@@ -1456,11 +1459,13 @@ fn parse_toggler(
         .ok_or_else(|| error("E075", line, "toggler needs a label expression"))?;
     let mut checked = None;
     let mut disabled = None;
+    let mut options = BoolControlOptions::default();
     for part in &parts[2..] {
         if let Some(value) = part.strip_prefix("checked=") {
             checked = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else if let Some(value) = part.strip_prefix("disabled=") {
             disabled = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if parse_bool_control_option(part, &mut options, true, false, line)? {
         } else {
             return Err(error(
                 "E075",
@@ -1473,6 +1478,7 @@ fn parse_toggler(
         label: parse_expr(label, line)?,
         checked: checked.ok_or_else(|| error("E075", line, "toggler requires `checked=value`"))?,
         disabled,
+        options,
         styles,
         route: parse_route(
             route.ok_or_else(|| error("E075", line, "toggler requires `-> handler`"))?,
@@ -1480,6 +1486,90 @@ fn parse_toggler(
         )?,
         span: Span::line(line.number),
     })
+}
+
+fn parse_bool_control_option(
+    part: &str,
+    options: &mut BoolControlOptions,
+    allow_alignment: bool,
+    allow_icon: bool,
+    line: &Line,
+) -> Result<bool, Error> {
+    if let Some(value) = part.strip_prefix("size=") {
+        options.size = Some(parse_expr(strip_wrapping_parens(value), line)?);
+    } else if let Some(value) = part.strip_prefix("width=") {
+        options.width = Some(parse_length(value, line)?);
+    } else if let Some(value) = part.strip_prefix("spacing=") {
+        options.spacing = Some(parse_expr(strip_wrapping_parens(value), line)?);
+    } else if let Some(value) = part.strip_prefix("text-size=") {
+        options.text_size = Some(parse_expr(strip_wrapping_parens(value), line)?);
+    } else if let Some(value) = part.strip_prefix("line-height=") {
+        options.line_height = Some(parse_expr(strip_wrapping_parens(value), line)?);
+    } else if let Some(value) = part.strip_prefix("shaping=") {
+        options.shaping = Some(parse_text_shaping(value, line)?);
+    } else if let Some(value) = part.strip_prefix("wrapping=") {
+        options.wrapping = Some(match value {
+            "none" => TextWrapping::None,
+            "word" => TextWrapping::Word,
+            "glyph" => TextWrapping::Glyph,
+            "word-or-glyph" => TextWrapping::WordOrGlyph,
+            _ => {
+                return Err(error(
+                    "E075",
+                    line,
+                    "wrapping must be none, word, glyph, or word-or-glyph",
+                ));
+            }
+        });
+    } else if let Some(value) = part.strip_prefix("font=") {
+        options.font = Some(match value {
+            "default" => FontPreset::Default,
+            "mono" => FontPreset::Monospace,
+            _ => return Err(error("E075", line, "font must be default or mono")),
+        });
+    } else if allow_alignment && let Some(value) = part.strip_prefix("align=") {
+        options.alignment = Some(match value {
+            "default" => TextAlignment::Default,
+            "left" => TextAlignment::Left,
+            "center" => TextAlignment::Center,
+            "right" => TextAlignment::Right,
+            "justified" => TextAlignment::Justified,
+            _ => return Err(error("E075", line, "unknown text alignment")),
+        });
+    } else if allow_icon && let Some(value) = part.strip_prefix("icon=") {
+        let value = string_literal(value, line)?;
+        let mut chars = value.chars();
+        options.icon = chars.next();
+        if options.icon.is_none() || chars.next().is_some() {
+            return Err(error(
+                "E067",
+                line,
+                "checkbox icon must contain one character",
+            ));
+        }
+    } else if allow_icon && let Some(value) = part.strip_prefix("icon-size=") {
+        options.icon_size = Some(parse_expr(strip_wrapping_parens(value), line)?);
+    } else if allow_icon && let Some(value) = part.strip_prefix("icon-line-height=") {
+        options.icon_line_height = Some(parse_expr(strip_wrapping_parens(value), line)?);
+    } else if allow_icon && let Some(value) = part.strip_prefix("icon-shaping=") {
+        options.icon_shaping = Some(parse_text_shaping(value, line)?);
+    } else {
+        return Ok(false);
+    }
+    Ok(true)
+}
+
+fn parse_text_shaping(source: &str, line: &Line) -> Result<TextShaping, Error> {
+    match source {
+        "auto" => Ok(TextShaping::Auto),
+        "basic" => Ok(TextShaping::Basic),
+        "advanced" => Ok(TextShaping::Advanced),
+        _ => Err(error(
+            "E075",
+            line,
+            "shaping must be auto, basic, or advanced",
+        )),
+    }
 }
 
 fn parse_slider(

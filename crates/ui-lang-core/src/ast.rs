@@ -228,6 +228,7 @@ pub enum ViewNode {
         id: Option<Id>,
         checked: Expr,
         disabled: Option<Expr>,
+        options: BoolControlOptions,
         styles: Vec<String>,
         route: Route,
         span: Span,
@@ -236,6 +237,7 @@ pub enum ViewNode {
         label: Expr,
         checked: Expr,
         disabled: Option<Expr>,
+        options: BoolControlOptions,
         styles: Vec<String>,
         route: Route,
         span: Span,
@@ -374,7 +376,7 @@ pub struct InputOptions {
     pub text_size: Option<Expr>,
     pub line_height: Option<Expr>,
     pub align: Option<InputAlignment>,
-    pub font: Option<InputFont>,
+    pub font: Option<FontPreset>,
     pub icon: Option<char>,
     pub icon_side: Option<IconSide>,
     pub icon_size: Option<Expr>,
@@ -397,9 +399,50 @@ pub enum InputAlignment {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum InputFont {
+pub enum FontPreset {
     Default,
     Monospace,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct BoolControlOptions {
+    pub size: Option<Expr>,
+    pub width: Option<LengthValue>,
+    pub spacing: Option<Expr>,
+    pub text_size: Option<Expr>,
+    pub line_height: Option<Expr>,
+    pub shaping: Option<TextShaping>,
+    pub wrapping: Option<TextWrapping>,
+    pub font: Option<FontPreset>,
+    pub alignment: Option<TextAlignment>,
+    pub icon: Option<char>,
+    pub icon_size: Option<Expr>,
+    pub icon_line_height: Option<Expr>,
+    pub icon_shaping: Option<TextShaping>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TextShaping {
+    Auto,
+    Basic,
+    Advanced,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TextWrapping {
+    None,
+    Word,
+    Glyph,
+    WordOrGlyph,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TextAlignment {
+    Default,
+    Left,
+    Center,
+    Right,
+    Justified,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

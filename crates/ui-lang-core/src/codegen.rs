@@ -527,8 +527,8 @@ fn render_node(
             }
             if let Some(font) = options.font {
                 let font = match font {
-                    InputFont::Default => "DEFAULT",
-                    InputFont::Monospace => "MONOSPACE",
+                    FontPreset::Default => "DEFAULT",
+                    FontPreset::Monospace => "MONOSPACE",
                 };
                 write!(input, ".font(::iced::Font::{font})").unwrap();
             }
@@ -669,6 +669,7 @@ fn render_node(
             label,
             checked,
             disabled,
+            options,
             route,
             ..
         } => {
@@ -676,6 +677,7 @@ fn render_node(
             let checked = expr_code(checked, env, document, ValueMode::Owned)?;
             let message_code = route_code(route, "__value", env, document, message)?;
             let mut code = format!("::iced::widget::checkbox({checked}).label({label})");
+            append_bool_control_options(&mut code, options, env, document, false)?;
             if let Some(disabled) = disabled {
                 let disabled = expr_code(disabled, env, document, ValueMode::Owned)?;
                 write!(
@@ -692,6 +694,7 @@ fn render_node(
             label,
             checked,
             disabled,
+            options,
             route,
             ..
         } => {
@@ -699,6 +702,7 @@ fn render_node(
             let checked = expr_code(checked, env, document, ValueMode::Owned)?;
             let message_code = route_code(route, "__value", env, document, message)?;
             let mut code = format!("::iced::widget::toggler({checked}).label({label})");
+            append_bool_control_options(&mut code, options, env, document, true)?;
             if let Some(disabled) = disabled {
                 let disabled = expr_code(disabled, env, document, ValueMode::Owned)?;
                 write!(code, ".on_toggle_maybe(if {disabled} {{ None }} else {{ Some(move |__value| {message_code}) }})").unwrap();
@@ -1886,6 +1890,117 @@ fn length_code(
     })
 }
 
+fn append_bool_control_options(
+    code: &mut String,
+    options: &BoolControlOptions,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+    toggler: bool,
+) -> Result<(), Error> {
+    for (value, method) in [
+        (&options.size, "size"),
+        (&options.spacing, "spacing"),
+        (&options.text_size, "text_size"),
+    ] {
+        if let Some(value) = value {
+            write!(
+                code,
+                ".{method}({} as f32)",
+                expr_code(value, env, document, ValueMode::Owned)?
+            )
+            .unwrap();
+        }
+    }
+    if let Some(width) = &options.width {
+        write!(code, ".width({})", length_code(width, env, document)?).unwrap();
+    }
+    if let Some(height) = &options.line_height {
+        write!(
+            code,
+            ".text_line_height(::iced::widget::text::LineHeight::Relative({} as f32))",
+            expr_code(height, env, document, ValueMode::Owned)?
+        )
+        .unwrap();
+    }
+    if let Some(shaping) = options.shaping {
+        write!(
+            code,
+            ".text_shaping(::iced::widget::text::Shaping::{})",
+            text_shaping_code(shaping)
+        )
+        .unwrap();
+    }
+    if let Some(wrapping) = options.wrapping {
+        let wrapping = match wrapping {
+            TextWrapping::None => "None",
+            TextWrapping::Word => "Word",
+            TextWrapping::Glyph => "Glyph",
+            TextWrapping::WordOrGlyph => "WordOrGlyph",
+        };
+        write!(
+            code,
+            ".text_wrapping(::iced::widget::text::Wrapping::{wrapping})"
+        )
+        .unwrap();
+    }
+    if let Some(font) = options.font {
+        let font = match font {
+            FontPreset::Default => "DEFAULT",
+            FontPreset::Monospace => "MONOSPACE",
+        };
+        write!(code, ".font(::iced::Font::{font})").unwrap();
+    }
+    if toggler {
+        if let Some(alignment) = options.alignment {
+            let alignment = match alignment {
+                TextAlignment::Default => "Default",
+                TextAlignment::Left => "Left",
+                TextAlignment::Center => "Center",
+                TextAlignment::Right => "Right",
+                TextAlignment::Justified => "Justified",
+            };
+            write!(
+                code,
+                ".text_alignment(::iced::widget::text::Alignment::{alignment})"
+            )
+            .unwrap();
+        }
+    } else if let Some(icon) = options.icon {
+        let size = options.icon_size.as_ref().map_or_else(
+            || Ok("None".to_owned()),
+            |value| {
+                Ok::<_, Error>(format!(
+                    "Some(({} as f32).into())",
+                    expr_code(value, env, document, ValueMode::Owned)?
+                ))
+            },
+        )?;
+        let line_height = if let Some(value) = &options.icon_line_height {
+            format!(
+                "::iced::widget::text::LineHeight::Relative({} as f32)",
+                expr_code(value, env, document, ValueMode::Owned)?
+            )
+        } else {
+            "::iced::widget::text::LineHeight::default()".to_owned()
+        };
+        let shaping = options.icon_shaping.map_or("Auto", text_shaping_code);
+        write!(
+            code,
+            ".icon(::iced::widget::checkbox::Icon {{ font: ::iced::Font::DEFAULT, code_point: {icon:?}, size: {size}, line_height: {line_height}, shaping: ::iced::widget::text::Shaping::{shaping} }})"
+        )
+        .unwrap();
+    }
+    Ok(())
+}
+
+fn text_shaping_code(shaping: TextShaping) -> &'static str {
+    match shaping {
+        TextShaping::Auto => "Auto",
+        TextShaping::Basic => "Basic",
+        TextShaping::Advanced => "Advanced",
+    }
+}
+
 fn mouse_interaction_code(interaction: MouseInteraction) -> &'static str {
     match interaction {
         MouseInteraction::None => "None",
@@ -2506,6 +2621,33 @@ view
         assert!(generated.contains(".width(::iced::Fill).height(48.0 as f32)"));
         assert!(generated.contains(".padding(8.0 as f32).clip(true)"));
         assert!(generated.contains(".on_press_maybe(if self.disabled"));
+    }
+
+    #[test]
+    fn lowers_checkbox_and_toggler_typography() {
+        let source = r#"app Preferences
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  enabled = false
+on changed(next)
+  enabled = next
+view
+  col
+    checkbox "Checkbox" checked=enabled size=20.0 width=fill spacing=8.0 text-size=14.0 line-height=1.2 shaping=advanced wrapping=word-or-glyph font=mono icon="✓" icon-size=12.0 icon-line-height=1.0 icon-shaping=basic -> changed _
+    toggler "Toggler" checked=enabled size=20.0 width=fill spacing=8.0 text-size=14.0 line-height=1.2 shaping=auto wrapping=glyph font=default align=right -> changed _
+"#;
+        let generated = compile(source, "preferences.ice").unwrap();
+        assert!(generated.contains(".size(20.0 as f32).spacing(8.0 as f32)"));
+        assert!(generated.contains(".width(::iced::Fill)"));
+        assert!(generated.contains(".text_shaping(::iced::widget::text::Shaping::Advanced)"));
+        assert!(generated.contains(".text_wrapping(::iced::widget::text::Wrapping::WordOrGlyph)"));
+        assert!(generated.contains("checkbox::Icon"));
+        assert!(generated.contains("code_point: '✓'"));
+        assert!(generated.contains(".text_alignment(::iced::widget::text::Alignment::Right)"));
     }
 
     #[test]

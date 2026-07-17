@@ -373,6 +373,7 @@ fn infer_view(
             id,
             checked,
             disabled,
+            options,
             styles,
             route,
             span,
@@ -387,6 +388,7 @@ fn infer_view(
                     span,
                 )?;
             }
+            check_bool_control_options(options, env, document, span)?;
             infer_route(route, Some(Type::Bool), env, document, signatures)?;
             check_styles(styles, document, span, StyleTarget::Checkbox)?;
         }
@@ -394,6 +396,7 @@ fn infer_view(
             label,
             checked,
             disabled,
+            options,
             styles,
             route,
             span,
@@ -407,6 +410,7 @@ fn infer_view(
                     span,
                 )?;
             }
+            check_bool_control_options(options, env, document, span)?;
             infer_route(route, Some(Type::Bool), env, document, signatures)?;
             check_styles(styles, document, span, StyleTarget::Toggler)?;
         }
@@ -960,6 +964,49 @@ fn require_literal_range(
             "E128",
             span,
             format!("{label} is outside its valid range"),
+        ));
+    }
+    Ok(())
+}
+
+fn check_bool_control_options(
+    options: &BoolControlOptions,
+    env: &HashMap<String, Type>,
+    document: &Document,
+    span: &Span,
+) -> Result<(), Error> {
+    if let Some(length) = &options.width
+        && let LengthValue::Fixed(value) = length
+    {
+        require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+        require_literal_range(value, 0.0, None, "control width", span)?;
+    }
+    for (value, label, min) in [
+        (&options.size, "control size", f64::EPSILON),
+        (&options.spacing, "control spacing", 0.0),
+        (&options.text_size, "control text size", f64::EPSILON),
+        (&options.line_height, "control line height", f64::EPSILON),
+        (&options.icon_size, "checkbox icon size", f64::EPSILON),
+        (
+            &options.icon_line_height,
+            "checkbox icon line height",
+            f64::EPSILON,
+        ),
+    ] {
+        if let Some(value) = value {
+            require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+            require_literal_range(value, min, None, label, span)?;
+        }
+    }
+    if options.icon.is_none()
+        && (options.icon_size.is_some()
+            || options.icon_line_height.is_some()
+            || options.icon_shaping.is_some())
+    {
+        return Err(Error::new(
+            "E129",
+            span,
+            "checkbox icon properties require `icon=\"x\"`",
         ));
     }
     Ok(())
@@ -2036,6 +2083,46 @@ view
         let error = analyze(source).unwrap_err();
         assert_eq!(error.code, "E066");
         assert!(error.message.contains("not both"));
+    }
+
+    #[test]
+    fn checks_checkbox_and_toggler_typography() {
+        let source = r#"app Preferences
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  enabled = false
+on changed(next)
+  enabled = next
+view
+  col
+    checkbox "Checkbox" checked=enabled size=20.0 width=fill spacing=8.0 text-size=14.0 line-height=1.2 shaping=advanced wrapping=word-or-glyph font=mono icon="✓" icon-size=12.0 icon-line-height=1.0 icon-shaping=basic -> changed _
+    toggler "Toggler" checked=enabled size=20.0 width=fill spacing=8.0 text-size=14.0 line-height=1.2 shaping=auto wrapping=glyph font=default align=right -> changed _
+"#;
+        analyze(source).unwrap();
+    }
+
+    #[test]
+    fn rejects_checkbox_icon_options_without_icon() {
+        let source = r#"app Preferences
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  enabled = false
+on changed(next)
+  enabled = next
+view
+  checkbox "Checkbox" checked=enabled icon-size=12.0 -> changed _
+"#;
+        let error = analyze(source).unwrap_err();
+        assert_eq!(error.code, "E129");
+        assert!(error.message.contains("checkbox icon properties"));
     }
 
     #[test]
