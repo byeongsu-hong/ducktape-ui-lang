@@ -97,6 +97,10 @@ fn static_widget_ids(root: &ViewNode) -> HashSet<String> {
                     collect(child, output);
                 }
             }
+            ViewNode::Container { id, content, .. } => {
+                insert(id, output);
+                collect(content, output);
+            }
             ViewNode::Input { id, .. }
             | ViewNode::Checkbox { id, .. }
             | ViewNode::TextEditor { id, .. } => insert(id, output),
@@ -340,6 +344,7 @@ fn slots(node: &ViewNode) -> Vec<&Span> {
                 ..
             }
             | ViewNode::MouseArea { content, .. }
+            | ViewNode::Container { content, .. }
             | ViewNode::Theme { content, .. }
             | ViewNode::Float { content, .. }
             | ViewNode::Pin { content, .. }
@@ -387,6 +392,7 @@ fn editor_span(node: &ViewNode) -> Option<&Span> {
             ..
         }
         | ViewNode::MouseArea { content, .. }
+        | ViewNode::Container { content, .. }
         | ViewNode::Theme { content, .. }
         | ViewNode::Float { content, .. }
         | ViewNode::Pin { content, .. }
@@ -563,6 +569,43 @@ fn infer_view(
             for child in children {
                 infer_view(child, env, document, signatures, ids)?;
             }
+        }
+        ViewNode::Container {
+            options,
+            id,
+            styles,
+            content,
+            span,
+        } => {
+            check_id(id, env, document, ids, span)?;
+            for length in [&options.width, &options.height].into_iter().flatten() {
+                if let LengthValue::Fixed(value) = length {
+                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+                    require_literal_range(value, 0.0, None, "container size", span)?;
+                }
+            }
+            for value in [
+                &options.padding.all,
+                &options.padding.x,
+                &options.padding.y,
+                &options.padding.top,
+                &options.padding.right,
+                &options.padding.bottom,
+                &options.padding.left,
+                &options.max_width,
+                &options.max_height,
+            ]
+            .into_iter()
+            .flatten()
+            {
+                require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+                require_literal_range(value, 0.0, None, "container metric", span)?;
+            }
+            if let Some(clip) = &options.clip {
+                require_type(&expr_type(clip, env, document, span)?, &Type::Bool, span)?;
+            }
+            check_styles(styles, document, span, StyleTarget::Container)?;
+            infer_view(content, env, document, signatures, ids)?;
         }
         ViewNode::Text {
             value,
@@ -1803,6 +1846,7 @@ fn check_lazy_subtree(
             ..
         }
         | ViewNode::MouseArea { content, .. }
+        | ViewNode::Container { content, .. }
         | ViewNode::Theme { content, .. }
         | ViewNode::Float { content, .. }
         | ViewNode::Pin { content, .. }
@@ -2919,6 +2963,7 @@ fn check_id(
 #[derive(Clone, Copy)]
 enum StyleTarget {
     Layout(Layout),
+    Container,
     Text,
     Input,
     Button,
@@ -2952,6 +2997,7 @@ fn check_styles(
     let is_box = matches!(
         target,
         StyleTarget::Layout(Layout::Column | Layout::Row | Layout::Grid | Layout::Stack)
+            | StyleTarget::Container
     );
     let target_name = match target {
         StyleTarget::Layout(Layout::Column) => "col",
@@ -2959,6 +3005,7 @@ fn check_styles(
         StyleTarget::Layout(Layout::Scroll) => "scroll",
         StyleTarget::Layout(Layout::Grid) => "grid",
         StyleTarget::Layout(Layout::Stack) => "stack",
+        StyleTarget::Container => "container",
         StyleTarget::Text => "text",
         StyleTarget::Input => "input",
         StyleTarget::Button => "button",
@@ -3035,8 +3082,11 @@ fn check_styles(
             }
             Some(_) => false,
             None => match utility {
-                "w-full" => matches!(target, StyleTarget::Layout(_) | StyleTarget::Input),
-                "h-full" => matches!(target, StyleTarget::Layout(_)),
+                "w-full" => matches!(
+                    target,
+                    StyleTarget::Layout(_) | StyleTarget::Container | StyleTarget::Input
+                ),
+                "h-full" => matches!(target, StyleTarget::Layout(_) | StyleTarget::Container),
                 "max-w-sm" | "max-w-md" | "max-w-lg" | "max-w-xl" | "max-w-2xl" | "self-center" => {
                     is_box
                 }
@@ -3860,6 +3910,35 @@ view
         let error = analyze(&wrong_property).unwrap_err();
         assert_eq!(error.code, "E074");
         assert!(error.message.contains("unknown layout property"));
+    }
+
+    #[test]
+    fn checks_complete_container_layout() {
+        let source = r#"app Boxed
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+view
+  container #card width=fill height=80.0 max-width=640.0 max-height=120.0 align-x=center align-y=end clip=true padding=8.0 padding-left=12.0 @w-full bg-background border border-foreground rounded-lg
+    text "Card"
+"#;
+        analyze(source).unwrap();
+
+        let bad_metric = source.replace("max-height=120.0", "max-height=-1.0");
+        let error = analyze(&bad_metric).unwrap_err();
+        assert_eq!(error.code, "E128");
+        assert!(error.message.contains("container metric"));
+
+        let bad_clip = source.replace("clip=true", "clip=1");
+        let error = analyze(&bad_clip).unwrap_err();
+        assert_eq!(error.code, "E101");
+
+        let unknown = source.replace("clip=true", "opaque=true");
+        let error = analyze(&unknown).unwrap_err();
+        assert_eq!(error.code, "E184");
+        assert!(error.message.contains("unknown container property"));
     }
 
     #[test]

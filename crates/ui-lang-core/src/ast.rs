@@ -509,6 +509,13 @@ pub enum ViewNode {
         children: Vec<ViewNode>,
         span: Span,
     },
+    Container {
+        options: ContainerOptions,
+        id: Option<Id>,
+        styles: Vec<String>,
+        content: Box<ViewNode>,
+        span: Span,
+    },
     Text {
         value: Expr,
         options: TextOptions,
@@ -1216,6 +1223,18 @@ pub struct LayoutOptions {
     pub grid_height: Option<GridSizing>,
     pub under: u16,
     pub scroll: Option<ScrollOptions>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct ContainerOptions {
+    pub padding: PaddingOptions,
+    pub width: Option<LengthValue>,
+    pub height: Option<LengthValue>,
+    pub max_width: Option<Expr>,
+    pub max_height: Option<Expr>,
+    pub align_x: Option<FlexAlignment>,
+    pub align_y: Option<FlexAlignment>,
+    pub clip: Option<Expr>,
 }
 
 #[derive(Clone, Debug, Default)]

@@ -1282,6 +1282,7 @@ fn parse_view(line: &Line) -> Result<ViewNode, Error> {
             })
         }
         "text" => parse_text(&parts, styles, line),
+        "container" => parse_container(&parts, styles, line),
         "input" => parse_input(&parts, styles, line),
         "button" => parse_button(&parts, styles, route_source, line),
         "checkbox" => parse_checkbox(&parts, styles, route_source, line),
@@ -1339,6 +1340,63 @@ fn parse_view(line: &Line) -> Result<ViewNode, Error> {
         }
         _ => Err(error("E064", line, format!("unknown view node `{kind}`"))),
     }
+}
+
+fn parse_container(parts: &[String], styles: Vec<String>, line: &Line) -> Result<ViewNode, Error> {
+    if line.children.len() != 1 {
+        return Err(error("E184", line, "container requires exactly one child"));
+    }
+    let id = parts
+        .get(1)
+        .filter(|part| part.starts_with('#'))
+        .map(|part| parse_id(part, line))
+        .transpose()?;
+    let mut options = ContainerOptions::default();
+    let option_start = usize::from(id.is_some()) + 1;
+    for part in &parts[option_start..] {
+        if let Some(value) = part.strip_prefix("width=") {
+            options.width = Some(parse_length(value, line)?);
+        } else if let Some(value) = part.strip_prefix("height=") {
+            options.height = Some(parse_length(value, line)?);
+        } else if let Some(value) = part.strip_prefix("max-width=") {
+            options.max_width = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("max-height=") {
+            options.max_height = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("align-x=") {
+            options.align_x = Some(parse_flex_alignment(value, line)?);
+        } else if let Some(value) = part.strip_prefix("align-y=") {
+            options.align_y = Some(parse_flex_alignment(value, line)?);
+        } else if let Some(value) = part.strip_prefix("clip=") {
+            options.clip = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("padding=") {
+            options.padding.all = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("padding-x=") {
+            options.padding.x = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("padding-y=") {
+            options.padding.y = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("padding-top=") {
+            options.padding.top = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("padding-right=") {
+            options.padding.right = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("padding-bottom=") {
+            options.padding.bottom = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("padding-left=") {
+            options.padding.left = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else {
+            return Err(error(
+                "E184",
+                line,
+                format!("unknown container property `{part}`"),
+            ));
+        }
+    }
+    Ok(ViewNode::Container {
+        options,
+        id,
+        styles,
+        content: Box::new(parse_view(&line.children[0])?),
+        span: Span::line(line.number),
+    })
 }
 
 fn parse_component_call(
