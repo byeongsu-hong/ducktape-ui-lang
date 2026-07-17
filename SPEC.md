@@ -1,4 +1,4 @@
-# Ice Language Specification 0.11
+# Ice Language Specification 0.12
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.11 syntax.
+marked “planned” is a design constraint, not accepted 0.12 syntax.
 
 ## 1. Design contract
 
@@ -79,7 +79,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.11.
+  block comments are not part of 0.12.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -179,9 +179,19 @@ button         = "button" (string | INDENT node) id? button_property*
                  styles? "->" route
 button_property = "disabled=" expr | ("width=" | "height=") length
                 | ("padding=" | "clip=") expr
-checkbox       = "checkbox" expr id? property* styles? "->" route
-toggler        = "toggler" expr "checked=" expr ("disabled=" expr)?
-                 styles? "->" route
+checkbox       = "checkbox" expr id? "checked=" expr bool_property*
+                 checkbox_icon_property* styles? "->" route
+toggler        = "toggler" expr "checked=" expr bool_property*
+                 ("align=" text_alignment)? styles? "->" route
+bool_property  = "disabled=" expr | "size=" expr | "width=" length
+               | ("spacing=" | "text-size=" | "line-height=") expr
+               | "shaping=" ("auto" | "basic" | "advanced")
+               | "wrapping=" ("none" | "word" | "glyph" | "word-or-glyph")
+               | "font=" ("default" | "mono")
+checkbox_icon_property = "icon=" string
+                       | ("icon-size=" | "icon-line-height=") expr
+                       | "icon-shaping=" ("auto" | "basic" | "advanced")
+text_alignment = "default" | "left" | "center" | "right" | "justified"
 slider         = "slider" expr "min=" expr "max=" expr "step=" expr
                  "vertical"? ("release=" route)? styles? "->" route
 progress       = "progress" expr ("min=" expr)? ("max=" expr)?
@@ -276,6 +286,11 @@ typing, submit, and paste messages together.
 node. It also supports typed width/height, non-negative padding, bool clipping,
 disabled routing, and the checked button style utilities.
 
+`checkbox` and `toggler` share typed control size/width/spacing, text size and
+relative line height, shaping, wrapping, and default/mono font properties.
+Togglers add full text alignment. Checkboxes add a single-character icon with
+size, relative line height, and shaping.
+
 `pick` requires a homogeneous `[T]` options expression and a matching optional
 `T?` selection. Its main route carries `T`; `open=` and `close=` routes carry no
 payload. Pick values may be bool, i64, f64, str, or an extern type. Fixed
@@ -338,7 +353,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.11 message payloads.
+`Clone` for 0.12 message payloads.
 
 Three typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
@@ -467,8 +482,8 @@ The implemented native nodes are:
 | `text` | one `str`, `i64`, or `f64` expression |
 | `input` | required `str` binding; ID, hint, disabled/secure, submit/paste, sizing, alignment, default/mono font and icon properties |
 | `button` | string label or one child; optional ID/disabled, typed size/padding/clip, required route |
-| `checkbox` | string label expression, required bool `checked`, optional disabled, bool-payload route |
-| `toggler` | string label, bool `checked`, optional disabled, bool-payload route |
+| `checkbox` | string label, bool value/route, disabled, sizing/typography/wrapping/font and custom icon properties |
+| `toggler` | string label, bool value/route, disabled, sizing/typography/wrapping/font/alignment properties |
 | `slider` | `f64` value/range/step, optional vertical axis and release route, `f64`-payload route |
 | `progress` | `f64` value/range, optional vertical axis |
 | `radio` | string label, `i64` or bool value, bool `selected`, value-payload route |
@@ -627,7 +642,7 @@ The implemented families are:
 `cargo check` so rustc verifies extern items and generated iced types. A missing
 Rust item is named by its `crate::module::item` path in rustc's diagnostic. A
 future source-map layer may remap those rustc spans into the precise extern line;
-0.11 does not claim that remapping.
+0.12 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -647,7 +662,7 @@ skips `.git` and `target`.
 
 ## 12. Current coverage and escape hatches
 
-The 0.11 native backend is enough for CRUD/settings-style screens, selection,
+The 0.12 native backend is enough for CRUD/settings-style screens, selection,
 media, hover
 overlays, and common pointer events, not all of iced. It still lacks direct
 syntax for canvas, general overlays/modals, rich text
@@ -684,5 +699,6 @@ layouts, toggles, sliders, progress, radio controls, rules, fixed spacing, an
 optional selection value, pick list and searchable combo box, extern and native
 tooltip/mouse-area components including pointer movement and wheel payloads,
 raster and SVG media, configured scrolling with offset events,
-responsive/positioned content, visibility sensing, extended text input, a
-child-content button, a clipboard task, and a raw-event subscription.
+responsive/positioned content, visibility sensing, extended text input,
+child-content buttons, configured boolean controls, a clipboard task, and a
+raw-event subscription.
