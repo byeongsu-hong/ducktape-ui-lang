@@ -15,7 +15,7 @@ container API, so container remains partial.
 
 ## Typed system reachability
 
-Ice 0.13 has three checked Rust boundaries:
+Ice 0.14 has three checked Rust boundaries:
 
 | Boundary | Rust ABI | Covers |
 | --- | --- | --- |
@@ -39,7 +39,7 @@ public behavior has direct documented Ice syntax and tests.
 | `container` | partial | generated around layouts; explicit alignment, clipping, sizing, style API missing |
 | `float` | partial | native scale and fixed x/y translation; viewport-aware translation closure and style API missing |
 | `grid` | partial | native children, fixed column count, spacing; fluid columns and height sizing missing |
-| `image` | partial | native path, fixed/fill/shrink length, fit, filter, rotation, opacity, scale, expand and radius; memory handles and crop missing |
+| `image` | partial | native path, all four iced length variants, fit, filter, rotation, opacity, scale, expand and radius; memory handles and crop missing |
 | `keyed` | partial | scoped IDs exist; keyed column diffing is not exposed |
 | `lazy` | missing | lazy/cache boundary |
 | `markdown` | missing | parsing/settings/link events |
@@ -58,9 +58,9 @@ public behavior has direct documented Ice syntax and tests.
 | `sensor` | partial | native show/resize dimensions, hide, key, anticipation and delay; general key references missing |
 | `shader` | missing | custom GPU primitive/program |
 | `slider` | partial | native f64 range/value/step/change/release and horizontal/vertical; shift-step/style API missing |
-| `space` | partial | native fixed width/height; fill and shrink lengths missing |
+| `space` | native | optional fixed/fill/fill-portion/shrink width and height cover the complete widget API |
 | `stack` | partial | native children, clip, size/basic decoration; alignment and full sizing API missing |
-| `svg` | partial | native path, fixed/fill/shrink length, fit, rotation and opacity; memory handles and status style missing |
+| `svg` | partial | native path, all four iced length variants, fit, rotation and opacity; memory handles and status style missing |
 | `table` | missing | columns, headers, rows, sizing |
 | `text` | partial | native string/numeric value, bounds, relative/absolute line height, alignment, shaping, wrapping, default/mono font, color and bold; arbitrary font attributes, rich spans and full style catalog missing |
 | `text_editor` | missing | content state, actions, highlight, key bindings |

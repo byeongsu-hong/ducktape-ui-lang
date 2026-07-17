@@ -939,7 +939,22 @@ fn parse_length(source: &str, line: &Line) -> Result<LengthValue, Error> {
     Ok(match source {
         "fill" => LengthValue::Fill,
         "shrink" => LengthValue::Shrink,
-        source => LengthValue::Fixed(parse_expr(strip_wrapping_parens(source), line)?),
+        source => {
+            if let Some(value) = source
+                .strip_prefix("fill(")
+                .and_then(|value| value.strip_suffix(')'))
+            {
+                LengthValue::FillPortion(value.parse().map_err(|_| {
+                    error(
+                        "E074",
+                        line,
+                        "fill portion must be an integer from 0 to 65535",
+                    )
+                })?)
+            } else {
+                LengthValue::Fixed(parse_expr(strip_wrapping_parens(source), line)?)
+            }
+        }
     })
 }
 
@@ -1784,9 +1799,9 @@ fn parse_space(parts: &[String], styles: Vec<String>, line: &Line) -> Result<Vie
     let mut height = None;
     for part in &parts[1..] {
         if let Some(value) = part.strip_prefix("width=") {
-            width = Some(parse_expr(strip_wrapping_parens(value), line)?);
+            width = Some(parse_length(value, line)?);
         } else if let Some(value) = part.strip_prefix("height=") {
-            height = Some(parse_expr(strip_wrapping_parens(value), line)?);
+            height = Some(parse_length(value, line)?);
         } else {
             return Err(error(
                 "E080",

@@ -630,8 +630,11 @@ fn infer_view(
             styles,
             span,
         } => {
-            for size in [width, height].into_iter().flatten() {
-                require_type(&expr_type(size, env, document, span)?, &Type::F64, span)?;
+            for length in [width, height].into_iter().flatten() {
+                if let LengthValue::Fixed(value) = length {
+                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+                    require_literal_range(value, 0.0, None, "space length", span)?;
+                }
             }
             check_styles(styles, document, span, StyleTarget::Space)?;
         }
@@ -1919,11 +1922,33 @@ view
     responsive at=600.0 width=fill height=40.0
       text "Narrow"
       text "Wide"
+    space width=fill(2) height=shrink
 "#;
         let document = analyze(source).unwrap();
         assert_eq!(document.handlers[0].params[0].ty.display(), "f64");
         assert_eq!(document.handlers[0].params[1].ty.display(), "f64");
         assert_eq!(document.handlers[1].params[0].ty.display(), "f64");
+    }
+
+    #[test]
+    fn rejects_a_negative_space_length() {
+        let source = r#"app Structure
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+view
+  space width=-1.0
+"#;
+        let error = analyze(source).unwrap_err();
+        assert_eq!(error.code, "E128");
+        assert!(error.message.contains("space length"));
+
+        let invalid_portion = source.replace("width=-1.0", "width=fill(65536)");
+        let error = analyze(&invalid_portion).unwrap_err();
+        assert_eq!(error.code, "E074");
+        assert!(error.message.contains("fill portion"));
     }
 
     #[test]
