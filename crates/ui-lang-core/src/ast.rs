@@ -349,6 +349,14 @@ pub enum ViewNode {
         children: Vec<ViewNode>,
         span: Span,
     },
+    KeyedColumn {
+        item: String,
+        items: Expr,
+        key: Expr,
+        options: Box<LayoutOptions>,
+        child: Box<ViewNode>,
+        span: Span,
+    },
     Component {
         name: String,
         args: Vec<Expr>,

@@ -236,7 +236,8 @@ fn slots(node: &ViewNode) -> Vec<&Span> {
             | ViewNode::Theme { content, .. }
             | ViewNode::Float { content, .. }
             | ViewNode::Pin { content, .. }
-            | ViewNode::Sensor { content, .. } => collect(content, output),
+            | ViewNode::Sensor { content, .. }
+            | ViewNode::KeyedColumn { child: content, .. } => collect(content, output),
             ViewNode::Tooltip { content, tip, .. } => {
                 collect(content, output);
                 collect(tip, output);
@@ -975,6 +976,52 @@ fn infer_view(
             for child in children {
                 infer_view(child, &child_env, document, signatures, ids)?;
             }
+        }
+        ViewNode::KeyedColumn {
+            item,
+            items,
+            key,
+            options,
+            child,
+            span,
+        } => {
+            let Type::List(inner) = expr_type(items, env, document, span)? else {
+                return Err(Error::new("E138", span, "keyed expects a list expression"));
+            };
+            let mut child_env = env.clone();
+            child_env.insert(item.clone(), *inner);
+            let key_type = expr_type(key, &child_env, document, span)?;
+            if !matches!(key_type, Type::Bool | Type::I64 | Type::F64) {
+                return Err(Error::new(
+                    "E138",
+                    span,
+                    "keyed keys must be copyable bool, i64, or f64 values",
+                ));
+            }
+            for length in [&options.width, &options.height].into_iter().flatten() {
+                if let LengthValue::Fixed(value) = length {
+                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+                    require_literal_range(value, 0.0, None, "keyed size", span)?;
+                }
+            }
+            for value in [
+                &options.spacing,
+                &options.padding.all,
+                &options.padding.x,
+                &options.padding.y,
+                &options.padding.top,
+                &options.padding.right,
+                &options.padding.bottom,
+                &options.padding.left,
+                &options.max_width,
+            ]
+            .into_iter()
+            .flatten()
+            {
+                require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+                require_literal_range(value, 0.0, None, "keyed metric", span)?;
+            }
+            infer_view(child, &child_env, document, signatures, ids)?;
         }
         ViewNode::Component {
             name,
@@ -2401,6 +2448,32 @@ view
             analyze(&source.replace("    text title\n    slot", "    text title")).unwrap_err();
         assert_eq!(error.code, "E124");
         assert!(error.message.contains("does not declare a slot"));
+    }
+
+    #[test]
+    fn checks_keyed_columns_and_copyable_keys() {
+        let source = r#"app Demo
+extern crate::backend
+  Item(id:i64, name:str)
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  items:[Item] = []
+view
+  keyed item in items by=item.id width=fill height=shrink spacing=8.0 padding=4.0 max-width=640.0 align=center
+    text item.name
+"#;
+        analyze(source).unwrap();
+
+        let error = analyze(&source.replace("by=item.id", "by=item.name")).unwrap_err();
+        assert_eq!(error.code, "E138");
+        assert!(error.message.contains("bool, i64, or f64"));
+
+        let error = analyze(&source.replace("spacing=8.0", "spacing=-1.0")).unwrap_err();
+        assert!(error.message.contains("outside its valid range"));
     }
 
     #[test]

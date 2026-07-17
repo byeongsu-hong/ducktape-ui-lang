@@ -635,6 +635,7 @@ fn parse_view(line: &Line) -> Result<ViewNode, Error> {
         "mouse" => parse_mouse_area(&parts, styles, line),
         "theme" => parse_theme(&parts, styles, line),
         "slot" => parse_slot(&parts, styles, line),
+        "keyed" => parse_keyed_column(&parts, styles, line),
         "float" => parse_float(&parts, styles, line),
         "pin" => parse_pin(&parts, styles, line),
         "sensor" => parse_sensor(&parts, styles, line),
@@ -681,6 +682,49 @@ fn parse_view(line: &Line) -> Result<ViewNode, Error> {
         }
         _ => Err(error("E064", line, format!("unknown view node `{kind}`"))),
     }
+}
+
+fn parse_keyed_column(
+    parts: &[String],
+    styles: Vec<String>,
+    line: &Line,
+) -> Result<ViewNode, Error> {
+    if !styles.is_empty() {
+        return Err(error("E095", line, "keyed does not accept `@` utilities"));
+    }
+    if line.children.len() != 1 {
+        return Err(error(
+            "E095",
+            line,
+            "keyed requires exactly one child template",
+        ));
+    }
+    if parts.len() < 5 || parts.get(2).map(String::as_str) != Some("in") {
+        return Err(error(
+            "E095",
+            line,
+            "keyed uses `keyed item in items by=item.id`",
+        ));
+    }
+    let key = parts[4]
+        .strip_prefix("by=")
+        .ok_or_else(|| error("E095", line, "keyed uses `keyed item in items by=item.id`"))?;
+    let options = parse_layout_options("col", &parts[5..], line)?;
+    if options.clip.is_some() || options.wrap {
+        return Err(error(
+            "E095",
+            line,
+            "keyed columns do not support clip or wrap",
+        ));
+    }
+    Ok(ViewNode::KeyedColumn {
+        item: identifier(&parts[1], line)?,
+        items: parse_expr(strip_wrapping_parens(&parts[3]), line)?,
+        key: parse_expr(strip_wrapping_parens(key), line)?,
+        options: Box::new(options),
+        child: Box::new(parse_view(&line.children[0])?),
+        span: Span::line(line.number),
+    })
 }
 
 fn parse_slot(parts: &[String], styles: Vec<String>, line: &Line) -> Result<ViewNode, Error> {
