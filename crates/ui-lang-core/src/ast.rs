@@ -332,6 +332,11 @@ pub enum Statement {
         route: Option<Route>,
         span: Span,
     },
+    WindowOperation {
+        operation: WindowOperation,
+        route: Option<Route>,
+        span: Span,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -349,6 +354,62 @@ pub enum WidgetOperation {
     SnapEnd { id: String },
     ScrollTo { id: String, x: Expr, y: Expr },
     ScrollBy { id: String, x: Expr, y: Expr },
+}
+
+#[derive(Clone, Debug)]
+pub enum WindowOperation {
+    Close,
+    Drag,
+    DragResize(WindowDirection),
+    Resize(Expr, Expr),
+    Resizable(Expr),
+    MinSize(Option<(Expr, Expr)>),
+    MaxSize(Option<(Expr, Expr)>),
+    ResizeIncrements(Option<(Expr, Expr)>),
+    Size,
+    IsMaximized,
+    Maximize(Expr),
+    IsMinimized,
+    Minimize(Expr),
+    Position,
+    ScaleFactor,
+    Move(Expr, Expr),
+    Mode,
+    SetMode(WindowMode),
+    ToggleMaximize,
+    ToggleDecorations,
+    Attention(Option<WindowAttention>),
+    Focus,
+    SetLevel(WindowLevel),
+    SystemMenu,
+    MousePassthrough(Expr),
+    MonitorSize,
+    AutomaticTabbing(Expr),
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum WindowDirection {
+    North,
+    South,
+    East,
+    West,
+    NorthEast,
+    NorthWest,
+    SouthEast,
+    SouthWest,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum WindowMode {
+    Windowed,
+    Fullscreen,
+    Hidden,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum WindowAttention {
+    Critical,
+    Informational,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

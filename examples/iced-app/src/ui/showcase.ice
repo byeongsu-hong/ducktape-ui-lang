@@ -59,6 +59,16 @@ state
   clipboard_text:str? = none
   primary_text:str? = none
   draft_focused = false
+  window_width = 0.0
+  window_height = 0.0
+  window_maximized = false
+  window_minimized:bool? = none
+  window_x:f64? = none
+  window_y:f64? = none
+  window_scale = 1.0
+  window_mode = "windowed"
+  monitor_width:f64? = none
+  monitor_height:f64? = none
 
 component TaskRow(task:Task, loading:bool)
   row #root @w-full items-center p-4 bg-surface border border-border rounded-lg
@@ -202,6 +212,117 @@ on task_list_scroll_to
 on task_list_scroll_by
   task widget scroll-by #task-list 0.0 8.0
 
+on window_close
+  task window close
+
+on window_drag
+  task window drag
+
+on window_drag_resize
+  task window drag-resize south-east
+
+on window_resize
+  task window resize 960.0 720.0
+
+on window_resizable
+  task window resizable true
+
+on window_min_size
+  task window min-size 480.0 360.0
+
+on window_clear_min_size
+  task window min-size none
+
+on window_max_size
+  task window max-size 1920.0 1080.0
+
+on window_resize_increments
+  task window resize-increments 8.0 8.0
+
+on window_read_size
+  task window size -> window_size_read _ _
+
+on window_size_read(width, height)
+  window_width = width
+  window_height = height
+
+on window_read_maximized
+  task window maximized -> window_maximized_read _
+
+on window_maximized_read(value)
+  window_maximized = value
+
+on window_maximize
+  task window maximize true
+
+on window_read_minimized
+  task window minimized -> window_minimized_read _
+
+on window_minimized_read(value)
+  window_minimized = value
+
+on window_minimize
+  task window minimize false
+
+on window_read_position
+  task window position -> window_position_read _ _
+
+on window_position_read(x, y)
+  window_x = x
+  window_y = y
+
+on window_read_scale
+  task window scale-factor -> window_scale_read _
+
+on window_scale_read(value)
+  window_scale = value
+
+on window_move
+  task window move 40.0 40.0
+
+on window_read_mode
+  task window mode -> window_mode_read _
+
+on window_mode_read(value)
+  window_mode = value
+
+on window_fullscreen
+  task window set-mode fullscreen
+
+on window_toggle_maximize
+  task window toggle-maximize
+
+on window_toggle_decorations
+  task window toggle-decorations
+
+on window_attention
+  task window attention informational
+
+on window_clear_attention
+  task window attention none
+
+on window_focus
+  task window focus
+
+on window_level
+  task window level normal
+
+on window_system_menu
+  task window system-menu
+
+on window_mouse_passthrough
+  task window mouse-passthrough false
+
+on window_read_monitor
+  task window monitor-size -> window_monitor_read _ _
+
+on window_monitor_read(width, height)
+  monitor_width = width
+  monitor_height = height
+
+on window_automatic_tabbing
+  task window automatic-tabbing false
+
 on external_hover_changed(next)
   external_hover = next
 
@@ -281,6 +402,9 @@ view
       button "Read primary" -> read_primary
       button "Focus draft" -> focus_draft
       button "Check draft focus" -> check_draft_focus
+      button "Read window size" -> window_read_size
+      button "Toggle maximize" -> window_toggle_maximize
+      button "Focus window" -> window_focus
       if draft_focused
         text "draft focused" @text-sm text-muted
 

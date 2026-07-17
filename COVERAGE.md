@@ -15,7 +15,7 @@ container API, so container remains partial.
 
 ## Typed system reachability
 
-Ice 0.39 has three checked Rust boundaries:
+Ice 0.40 has three checked Rust boundaries:
 
 | Boundary | Rust ABI | Covers |
 | --- | --- | --- |
@@ -75,13 +75,13 @@ public behavior has direct documented Ice syntax and tests.
 | --- | --- | --- |
 | application settings | partial | static title, application ID, default text size/font, antialiasing, vsync, scale factor, theme and run; font byte preload, executor and presets missing |
 | `Theme` and styles | partial | checked color tokens and a Tailwind-like subset; native theme/style catalogs and custom closures missing |
-| `Task` | partial | async externs, typed arbitrary iced `Task` adapters, direct system/clipboard tasks and widget operations; direct batch, chain, stream, cancellation and progress syntax missing |
+| `Task` | partial | async externs, typed arbitrary iced `Task` adapters, direct system/clipboard/widget/main-window tasks; direct batch, chain, stream, cancellation and progress syntax missing |
 | `Subscription` | partial | typed arbitrary iced `Subscription` adapters, batching, direct keyboard sources and system theme changes; other direct sources and combinators missing |
 | widget operations | partial | all 13 core focus/cursor/selection/scroll operations with checked static app IDs and typed focus query; scoped repeated/component IDs and feature-gated selectors remain |
 | clipboard | native | standard and primary read/write tasks; reads preserve iced's optional string payload and writes are checked fire-and-forget effects |
 | fonts | partial | every family/weight/stretch/style descriptor, checked named references and application default; byte loading remains |
 | system | native | current theme task, theme-change subscription, and every information field with optionality preserved; information requires iced's `sysinfo` feature |
-| window | partial | every cross-platform initial setting except icon plus fixed/default/centered position; platform-specific settings, icon, open/close, multiple windows, resize/move/mode/focus/screenshot/monitor operations missing |
+| window | partial | every cross-platform initial setting except icon; MAIN-window close/drag/resize/constraints/state/move/mode/focus/level/menu/attention/passthrough/monitor tasks and automatic tabbing; multi-window IDs/open/oldest/latest, icon, raw handle, screenshot, callbacks, event subscriptions and platform settings missing |
 | event routing | partial | raw event subscription adapter plus native structured keyboard payloads; general native event/status types missing |
 | keyboard | partial | direct subscriptions cover press, release and modifier-change events with logical/modified/physical key, location, text, repeat and every modifier query; typed key enums, constructors, matching and latin translation remain |
 | mouse/touch | partial | native mouse-area events and all cursor interactions; raw mouse subscriptions and touch types missing |

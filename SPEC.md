@@ -1,4 +1,4 @@
-# Ice Language Specification 0.39
+# Ice Language Specification 0.40
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.39 syntax.
+marked “planned” is a design constraint, not accepted 0.40 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.39.
+  block comments are not part of 0.40.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -190,12 +190,28 @@ statement      = name "=" expr
                | "task clipboard" ("read" | "read-primary") "->" route
                | "task clipboard" ("write" | "write-primary") expr
                | "task widget" widget_operation ("->" route)?
+               | "task window" window_operation ("->" route)?
 widget_operation = "focus-previous" | "focus-next"
                  | ("focus" | "focused" | "cursor-front" | "cursor-end"
                    | "select-all" | "snap-end") id
                  | "cursor" id expr
                  | "select" id expr expr
                  | ("snap" | "scroll-to" | "scroll-by") id expr expr
+window_operation = "close" | "drag" | "toggle-maximize" | "toggle-decorations"
+                 | "focus" | "system-menu"
+                 | "drag-resize" direction
+                 | ("resize" | "move") expr expr
+                 | ("resizable" | "maximize" | "minimize" | "mouse-passthrough"
+                   | "automatic-tabbing") expr
+                 | ("min-size" | "max-size" | "resize-increments")
+                   ("none" | expr expr)
+                 | "set-mode" ("windowed" | "fullscreen" | "hidden")
+                 | "attention" ("none" | "critical" | "informational")
+                 | "level" ("normal" | "always-on-bottom" | "always-on-top")
+                 | "size" | "maximized" | "minimized" | "position"
+                 | "scale-factor" | "mode" | "monitor-size"
+direction      = "north" | "south" | "east" | "west"
+               | "north-east" | "north-west" | "south-east" | "south-west"
 
 subscribe_decl = "subscribe" INDENT subscription_use+
 subscription_use
@@ -439,7 +455,7 @@ default/centered/fixed position, visibility, resizability, close/minimize
 buttons, decorations, transparency, blur, level, and close-request behavior.
 Sizes, text size, and scale factor must be positive; minimum size cannot exceed
 maximum size. Window icons and platform-specific settings are not part of
-0.39.
+0.40.
 
 Media fixed lengths, rotation, opacity, scale, and radius are `f64`; rotation
 is radians, opacity is `0.0..=1.0`, scale is positive, and sizes/radius are
@@ -688,7 +704,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.39 message payloads.
+`Clone` for 0.40 message payloads.
 
 Three typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
@@ -980,7 +996,7 @@ The family may be a named family or any of iced's five generic families. Every
 weight, stretch, and style variant is accepted. At most one declaration may be
 the application default. `font=default` and `font=mono` remain built-ins;
 declared fonts also work on text, input, editor, checkbox, and toggler. Font
-byte loading is not part of 0.39.
+byte loading is not part of 0.40.
 
 Widget operation tasks target checked static IDs in the app view:
 
@@ -1000,7 +1016,31 @@ snap/end; and absolute scroll-to/scroll-by. Effects have no route and
 non-negative `i64`; relative offsets are `f64` in `0.0..=1.0`; absolute
 offsets are unrestricted `f64`. Targets must be real static IDs in the app
 scope. Repeated/component scopes and the feature-gated selector API remain
-outside 0.39.
+outside 0.40.
+
+Main-window tasks resolve iced's oldest (initial) window ID without leaking its
+Rust type:
+
+```ice
+task window resize 960.0 720.0
+task window size -> window_size _ _
+task window maximized -> maximized_changed _
+task window position -> window_position _ _
+task window set-mode fullscreen
+task window attention informational
+task window monitor-size -> monitor_size _ _
+```
+
+Effects have no route and queries require one. `size` emits two `f64` values;
+`maximized` emits `bool`; `minimized` emits `bool?`; `position` and
+`monitor-size` each emit two `f64?` values; `scale-factor` emits `f64`; and
+`mode` emits `str`. Ice covers close, drag and all resize directions, resize
+and constraints, resizability, maximize/minimize state, position and movement,
+all modes, decorations, user attention, focus, level, system menu, mouse
+passthrough, monitor size, and automatic tabbing. Positive sizes and bool
+arguments are checked before Rust generation. New-window IDs, open/oldest/latest,
+icons, raw handles, screenshots, callbacks, and window subscriptions remain
+outside 0.40.
 
 ### IDs
 
@@ -1100,7 +1140,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 0.39 does not claim that remapping.
+extern line; 0.40 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -1121,7 +1161,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 0.39 native backend is enough for CRUD/settings-style screens, selection,
+The 0.40 native backend is enough for CRUD/settings-style screens, selection,
 media, hover
 overlays, and common pointer events, not all of iced. It still lacks direct
 syntax for canvas, general overlays/modals, rich text, multiple
