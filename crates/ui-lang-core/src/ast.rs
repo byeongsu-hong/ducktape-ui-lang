@@ -261,6 +261,7 @@ pub struct Subscription {
 
 #[derive(Clone, Debug)]
 pub enum SubscriptionSource {
+    Every { milliseconds: u64 },
     Extern { function: String, args: Vec<Expr> },
     InputMethod(InputMethodEvent),
     Keyboard(KeyboardEvent),

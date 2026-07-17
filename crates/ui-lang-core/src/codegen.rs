@@ -587,6 +587,10 @@ fn generate_subscription(
     for subscription in &document.subscriptions {
         let route = route_code(&subscription.route, "__value", &env, document, message)?;
         match &subscription.source {
+            SubscriptionSource::Every { milliseconds } => {
+                let message_code = route_code(&subscription.route, "", &env, document, message)?;
+                writeln!(out, "::iced::time::every(::std::time::Duration::from_millis({milliseconds})).map(move |_| {message_code}),").unwrap();
+            }
             SubscriptionSource::Extern { function, args } => {
                 let source = document
                     .functions
@@ -5397,6 +5401,14 @@ view
         assert!(generated.contains("::iced::keyboard::Event::ModifiersChanged"));
         assert!(generated.contains("self.key = event.key.clone()"));
         assert!(generated.contains("self.command = event.modifiers.command.clone()"));
+    }
+
+    #[test]
+    fn lowers_native_timer_subscription() {
+        let source = include_str!("../../../examples/iced-app/src/ui/timer.ice");
+        let generated = compile(source, "timer.ice").unwrap();
+        assert!(generated.contains("::iced::time::every(::std::time::Duration::from_millis(250))"));
+        assert!(generated.contains(".map(move |_| __TimerEventsMessage::Tick)"));
     }
 
     #[test]
