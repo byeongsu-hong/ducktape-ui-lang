@@ -15,6 +15,11 @@ adapter that includes a file and emits ordinary Rust.
 
 ```ice
 app Tasks
+  title "Ice Tasks"
+  window
+    size 960 720
+    min-size 480 360
+    position centered
 
 use "backend.ice"
 use "theme.ice"
@@ -116,7 +121,7 @@ cargo fmt --all
 
 ## Status
 
-This is an executable v0.38 language slice, not yet a complete iced replacement.
+This is an executable v0.39 language slice, not yet a complete iced replacement.
 It implements typed extern data/actions, state, handlers, async tasks, pure
 components with named props and structured child slots, scoped IDs, relative
 multi-file `use`,
@@ -125,9 +130,10 @@ twenty-five native widget forms,
 dependency-keyed lazy subtrees, checked style utilities, formatting, analysis,
 direct typed keyboard, system, and clipboard operations, and iced code
 generation, plus complete iced font descriptors. Static app IDs also support
-direct focus, cursor, selection, and scroll tasks. Typed `Element`, `Task`, and
-`Subscription` adapters expose advanced iced features
-without embedding Rust inside `.ice`. Unsupported syntax is rejected instead
-of silently ignored.
+direct focus, cursor, selection, and scroll tasks. Static application and
+cross-platform initial window settings compile to native iced configuration.
+Typed `Element`, `Task`, and `Subscription` adapters expose advanced iced
+features without embedding Rust inside `.ice`. Unsupported syntax is rejected
+instead of silently ignored.
 
 [`COVERAGE.md`](COVERAGE.md) is the authoritative iced 0.14 coverage ledger.

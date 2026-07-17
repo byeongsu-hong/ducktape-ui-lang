@@ -1,4 +1,4 @@
-# Ice Language Specification 0.38
+# Ice Language Specification 0.39
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.38 syntax.
+marked “planned” is a design constraint, not accepted 0.39 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.38.
+  block comments are not part of 0.39.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -129,7 +129,18 @@ declaration    = extern_decl | theme_decl | font_decl | qr_decl | state_decl | c
 document       = app_decl extern_decl? theme_decl qr_decl* state_decl?
                  component_decl* handler_decl* subscribe_decl? view_decl
 
-app_decl       = "app" PascalName
+app_decl       = "app" PascalName (INDENT app_setting*)?
+app_setting    = "title" string | "id" string
+               | ("default-text-size" | "scale-factor") number
+               | ("antialiasing" | "vsync") bool
+               | window_decl
+window_decl    = "window" INDENT window_setting*
+window_setting = ("size" | "min-size" | "max-size") number number
+               | "position" ("default" | "centered" | number number)
+               | "level" ("normal" | "always-on-bottom" | "always-on-top")
+               | ("maximized" | "fullscreen" | "visible" | "resizable"
+                 | "closeable" | "minimizable" | "decorations" | "transparent"
+                 | "blur" | "exit-on-close-request") bool
 
 extern_decl    = "extern" rust_path INDENT extern_item+
 extern_item    = struct_sig | function_sig | extern_component_sig
@@ -403,6 +414,33 @@ route          = name | name "(" route_arg_list? ")"
 route_arg      = expr | "_"
 ```
 
+Application configuration is static and lives under the app declaration:
+
+```ice
+app Tasks
+  title "Ice Tasks"
+  id "dev.ducktape.ice.tasks"
+  default-text-size 16
+  antialiasing true
+  vsync true
+  scale-factor 1
+  window
+    size 960 720
+    min-size 480 360
+    max-size 1920 1080
+    position centered
+    level normal
+```
+
+The application values lower to iced `Settings` and builder configuration.
+The window block covers every cross-platform `window::Settings` field except
+the binary icon: initial/minimum/maximum size, maximized/fullscreen state,
+default/centered/fixed position, visibility, resizability, close/minimize
+buttons, decorations, transparency, blur, level, and close-request behavior.
+Sizes, text size, and scale factor must be positive; minimum size cannot exceed
+maximum size. Window icons and platform-specific settings are not part of
+0.39.
+
 Media fixed lengths, rotation, opacity, scale, and radius are `f64`; rotation
 is radians, opacity is `0.0..=1.0`, scale is positive, and sizes/radius are
 non-negative. `filter`, `scale`, `expand`, and `radius` are image-only.
@@ -650,7 +688,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.38 message payloads.
+`Clone` for 0.39 message payloads.
 
 Three typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
@@ -942,7 +980,7 @@ The family may be a named family or any of iced's five generic families. Every
 weight, stretch, and style variant is accepted. At most one declaration may be
 the application default. `font=default` and `font=mono` remain built-ins;
 declared fonts also work on text, input, editor, checkbox, and toggler. Font
-byte loading is not part of 0.38.
+byte loading is not part of 0.39.
 
 Widget operation tasks target checked static IDs in the app view:
 
@@ -962,7 +1000,7 @@ snap/end; and absolute scroll-to/scroll-by. Effects have no route and
 non-negative `i64`; relative offsets are `f64` in `0.0..=1.0`; absolute
 offsets are unrestricted `f64`. Targets must be real static IDs in the app
 scope. Repeated/component scopes and the feature-gated selector API remain
-outside 0.38.
+outside 0.39.
 
 ### IDs
 
@@ -1062,7 +1100,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 0.38 does not claim that remapping.
+extern line; 0.39 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -1083,7 +1121,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 0.38 native backend is enough for CRUD/settings-style screens, selection,
+The 0.39 native backend is enough for CRUD/settings-style screens, selection,
 media, hover
 overlays, and common pointer events, not all of iced. It still lacks direct
 syntax for canvas, general overlays/modals, rich text, multiple
