@@ -3028,7 +3028,6 @@ fn parse_combo_box(
     route_source: Option<&str>,
     line: &Line,
 ) -> Result<ViewNode, Error> {
-    ensure_leaf(line)?;
     if !styles.is_empty() {
         return Err(error(
             "E088",
@@ -3054,6 +3053,12 @@ fn parse_combo_box(
             options.padding = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else if let Some(value) = part.strip_prefix("text-size=") {
             options.text_size = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("line-height=") {
+            options.line_height = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("shaping=") {
+            options.shaping = Some(parse_text_shaping(value, line, "E088")?);
+        } else if let Some(value) = part.strip_prefix("font=") {
+            options.font = Some(parse_font_preset(value, line)?);
         } else if let Some(value) = part.strip_prefix("input=") {
             let mut route = parse_route(value, line)?;
             if route.args.is_empty() {
@@ -3078,12 +3083,155 @@ fn parse_combo_box(
             ));
         }
     }
+    for child in &line.children {
+        parse_combo_box_child(child, &mut options)?;
+    }
     Ok(ViewNode::ComboBox {
         state: identifier(&parts[1], line)?,
         selected: parse_expr(&parts[2], line)?,
         placeholder: string_literal(&parts[3], line)?,
         options,
         route: parse_route(route.trim(), line)?,
+        span: Span::line(line.number),
+    })
+}
+
+fn parse_combo_box_child(line: &Line, options: &mut ComboBoxOptions) -> Result<(), Error> {
+    let parts = split_words(&line.text);
+    match parts.first().map(String::as_str) {
+        Some("active" | "hovered" | "focused" | "focused-hovered" | "disabled") => {
+            ensure_leaf(line)?;
+            parse_text_input_status(&parts, line, &mut options.style)
+        }
+        Some("menu") => {
+            ensure_leaf(line)?;
+            if options.menu_style.is_some() {
+                return Err(error("E088", line, "duplicate combo menu style"));
+            }
+            options.menu_style = Some(Box::new(parse_menu_style(&parts, line, "E088", "combo")?));
+            Ok(())
+        }
+        Some("icon") => {
+            ensure_leaf(line)?;
+            if options.icon.is_some() {
+                return Err(error("E088", line, "duplicate combo icon"));
+            }
+            options.icon = Some(parse_text_input_icon(&parts[1..], line)?);
+            Ok(())
+        }
+        _ => Err(error(
+            "E088",
+            line,
+            "combo blocks use active, hovered, focused, focused-hovered, disabled, menu, or icon",
+        )),
+    }
+}
+
+fn parse_text_input_status(
+    parts: &[String],
+    line: &Line,
+    styles: &mut TextInputStyleSet,
+) -> Result<(), Error> {
+    let status = parts.first().expect("text input status line");
+    let slot = match status.as_str() {
+        "active" => &mut styles.active,
+        "hovered" => &mut styles.hovered,
+        "focused" => &mut styles.focused,
+        "focused-hovered" => &mut styles.focused_hovered,
+        "disabled" => &mut styles.disabled,
+        _ => unreachable!("text input status dispatch validates the status"),
+    };
+    if slot.is_some() {
+        return Err(error(
+            "E088",
+            line,
+            format!("duplicate combo {status} style"),
+        ));
+    }
+    let mut style = TextInputStatusStyle {
+        span: Some(Span::line(line.number)),
+        ..TextInputStatusStyle::default()
+    };
+    for part in &parts[1..] {
+        if let Some(value) = part.strip_prefix("icon=") {
+            style.icon_color = Some(value.to_owned());
+        } else if let Some(value) = part.strip_prefix("placeholder=") {
+            style.placeholder_color = Some(value.to_owned());
+        } else if let Some(value) = part.strip_prefix("value=") {
+            style.value_color = Some(value.to_owned());
+        } else if let Some(value) = part.strip_prefix("selection=") {
+            style.selection_color = Some(value.to_owned());
+        } else if parse_container_style_option(part, &mut style.options, line)? {
+            if style.options.text_color.is_some()
+                || style.options.shadow_color.is_some()
+                || style.options.shadow_x.is_some()
+                || style.options.shadow_y.is_some()
+                || style.options.shadow_blur.is_some()
+                || style.options.pixel_snap.is_some()
+            {
+                return Err(error(
+                    "E088",
+                    line,
+                    format!("unknown combo input style property `{part}`"),
+                ));
+            }
+        } else {
+            return Err(error(
+                "E088",
+                line,
+                format!("unknown combo input style property `{part}`"),
+            ));
+        }
+    }
+    *slot = Some(style);
+    Ok(())
+}
+
+fn parse_text_input_icon(parts: &[String], line: &Line) -> Result<TextInputIcon, Error> {
+    let mut code_point = None;
+    let mut font = None;
+    let mut size = None;
+    let mut spacing = None;
+    let mut side = IconSide::Left;
+    for part in parts {
+        if let Some(value) = part.strip_prefix("code=") {
+            let value = string_literal(value, line)?;
+            let mut chars = value.chars();
+            code_point = chars.next();
+            if code_point.is_none() || chars.next().is_some() {
+                return Err(error(
+                    "E088",
+                    line,
+                    "combo icon code must contain one character",
+                ));
+            }
+        } else if let Some(value) = part.strip_prefix("font=") {
+            font = Some(parse_font_preset(value, line)?);
+        } else if let Some(value) = part.strip_prefix("size=") {
+            size = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("spacing=") {
+            spacing = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("side=") {
+            side = match value {
+                "left" => IconSide::Left,
+                "right" => IconSide::Right,
+                _ => return Err(error("E088", line, "combo icon side must be left or right")),
+            };
+        } else {
+            return Err(error(
+                "E088",
+                line,
+                format!("unknown combo icon property `{part}`"),
+            ));
+        }
+    }
+    Ok(TextInputIcon {
+        code_point: code_point
+            .ok_or_else(|| error("E088", line, "combo icon requires code=\"…\""))?,
+        font,
+        size,
+        spacing,
+        side,
         span: Span::line(line.number),
     })
 }
@@ -3163,7 +3311,7 @@ fn parse_pick_list_child(line: &Line, options: &mut PickListOptions) -> Result<(
             if options.menu_style.is_some() {
                 return Err(error("E087", line, "duplicate pick menu style"));
             }
-            options.menu_style = Some(Box::new(parse_pick_list_menu(&parts, line)?));
+            options.menu_style = Some(Box::new(parse_menu_style(&parts, line, "E087", "pick")?));
             Ok(())
         }
         Some("handle") => {
@@ -3235,10 +3383,15 @@ fn parse_pick_list_status(
     Ok(())
 }
 
-fn parse_pick_list_menu(parts: &[String], line: &Line) -> Result<PickListMenuStyle, Error> {
-    let mut style = PickListMenuStyle {
+fn parse_menu_style(
+    parts: &[String],
+    line: &Line,
+    code: &'static str,
+    widget: &str,
+) -> Result<MenuStyleOptions, Error> {
+    let mut style = MenuStyleOptions {
         span: Some(Span::line(line.number)),
-        ..PickListMenuStyle::default()
+        ..MenuStyleOptions::default()
     };
     for part in &parts[1..] {
         if let Some(value) = part.strip_prefix("selected-text=") {
@@ -3247,13 +3400,17 @@ fn parse_pick_list_menu(parts: &[String], line: &Line) -> Result<PickListMenuSty
             style.selected_background = Some(parse_background_value(value, line)?);
         } else if parse_container_style_option(part, &mut style.options, line)? {
             if style.options.pixel_snap.is_some() {
-                return Err(error("E087", line, "pick menu does not support pixel-snap"));
+                return Err(error(
+                    code,
+                    line,
+                    format!("{widget} menu does not support pixel-snap"),
+                ));
             }
         } else {
             return Err(error(
-                "E087",
+                code,
                 line,
-                format!("unknown pick menu property `{part}`"),
+                format!("unknown {widget} menu property `{part}`"),
             ));
         }
     }

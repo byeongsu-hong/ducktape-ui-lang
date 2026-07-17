@@ -1,4 +1,4 @@
-# Ice Language Specification 0.70
+# Ice Language Specification 0.71
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.70 syntax.
+marked “planned” is a design constraint, not accepted 0.71 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.70.
+  block comments are not part of 0.71.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -494,7 +494,7 @@ pick_property  = "placeholder=" expr | "width=" length
                | ("text-size=" | "line-height=") expr
                | "shaping=" ("auto" | "basic" | "advanced")
                | "font=" font_ref | "open=" route | "close=" route
-pick_child     = pick_status | pick_menu | pick_handle
+pick_child     = pick_status | menu_style | pick_handle
 pick_status    = ("active" | "hovered" | "opened" | "opened-hovered")
                  pick_status_property*
 pick_status_property
@@ -502,8 +502,8 @@ pick_status_property
                | ("text=" | "placeholder=" | "handle=" | "border=") color_ref
                | ("border-width=" | "radius=" | "radius-tl="
                  | "radius-tr=" | "radius-br=" | "radius-bl=") expr
-pick_menu      = "menu" pick_menu_property*
-pick_menu_property
+menu_style     = "menu" menu_style_property*
+menu_style_property
                = ("background=" | "selected-background=") background_value
                | ("text=" | "selected-text=" | "border=" | "shadow=") color_ref
                | ("border-width=" | "radius=" | "radius-tl="
@@ -520,10 +520,27 @@ pick_icon_property
                | ("size=" | "line-height=") expr
                | "shaping=" ("auto" | "basic" | "advanced")
 combo_box      = "combo" name expr string combo_property* "->" route
+                 (INDENT combo_child*)?
 combo_property = "width=" length | "menu-height=" length
-               | "padding=" expr | "text-size=" expr
+               | "padding=" expr | ("text-size=" | "line-height=") expr
+               | "shaping=" ("auto" | "basic" | "advanced")
+               | "font=" font_ref
                | "input=" route | "hover=" route
                | "open=" route | "close=" route
+combo_child    = combo_status | menu_style | combo_icon
+combo_status   = ("active" | "hovered" | "focused"
+               | "focused-hovered" | "disabled") combo_style_property*
+combo_style_property
+               = "background=" background_value
+               | ("border=" | "icon=" | "placeholder="
+                 | "value=" | "selection=") color_ref
+               | ("border-width=" | "radius=" | "radius-tl="
+                 | "radius-tr=" | "radius-br=" | "radius-bl=") expr
+combo_icon     = "icon" combo_icon_property+
+combo_icon_property
+               = "code=" string | "font=" font_ref
+               | ("size=" | "spacing=") expr
+               | "side=" ("left" | "right")
 float          = "float" ("scale=" expr)? ("x=" expr)? ("y=" expr)?
                  INDENT node
 pin            = "pin" (("width=" | "height=") length)?
@@ -628,7 +645,7 @@ default/centered/fixed position, visibility, resizability, close/minimize
 buttons, decorations, transparency, blur, level, and close-request behavior.
 Sizes, text size, and scale factor must be positive; minimum size cannot exceed
 maximum size. Window icons and platform-specific settings are not part of
-0.70.
+0.71.
 
 Media fixed lengths, rotation, opacity, scale, and radius are `f64`; rotation
 is radians, opacity is `0.0..=1.0`, scale is positive, and sizes/radius are
@@ -809,8 +826,26 @@ Unicode scalar; icon size and relative line height are non-negative `f64`.
 `combo` requires a `combo[T]` search state and matching `T?` selection. Its
 main and `hover=` routes carry `T`; `input=` carries str; `open=` and `close=`
 carry no payload. A bare input/hover handler name receives the payload
-automatically. Combo search state owns its initial options and cannot be
-assigned after initialization.
+automatically. Width/menu height, padding, text size, relative line height,
+shaping, and complete fonts map to every native builder setter. A structured
+`icon` line covers the complete text-input icon: one Unicode scalar, font,
+size, spacing, and side.
+
+The five `active`, `hovered`, `focused`, `focused-hovered`, and `disabled`
+lines start from iced's status default and expose every concrete input Style
+field. The shared `menu` line exposes every menu overlay Style field:
+
+```ice
+combo modes mode "Search views" font=ui shaping=advanced -> changed _
+  active background=surface border=border icon=primary placeholder=muted value=foreground selection=primary
+  focused-hovered background=background border=primary border-width=2.0 radius=6.0
+  menu text=foreground selected-text=foreground selected-background=primary background=surface shadow=black/50
+  icon code="⌕" font=ui size=14.0 spacing=6.0 side=right
+```
+
+Assigning a matching `[T]` to `combo[T]` state replaces its searchable options
+with a freshly indexed native `combo_box::State<T>`; mismatched lists fail
+before Rust generation.
 
 `float` applies positive scale and x/y translation to one child. `pin` places
 one child at x/y coordinates inside optional typed width/height bounds; x/y is
@@ -964,7 +999,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.70 message payloads.
+`Clone` for 0.71 message payloads.
 
 Three typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
@@ -1103,7 +1138,7 @@ The implemented native nodes are:
 | `progress` | `f64` value/range, all length/girth variants, vertical axis, five presets and color/border/radius style overrides |
 | `radio` | string label, bool/i64/f64/str/extern value route, bool selection, complete sizing/typography/font and selected-aware status styles |
 | `pick` | `[T]` options, `T?` selection, complete typography/handle/status/menu configuration, `T`-payload route |
-| `combo` | searchable `combo[T]` state, `T?` selection, input/hover/open/close routes and sizing |
+| `combo` | searchable/replaced `combo[T]` state, `T?` selection, complete typography/icon/input/menu styles and all routes |
 | `float` | one child with positive scale and x/y translation |
 | `pin` | one child with typed width/height and fixed x/y position |
 | `sensor` | one child with show/resize `(width, height)`, hide, key, anticipation and delay |
@@ -1505,8 +1540,8 @@ The family may be a named family or any of iced's five generic families. Every
 weight, stretch, and style variant is accepted. At most one declaration may be
 the application default. `font=default` and `font=mono` remain built-ins;
 declared fonts also work on text, rich text and spans, input, editor, checkbox,
-and toggler. Font
-byte loading is not part of 0.70.
+toggler, radio, pick, combo, and their custom icons. Font
+byte loading is not part of 0.71.
 
 Widget operation tasks target checked static IDs in the app view:
 
@@ -1526,7 +1561,7 @@ snap/end; and absolute scroll-to/scroll-by. Effects have no route and
 non-negative `i64`; relative offsets are `f64` in `0.0..=1.0`; absolute
 offsets are unrestricted `f64`. Targets must be real static IDs in the app
 scope. Repeated/component scopes and the feature-gated selector API remain
-outside 0.70.
+outside 0.71.
 
 Persistent pane grids expose their native layout-state operations directly in
 handlers:
@@ -1573,7 +1608,7 @@ and constraints, resizability, maximize/minimize state, position and movement,
 all modes, decorations, user attention, focus, level, system menu, mouse
 passthrough, monitor size, and automatic tabbing. Positive sizes and bool
 arguments are checked before Rust generation. New-window IDs, open/oldest/latest,
-icons, raw handles, screenshots, and callbacks remain outside 0.70.
+icons, raw handles, screenshots, and callbacks remain outside 0.71.
 
 Every iced window event has a direct subscription form:
 
@@ -1726,7 +1761,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 0.70 does not claim that remapping.
+extern line; 0.71 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -1747,7 +1782,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 0.70 native backend is enough for CRUD/settings-style screens, selection,
+The 0.71 native backend is enough for CRUD/settings-style screens, selection,
 media, hover
 overlays, and common pointer events, not all of iced. It still lacks direct
 syntax for canvas, arbitrary custom overlays, multiple
