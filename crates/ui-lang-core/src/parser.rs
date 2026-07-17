@@ -631,7 +631,7 @@ fn parse_subscription(line: &Line) -> Result<Subscription, Error> {
         return Err(error(
             "E084",
             line,
-            "subscription uses `name(args)`, `keyboard event`, `window event`, or `system theme` before `-> handler _`",
+            "subscription uses `name(args)`, `keyboard event`, `mouse event`, `window event`, or `system theme` before `-> handler _`",
         ));
     };
     let call = call.trim();
@@ -663,6 +663,22 @@ fn parse_subscription(line: &Line) -> Result<Subscription, Error> {
                     "E084",
                     line,
                     "keyboard event must be press, release, or modifiers",
+                ));
+            }
+        })
+    } else if let Some(event) = call.strip_prefix("mouse ") {
+        SubscriptionSource::Mouse(match event.trim() {
+            "entered" => MouseEvent::Entered,
+            "left" => MouseEvent::Left,
+            "moved" => MouseEvent::Moved,
+            "pressed" => MouseEvent::Pressed,
+            "released" => MouseEvent::Released,
+            "wheel" => MouseEvent::Wheel,
+            _ => {
+                return Err(error(
+                    "E084",
+                    line,
+                    "mouse event must be entered, left, moved, pressed, released, or wheel",
                 ));
             }
         })

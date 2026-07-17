@@ -2049,8 +2049,14 @@ fn infer_subscriptions(
     signatures: &mut HashMap<String, Vec<Option<Type>>>,
 ) -> Result<(), Error> {
     for subscription in &document.subscriptions {
-        if let SubscriptionSource::Window(event) = &subscription.source {
-            let payloads = match event {
+        let ordered_payloads = match &subscription.source {
+            SubscriptionSource::Mouse(event) => Some(match event {
+                MouseEvent::Entered | MouseEvent::Left => Vec::new(),
+                MouseEvent::Moved => vec![Type::F64, Type::F64],
+                MouseEvent::Pressed | MouseEvent::Released => vec![Type::Str],
+                MouseEvent::Wheel => vec![Type::F64, Type::F64, Type::Bool],
+            }),
+            SubscriptionSource::Window(event) => Some(match event {
                 WindowEvent::Frame
                 | WindowEvent::Closed
                 | WindowEvent::CloseRequested
@@ -2066,6 +2072,14 @@ fn infer_subscriptions(
                 WindowEvent::Moved | WindowEvent::Resized => vec![Type::F64, Type::F64],
                 WindowEvent::Rescaled => vec![Type::F64],
                 WindowEvent::FileHovered | WindowEvent::FileDropped => vec![Type::Str],
+            }),
+            _ => None,
+        };
+        if let Some(payloads) = ordered_payloads {
+            let label = match &subscription.source {
+                SubscriptionSource::Mouse(_) => "mouse subscription",
+                SubscriptionSource::Window(_) => "window subscription",
+                _ => unreachable!("only ordered subscription sources reach this branch"),
             };
             infer_ordered_payload_route(
                 &subscription.route,
@@ -2073,7 +2087,7 @@ fn infer_subscriptions(
                 states,
                 document,
                 signatures,
-                "window subscription",
+                label,
             )?;
             continue;
         }
@@ -2091,6 +2105,7 @@ fn infer_subscriptions(
             SubscriptionSource::Keyboard(KeyboardEvent::Press) => Type::KeyPress,
             SubscriptionSource::Keyboard(KeyboardEvent::Release) => Type::KeyRelease,
             SubscriptionSource::Keyboard(KeyboardEvent::Modifiers) => Type::KeyModifiers,
+            SubscriptionSource::Mouse(_) => unreachable!("handled above"),
             SubscriptionSource::SystemTheme => Type::Str,
             SubscriptionSource::Window(_) => unreachable!("handled above"),
         };
@@ -3110,6 +3125,49 @@ fn type_error(span: &Span, expected: &Type, actual: &Type) -> Error {
 #[cfg(test)]
 mod tests {
     use crate::analyze;
+
+    #[test]
+    fn checks_all_native_mouse_subscription_payloads() {
+        let source = include_str!("../../../examples/iced-app/src/ui/mouse_events.ice");
+        let document = analyze(source).unwrap();
+        let handlers = document
+            .handlers
+            .iter()
+            .map(|handler| {
+                (
+                    handler.name.as_str(),
+                    handler
+                        .params
+                        .iter()
+                        .map(|param| param.ty.display())
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .collect::<std::collections::HashMap<_, _>>();
+        assert_eq!(handlers["entered"], Vec::<String>::new());
+        assert_eq!(handlers["left"], Vec::<String>::new());
+        assert_eq!(handlers["moved"], ["f64", "f64"]);
+        assert_eq!(handlers["pressed"], ["str"]);
+        assert_eq!(handlers["released"], ["str"]);
+        assert_eq!(handlers["wheel"], ["f64", "f64", "bool"]);
+
+        let error = analyze(&source.replace("mouse moved -> moved _ _", "mouse moved -> moved _"))
+            .unwrap_err();
+        assert_eq!(error.code, "E129");
+        assert!(error.message.contains("expects 2 payloads"));
+
+        let error = analyze(&source.replace(
+            "mouse wheel -> wheel _ _ _",
+            "mouse wheel -> wheel 1.0 2.0 true",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E129");
+
+        let error =
+            analyze(&source.replace("mouse left -> left", "mouse dragged -> left")).unwrap_err();
+        assert_eq!(error.code, "E084");
+        assert!(error.message.contains("mouse event must be"));
+    }
 
     #[test]
     fn checks_all_native_window_subscription_payloads() {

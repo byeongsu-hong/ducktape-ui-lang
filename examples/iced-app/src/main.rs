@@ -133,3 +133,8 @@ mod showcase {
 mod window_events {
     ui_lang::include_app!("src/ui/window_events.ice");
 }
+
+#[cfg(test)]
+mod mouse_events {
+    ui_lang::include_app!("src/ui/mouse_events.ice");
+}

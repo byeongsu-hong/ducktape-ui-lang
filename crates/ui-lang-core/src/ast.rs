@@ -263,6 +263,7 @@ pub struct Subscription {
 pub enum SubscriptionSource {
     Extern { function: String, args: Vec<Expr> },
     Keyboard(KeyboardEvent),
+    Mouse(MouseEvent),
     SystemTheme,
     Window(WindowEvent),
 }
@@ -272,6 +273,16 @@ pub enum KeyboardEvent {
     Press,
     Release,
     Modifiers,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MouseEvent {
+    Entered,
+    Left,
+    Moved,
+    Pressed,
+    Released,
+    Wheel,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
