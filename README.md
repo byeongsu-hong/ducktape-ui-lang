@@ -125,7 +125,7 @@ cargo fmt --all
 
 ## Status
 
-This is an executable v0.60 language slice, not yet a complete iced replacement.
+This is an executable v0.61 language slice, not yet a complete iced replacement.
 It implements typed extern data/actions, state, handlers, async tasks, pure
 components with named props, default children, named structural slots, and
 React-like qualified compound children, scoped IDs, relative
@@ -141,7 +141,7 @@ cross-platform initial window settings compile to native iced configuration.
 The main window also has checked runtime effect and query tasks.
 Native containers expose their complete concrete layout and surface style APIs,
 including linear backgrounds, per-corner borders, shadows, and pixel snapping.
-Tooltip surfaces accept the same checked linear backgrounds.
+Tooltip and progress surfaces accept the same checked linear backgrounds.
 Persistent pane grids support recursive initial layouts, declared dynamic
 panes, native title bars with responsive controls, linear backgrounds, every
 concrete pane-grid state style and pane surface style, and checked split,
