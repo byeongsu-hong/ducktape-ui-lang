@@ -15,7 +15,7 @@ container API, so container remains partial.
 
 ## Typed system reachability
 
-Ice 0.8 has three checked Rust boundaries:
+Ice 0.9 has three checked Rust boundaries:
 
 | Boundary | Rust ABI | Covers |
 | --- | --- | --- |
@@ -54,7 +54,7 @@ public behavior has direct documented Ice syntax and tests.
 | `responsive` | partial | native width breakpoint with narrow/wide views and typed bounds; arbitrary size-dependent view closure missing |
 | `row` | partial | native children, spacing, padding, size/alignment/basic decoration; full sizing API missing |
 | `rule` | partial | native axis/thickness; fill/style API missing |
-| `scrollable` | partial | native one-child scroll and ID; direction, scrollbar, snap and scroll events missing |
+| `scrollable` | partial | native content/ID, all directions, bounds, scrollbar geometry/visibility/spacing, anchors, auto-scroll and absolute/relative offset events; viewport bounds/reversed offsets and style catalog missing |
 | `sensor` | partial | native show/resize dimensions, hide, key, anticipation and delay; general key references missing |
 | `shader` | missing | custom GPU primitive/program |
 | `slider` | partial | native f64 range/value/step/change/release and horizontal/vertical; shift-step/style API missing |
