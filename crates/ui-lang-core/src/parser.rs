@@ -552,6 +552,10 @@ fn parse_view(line: &Line) -> Result<ViewNode, Error> {
         "image" | "svg" => parse_media(kind, &parts, styles, line),
         "tooltip" => parse_tooltip(&parts, styles, line),
         "mouse" => parse_mouse_area(&parts, styles, line),
+        "float" => parse_float(&parts, styles, line),
+        "pin" => parse_pin(&parts, styles, line),
+        "sensor" => parse_sensor(&parts, styles, line),
+        "responsive" => parse_responsive(&parts, styles, line),
         _ if kind.chars().next().is_some_and(char::is_uppercase) => {
             ensure_leaf(line)?;
             let (name, args_source) = parse_signature(kind, line)?;
@@ -569,6 +573,168 @@ fn parse_view(line: &Line) -> Result<ViewNode, Error> {
         }
         _ => Err(error("E064", line, format!("unknown view node `{kind}`"))),
     }
+}
+
+fn parse_float(parts: &[String], styles: Vec<String>, line: &Line) -> Result<ViewNode, Error> {
+    if !styles.is_empty() {
+        return Err(error("E089", line, "float does not accept `@` utilities"));
+    }
+    if line.children.len() != 1 {
+        return Err(error("E089", line, "float requires exactly one child"));
+    }
+    let mut scale = Expr::F64(1.0);
+    let mut x = Expr::F64(0.0);
+    let mut y = Expr::F64(0.0);
+    for part in &parts[1..] {
+        if let Some(value) = part.strip_prefix("scale=") {
+            scale = parse_expr(strip_wrapping_parens(value), line)?;
+        } else if let Some(value) = part.strip_prefix("x=") {
+            x = parse_expr(strip_wrapping_parens(value), line)?;
+        } else if let Some(value) = part.strip_prefix("y=") {
+            y = parse_expr(strip_wrapping_parens(value), line)?;
+        } else {
+            return Err(error(
+                "E089",
+                line,
+                format!("unknown float property `{part}`"),
+            ));
+        }
+    }
+    Ok(ViewNode::Float {
+        scale,
+        x,
+        y,
+        content: Box::new(parse_view(&line.children[0])?),
+        span: Span::line(line.number),
+    })
+}
+
+fn parse_pin(parts: &[String], styles: Vec<String>, line: &Line) -> Result<ViewNode, Error> {
+    if !styles.is_empty() {
+        return Err(error("E090", line, "pin does not accept `@` utilities"));
+    }
+    if line.children.len() != 1 {
+        return Err(error("E090", line, "pin requires exactly one child"));
+    }
+    let mut width = None;
+    let mut height = None;
+    let mut x = Expr::F64(0.0);
+    let mut y = Expr::F64(0.0);
+    for part in &parts[1..] {
+        if let Some(value) = part.strip_prefix("width=") {
+            width = Some(parse_length(value, line)?);
+        } else if let Some(value) = part.strip_prefix("height=") {
+            height = Some(parse_length(value, line)?);
+        } else if let Some(value) = part.strip_prefix("x=") {
+            x = parse_expr(strip_wrapping_parens(value), line)?;
+        } else if let Some(value) = part.strip_prefix("y=") {
+            y = parse_expr(strip_wrapping_parens(value), line)?;
+        } else {
+            return Err(error(
+                "E090",
+                line,
+                format!("unknown pin property `{part}`"),
+            ));
+        }
+    }
+    Ok(ViewNode::Pin {
+        width,
+        height,
+        x,
+        y,
+        content: Box::new(parse_view(&line.children[0])?),
+        span: Span::line(line.number),
+    })
+}
+
+fn parse_sensor(parts: &[String], styles: Vec<String>, line: &Line) -> Result<ViewNode, Error> {
+    if !styles.is_empty() {
+        return Err(error("E091", line, "sensor does not accept `@` utilities"));
+    }
+    if line.children.len() != 1 {
+        return Err(error("E091", line, "sensor requires exactly one child"));
+    }
+    let mut options = SensorOptions::default();
+    for part in &parts[1..] {
+        if let Some(value) = part.strip_prefix("show=") {
+            options.show = Some(parse_size_route(value, line)?);
+        } else if let Some(value) = part.strip_prefix("resize=") {
+            options.resize = Some(parse_size_route(value, line)?);
+        } else if let Some(value) = part.strip_prefix("hide=") {
+            options.hide = Some(parse_route(value, line)?);
+        } else if let Some(value) = part.strip_prefix("key=") {
+            options.key = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("anticipate=") {
+            options.anticipate = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("delay=") {
+            options.delay_ms = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else {
+            return Err(error(
+                "E091",
+                line,
+                format!("unknown sensor property `{part}`"),
+            ));
+        }
+    }
+    if options.show.is_none() && options.resize.is_none() && options.hide.is_none() {
+        return Err(error("E091", line, "sensor requires show, resize, or hide"));
+    }
+    Ok(ViewNode::Sensor {
+        options,
+        content: Box::new(parse_view(&line.children[0])?),
+        span: Span::line(line.number),
+    })
+}
+
+fn parse_responsive(parts: &[String], styles: Vec<String>, line: &Line) -> Result<ViewNode, Error> {
+    if !styles.is_empty() {
+        return Err(error(
+            "E092",
+            line,
+            "responsive does not accept `@` utilities",
+        ));
+    }
+    if line.children.len() != 2 {
+        return Err(error(
+            "E092",
+            line,
+            "responsive requires two children: narrow, then wide",
+        ));
+    }
+    let mut breakpoint = None;
+    let mut width = None;
+    let mut height = None;
+    for part in &parts[1..] {
+        if let Some(value) = part.strip_prefix("at=") {
+            breakpoint = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("width=") {
+            width = Some(parse_length(value, line)?);
+        } else if let Some(value) = part.strip_prefix("height=") {
+            height = Some(parse_length(value, line)?);
+        } else {
+            return Err(error(
+                "E092",
+                line,
+                format!("unknown responsive property `{part}`"),
+            ));
+        }
+    }
+    Ok(ViewNode::Responsive {
+        breakpoint: breakpoint.ok_or_else(|| error("E092", line, "responsive requires `at=`"))?,
+        width,
+        height,
+        narrow: Box::new(parse_view(&line.children[0])?),
+        wide: Box::new(parse_view(&line.children[1])?),
+        span: Span::line(line.number),
+    })
+}
+
+fn parse_size_route(source: &str, line: &Line) -> Result<Route, Error> {
+    let mut route = parse_route(source, line)?;
+    if route.args.is_empty() {
+        route.args = vec![RouteArg::Payload, RouteArg::Payload];
+    }
+    Ok(route)
 }
 
 fn parse_combo_box(

@@ -706,6 +706,118 @@ fn infer_view(
             }
             infer_view(content, env, document, signatures, ids)?;
         }
+        ViewNode::Float {
+            scale,
+            x,
+            y,
+            content,
+            span,
+        } => {
+            for value in [scale, x, y] {
+                require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+            }
+            require_literal_range(scale, f64::EPSILON, None, "float scale", span)?;
+            infer_view(content, env, document, signatures, ids)?;
+        }
+        ViewNode::Pin {
+            width,
+            height,
+            x,
+            y,
+            content,
+            span,
+        } => {
+            for value in [x, y] {
+                require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+            }
+            for length in [width, height].into_iter().flatten() {
+                if let LengthValue::Fixed(value) = length {
+                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+                    require_literal_range(value, 0.0, None, "pin size", span)?;
+                }
+            }
+            infer_view(content, env, document, signatures, ids)?;
+        }
+        ViewNode::Sensor {
+            options,
+            content,
+            span,
+        } => {
+            for (route, label) in [(&options.show, "show"), (&options.resize, "resize")]
+                .into_iter()
+                .filter_map(|(route, label)| route.as_ref().map(|route| (route, label)))
+            {
+                if route.args.len() != 2
+                    || route
+                        .args
+                        .iter()
+                        .any(|arg| !matches!(arg, RouteArg::Payload))
+                {
+                    return Err(Error::new(
+                        "E129",
+                        span,
+                        format!("sensor {label} route receives width and height"),
+                    ));
+                }
+                infer_route(route, Some(Type::F64), env, document, signatures)?;
+            }
+            if let Some(route) = &options.hide {
+                infer_route(route, None, env, document, signatures)?;
+            }
+            if let Some(key) = &options.key {
+                let ty = expr_type(key, env, document, span)?;
+                if !matches!(
+                    ty,
+                    Type::Bool | Type::I64 | Type::F64 | Type::Str | Type::Named(_)
+                ) {
+                    return Err(Error::new(
+                        "E129",
+                        span,
+                        "sensor key must be bool, i64, f64, str, or an extern type",
+                    ));
+                }
+            }
+            if let Some(distance) = &options.anticipate {
+                require_type(&expr_type(distance, env, document, span)?, &Type::F64, span)?;
+                require_literal_range(distance, 0.0, None, "sensor anticipation", span)?;
+            }
+            if let Some(delay) = &options.delay_ms {
+                require_type(&expr_type(delay, env, document, span)?, &Type::I64, span)?;
+                if matches!(delay, Expr::I64(value) if *value < 0) {
+                    return Err(Error::new("E128", span, "sensor delay cannot be negative"));
+                }
+            }
+            infer_view(content, env, document, signatures, ids)?;
+        }
+        ViewNode::Responsive {
+            breakpoint,
+            width,
+            height,
+            narrow,
+            wide,
+            span,
+        } => {
+            require_type(
+                &expr_type(breakpoint, env, document, span)?,
+                &Type::F64,
+                span,
+            )?;
+            require_literal_range(
+                breakpoint,
+                f64::EPSILON,
+                None,
+                "responsive breakpoint",
+                span,
+            )?;
+            for length in [width, height].into_iter().flatten() {
+                if let LengthValue::Fixed(value) = length {
+                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+                    require_literal_range(value, 0.0, None, "responsive size", span)?;
+                }
+            }
+            infer_view(narrow, env, document, signatures, ids)?;
+            infer_view(wide, env, document, signatures, ids)?;
+        }
     }
     Ok(())
 }
@@ -1539,6 +1651,61 @@ view
         let error = analyze(source).unwrap_err();
         assert_eq!(error.code, "E140");
         assert!(error.message.contains("cannot be assigned"));
+    }
+
+    #[test]
+    fn checks_structural_widget_routes_and_ranges() {
+        let source = r#"app Structure
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  sensor_key = 0
+  width = 0.0
+  height = 0.0
+on shown(w, h)
+  width = w
+  height = h
+on resized(w, h)
+  width = w
+  height = h
+on hidden
+view
+  col
+    float scale=1.1 x=4.0 y=-2.0
+      text "Floating"
+    pin width=fill height=80.0 x=12.0 y=8.0
+      text "Pinned"
+    sensor show=shown resize=resized hide=hidden key=sensor_key anticipate=32.0 delay=10
+      text "Observed"
+    responsive at=600.0 width=fill height=40.0
+      text "Narrow"
+      text "Wide"
+"#;
+        let document = analyze(source).unwrap();
+        assert_eq!(document.handlers[0].params[0].ty.display(), "f64");
+        assert_eq!(document.handlers[0].params[1].ty.display(), "f64");
+        assert_eq!(document.handlers[1].params[0].ty.display(), "f64");
+    }
+
+    #[test]
+    fn rejects_a_non_positive_responsive_breakpoint() {
+        let source = r#"app Structure
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+view
+  responsive at=0.0
+    text "Narrow"
+    text "Wide"
+"#;
+        let error = analyze(source).unwrap_err();
+        assert_eq!(error.code, "E128");
+        assert!(error.message.contains("responsive breakpoint"));
     }
 
     #[test]

@@ -33,6 +33,9 @@ state
   picker_open = false
   mode_query = ""
   hovered_mode = ""
+  sensor_key = 0
+  observed_width = 0.0
+  observed_height = 0.0
   external_hover = false
   event_seen = false
   native_hover = false
@@ -104,6 +107,14 @@ on mode_searched(next)
 
 on mode_hovered(next)
   hovered_mode = next
+
+on panel_measured(width, height)
+  observed_width = width
+  observed_height = height
+
+on panel_hidden
+  observed_width = 0.0
+  observed_height = 0.0
 
 on copy_draft
   return if empty(trim(draft))
@@ -183,6 +194,16 @@ view
           text mode_query @text-xs text-muted
         if hovered_mode != ""
           text hovered_mode @text-xs text-muted
+        sensor show=panel_measured resize=panel_measured hide=panel_hidden key=sensor_key anticipate=16.0 delay=10
+          responsive at=360.0 width=fill height=32.0
+            text "Compact responsive view" @text-xs text-muted
+            row @gap-2
+              text "Wide" @text-xs text-muted
+              text observed_width @text-xs text-muted
+        float scale=1.02 x=0.0 y=-1.0
+          text "Floating label" @text-xs text-foreground
+        pin width=fill height=28.0 x=4.0 y=4.0
+          text "Pinned label" @text-xs text-muted
         radio "List" value=0 selected=(view_mode == 0) -> view_mode_changed _
         radio "Board" value=1 selected=(view_mode == 1) -> view_mode_changed _
         space height=8.0

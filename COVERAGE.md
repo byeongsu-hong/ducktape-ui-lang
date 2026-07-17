@@ -15,7 +15,7 @@ container API, so container remains partial.
 
 ## Typed system reachability
 
-Ice 0.6 has three checked Rust boundaries:
+Ice 0.7 has three checked Rust boundaries:
 
 | Boundary | Rust ABI | Covers |
 | --- | --- | --- |
@@ -37,7 +37,7 @@ public behavior has direct documented Ice syntax and tests.
 | `column` | partial | native children, spacing, padding, size/alignment/basic decoration; full sizing API missing |
 | `combo_box` | partial | native typed search state/selection, input, hover, open/close, sizing, padding and text size; dynamic option replacement, icon/font/shaping and style catalogs missing |
 | `container` | partial | generated around layouts; explicit alignment, clipping, sizing, style API missing |
-| `float` | missing | floating element and translation |
+| `float` | partial | native scale and fixed x/y translation; viewport-aware translation closure and style API missing |
 | `grid` | partial | native children, fixed column count, spacing; fluid columns and height sizing missing |
 | `image` | partial | native path, fixed/fill/shrink length, fit, filter, rotation, opacity, scale, expand and radius; memory handles and crop missing |
 | `keyed` | partial | scoped IDs exist; keyed column diffing is not exposed |
@@ -47,15 +47,15 @@ public behavior has direct documented Ice syntax and tests.
 | `overlay` | missing | modal/overlay positioning and dismissal |
 | `pane_grid` | missing | pane state, resizing, dragging, focus |
 | `pick_list` | partial | native typed choices/optional selection, placeholder, sizing, padding, text size, open/close events; font, shaping, handle and style catalogs missing |
-| `pin` | missing | absolute pinning |
+| `pin` | partial | native typed bounds and x/y positioning; point expression shorthand missing |
 | `progress_bar` | partial | native range/value and horizontal/vertical; style API missing |
 | `qr_code` | missing | data, cell size, theme |
 | `radio` | partial | native bool/i64 values and selection event; generic values/style API missing |
-| `responsive` | missing | size-dependent view function |
+| `responsive` | partial | native width breakpoint with narrow/wide views and typed bounds; arbitrary size-dependent view closure missing |
 | `row` | partial | native children, spacing, padding, size/alignment/basic decoration; full sizing API missing |
 | `rule` | partial | native axis/thickness; fill/style API missing |
 | `scrollable` | partial | native one-child scroll and ID; direction, scrollbar, snap and scroll events missing |
-| `sensor` | missing | layout resize event |
+| `sensor` | partial | native show/resize dimensions, hide, key, anticipation and delay; general key references missing |
 | `shader` | missing | custom GPU primitive/program |
 | `slider` | partial | native f64 range/value/step/change/release and horizontal/vertical; shift-step/style API missing |
 | `space` | partial | native fixed width/height; fill and shrink lengths missing |

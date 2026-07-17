@@ -1,4 +1,4 @@
-# Ice Language Specification 0.6
+# Ice Language Specification 0.7
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.6 syntax.
+marked “planned” is a design constraint, not accepted 0.7 syntax.
 
 ## 1. Design contract
 
@@ -79,7 +79,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.6.
+  block comments are not part of 0.7.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -152,7 +152,7 @@ view_decl      = "view" INDENT node
 
 node           = layout | text | input | button | checkbox | toggler
                | slider | progress | radio | pick_list | combo_box
-               | rule | space
+               | rule | space | float | pin | sensor | responsive
                | media | tooltip | mouse_area
                | component_call | extern_component_call | if_node | for_node
 layout         = ("col" | "row" | "scroll") id? styles? INDENT node+
@@ -179,6 +179,15 @@ combo_property = "width=" length | "menu-height=" length
                | "padding=" expr | "text-size=" expr
                | "input=" route | "hover=" route
                | "open=" route | "close=" route
+float          = "float" ("scale=" expr)? ("x=" expr)? ("y=" expr)?
+                 INDENT node
+pin            = "pin" (("width=" | "height=") length)?
+                 ("x=" expr)? ("y=" expr)? INDENT node
+sensor         = "sensor" sensor_property+ INDENT node
+sensor_property = ("show=" | "resize=" | "hide=") route
+                | "key=" expr | "anticipate=" expr | "delay=" expr
+responsive     = "responsive" "at=" expr
+                 (("width=" | "height=") length)? INDENT node node
 rule           = "rule" ("horizontal" | "vertical")
                  ("thickness=" expr)? styles?
 space          = "space" ("width=" expr)? ("height=" expr)? styles?
@@ -239,6 +248,14 @@ carry no payload. A bare input/hover handler name receives the payload
 automatically. Combo search state owns its initial options and cannot be
 assigned after initialization.
 
+`float` applies positive scale and x/y translation to one child. `pin` places
+one child at x/y coordinates inside optional typed width/height bounds.
+`sensor` observes one child: show/resize handlers receive `(width:f64,
+height:f64)`, while hide has no payload; anticipation is non-negative f64 and
+delay is non-negative i64 milliseconds. `responsive at=N` chooses its first
+child below width N and its second child otherwise. This two-branch breakpoint
+form is the native subset of iced's arbitrary size-dependent closure.
+
 Spaces inside a compound expression should be wrapped in parentheses when the
 expression shares a line with widget properties:
 
@@ -282,7 +299,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.6 message payloads.
+`Clone` for 0.7 message payloads.
 
 Three typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
@@ -418,6 +435,10 @@ The implemented native nodes are:
 | `radio` | string label, `i64` or bool value, bool `selected`, value-payload route |
 | `pick` | `[T]` options, `T?` selection, placeholder/size/open/close properties, `T`-payload route |
 | `combo` | searchable `combo[T]` state, `T?` selection, input/hover/open/close routes and sizing |
+| `float` | one child with positive scale and x/y translation |
+| `pin` | one child with typed width/height and fixed x/y position |
+| `sensor` | one child with show/resize `(width, height)`, hide, key, anticipation and delay |
+| `responsive` | narrow/wide children selected by an `at=` width breakpoint |
 | `rule` | horizontal or vertical separator with `f64` thickness |
 | `space` | optional fixed `f64` width and height |
 | `image` | raster path expression, typed length/fit/filter/rotation/opacity/scale/expand/radius properties |
@@ -567,7 +588,7 @@ The implemented families are:
 `cargo check` so rustc verifies extern items and generated iced types. A missing
 Rust item is named by its `crate::module::item` path in rustc's diagnostic. A
 future source-map layer may remap those rustc spans into the precise extern line;
-0.6 does not claim that remapping.
+0.7 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -587,7 +608,7 @@ skips `.git` and `target`.
 
 ## 12. Current coverage and escape hatches
 
-The 0.6 native backend is enough for CRUD/settings-style screens, selection,
+The 0.7 native backend is enough for CRUD/settings-style screens, selection,
 media, hover
 overlays, and common pointer events, not all of iced. It still lacks direct
 syntax for canvas, general overlays/modals, rich text
@@ -622,5 +643,5 @@ direct input binding, `if`, `for`, a pure component, dynamic component IDs,
 theme utilities, disabled controls, fallible asynchronous tasks, grid and stack
 layouts, toggles, sliders, progress, radio controls, rules, fixed spacing, an
 optional selection value, pick list and searchable combo box, extern and native
-tooltip/mouse-area components, raster and SVG media, a
-clipboard task, and a raw-event subscription.
+tooltip/mouse-area components, raster and SVG media, responsive/positioned
+content, visibility sensing, a clipboard task, and a raw-event subscription.
