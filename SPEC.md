@@ -1,4 +1,4 @@
-# Ice Language Specification 0.24
+# Ice Language Specification 0.25
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.24 syntax.
+marked “planned” is a design constraint, not accepted 0.25 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.24.
+  block comments are not part of 0.25.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -100,6 +100,7 @@ app
 use
 extern
 theme
+qr
 state
 component
 on
@@ -123,9 +124,9 @@ source_graph   = root_file imported_file*
 root_file      = (app_decl | use_decl | declaration)*
 imported_file  = (use_decl | declaration)*
 use_decl       = "use" string
-declaration    = extern_decl | theme_decl | state_decl | component_decl
+declaration    = extern_decl | theme_decl | qr_decl | state_decl | component_decl
                | handler_decl | subscribe_decl | view_decl
-document       = app_decl extern_decl? theme_decl state_decl?
+document       = app_decl extern_decl? theme_decl qr_decl* state_decl?
                  component_decl* handler_decl* subscribe_decl? view_decl
 
 app_decl       = "app" PascalName
@@ -145,6 +146,11 @@ extern_subscription_sig
 
 theme_decl     = "theme" INDENT color_entry+
 color_entry    = name color
+
+qr_decl        = "qr" name qr_payload qr_data_property*
+qr_payload     = string | "bytes(" hex_byte* ")"
+qr_data_property = "correction=" ("low" | "medium" | "quartile" | "high")
+                 | "version=" ("normal(" u8 ")" | "micro(" u8 ")")
 
 state_decl     = "state" INDENT state_entry+
 state_entry    = name (":" type)? "=" expr
@@ -167,7 +173,7 @@ view_decl      = "view" INDENT node
 
 node           = layout | text | input | button | checkbox | toggler
                | slider | progress | radio | pick_list | combo_box
-               | rule | space | float | pin | sensor | responsive
+               | rule | qr_code | space | float | pin | sensor | responsive
                | media | tooltip | mouse_area
                | component_call | extern_component_call | if_node | for_node
 layout         = "col" id? column_property* styles? INDENT node+
@@ -283,6 +289,9 @@ rule_property  = "thickness=" expr | "style=" ("default" | "weak")
                | "snap=" expr
 rule_fill      = "full" | "percent(" expr ")" | "pad(" u16 ")"
                | "pad(" u16 "," u16 ")"
+qr_code        = "qr" name qr_property*
+qr_property    = ("cell-size=" | "total-size=") expr
+               | ("cell=" | "background=") name ("/" u8)?
 space          = "space" ("width=" length)? ("height=" length)? styles?
 media          = ("image" | "svg") expr media_property*
 media_property = ("width=" | "height=") length
@@ -330,13 +339,18 @@ decimal `u16`, or `shrink`; out-of-range portions fail during parsing.
 padding is `u16`. Its default/weak preset can be overridden by a checked theme
 color token (including `/0..100` opacity), uniform or per-corner non-negative
 radius, and bool pixel snapping.
+QR declarations accept UTF-8 strings or arbitrary hexadecimal bytes. Normal
+versions are `1..=40`, micro versions are `1..=4`, and omitted correction uses
+iced's medium default. A QR view accepts one of `cell-size=` or `total-size=`
+plus checked cell/background colors. Its encoded data is built once at app
+startup and borrowed by each view.
 Tooltip gap/padding are non-negative `f64`, delay is non-negative `i64`
 milliseconds, and snap is bool.
 
 The consuming Rust crate must enable iced's `image-without-codecs` or `image`
-feature for `image`, and `svg` for `svg`. Raster decoder features remain a
-Cargo choice; the reference app enables only the PNM decoder used by its tiny
-checked-in sample.
+feature for `image`, `svg` for `svg`, and `qr_code` for QR declarations. Raster
+decoder features remain a Cargo choice; the reference app enables only the PNM
+decoder used by its tiny checked-in sample.
 
 Mouse routes do not carry a payload. `cursor=` accepts the iced interaction
 names in kebab case: `none`, `hidden`, `idle`, `context-menu`, `help`,
@@ -481,7 +495,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.24 message payloads.
+`Clone` for 0.25 message payloads.
 
 Three typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
@@ -622,6 +636,7 @@ The implemented native nodes are:
 | `sensor` | one child with show/resize `(width, height)`, hide, key, anticipation and delay |
 | `responsive` | breakpoint sugar or one arbitrary size-dependent child tree with scoped width/height bindings and typed bounds |
 | `rule` | horizontal/vertical separator with non-negative thickness, all fill modes, default/weak preset, color, corner radii and snap |
+| `qr` | named text/binary QR data with correction/version, cell/total sizing and checked colors |
 | `space` | optional fixed/fill/fill-portion/shrink width and height |
 | `image` | raster path expression, typed length/fit/filter/rotation/opacity/scale/expand/radius properties |
 | `svg` | SVG path expression with typed length/fit/rotation/opacity properties |
@@ -778,7 +793,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 0.24 does not claim that remapping.
+extern line; 0.25 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -799,11 +814,11 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 0.24 native backend is enough for CRUD/settings-style screens, selection,
+The 0.25 native backend is enough for CRUD/settings-style screens, selection,
 media, hover
 overlays, and common pointer events, not all of iced. It still lacks direct
 syntax for canvas, general overlays/modals, rich text
-and text editors, pointer move/scroll payloads, widget operations, multiple
+and text editors, widget operations, multiple
 windows, and custom widgets. [`COVERAGE.md`](COVERAGE.md) is the exact versioned
 ledger.
 

@@ -71,10 +71,40 @@ pub struct Document {
     pub functions: Vec<ExternFn>,
     pub subscriptions: Vec<Subscription>,
     pub theme: BTreeMap<String, String>,
+    pub qr_codes: Vec<QrData>,
     pub states: Vec<State>,
     pub components: Vec<Component>,
     pub handlers: Vec<Handler>,
     pub view: ViewNode,
+}
+
+#[derive(Clone, Debug)]
+pub struct QrData {
+    pub name: String,
+    pub data: QrPayload,
+    pub correction: Option<QrCorrection>,
+    pub version: Option<QrVersion>,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum QrPayload {
+    Text(String),
+    Bytes(Vec<u8>),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum QrCorrection {
+    Low,
+    Medium,
+    Quartile,
+    High,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum QrVersion {
+    Normal(u8),
+    Micro(u8),
 }
 
 #[derive(Clone, Debug)]
@@ -292,6 +322,14 @@ pub enum ViewNode {
         thickness: Expr,
         options: RuleOptions,
         styles: Vec<String>,
+        span: Span,
+    },
+    QrCode {
+        data: String,
+        cell_size: Option<Expr>,
+        total_size: Option<Expr>,
+        cell: Option<String>,
+        background: Option<String>,
         span: Span,
     },
     Space {

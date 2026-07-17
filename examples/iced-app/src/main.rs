@@ -122,4 +122,9 @@ fn main() -> iced::Result {
 #[cfg(test)]
 mod showcase {
     ui_lang::include_app!("src/ui/showcase.ice");
+
+    #[test]
+    fn qr_data_initializes() {
+        let _ = Showcase::__boot();
+    }
 }

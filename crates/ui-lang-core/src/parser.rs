@@ -18,6 +18,7 @@ pub fn parse(source: &str) -> Result<Document, Error> {
     let mut functions = Vec::new();
     let mut subscriptions = Vec::new();
     let mut theme = BTreeMap::new();
+    let mut qr_codes = Vec::new();
     let mut states = Vec::new();
     let mut components = Vec::new();
     let mut handlers = Vec::new();
@@ -88,6 +89,8 @@ pub fn parse(source: &str) -> Result<Document, Error> {
                     .map(parse_state)
                     .collect::<Result<Vec<_>, _>>()?,
             );
+        } else if line.text == "qr" || line.text.starts_with("qr ") {
+            qr_codes.push(parse_qr_data(line.text[2..].trim(), line)?);
         } else if let Some(header) = line.text.strip_prefix("component ") {
             components.push(parse_component(header, line)?);
         } else if let Some(header) = line.text.strip_prefix("on ") {
@@ -128,10 +131,101 @@ pub fn parse(source: &str) -> Result<Document, Error> {
         functions,
         subscriptions,
         theme,
+        qr_codes,
         states,
         components,
         handlers,
         view: view.ok_or_else(|| Error::new("E008", &span, "missing `view` block"))?,
+    })
+}
+
+fn parse_qr_data(source: &str, line: &Line) -> Result<QrData, Error> {
+    ensure_leaf(line)?;
+    let parts = split_words(source);
+    let name = parts
+        .first()
+        .ok_or_else(|| error("E093", line, "qr declaration needs a name"))?;
+    let data = parts
+        .get(1)
+        .ok_or_else(|| error("E093", line, "qr declaration needs a string"))?;
+    let data = if data.starts_with('"') {
+        let Expr::Str(data) = parse_expr(data, line)? else {
+            return Err(error(
+                "E093",
+                line,
+                "qr data must be a string or bytes(...)",
+            ));
+        };
+        QrPayload::Text(data)
+    } else if let Some(data) = data
+        .strip_prefix("bytes(")
+        .and_then(|data| data.strip_suffix(')'))
+    {
+        QrPayload::Bytes(
+            data.split_whitespace()
+                .map(|byte| {
+                    (byte.len() == 2)
+                        .then(|| u8::from_str_radix(byte, 16).ok())
+                        .flatten()
+                        .ok_or_else(|| error("E093", line, "qr bytes use two hex digits per byte"))
+                })
+                .collect::<Result<_, _>>()?,
+        )
+    } else {
+        return Err(error(
+            "E093",
+            line,
+            "qr data must be a string or bytes(00 ff ...)",
+        ));
+    };
+    let mut correction = None;
+    let mut version = None;
+    for part in &parts[2..] {
+        if let Some(value) = part.strip_prefix("correction=") {
+            correction = Some(match value {
+                "low" => QrCorrection::Low,
+                "medium" => QrCorrection::Medium,
+                "quartile" => QrCorrection::Quartile,
+                "high" => QrCorrection::High,
+                _ => {
+                    return Err(error(
+                        "E093",
+                        line,
+                        "qr correction must be low, medium, quartile, or high",
+                    ));
+                }
+            });
+        } else if let Some(value) = part.strip_prefix("version=") {
+            let (kind, number) = value
+                .split_once('(')
+                .and_then(|(kind, number)| number.strip_suffix(')').map(|number| (kind, number)))
+                .ok_or_else(|| {
+                    error("E093", line, "qr version uses normal(1..40) or micro(1..4)")
+                })?;
+            let number = number
+                .parse::<u8>()
+                .map_err(|_| error("E093", line, "qr version uses normal(1..40) or micro(1..4)"))?;
+            version = Some(match kind {
+                "normal" => QrVersion::Normal(number),
+                "micro" => QrVersion::Micro(number),
+                _ => {
+                    return Err(error(
+                        "E093",
+                        line,
+                        "qr version uses normal(1..40) or micro(1..4)",
+                    ));
+                }
+            });
+        } else {
+            return Err(error("E093", line, format!("unknown qr property `{part}`")));
+        }
+    }
+    Ok(QrData {
+        name: identifier(name, line)?,
+        data,
+        correction,
+        version,
+        span: Span::line(line.number),
     })
 }
 
@@ -533,6 +627,7 @@ fn parse_view(line: &Line) -> Result<ViewNode, Error> {
         "pick" => parse_pick_list(&parts, styles, route_source, line),
         "combo" => parse_combo_box(&parts, styles, route_source, line),
         "rule" => parse_rule(&parts, styles, line),
+        "qr" => parse_qr_code(&parts, styles, line),
         "space" => parse_space(&parts, styles, line),
         "extern" => parse_extern_component(&parts, styles, route_source, line),
         "image" | "svg" => parse_media(kind, &parts, styles, line),
@@ -559,6 +654,48 @@ fn parse_view(line: &Line) -> Result<ViewNode, Error> {
         }
         _ => Err(error("E064", line, format!("unknown view node `{kind}`"))),
     }
+}
+
+fn parse_qr_code(parts: &[String], styles: Vec<String>, line: &Line) -> Result<ViewNode, Error> {
+    ensure_leaf(line)?;
+    if !styles.is_empty() {
+        return Err(error("E093", line, "qr does not accept `@` utilities"));
+    }
+    let data = parts
+        .get(1)
+        .ok_or_else(|| error("E093", line, "qr needs a declared data name"))?;
+    let mut cell_size = None;
+    let mut total_size = None;
+    let mut cell = None;
+    let mut background = None;
+    for part in &parts[2..] {
+        if let Some(value) = part.strip_prefix("cell-size=") {
+            cell_size = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("total-size=") {
+            total_size = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("cell=") {
+            cell = Some(value.to_owned());
+        } else if let Some(value) = part.strip_prefix("background=") {
+            background = Some(value.to_owned());
+        } else {
+            return Err(error("E093", line, format!("unknown qr property `{part}`")));
+        }
+    }
+    if cell_size.is_some() && total_size.is_some() {
+        return Err(error(
+            "E093",
+            line,
+            "qr accepts either cell-size or total-size, not both",
+        ));
+    }
+    Ok(ViewNode::QrCode {
+        data: identifier(data, line)?,
+        cell_size,
+        total_size,
+        cell,
+        background,
+        span: Span::line(line.number),
+    })
 }
 
 fn parse_float(parts: &[String], styles: Vec<String>, line: &Line) -> Result<ViewNode, Error> {
@@ -2954,6 +3091,8 @@ extern crate::backend
 theme
   background #000000
 
+qr docs "https://example.com/ice docs" correction=high version=normal(4)
+
 state
   items:[Item] = []
   query = ""
@@ -2977,6 +3116,11 @@ view
         assert_eq!(document.app, "Demo");
         assert_eq!(document.structs.len(), 1);
         assert_eq!(document.handlers.len(), 3);
+        assert_eq!(document.qr_codes.len(), 1);
+        assert_eq!(
+            document.qr_codes[0].data,
+            QrPayload::Text("https://example.com/ice docs".into())
+        );
     }
 
     #[test]
@@ -2986,5 +3130,16 @@ view
             "input \"Query\" <-> query",
         );
         parse(&source).unwrap();
+    }
+
+    #[test]
+    fn names_missing_qr_data() {
+        let source = SOURCE.replace(
+            "qr docs \"https://example.com/ice docs\" correction=high version=normal(4)",
+            "qr",
+        );
+        let error = parse(&source).unwrap_err();
+        assert_eq!(error.code, "E093");
+        assert!(error.message.contains("needs a name"));
     }
 }
