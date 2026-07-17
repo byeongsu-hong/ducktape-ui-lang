@@ -18,6 +18,7 @@ pub fn parse(source: &str) -> Result<Document, Error> {
     let mut functions = Vec::new();
     let mut subscriptions = Vec::new();
     let mut theme = BTreeMap::new();
+    let mut fonts = Vec::new();
     let mut qr_codes = Vec::new();
     let mut states = Vec::new();
     let mut components = Vec::new();
@@ -89,6 +90,8 @@ pub fn parse(source: &str) -> Result<Document, Error> {
                     .map(parse_state)
                     .collect::<Result<Vec<_>, _>>()?,
             );
+        } else if let Some(source) = line.text.strip_prefix("font ") {
+            fonts.push(parse_font(source, line)?);
         } else if line.text == "qr" || line.text.starts_with("qr ") {
             qr_codes.push(parse_qr_data(line.text[2..].trim(), line)?);
         } else if let Some(header) = line.text.strip_prefix("component ") {
@@ -131,11 +134,94 @@ pub fn parse(source: &str) -> Result<Document, Error> {
         functions,
         subscriptions,
         theme,
+        fonts,
         qr_codes,
         states,
         components,
         handlers,
         view: view.ok_or_else(|| Error::new("E008", &span, "missing `view` block"))?,
+    })
+}
+
+fn parse_font(source: &str, line: &Line) -> Result<FontDecl, Error> {
+    ensure_leaf(line)?;
+    let parts = split_words(source);
+    let name = identifier(
+        parts
+            .first()
+            .ok_or_else(|| error("E013", line, "font requires a name"))?,
+        line,
+    )?;
+    let mut family = FontFamily::Named(name.clone());
+    let mut weight = FontWeight::Normal;
+    let mut stretch = FontStretch::Normal;
+    let mut style = FontStyle::Normal;
+    let mut default = false;
+    for part in &parts[1..] {
+        if let Some(value) = part.strip_prefix("family=") {
+            family = match value {
+                "serif" => FontFamily::Serif,
+                "sans" => FontFamily::SansSerif,
+                "cursive" => FontFamily::Cursive,
+                "fantasy" => FontFamily::Fantasy,
+                "mono" => FontFamily::Monospace,
+                value => FontFamily::Named(string_literal(value, line)?),
+            };
+        } else if let Some(value) = part.strip_prefix("weight=") {
+            weight = match value {
+                "thin" => FontWeight::Thin,
+                "extra-light" => FontWeight::ExtraLight,
+                "light" => FontWeight::Light,
+                "normal" => FontWeight::Normal,
+                "medium" => FontWeight::Medium,
+                "semibold" => FontWeight::Semibold,
+                "bold" => FontWeight::Bold,
+                "extra-bold" => FontWeight::ExtraBold,
+                "black" => FontWeight::Black,
+                _ => return Err(error("E013", line, "unknown font weight")),
+            };
+        } else if let Some(value) = part.strip_prefix("stretch=") {
+            stretch = match value {
+                "ultra-condensed" => FontStretch::UltraCondensed,
+                "extra-condensed" => FontStretch::ExtraCondensed,
+                "condensed" => FontStretch::Condensed,
+                "semi-condensed" => FontStretch::SemiCondensed,
+                "normal" => FontStretch::Normal,
+                "semi-expanded" => FontStretch::SemiExpanded,
+                "expanded" => FontStretch::Expanded,
+                "extra-expanded" => FontStretch::ExtraExpanded,
+                "ultra-expanded" => FontStretch::UltraExpanded,
+                _ => return Err(error("E013", line, "unknown font stretch")),
+            };
+        } else if let Some(value) = part.strip_prefix("style=") {
+            style = match value {
+                "normal" => FontStyle::Normal,
+                "italic" => FontStyle::Italic,
+                "oblique" => FontStyle::Oblique,
+                _ => return Err(error("E013", line, "unknown font style")),
+            };
+        } else if let Some(value) = part.strip_prefix("default=") {
+            default = match value {
+                "true" => true,
+                "false" => false,
+                _ => return Err(error("E013", line, "font default must be true or false")),
+            };
+        } else {
+            return Err(error(
+                "E013",
+                line,
+                format!("unknown font property `{part}`"),
+            ));
+        }
+    }
+    Ok(FontDecl {
+        name,
+        family,
+        weight,
+        stretch,
+        style,
+        default,
+        span: Span::line(line.number),
     })
 }
 
@@ -805,11 +891,7 @@ fn parse_text_editor(
         } else if let Some(value) = part.strip_prefix("wrapping=") {
             options.wrapping = Some(parse_text_wrapping(value, line, "E099")?);
         } else if let Some(value) = part.strip_prefix("font=") {
-            options.font = Some(match value {
-                "default" => FontPreset::Default,
-                "mono" => FontPreset::Monospace,
-                _ => return Err(error("E099", line, "editor font must be default or mono")),
-            });
+            options.font = Some(parse_font_preset(value, line)?);
         } else if let Some(value) = part.strip_prefix("highlight=") {
             options.highlight = Some(string_literal(value, line)?);
         } else if let Some(value) = part.strip_prefix("highlight-theme=") {
@@ -2196,11 +2278,7 @@ fn parse_text(parts: &[String], styles: Vec<String>, line: &Line) -> Result<View
                 line,
             )?));
         } else if let Some(value) = part.strip_prefix("font=") {
-            options.font = Some(match value {
-                "default" => FontPreset::Default,
-                "mono" => FontPreset::Monospace,
-                _ => return Err(error("E063", line, "text font must be default or mono")),
-            });
+            options.font = Some(parse_font_preset(value, line)?);
         } else if let Some(value) = part.strip_prefix("align-x=") {
             options.align_x = Some(match value {
                 "default" => TextAlignment::Default,
@@ -2296,11 +2374,7 @@ fn parse_input(parts: &[String], styles: Vec<String>, line: &Line) -> Result<Vie
                 }
             });
         } else if let Some(value) = part.strip_prefix("font=") {
-            options.font = Some(match value {
-                "default" => FontPreset::Default,
-                "mono" => FontPreset::Monospace,
-                _ => return Err(error("E065", line, "input font must be default or mono")),
-            });
+            options.font = Some(parse_font_preset(value, line)?);
         } else if let Some(value) = part.strip_prefix("icon=") {
             let value = string_literal(value, line)?;
             let mut chars = value.chars();
@@ -2519,11 +2593,7 @@ fn parse_bool_control_option(
     } else if let Some(value) = part.strip_prefix("wrapping=") {
         options.wrapping = Some(parse_text_wrapping(value, line, "E075")?);
     } else if let Some(value) = part.strip_prefix("font=") {
-        options.font = Some(match value {
-            "default" => FontPreset::Default,
-            "mono" => FontPreset::Monospace,
-            _ => return Err(error("E075", line, "font must be default or mono")),
-        });
+        options.font = Some(parse_font_preset(value, line)?);
     } else if allow_alignment && let Some(value) = part.strip_prefix("align=") {
         options.alignment = Some(match value {
             "default" => TextAlignment::Default,
@@ -2585,6 +2655,14 @@ fn parse_text_wrapping(
             "wrapping must be none, word, glyph, or word-or-glyph",
         )),
     }
+}
+
+fn parse_font_preset(source: &str, line: &Line) -> Result<FontPreset, Error> {
+    Ok(match source {
+        "default" => FontPreset::Default,
+        "mono" => FontPreset::Monospace,
+        name => FontPreset::Named(identifier(name, line)?),
+    })
 }
 
 fn parse_slider(

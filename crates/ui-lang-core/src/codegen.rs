@@ -78,7 +78,14 @@ pub fn generate(document: &Document, source_path: &str) -> Result<String, Error>
     } else {
         ".subscription(Self::__subscription)"
     };
-    writeln!(out, "::iced::application(Self::__boot, Self::__update, Self::__view){subscription}.theme(Self::__theme).run()").unwrap();
+    let default_font = document
+        .fonts
+        .iter()
+        .find(|font| font.default)
+        .map_or_else(String::new, |font| {
+            format!(".default_font({})", font_decl_code(font))
+        });
+    writeln!(out, "::iced::application(Self::__boot, Self::__update, Self::__view){subscription}.theme(Self::__theme){default_font}.run()").unwrap();
     writeln!(out, "}}").unwrap();
 
     generate_theme(&mut out, document);
@@ -742,12 +749,8 @@ fn render_node(
                 };
                 write!(input, ".align_x(::iced::alignment::Horizontal::{align})").unwrap();
             }
-            if let Some(font) = options.font {
-                let font = match font {
-                    FontPreset::Default => "DEFAULT",
-                    FontPreset::Monospace => "MONOSPACE",
-                };
-                write!(input, ".font(::iced::Font::{font})").unwrap();
+            if let Some(font) = &options.font {
+                write!(input, ".font({})", font_preset_code(font, document)?).unwrap();
             }
             if let Some(icon) = options.icon {
                 let size = options.icon_size.as_ref().map_or_else(
@@ -1829,12 +1832,8 @@ fn render_node(
                 )
                 .unwrap();
             }
-            if let Some(font) = options.font {
-                let font = match font {
-                    FontPreset::Default => "DEFAULT",
-                    FontPreset::Monospace => "MONOSPACE",
-                };
-                write!(code, ".font(::iced::Font::{font})").unwrap();
+            if let Some(font) = &options.font {
+                write!(code, ".font({})", font_preset_code(font, document)?).unwrap();
             }
             if let Some(syntax) = &options.highlight {
                 let theme = match options
@@ -3362,16 +3361,21 @@ fn append_text_options(
         )
         .unwrap();
     }
-    match (options.font, style.bold) {
-        (Some(FontPreset::Default), false) => code.push_str(".font(::iced::Font::DEFAULT)"),
-        (Some(FontPreset::Monospace), false) => code.push_str(".font(::iced::Font::MONOSPACE)"),
-        (Some(FontPreset::Monospace), true) => code.push_str(
-            ".font(::iced::Font { weight: ::iced::font::Weight::Bold, ..::iced::Font::MONOSPACE })",
-        ),
-        (Some(FontPreset::Default) | None, true) => code.push_str(
+    if let Some(font) = &options.font {
+        let font = font_preset_code(font, document)?;
+        if style.bold {
+            write!(
+                code,
+                ".font(::iced::Font {{ weight: ::iced::font::Weight::Bold, ..{font} }})"
+            )
+            .unwrap();
+        } else {
+            write!(code, ".font({font})").unwrap();
+        }
+    } else if style.bold {
+        code.push_str(
             ".font(::iced::Font { weight: ::iced::font::Weight::Bold, ..::iced::Font::DEFAULT })",
-        ),
-        (None, false) => {}
+        );
     }
     Ok(())
 }
@@ -3424,12 +3428,8 @@ fn append_bool_control_options(
         )
         .unwrap();
     }
-    if let Some(font) = options.font {
-        let font = match font {
-            FontPreset::Default => "DEFAULT",
-            FontPreset::Monospace => "MONOSPACE",
-        };
-        write!(code, ".font(::iced::Font::{font})").unwrap();
+    if let Some(font) = &options.font {
+        write!(code, ".font({})", font_preset_code(font, document)?).unwrap();
     }
     if toggler {
         if let Some(alignment) = options.alignment {
@@ -3483,6 +3483,60 @@ fn text_wrapping_code(wrapping: TextWrapping) -> &'static str {
         TextWrapping::Glyph => "Glyph",
         TextWrapping::WordOrGlyph => "WordOrGlyph",
     }
+}
+
+fn font_preset_code(font: &FontPreset, document: &Document) -> Result<String, Error> {
+    match font {
+        FontPreset::Default => Ok("::iced::Font::DEFAULT".into()),
+        FontPreset::Monospace => Ok("::iced::Font::MONOSPACE".into()),
+        FontPreset::Named(name) => document
+            .fonts
+            .iter()
+            .find(|font| font.name == *name)
+            .map(font_decl_code)
+            .ok_or_else(|| Error::new("E171", &Span::line(1), format!("unknown font `{name}`"))),
+    }
+}
+
+fn font_decl_code(font: &FontDecl) -> String {
+    let family = match &font.family {
+        FontFamily::Named(name) => format!("::iced::font::Family::Name({})", rust_string(name)),
+        FontFamily::Serif => "::iced::font::Family::Serif".into(),
+        FontFamily::SansSerif => "::iced::font::Family::SansSerif".into(),
+        FontFamily::Cursive => "::iced::font::Family::Cursive".into(),
+        FontFamily::Fantasy => "::iced::font::Family::Fantasy".into(),
+        FontFamily::Monospace => "::iced::font::Family::Monospace".into(),
+    };
+    let weight = match font.weight {
+        FontWeight::Thin => "Thin",
+        FontWeight::ExtraLight => "ExtraLight",
+        FontWeight::Light => "Light",
+        FontWeight::Normal => "Normal",
+        FontWeight::Medium => "Medium",
+        FontWeight::Semibold => "Semibold",
+        FontWeight::Bold => "Bold",
+        FontWeight::ExtraBold => "ExtraBold",
+        FontWeight::Black => "Black",
+    };
+    let stretch = match font.stretch {
+        FontStretch::UltraCondensed => "UltraCondensed",
+        FontStretch::ExtraCondensed => "ExtraCondensed",
+        FontStretch::Condensed => "Condensed",
+        FontStretch::SemiCondensed => "SemiCondensed",
+        FontStretch::Normal => "Normal",
+        FontStretch::SemiExpanded => "SemiExpanded",
+        FontStretch::Expanded => "Expanded",
+        FontStretch::ExtraExpanded => "ExtraExpanded",
+        FontStretch::UltraExpanded => "UltraExpanded",
+    };
+    let style = match font.style {
+        FontStyle::Normal => "Normal",
+        FontStyle::Italic => "Italic",
+        FontStyle::Oblique => "Oblique",
+    };
+    format!(
+        "::iced::Font {{ family: {family}, weight: ::iced::font::Weight::{weight}, stretch: ::iced::font::Stretch::{stretch}, style: ::iced::font::Style::{style} }}"
+    )
 }
 
 fn text_alignment_code(alignment: TextAlignment) -> &'static str {
@@ -4558,6 +4612,28 @@ view
         assert!(generated.contains("text::Shaping::Advanced"));
         assert!(generated.contains("text::Wrapping::WordOrGlyph"));
         assert!(generated.contains("..::iced::Font::MONOSPACE"));
+    }
+
+    #[test]
+    fn lowers_declared_font_descriptors_and_app_default() {
+        let source = r#"app Typography
+font brand family="Inter" weight=semibold stretch=semi-expanded style=italic default=true
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+view
+  text "Brand" font=brand @font-bold
+"#;
+        let generated = compile(source, "typography.ice").unwrap();
+        assert!(generated.contains(".default_font(::iced::Font"));
+        assert!(generated.contains("Family::Name(\"Inter\")"));
+        assert!(generated.contains("Weight::Semibold"));
+        assert!(generated.contains("Stretch::SemiExpanded"));
+        assert!(generated.contains("Style::Italic"));
+        assert!(generated.contains("weight: ::iced::font::Weight::Bold, ..::iced::Font"));
     }
 
     #[test]

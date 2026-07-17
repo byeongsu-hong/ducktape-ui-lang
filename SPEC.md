@@ -1,4 +1,4 @@
-# Ice Language Specification 0.35
+# Ice Language Specification 0.36
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.35 syntax.
+marked “planned” is a design constraint, not accepted 0.36 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.35.
+  block comments are not part of 0.36.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -124,7 +124,7 @@ source_graph   = root_file imported_file*
 root_file      = (app_decl | use_decl | declaration)*
 imported_file  = (use_decl | declaration)*
 use_decl       = "use" string
-declaration    = extern_decl | theme_decl | qr_decl | state_decl | component_decl
+declaration    = extern_decl | theme_decl | font_decl | qr_decl | state_decl | component_decl
                | handler_decl | subscribe_decl | view_decl
 document       = app_decl extern_decl? theme_decl qr_decl* state_decl?
                  component_decl* handler_decl* subscribe_decl? view_decl
@@ -146,6 +146,17 @@ extern_subscription_sig
 
 theme_decl     = "theme" INDENT color_entry+
 color_entry    = name color
+
+font_decl      = "font" name font_property*
+font_property  = "family=" (string | "serif" | "sans" | "cursive" | "fantasy" | "mono")
+               | "weight=" ("thin" | "extra-light" | "light" | "normal"
+                 | "medium" | "semibold" | "bold" | "extra-bold" | "black")
+               | "stretch=" ("ultra-condensed" | "extra-condensed" | "condensed"
+                 | "semi-condensed" | "normal" | "semi-expanded" | "expanded"
+                 | "extra-expanded" | "ultra-expanded")
+               | "style=" ("normal" | "italic" | "oblique")
+               | "default=" bool
+font_ref       = "default" | "mono" | name
 
 qr_decl        = "qr" name qr_payload qr_data_property*
 qr_payload     = string | "bytes(" hex_byte* ")"
@@ -216,7 +227,7 @@ editor_property = "placeholder=" string | "width=" expr | "height=" length
                 | ("min-height=" | "max-height=" | "size="
                   | "line-height=" | "line-height-px=" | "padding=") expr
                 | "wrapping=" text_wrapping
-                | "font=" ("default" | "mono")
+                | "font=" font_ref
                 | "highlight=" string
                 | "highlight-theme=" ("solarized-dark" | "base16-mocha"
                   | "base16-ocean" | "base16-eighties" | "inspired-github")
@@ -244,7 +255,7 @@ scroll_property = "direction=" ("vertical" | "horizontal" | "both")
 text           = "text" expr text_property* styles?
 text_property  = ("width=" | "height=") length | "size=" expr
                | ("line-height=" | "line-height-px=") expr
-               | "font=" ("default" | "mono")
+               | "font=" font_ref
                | "align-x=" text_alignment
                | "align-y=" ("top" | "center" | "bottom")
                | "shaping=" ("auto" | "basic" | "advanced")
@@ -254,7 +265,7 @@ input_property = "hint=" string | ("disabled=" | "secure=") expr
                | ("submit=" | "paste=") route | "width=" length
                | ("padding=" | "text-size=" | "line-height=") expr
                | "align=" ("left" | "center" | "right")
-               | "font=" ("default" | "mono") | "icon=" string
+               | "font=" font_ref | "icon=" string
                | "icon-side=" ("left" | "right")
                | ("icon-size=" | "icon-spacing=") expr
 button         = "button" (string | INDENT node) id? button_property*
@@ -269,7 +280,7 @@ bool_property  = "disabled=" expr | "size=" expr | "width=" length
                | ("spacing=" | "text-size=" | "line-height=") expr
                | "shaping=" ("auto" | "basic" | "advanced")
                | "wrapping=" ("none" | "word" | "glyph" | "word-or-glyph")
-               | "font=" ("default" | "mono")
+               | "font=" font_ref
 checkbox_icon_property = "icon=" string
                        | ("icon-size=" | "icon-line-height=") expr
                        | "icon-shaping=" ("auto" | "basic" | "advanced")
@@ -424,7 +435,7 @@ x/y as four f64 payloads. Bare handler names receive all four automatically.
 
 `text` accepts str, i64, and f64 values plus typed width/height, positive size,
 relative `line-height=` or absolute `line-height-px=`, horizontal and vertical
-alignment, shaping, wrapping, and default/monospace fonts. An explicit `size=`
+alignment, shaping, wrapping, and declared or built-in fonts. An explicit `size=`
 overrides a `@text-*` utility; `font=mono @font-bold` preserves both choices.
 
 `input` keeps its required `str` binding and additionally supports bool secure
@@ -578,7 +589,7 @@ view
 The compiler owns iced's `Action` message variant and calls `Content::perform`
 automatically, so editor actions never leak into application handlers. Width is
 fixed pixels, height accepts every iced `Length`, metrics are range-checked,
-and all four wrapping modes, default/monospace fonts, relative/absolute line
+and all four wrapping modes, declared or built-in fonts, relative/absolute line
 height, and all five iced highlighter themes are accepted. A disabled editor is
 rendered without `on_action`. An editor must live in the app view or in slot
 content supplied by the app; the checker rejects editor bindings declared
@@ -630,7 +641,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.35 message payloads.
+`Clone` for 0.36 message payloads.
 
 Three typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
@@ -905,6 +916,21 @@ Reads are infallible tasks with a `str?` payload because the target may not
 contain text. Writes require `str`, produce no message in iced, accept no route,
 and must be the handler's final statement.
 
+Font declarations map directly to iced's complete `Font` descriptor:
+
+```ice
+font brand family="Inter" weight=semibold stretch=normal style=italic default=true
+
+view
+  text "Brand" font=brand
+```
+
+The family may be a named family or any of iced's five generic families. Every
+weight, stretch, and style variant is accepted. At most one declaration may be
+the application default. `font=default` and `font=mono` remain built-ins;
+declared fonts also work on text, input, editor, checkbox, and toggler. Font
+byte loading is not part of 0.36.
+
 ### IDs
 
 IDs are identities, not CSS selectors. Static IDs must be unique in their local
@@ -1003,7 +1029,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 0.35 does not claim that remapping.
+extern line; 0.36 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -1024,7 +1050,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 0.35 native backend is enough for CRUD/settings-style screens, selection,
+The 0.36 native backend is enough for CRUD/settings-style screens, selection,
 media, hover
 overlays, and common pointer events, not all of iced. It still lacks direct
 syntax for canvas, general overlays/modals, rich text, widget operations, multiple
