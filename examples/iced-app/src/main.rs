@@ -231,6 +231,11 @@ mod input_method_events {
 }
 
 #[cfg(test)]
+mod font_events {
+    ui_lang::include_app!("src/ui/font_events.ice");
+}
+
+#[cfg(test)]
 mod timer {
     ui_lang::include_app!("src/ui/timer.ice");
 }

@@ -57,7 +57,27 @@ pub fn compile_file(path: impl AsRef<Path>) -> Result<FileCompilation, Error> {
 fn analyze_loaded(loaded: &LoadedSource) -> Result<Document, Error> {
     let mut document = parser::parse(&loaded.source).map_err(|error| remap_error(error, loaded))?;
     check::check(&mut document).map_err(|error| remap_error(error, loaded))?;
+    check_font_assets(&document, loaded).map_err(|error| remap_error(error, loaded))?;
     Ok(document)
+}
+
+fn check_font_assets(document: &Document, loaded: &LoadedSource) -> Result<(), Error> {
+    let root = loaded
+        .dependencies
+        .first()
+        .expect("a loaded source always has a root");
+    let parent = root.parent().unwrap_or_else(|| Path::new("."));
+    for font in &document.settings.fonts {
+        let path = parent.join(&font.path);
+        if !path.is_file() {
+            return Err(Error::new(
+                "E192",
+                &font.span,
+                format!("cannot read font file `{}`", path.display()),
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn load(path: &Path) -> Result<LoadedSource, Error> {
@@ -285,6 +305,38 @@ mod tests {
         assert_eq!(error.line, 2);
         assert!(error.path.as_deref().unwrap().ends_with("app.ice"));
         assert!(error.message.contains("missing.ice"));
+    }
+
+    #[test]
+    fn checks_and_embeds_app_font_files_relative_to_the_root() {
+        let fixture = Fixture::new();
+        fixture.write(
+            "app.ice",
+            "app Demo\n  font \"assets/Brand.ttf\"\ntheme\n  background #000000\n  foreground #ffffff\n  primary #333333\n  danger #ff0000\nview\n  text \"Hi\"\n",
+        );
+        fixture.write("assets/Brand.ttf", "font bytes");
+
+        let compiled = compile_file(fixture.path("app.ice")).unwrap();
+        let font = fixture.path("assets/Brand.ttf");
+        assert!(compiled.rust.contains(&format!(
+            ".font(include_bytes!({:?}).as_slice())",
+            font.display().to_string()
+        )));
+    }
+
+    #[test]
+    fn reports_a_missing_app_font_at_its_setting() {
+        let fixture = Fixture::new();
+        fixture.write(
+            "app.ice",
+            "app Demo\n  font \"assets/Missing.ttf\"\ntheme\n  background #000000\n  foreground #ffffff\n  primary #333333\n  danger #ff0000\nview\n  text \"Hi\"\n",
+        );
+
+        let error = compile_file(fixture.path("app.ice")).unwrap_err();
+        assert_eq!(error.code, "E192");
+        assert_eq!(error.line, 2);
+        assert!(error.path.as_deref().unwrap().ends_with("app.ice"));
+        assert!(error.message.contains("assets/Missing.ttf"));
     }
 
     #[test]

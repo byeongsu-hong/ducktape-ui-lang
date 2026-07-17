@@ -108,11 +108,18 @@ pub struct Document {
 pub struct AppSettings {
     pub title: Option<String>,
     pub id: Option<String>,
+    pub fonts: Vec<FontAsset>,
     pub default_text_size: Option<f64>,
     pub antialiasing: Option<bool>,
     pub vsync: Option<bool>,
     pub scale_factor: Option<f64>,
     pub window: Option<WindowSettings>,
+}
+
+#[derive(Clone, Debug)]
+pub struct FontAsset {
+    pub path: String,
+    pub span: Span,
 }
 
 #[derive(Clone, Debug, Default)]
