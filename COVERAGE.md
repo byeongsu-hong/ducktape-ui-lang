@@ -15,7 +15,7 @@ container API, so container remains partial.
 
 ## Typed system reachability
 
-Ice 0.7 has three checked Rust boundaries:
+Ice 0.8 has three checked Rust boundaries:
 
 | Boundary | Rust ABI | Covers |
 | --- | --- | --- |
@@ -43,7 +43,7 @@ public behavior has direct documented Ice syntax and tests.
 | `keyed` | partial | scoped IDs exist; keyed column diffing is not exposed |
 | `lazy` | missing | lazy/cache boundary |
 | `markdown` | missing | parsing/settings/link events |
-| `mouse_area` | partial | native button/enter/exit routes and all cursor interactions; move and scroll payload routes missing |
+| `mouse_area` | native | all button/enter/move/scroll/exit events, scroll unit preservation, and all cursor interactions |
 | `overlay` | missing | modal/overlay positioning and dismissal |
 | `pane_grid` | missing | pane state, resizing, dragging, focus |
 | `pick_list` | partial | native typed choices/optional selection, placeholder, sizing, padding, text size, open/close events; font, shaping, handle and style catalogs missing |
@@ -84,7 +84,7 @@ public behavior has direct documented Ice syntax and tests.
 | window | missing | settings, open/close, multiple windows, resize/move/mode/focus/screenshot/monitor operations |
 | event routing | partial | raw event subscription adapter exercised; native event/status types missing |
 | keyboard | missing | key/modifier events and subscriptions |
-| mouse/touch | partial | native mouse button/enter/exit and all cursor interactions; move/scroll payloads, raw mouse and touch types missing |
+| mouse/touch | partial | native mouse-area events and all cursor interactions; raw mouse subscriptions and touch types missing |
 | custom widget | partial | typed owned `Element<'static, Event>` adapter; borrowed elements and custom Theme/Renderer missing |
 | custom renderer | missing | renderer/graphics backend escape hatch |
 

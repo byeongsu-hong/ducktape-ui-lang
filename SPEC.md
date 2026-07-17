@@ -1,4 +1,4 @@
-# Ice Language Specification 0.7
+# Ice Language Specification 0.8
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.7 syntax.
+marked “planned” is a design constraint, not accepted 0.8 syntax.
 
 ## 1. Design contract
 
@@ -79,7 +79,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.7.
+  block comments are not part of 0.8.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -205,7 +205,8 @@ tooltip_property
 mouse_area     = "mouse" mouse_property+ INDENT node
 mouse_property = ("press=" | "release=" | "double=" | "right_press="
                | "right_release=" | "middle_press=" | "middle_release="
-               | "enter=" | "exit=") route | "cursor=" mouse_cursor
+               | "enter=" | "move=" | "scroll=" | "exit=") route
+               | "cursor=" mouse_cursor
 component_call = PascalName "(" expr_list? ")" id?
 extern_component_call
                = "extern" name "(" expr_list? ")" ("->" route)?
@@ -236,6 +237,11 @@ names in kebab case: `none`, `hidden`, `idle`, `context-menu`, `help`,
 `move`, `no-drop`, `not-allowed`, `grab`, `grabbing`, `resize-horizontal`,
 `resize-vertical`, `resize-diagonal-up`, `resize-diagonal-down`,
 `resize-column`, `resize-row`, `all-scroll`, `zoom-in`, and `zoom-out`.
+
+The mouse `move=` route is the exception and receives `(x:f64, y:f64)` in
+local widget coordinates. `scroll=` receives `(x:f64, y:f64, pixels:bool)`;
+`pixels=false` identifies iced line units. Bare handler names receive these
+payloads automatically.
 
 `pick` requires a homogeneous `[T]` options expression and a matching optional
 `T?` selection. Its main route carries `T`; `open=` and `close=` routes carry no
@@ -299,7 +305,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.7 message payloads.
+`Clone` for 0.8 message payloads.
 
 Three typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
@@ -444,7 +450,7 @@ The implemented native nodes are:
 | `image` | raster path expression, typed length/fit/filter/rotation/opacity/scale/expand/radius properties |
 | `svg` | SVG path expression with typed length/fit/rotation/opacity properties |
 | `tooltip` | exactly two children (content then tip), position/gap/padding/delay/snap properties |
-| `mouse` | exactly one child; button/enter/exit routes and every iced cursor interaction |
+| `mouse` | one child; all button/enter/move/scroll/exit events and every iced cursor interaction |
 | `if` | includes its children when a bool expression is true |
 | `for` | iterates a list and adds one typed item binding |
 
@@ -588,7 +594,7 @@ The implemented families are:
 `cargo check` so rustc verifies extern items and generated iced types. A missing
 Rust item is named by its `crate::module::item` path in rustc's diagnostic. A
 future source-map layer may remap those rustc spans into the precise extern line;
-0.7 does not claim that remapping.
+0.8 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -608,7 +614,7 @@ skips `.git` and `target`.
 
 ## 12. Current coverage and escape hatches
 
-The 0.7 native backend is enough for CRUD/settings-style screens, selection,
+The 0.8 native backend is enough for CRUD/settings-style screens, selection,
 media, hover
 overlays, and common pointer events, not all of iced. It still lacks direct
 syntax for canvas, general overlays/modals, rich text
@@ -643,5 +649,6 @@ direct input binding, `if`, `for`, a pure component, dynamic component IDs,
 theme utilities, disabled controls, fallible asynchronous tasks, grid and stack
 layouts, toggles, sliders, progress, radio controls, rules, fixed spacing, an
 optional selection value, pick list and searchable combo box, extern and native
-tooltip/mouse-area components, raster and SVG media, responsive/positioned
-content, visibility sensing, a clipboard task, and a raw-event subscription.
+tooltip/mouse-area components including pointer movement and wheel payloads,
+raster and SVG media, responsive/positioned content, visibility sensing, a
+clipboard task, and a raw-event subscription.

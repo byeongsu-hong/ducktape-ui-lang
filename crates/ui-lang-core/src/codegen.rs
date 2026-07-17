@@ -1007,6 +1007,41 @@ fn render_node(
                     .unwrap();
                 }
             }
+            if let Some(route) = &options.move_route {
+                write!(
+                    code,
+                    ".on_move(move |__point| {})",
+                    ordered_route_code(
+                        route,
+                        &["__point.x as f64", "__point.y as f64"],
+                        env,
+                        document,
+                        message,
+                    )?
+                )
+                .unwrap();
+            }
+            if let Some(route) = &options.scroll {
+                let lines = ordered_route_code(
+                    route,
+                    &["__x as f64", "__y as f64", "false"],
+                    env,
+                    document,
+                    message,
+                )?;
+                let pixels = ordered_route_code(
+                    route,
+                    &["__x as f64", "__y as f64", "true"],
+                    env,
+                    document,
+                    message,
+                )?;
+                write!(
+                    code,
+                    ".on_scroll(move |__delta| match __delta {{ ::iced::mouse::ScrollDelta::Lines {{ x: __x, y: __y }} => {lines}, ::iced::mouse::ScrollDelta::Pixels {{ x: __x, y: __y }} => {pixels} }})"
+                )
+                .unwrap();
+            }
             if let Some(interaction) = options.interaction {
                 write!(
                     code,
@@ -1489,17 +1524,32 @@ fn size_route_code(
     document: &Document,
     message: &str,
 ) -> Result<String, Error> {
+    ordered_route_code(
+        route,
+        &[
+            &format!("{size}.width as f64"),
+            &format!("{size}.height as f64"),
+        ],
+        env,
+        document,
+        message,
+    )
+}
+
+fn ordered_route_code(
+    route: &Route,
+    payloads: &[&str],
+    env: &HashMap<String, Binding>,
+    document: &Document,
+    message: &str,
+) -> Result<String, Error> {
     let variant = pascal(&route.handler);
-    let mut payload = 0;
+    let mut payload = payloads.iter();
     let args = route
         .args
         .iter()
         .map(|arg| match arg {
-            RouteArg::Payload => {
-                let field = if payload == 0 { "width" } else { "height" };
-                payload += 1;
-                Ok(format!("{size}.{field} as f64"))
-            }
+            RouteArg::Payload => Ok((*payload.next().expect("checked payload count")).to_owned()),
             RouteArg::Expr(expr) => expr_code(expr, env, document, ValueMode::Owned),
         })
         .collect::<Result<Vec<_>, Error>>()?
@@ -2201,12 +2251,14 @@ theme
 on entered
 on exited
 on pressed
+on moved(x, y)
+on scrolled(x, y, pixels)
 view
   col
     image "photo.ppm" width=fill height=64.0 fit=cover filter=nearest rotation=0.5 opacity=0.8 scale=1.2 expand=true radius=4.0
     svg "icon.svg" width=48.0 height=shrink fit=scale-down rotation=0.1 opacity=0.9
     tooltip position=cursor gap=2.0 padding=5.0 delay=100 snap=false
-      mouse enter=entered exit=exited press=pressed cursor=pointer
+      mouse enter=entered exit=exited press=pressed move=moved scroll=scrolled cursor=pointer
         text "Hover"
       text "Tip"
 "#;
@@ -2217,6 +2269,11 @@ view
         assert!(generated.contains("tooltip::Position::FollowCursor"));
         assert!(generated.contains(".delay(::std::time::Duration::from_millis(100 as u64))"));
         assert!(generated.contains(".on_enter(__MediaMessage::Entered)"));
+        assert!(generated.contains(
+            ".on_move(move |__point| __MediaMessage::Moved(__point.x as f64, __point.y as f64))"
+        ));
+        assert!(generated.contains("::iced::mouse::ScrollDelta::Lines"));
+        assert!(generated.contains("__MediaMessage::Scrolled(__x as f64, __y as f64, true)"));
         assert!(generated.contains(".interaction(::iced::mouse::Interaction::Pointer)"));
     }
 }

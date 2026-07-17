@@ -453,6 +453,8 @@ pub struct MouseAreaOptions {
     pub middle_press: Option<Route>,
     pub middle_release: Option<Route>,
     pub enter: Option<Route>,
+    pub move_route: Option<Route>,
+    pub scroll: Option<Route>,
     pub exit: Option<Route>,
     pub interaction: Option<MouseInteraction>,
 }

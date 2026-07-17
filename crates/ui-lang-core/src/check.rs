@@ -704,6 +704,26 @@ fn infer_view(
             {
                 infer_route(route, None, env, document, signatures)?;
             }
+            if let Some(route) = &options.move_route {
+                infer_ordered_payload_route(
+                    route,
+                    &[Type::F64, Type::F64],
+                    env,
+                    document,
+                    signatures,
+                    "mouse move",
+                )?;
+            }
+            if let Some(route) = &options.scroll {
+                infer_ordered_payload_route(
+                    route,
+                    &[Type::F64, Type::F64, Type::Bool],
+                    env,
+                    document,
+                    signatures,
+                    "mouse scroll",
+                )?;
+            }
             infer_view(content, env, document, signatures, ids)?;
         }
         ViewNode::Float {
@@ -989,6 +1009,40 @@ fn infer_route(
             }
         } else {
             *slot = Some(ty);
+        }
+    }
+    Ok(())
+}
+
+fn infer_ordered_payload_route(
+    route: &Route,
+    payloads: &[Type],
+    env: &HashMap<String, Type>,
+    document: &Document,
+    signatures: &mut HashMap<String, Vec<Option<Type>>>,
+    label: &str,
+) -> Result<(), Error> {
+    if route.args.len() != payloads.len()
+        || route
+            .args
+            .iter()
+            .any(|arg| !matches!(arg, RouteArg::Payload))
+    {
+        return Err(Error::new(
+            "E129",
+            &route.span,
+            format!("{label} route expects {} payloads", payloads.len()),
+        ));
+    }
+    infer_route(route, Some(Type::Unknown), env, document, signatures)?;
+    let signature = signatures.get_mut(&route.handler).expect("route signature");
+    for (slot, ty) in signature.iter_mut().zip(payloads) {
+        if let Some(existing) = slot {
+            if !compatible(existing, ty) {
+                return Err(type_error(&route.span, existing, ty));
+            }
+        } else {
+            *slot = Some(ty.clone());
         }
     }
     Ok(())
@@ -1706,6 +1760,54 @@ view
         let error = analyze(source).unwrap_err();
         assert_eq!(error.code, "E128");
         assert!(error.message.contains("responsive breakpoint"));
+    }
+
+    #[test]
+    fn infers_mouse_move_and_scroll_payloads() {
+        let source = r#"app Pointer
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  x = 0.0
+  y = 0.0
+  pixels = false
+on moved(next_x, next_y)
+  x = next_x
+  y = next_y
+on scrolled(delta_x, delta_y, pixel_units)
+  x = delta_x
+  y = delta_y
+  pixels = pixel_units
+view
+  mouse move=moved scroll=scrolled cursor=crosshair
+    text "Track me"
+"#;
+        let document = analyze(source).unwrap();
+        assert_eq!(document.handlers[0].params[0].ty.display(), "f64");
+        assert_eq!(document.handlers[0].params[1].ty.display(), "f64");
+        assert_eq!(document.handlers[1].params[0].ty.display(), "f64");
+        assert_eq!(document.handlers[1].params[2].ty.display(), "bool");
+    }
+
+    #[test]
+    fn rejects_wrong_mouse_move_arity() {
+        let source = r#"app Pointer
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+on moved(x)
+view
+  mouse move=moved(_)
+    text "Track me"
+"#;
+        let error = analyze(source).unwrap_err();
+        assert_eq!(error.code, "E129");
+        assert!(error.message.contains("mouse move"));
     }
 
     #[test]
