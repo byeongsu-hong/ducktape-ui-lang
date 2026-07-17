@@ -24,16 +24,20 @@ view
         row @w-full items-center gap-3
           text "Tasks" @text-2xl font-bold text-foreground
           text len(tasks) @text-sm text-muted
-          button "About" -> open_about
+          button "About" style=text -> open_about
 
         row @w-full items-center gap-3
           input "New task" <-> draft hint="What needs doing?" disabled=loading submit=submit @w-full px-4 py-3 bg-surface border border-border rounded-lg
-          button "Add" disabled=(loading || empty(trim(draft))) @px-4 py-3 bg-primary text-white rounded-lg disabled:opacity-50 -> submit
+          button "Add" disabled=(loading || empty(trim(draft))) style=success @px-4 py-3 bg-primary text-white rounded-lg disabled:opacity-50 -> submit
+            active background=linear(1.57, primary@0.0, surface@1.0) text=white border=primary border-width=1.0 radius=8.0 shadow=black/25 shadow-y=2.0 shadow-blur=4.0 pixel-snap=true
+            hovered background=linear(1.57, surface@0.0, primary@1.0) text=white
+            pressed background=primary/80 text=white
+            disabled background=surface text=muted
 
         if error != ""
           row @w-full items-center gap-4 p-4 bg-danger rounded-lg
             text error @text-sm text-white
-            button "Retry" disabled=loading @px-4 py-2 bg-white text-danger rounded-md -> retry
+            button "Retry" disabled=loading style=danger @px-4 py-2 bg-white text-danger rounded-md -> retry
 
         lazy loading as busy
           col
@@ -52,9 +56,9 @@ view
             title padding=12.0 always-controls background=linear(1.57, background@0.0, surface@1.0) border=border border-width=1.0 radius-tl=8.0 radius-tr=8.0 shadow=black/25 shadow-y=1.0 shadow-blur=3.0 pixel-snap=true @bg-background border border-border
               text "Task list" @text-lg font-bold text-foreground
             controls
-              button "Inspect" -> inspect_adjacent
+              button "Inspect" style=secondary -> inspect_adjacent
             compact-controls
-              button "?" -> inspect_adjacent
+              button "?" style=subtle -> inspect_adjacent
             content
               scroll #task-list direction=vertical width=fill height=fill
                 keyed task in tasks by=task.id width=fill spacing=8.0
@@ -63,9 +67,9 @@ view
             title padding=12.0 always-controls @bg-background border border-border
               text "Details" @text-lg font-bold text-foreground
             controls
-              button "Maximize" -> maximize_details
+              button "Maximize" style=background -> maximize_details
             compact-controls
-              button "↗" -> maximize_details
+              button "↗" style=warning -> maximize_details
             content
               container width=fill height=fill padding=16.0
                 col @gap-3
@@ -95,4 +99,4 @@ view
             span ".ice" link="https://github.com/byeongsu-hong/ducktape-ui-lang" background=linear(1.57, primary/20@0.0, surface@1.0) padding=2.0 radius=2.0 underline @font-bold text-primary
             span "."
         Dialog.Actions
-          button "Close" @px-4 py-2 bg-primary text-white rounded-md -> close_about
+          button "Close" style=primary @px-4 py-2 bg-primary text-white rounded-md -> close_about

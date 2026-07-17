@@ -1,4 +1,4 @@
-# Ice Language Specification 0.65
+# Ice Language Specification 0.66
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.65 syntax.
+marked “planned” is a design constraint, not accepted 0.66 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.65.
+  block comments are not part of 0.66.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -406,9 +406,13 @@ input_property = "hint=" string | ("disabled=" | "secure=") expr
                | "icon-side=" ("left" | "right")
                | ("icon-size=" | "icon-spacing=") expr
 button         = "button" (string | INDENT node) id? button_property*
-                 styles? "->" route
+                 styles? "->" route (INDENT button_status_style*)?
 button_property = "disabled=" expr | ("width=" | "height=") length
                 | ("padding=" | "clip=") expr
+                | "style=" ("primary" | "secondary" | "success" | "warning"
+                  | "danger" | "text" | "background" | "subtle")
+button_status_style = ("active" | "hovered" | "pressed" | "disabled")
+                      surface_style_property*
 checkbox       = "checkbox" expr id? "checked=" expr bool_property*
                  checkbox_icon_property* styles? "->" route
 toggler        = "toggler" expr "checked=" expr bool_property*
@@ -567,7 +571,7 @@ default/centered/fixed position, visibility, resizability, close/minimize
 buttons, decorations, transparency, blur, level, and close-request behavior.
 Sizes, text size, and scale factor must be positive; minimum size cannot exceed
 maximum size. Window icons and platform-specific settings are not part of
-0.65.
+0.66.
 
 Media fixed lengths, rotation, opacity, scale, and radius are `f64`; rotation
 is radians, opacity is `0.0..=1.0`, scale is positive, and sizes/radius are
@@ -624,7 +628,11 @@ typing, submit, and paste messages together.
 
 `button` accepts either its compact string label or exactly one arbitrary child
 node. It also supports typed width/height, non-negative padding, bool clipping,
-disabled routing, and the checked button style utilities.
+disabled routing, all eight iced presets, and checked style utilities. Optional
+`active`, `hovered`, `pressed`, and `disabled` child lines override every
+concrete button style field with solid/linear backgrounds, text, per-corner
+border, shadow, and pixel snapping. A structured content node may appear beside
+these status lines.
 
 `checkbox` and `toggler` share typed control size/width/spacing, text size and
 relative line height, shaping, wrapping, and default/mono font properties.
@@ -823,7 +831,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.65 message payloads.
+`Clone` for 0.66 message payloads.
 
 Three typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
@@ -955,7 +963,7 @@ The implemented native nodes are:
 | `rich-text` | zero or more structured spans with rich defaults, complete span highlights and optional string link events |
 | `pane-grid` | named pane trees backed by recursive persistent split state, structured title/full/compact controls, complete concrete state and surface styles with linear backgrounds, closed templates, dynamic opening, click, resize and drag/drop behavior |
 | `input` | required `str` binding; ID, hint, disabled/secure, submit/paste, sizing, alignment, default/mono font and icon properties |
-| `button` | string label or one child; optional ID/disabled, typed size/padding/clip, required route |
+| `button` | string label or one child; optional ID/disabled, typed size/padding/clip, eight presets, complete status styles and required route |
 | `checkbox` | string label, bool value/route, disabled, sizing/typography/wrapping/font and custom icon properties |
 | `toggler` | string label, bool value/route, disabled, sizing/typography/wrapping/font/alignment properties |
 | `slider` | `f64` value/range/default/normal+shift steps, direction-aware sizing, change/release routes and nested status styles |
@@ -1365,7 +1373,7 @@ weight, stretch, and style variant is accepted. At most one declaration may be
 the application default. `font=default` and `font=mono` remain built-ins;
 declared fonts also work on text, rich text and spans, input, editor, checkbox,
 and toggler. Font
-byte loading is not part of 0.65.
+byte loading is not part of 0.66.
 
 Widget operation tasks target checked static IDs in the app view:
 
@@ -1385,7 +1393,7 @@ snap/end; and absolute scroll-to/scroll-by. Effects have no route and
 non-negative `i64`; relative offsets are `f64` in `0.0..=1.0`; absolute
 offsets are unrestricted `f64`. Targets must be real static IDs in the app
 scope. Repeated/component scopes and the feature-gated selector API remain
-outside 0.65.
+outside 0.66.
 
 Persistent pane grids expose their native layout-state operations directly in
 handlers:
@@ -1432,7 +1440,7 @@ and constraints, resizability, maximize/minimize state, position and movement,
 all modes, decorations, user attention, focus, level, system menu, mouse
 passthrough, monitor size, and automatic tabbing. Positive sizes and bool
 arguments are checked before Rust generation. New-window IDs, open/oldest/latest,
-icons, raw handles, screenshots, and callbacks remain outside 0.65.
+icons, raw handles, screenshots, and callbacks remain outside 0.66.
 
 Every iced window event has a direct subscription form:
 
@@ -1585,7 +1593,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 0.65 does not claim that remapping.
+extern line; 0.66 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -1606,7 +1614,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 0.65 native backend is enough for CRUD/settings-style screens, selection,
+The 0.66 native backend is enough for CRUD/settings-style screens, selection,
 media, hover
 overlays, and common pointer events, not all of iced. It still lacks direct
 syntax for canvas, arbitrary custom overlays, multiple

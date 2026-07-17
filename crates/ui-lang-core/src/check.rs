@@ -1189,6 +1189,23 @@ fn infer_view(
             if let Some(clip) = &options.clip {
                 require_type(&expr_type(clip, env, document, span)?, &Type::Bool, span)?;
             }
+            for status in [
+                &options.style.active,
+                &options.style.hovered,
+                &options.style.pressed,
+                &options.style.disabled,
+            ]
+            .into_iter()
+            .flatten()
+            {
+                check_container_style_options(
+                    &status.options,
+                    env,
+                    document,
+                    &status.span,
+                    "E129",
+                )?;
+            }
             infer_route(route, None, env, document, signatures)?;
             check_styles(styles, document, span, StyleTarget::Button)?;
             if let Some(content) = content {
@@ -5480,12 +5497,26 @@ state
   disabled = false
 on pressed
 view
-  button #action disabled=disabled width=fill height=48.0 padding=8.0 clip=true -> pressed
+  button #action disabled=disabled width=fill height=48.0 padding=8.0 clip=true style=secondary -> pressed
     row
       text "Save"
       text "⌘S"
+    active background=linear(1.57, primary@0.0, background@1.0) text=foreground border=primary border-width=1.0 radius=4.0 radius-tl=2.0 radius-tr=3.0 radius-br=5.0 radius-bl=6.0 shadow=black/50 shadow-x=-1.0 shadow-y=2.0 shadow-blur=4.0 pixel-snap=true
+    hovered background=foreground text=background
+    pressed background=primary
+    disabled background=background text=foreground
 "#;
         analyze(source).unwrap();
+
+        let bad_color = source.replace("border=primary", "border=missing");
+        let error = analyze(&bad_color).unwrap_err();
+        assert_eq!(error.code, "E129");
+        assert!(error.message.contains("missing"));
+
+        let bad_preset = source.replace("style=secondary", "style=tertiary");
+        let error = analyze(&bad_preset).unwrap_err();
+        assert_eq!(error.code, "E066");
+        assert!(error.message.contains("button style must be"));
     }
 
     #[test]

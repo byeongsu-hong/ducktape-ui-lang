@@ -970,6 +970,35 @@ pub struct ButtonOptions {
     pub height: Option<LengthValue>,
     pub padding: Option<Expr>,
     pub clip: Option<Expr>,
+    pub style: Box<ButtonStyleSet>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct ButtonStyleSet {
+    pub preset: ButtonStylePreset,
+    pub active: Option<ButtonStatusStyle>,
+    pub hovered: Option<ButtonStatusStyle>,
+    pub pressed: Option<ButtonStatusStyle>,
+    pub disabled: Option<ButtonStatusStyle>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ButtonStylePreset {
+    #[default]
+    Primary,
+    Secondary,
+    Success,
+    Warning,
+    Danger,
+    Text,
+    Background,
+    Subtle,
+}
+
+#[derive(Clone, Debug)]
+pub struct ButtonStatusStyle {
+    pub options: ContainerStyleOptions,
+    pub span: Span,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

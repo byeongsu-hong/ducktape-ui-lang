@@ -1774,7 +1774,7 @@ fn render_node(
             } else {
                 write!(code, ".on_press({message_code})").unwrap();
             }
-            code.push_str(&button_style_code(&style, document));
+            code.push_str(&button_style_code(&style, &options.style, env, document)?);
             Ok(format!("{code}.into() }}"))
         }
         ViewNode::Checkbox {
@@ -4543,19 +4543,30 @@ fn container_surface_style_value(
     let base = container_style_value(utilities, document)
         .unwrap_or_else(|| "::iced::widget::container::Style::default()".into());
     let mut code = format!("{{ let mut __style = {base};");
-    if let Some(background) = &options.background {
-        write!(
-            code,
-            " __style.background = ::std::option::Option::Some({});",
-            background_code(background, env, document)?
-        )
-        .unwrap();
-    }
+    append_surface_style_overrides(&mut code, options, env, document)?;
     if let Some(color) = &options.text_color {
         write!(
             code,
             " __style.text_color = ::std::option::Option::Some({});",
             theme_color(document, color)
+        )
+        .unwrap();
+    }
+    code.push_str(" __style }");
+    Ok(Some(code))
+}
+
+fn append_surface_style_overrides(
+    code: &mut String,
+    options: &ContainerStyleOptions,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<(), Error> {
+    if let Some(background) = &options.background {
+        write!(
+            code,
+            " __style.background = ::std::option::Option::Some({});",
+            background_code(background, env, document)?
         )
         .unwrap();
     }
@@ -4628,8 +4639,7 @@ fn container_surface_style_value(
         )
         .unwrap();
     }
-    code.push_str(" __style }");
-    Ok(Some(code))
+    Ok(())
 }
 
 fn append_slider_styles(
@@ -5491,55 +5501,116 @@ fn container_style_value(style: &Style, document: &Document) -> Option<String> {
     ))
 }
 
-fn button_style_code(style: &Style, document: &Document) -> String {
-    if style.background.is_none()
-        && style.hover_background.is_none()
-        && style.pressed_background.is_none()
-        && style.text_color.is_none()
-        && style.radius == 0
-        && style.disabled_opacity.is_none()
-    {
-        return String::new();
+fn button_style_code(
+    style: &Style,
+    typed: &ButtonStyleSet,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<String, Error> {
+    let has_utilities = style.background.is_some()
+        || style.hover_background.is_some()
+        || style.pressed_background.is_some()
+        || style.text_color.is_some()
+        || style.radius != 0
+        || style.disabled_opacity.is_some();
+    let has_typed = typed.active.is_some()
+        || typed.hovered.is_some()
+        || typed.pressed.is_some()
+        || typed.disabled.is_some();
+    let preset = match typed.preset {
+        ButtonStylePreset::Primary => "primary",
+        ButtonStylePreset::Secondary => "secondary",
+        ButtonStylePreset::Success => "success",
+        ButtonStylePreset::Warning => "warning",
+        ButtonStylePreset::Danger => "danger",
+        ButtonStylePreset::Text => "text",
+        ButtonStylePreset::Background => "background",
+        ButtonStylePreset::Subtle => "subtle",
+    };
+    if !has_utilities && !has_typed {
+        return Ok(if typed.preset == ButtonStylePreset::Primary {
+            String::new()
+        } else {
+            format!(".style(::iced::widget::button::{preset})")
+        });
     }
 
-    let normal = style
-        .background
-        .as_ref()
-        .map(|color| theme_color(document, color));
-    let hover = style
-        .hover_background
-        .as_ref()
-        .map(|color| theme_color(document, color))
-        .or_else(|| normal.clone());
-    let pressed = style
-        .pressed_background
-        .as_ref()
-        .map(|color| theme_color(document, color))
-        .or_else(|| hover.clone())
-        .or_else(|| normal.clone());
-    let option = |color: Option<String>| {
-        color.map_or_else(|| "None".into(), |color| format!("Some({color})"))
-    };
     let mut code = format!(
-        ".style(|theme, status| {{ let mut style = ::iced::widget::button::primary(theme, status); let background: Option<::iced::Color> = match status {{ ::iced::widget::button::Status::Hovered => {}, ::iced::widget::button::Status::Pressed => {}, ::iced::widget::button::Status::Disabled => {}, _ => {} }}; if let Some(background) = background {{ style.background = Some(::iced::Background::Color(background)); }}",
-        option(hover),
-        option(pressed),
-        option(normal.clone()),
-        option(normal),
+        ".style(move |__theme, __status| {{ let mut __style = ::iced::widget::button::{preset}(__theme, __status);"
     );
-    if let Some(text) = &style.text_color {
-        write!(code, " style.text_color = {};", theme_color(document, text)).unwrap();
+    if has_utilities {
+        let normal = style
+            .background
+            .as_ref()
+            .map(|color| theme_color(document, color));
+        let hover = style
+            .hover_background
+            .as_ref()
+            .map(|color| theme_color(document, color))
+            .or_else(|| normal.clone());
+        let pressed = style
+            .pressed_background
+            .as_ref()
+            .map(|color| theme_color(document, color))
+            .or_else(|| hover.clone())
+            .or_else(|| normal.clone());
+        let option = |color: Option<String>| {
+            color.map_or_else(|| "None".into(), |color| format!("Some({color})"))
+        };
+        write!(
+            code,
+            " let __background: Option<::iced::Color> = match __status {{ ::iced::widget::button::Status::Hovered => {}, ::iced::widget::button::Status::Pressed => {}, ::iced::widget::button::Status::Disabled => {}, _ => {} }}; if let Some(__background) = __background {{ __style.background = Some(::iced::Background::Color(__background)); }}",
+            option(hover),
+            option(pressed),
+            option(normal.clone()),
+            option(normal),
+        )
+        .unwrap();
+        if let Some(text) = &style.text_color {
+            write!(
+                code,
+                " __style.text_color = {};",
+                theme_color(document, text)
+            )
+            .unwrap();
+        }
+        if style.radius > 0 {
+            write!(code, " __style.border.radius = {}.0.into();", style.radius).unwrap();
+        }
+        if style.background.is_some()
+            || style.text_color.is_some()
+            || style.disabled_opacity.is_some()
+        {
+            let disabled = style.disabled_opacity.unwrap_or(0.5);
+            write!(code, " if matches!(__status, ::iced::widget::button::Status::Disabled) {{ __style.text_color.a *= {disabled}; if let Some(::iced::Background::Color(mut __color)) = __style.background {{ __color.a *= {disabled}; __style.background = Some(::iced::Background::Color(__color)); }} }}").unwrap();
+        }
     }
-    if style.radius > 0 {
-        write!(code, " style.border.radius = {}.0.into();", style.radius).unwrap();
+    if has_typed {
+        code.push_str(" match __status {");
+        for (variant, status) in [
+            ("Active", &typed.active),
+            ("Hovered", &typed.hovered),
+            ("Pressed", &typed.pressed),
+            ("Disabled", &typed.disabled),
+        ] {
+            write!(code, " ::iced::widget::button::Status::{variant} => {{").unwrap();
+            if let Some(status) = status {
+                append_surface_style_overrides(&mut code, &status.options, env, document)?;
+                if let Some(color) = &status.options.text_color {
+                    write!(
+                        code,
+                        " __style.text_color = {};",
+                        theme_color(document, color)
+                    )
+                    .unwrap();
+                }
+            }
+            code.push_str(" }");
+        }
+        code.push_str(" }");
     }
-    if style.background.is_some() || style.text_color.is_some() || style.disabled_opacity.is_some()
-    {
-        let disabled = style.disabled_opacity.unwrap_or(0.5);
-        write!(code, " if matches!(status, ::iced::widget::button::Status::Disabled) {{ style.text_color.a *= {disabled}; if let Some(::iced::Background::Color(mut color)) = style.background {{ color.a *= {disabled}; style.background = Some(::iced::Background::Color(color)); }} }}").unwrap();
-    }
-    code.push_str(" style })");
-    code
+    code.push_str(" __style })");
+    Ok(code)
 }
 
 fn input_style_code(style: &Style, document: &Document) -> String {
@@ -6671,10 +6742,14 @@ state
   disabled = false
 on pressed
 view
-  button #action disabled=disabled width=fill height=48.0 padding=8.0 clip=true -> pressed
+  button #action disabled=disabled width=fill height=48.0 padding=8.0 clip=true style=secondary @bg-primary text-white rounded-lg disabled:opacity-50 -> pressed
     row
       text "Save"
       text "⌘S"
+    active background=linear(1.57, primary@0.0, background@1.0) text=foreground border=primary border-width=1.0 radius=4.0 radius-tl=2.0 radius-tr=3.0 radius-br=5.0 radius-bl=6.0 shadow=black/50 shadow-x=-1.0 shadow-y=2.0 shadow-blur=4.0 pixel-snap=true
+    hovered background=foreground text=background
+    pressed background=primary
+    disabled background=background text=foreground
 "#;
         let generated = compile(source, "actions.ice").unwrap();
         assert!(generated.contains("let __button_content: ::iced::Element"));
@@ -6682,6 +6757,31 @@ view
         assert!(generated.contains(".width(::iced::Fill).height(48.0 as f32)"));
         assert!(generated.contains(".padding(8.0 as f32).clip(true)"));
         assert!(generated.contains(".on_press_maybe(if self.disabled"));
+        assert!(generated.contains("button::secondary(__theme, __status)"));
+        assert!(generated.contains("button::Status::Active =>"));
+        assert!(generated.contains("button::Status::Hovered =>"));
+        assert!(generated.contains("button::Status::Pressed =>"));
+        assert!(generated.contains("button::Status::Disabled =>"));
+        assert!(generated.contains("::iced::gradient::Linear::new(1.57 as f32)"));
+        assert!(generated.contains("__style.shadow.offset.x = (-1.0) as f32"));
+        assert!(generated.contains("__style.snap = true"));
+        for preset in [
+            "primary",
+            "secondary",
+            "success",
+            "warning",
+            "danger",
+            "text",
+            "background",
+            "subtle",
+        ] {
+            let generated = compile(
+                &source.replace("style=secondary", &format!("style={preset}")),
+                "actions.ice",
+            )
+            .unwrap();
+            assert!(generated.contains(&format!("button::{preset}(__theme, __status)")));
+        }
     }
 
     #[test]
