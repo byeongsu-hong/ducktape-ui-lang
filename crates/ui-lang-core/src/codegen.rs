@@ -1351,6 +1351,14 @@ fn render_node(
             }
             Ok(format!("{code}.into()"))
         }
+        ViewNode::RichText {
+            options,
+            color,
+            spans,
+            styles,
+            route,
+            ..
+        } => render_rich_text(options, color, spans, styles, route, document, message, env),
         ViewNode::Input {
             label,
             id,
@@ -2690,6 +2698,165 @@ fn render_overlay(
     Ok(format!(
         "{{ let __overlay_base: ::iced::Element<'_, {message}> = {content}; if {visible} {{ let __overlay_layer: ::iced::Element<'_, {message}> = {layer}; let __overlay_backdrop = ::iced::widget::container(::iced::widget::space()).width(::iced::Fill).height(::iced::Fill).style(|_| ::iced::widget::container::Style {{ background: ::std::option::Option::Some(::iced::Background::Color({backdrop})), ..::iced::widget::container::Style::default() }}); let __overlay_backdrop: ::iced::Element<'_, {message}> = ::iced::widget::mouse_area(__overlay_backdrop).on_press({dismiss}).on_release({noop}).on_right_press({noop}).on_right_release({noop}).on_middle_press({noop}).on_middle_release({noop}).on_scroll(|_| {noop}).into(); let __overlay_panel = ::iced::widget::mouse_area(__overlay_layer).on_press({noop}).on_release({noop}).on_right_press({noop}).on_right_release({noop}).on_middle_press({noop}).on_middle_release({noop}).on_scroll(|_| {noop}); let __overlay_panel: ::iced::Element<'_, {message}> = ::iced::widget::container(__overlay_panel).width(::iced::Fill).height(::iced::Fill).padding({padding} as f32).align_x(::iced::alignment::Horizontal::{align_x}).align_y(::iced::alignment::Vertical::{align_y}).into(); let __overlay_surface: ::iced::Element<'_, {message}> = ::iced::widget::Stack::new().width(::iced::Fill).height(::iced::Fill).push(__overlay_backdrop).push(__overlay_panel).into(); ::iced::widget::Stack::new().width(::iced::Fill).height(::iced::Fill).push(__overlay_base).push(::iced::widget::float(__overlay_surface).translate(|_, _| ::iced::Vector::new(::core::f32::EPSILON, 0.0))).into() }} else {{ __overlay_base }} }}"
     ))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_rich_text(
+    options: &TextOptions,
+    color: &Option<String>,
+    spans: &[RichSpan],
+    styles: &[String],
+    route: &Option<Route>,
+    document: &Document,
+    message: &str,
+    env: &HashMap<String, Binding>,
+) -> Result<String, Error> {
+    let spans = spans
+        .iter()
+        .map(|item| render_rich_span(item, document, env))
+        .collect::<Result<Vec<_>, _>>()?
+        .join(", ");
+    let style = Style::parse(styles, document);
+    let mut code = String::from("::iced::widget::rich_text(__rich_spans)");
+    append_text_options(&mut code, options, &style, env, document)?;
+    if let Some(color) = color.as_ref().or(style.text_color.as_ref()) {
+        write!(code, ".color({})", theme_color(document, color)).unwrap();
+    }
+    if let Some(route) = route {
+        write!(
+            code,
+            ".on_link_click(move |__link| {})",
+            route_code(route, "__link", env, document, message)?
+        )
+        .unwrap();
+    }
+    Ok(format!(
+        "{{ let __rich_spans: ::std::vec::Vec<::iced::widget::text::Span<'_, ::std::string::String>> = ::std::vec![{spans}]; {code}.into() }}"
+    ))
+}
+
+fn render_rich_span(
+    item: &RichSpan,
+    document: &Document,
+    env: &HashMap<String, Binding>,
+) -> Result<String, Error> {
+    let style = Style::parse(&item.styles, document);
+    let value = expr_code(&item.value, env, document, ValueMode::Owned)?;
+    let mut code = format!("::iced::widget::span({value})");
+    if let Some(size) = &item.options.size {
+        write!(
+            code,
+            ".size({} as f32)",
+            expr_code(size, env, document, ValueMode::Owned)?
+        )
+        .unwrap();
+    } else if let Some(size) = style.text_size {
+        write!(code, ".size({size})").unwrap();
+    }
+    if let Some(line_height) = &item.options.line_height {
+        let line_height = match line_height {
+            TextLineHeight::Relative(value) => format!(
+                "::iced::widget::text::LineHeight::Relative({} as f32)",
+                expr_code(value, env, document, ValueMode::Owned)?
+            ),
+            TextLineHeight::Absolute(value) => format!(
+                "::iced::widget::text::LineHeight::Absolute(({} as f32).into())",
+                expr_code(value, env, document, ValueMode::Owned)?
+            ),
+        };
+        write!(code, ".line_height({line_height})").unwrap();
+    }
+    if let Some(font) = &item.options.font {
+        let font = font_preset_code(font, document)?;
+        if style.bold {
+            write!(
+                code,
+                ".font(::iced::Font {{ weight: ::iced::font::Weight::Bold, ..{font} }})"
+            )
+            .unwrap();
+        } else {
+            write!(code, ".font({font})").unwrap();
+        }
+    } else if style.bold {
+        code.push_str(
+            ".font(::iced::Font { weight: ::iced::font::Weight::Bold, ..::iced::Font::DEFAULT })",
+        );
+    }
+    if let Some(color) = item.options.color.as_ref().or(style.text_color.as_ref()) {
+        write!(code, ".color({})", theme_color(document, color)).unwrap();
+    }
+    if let Some(link) = &item.options.link {
+        write!(
+            code,
+            ".link({})",
+            expr_code(link, env, document, ValueMode::Owned)?
+        )
+        .unwrap();
+    }
+    if let Some(background) = &item.options.background {
+        write!(
+            code,
+            ".background(::iced::Background::Color({}))",
+            theme_color(document, background)
+        )
+        .unwrap();
+    }
+    let has_border = item.options.border.is_some()
+        || item.options.border_width.is_some()
+        || item.options.radius.is_some()
+        || item.options.radius_top_left.is_some()
+        || item.options.radius_top_right.is_some()
+        || item.options.radius_bottom_right.is_some()
+        || item.options.radius_bottom_left.is_some();
+    if has_border {
+        let color = item
+            .options
+            .border
+            .as_ref()
+            .map(|color| theme_color(document, color))
+            .unwrap_or_else(|| "::iced::Color::TRANSPARENT".into());
+        let width = item.options.border_width.as_ref().map_or_else(
+            || Ok("0.0".to_owned()),
+            |width| expr_code(width, env, document, ValueMode::Owned),
+        )?;
+        let radius = radius_code(
+            item.options.radius.as_ref(),
+            [
+                item.options.radius_top_left.as_ref(),
+                item.options.radius_top_right.as_ref(),
+                item.options.radius_bottom_right.as_ref(),
+                item.options.radius_bottom_left.as_ref(),
+            ],
+            env,
+            document,
+        )?
+        .unwrap_or_else(|| "::iced::border::Radius::default()".into());
+        write!(
+            code,
+            ".border(::iced::Border {{ color: {color}, width: {width} as f32, radius: {radius} }})"
+        )
+        .unwrap();
+    }
+    if let Some(padding) = typed_padding_code(&item.options.padding, env, document)? {
+        write!(code, ".padding({padding})").unwrap();
+    }
+    if let Some(underline) = &item.options.underline {
+        write!(
+            code,
+            ".underline({})",
+            expr_code(underline, env, document, ValueMode::Owned)?
+        )
+        .unwrap();
+    }
+    if let Some(strikethrough) = &item.options.strikethrough {
+        write!(
+            code,
+            ".strikethrough({})",
+            expr_code(strikethrough, env, document, ValueMode::Owned)?
+        )
+        .unwrap();
+    }
+    Ok(code)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -5542,6 +5709,39 @@ view
         assert!(generated.contains("text::Shaping::Advanced"));
         assert!(generated.contains("text::Wrapping::WordOrGlyph"));
         assert!(generated.contains("..::iced::Font::MONOSPACE"));
+    }
+
+    #[test]
+    fn lowers_structured_rich_text_spans() {
+        let source = r#"app Typography
+font ui family=sans weight=medium stretch=normal style=normal
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+on link(url)
+view
+  rich-text width=fill height=48.0 size=16.0 line-height=1.2 font=ui align-x=justified align-y=center wrapping=word color=foreground @font-bold -> link _
+    span "Ice " size=18.0 line-height-px=22.0 font=ui color=primary background=background border=foreground border-width=1.0 radius=4.0 radius-tl=2.0 radius-tr=3.0 radius-br=5.0 radius-bl=6.0 padding=2.0 padding-left=4.0 underline strike=false
+    span "language" link="https://example.com" @text-lg font-bold text-primary
+"#;
+        let generated = compile(source, "rich.ice").unwrap();
+        assert!(generated.contains("::iced::widget::rich_text(__rich_spans)"));
+        assert!(generated.contains("::iced::widget::span(\"Ice \".to_owned())"));
+        assert!(generated.contains(".size(18.0 as f32)"));
+        assert!(generated.contains("LineHeight::Absolute((22.0 as f32).into())"));
+        assert!(generated.contains(".background(::iced::Background::Color("));
+        assert!(generated.contains(".border(::iced::Border"));
+        assert!(generated.contains(".padding(::iced::Padding"));
+        assert!(generated.contains(".underline(true).strikethrough(false)"));
+        assert!(generated.contains(".link(\"https://example.com\".to_owned())"));
+        assert!(
+            generated.contains(".on_link_click(move |__link| __TypographyMessage::Link(__link))")
+        );
+        assert!(generated.contains(".width(::iced::Fill).height(48.0 as f32)"));
+        assert!(generated.contains("text::Wrapping::Word"));
     }
 
     #[test]

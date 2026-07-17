@@ -528,6 +528,14 @@ pub enum ViewNode {
         styles: Vec<String>,
         span: Span,
     },
+    RichText {
+        options: TextOptions,
+        color: Option<String>,
+        spans: Vec<RichSpan>,
+        styles: Vec<String>,
+        route: Option<Route>,
+        span: Span,
+    },
     Input {
         label: String,
         id: Option<Id>,
@@ -859,6 +867,34 @@ pub struct TextOptions {
 pub enum TextLineHeight {
     Relative(Expr),
     Absolute(Expr),
+}
+
+#[derive(Clone, Debug)]
+pub struct RichSpan {
+    pub value: Expr,
+    pub options: RichSpanOptions,
+    pub styles: Vec<String>,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct RichSpanOptions {
+    pub size: Option<Expr>,
+    pub line_height: Option<TextLineHeight>,
+    pub font: Option<FontPreset>,
+    pub color: Option<String>,
+    pub link: Option<Expr>,
+    pub background: Option<String>,
+    pub border: Option<String>,
+    pub border_width: Option<Expr>,
+    pub radius: Option<Expr>,
+    pub radius_top_left: Option<Expr>,
+    pub radius_top_right: Option<Expr>,
+    pub radius_bottom_right: Option<Expr>,
+    pub radius_bottom_left: Option<Expr>,
+    pub padding: PaddingOptions,
+    pub underline: Option<Expr>,
+    pub strikethrough: Option<Expr>,
 }
 
 #[derive(Clone, Debug, Default)]
