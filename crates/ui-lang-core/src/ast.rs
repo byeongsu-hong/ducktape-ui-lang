@@ -1716,6 +1716,8 @@ pub struct ScrollOptions {
     pub anchor_y: ScrollAnchor,
     pub auto_scroll: Option<Expr>,
     pub route: Option<Route>,
+    pub viewport_route: Option<Route>,
+    pub styles: Vec<ScrollStatusStyle>,
 }
 
 impl Default for ScrollOptions {
@@ -1733,8 +1735,39 @@ impl Default for ScrollOptions {
             anchor_y: ScrollAnchor::Start,
             auto_scroll: None,
             route: None,
+            viewport_route: None,
+            styles: Vec::new(),
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ScrollStatus {
+    Active,
+    Hovered,
+    Dragged,
+}
+
+#[derive(Clone, Debug)]
+pub struct ScrollStatusStyle {
+    pub status: ScrollStatus,
+    pub horizontal_interaction: Option<bool>,
+    pub vertical_interaction: Option<bool>,
+    pub horizontal_disabled: Option<bool>,
+    pub vertical_disabled: Option<bool>,
+    pub container: ContainerStyleOptions,
+    pub horizontal_rail: ScrollRailStyle,
+    pub vertical_rail: ScrollRailStyle,
+    pub gap: Option<BackgroundValue>,
+    pub auto_scroll: ContainerStyleOptions,
+    pub auto_scroll_icon: Option<String>,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct ScrollRailStyle {
+    pub rail: ContainerStyleOptions,
+    pub scroller: ContainerStyleOptions,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

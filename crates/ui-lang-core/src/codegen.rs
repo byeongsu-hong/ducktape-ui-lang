@@ -3690,7 +3690,36 @@ fn render_layout(
                 ".on_scroll(move |__viewport| {{ let __absolute = __viewport.absolute_offset(); let __relative = __viewport.relative_offset(); {message_code} }})"
             )
             .unwrap();
+        } else if let Some(route) = &scroll.viewport_route {
+            let message_code = ordered_route_code(
+                route,
+                &[
+                    "__absolute.x as f64",
+                    "__absolute.y as f64",
+                    "__reversed.x as f64",
+                    "__reversed.y as f64",
+                    "__relative.x as f64",
+                    "__relative.y as f64",
+                    "__bounds.x as f64",
+                    "__bounds.y as f64",
+                    "__bounds.width as f64",
+                    "__bounds.height as f64",
+                    "__content_bounds.x as f64",
+                    "__content_bounds.y as f64",
+                    "__content_bounds.width as f64",
+                    "__content_bounds.height as f64",
+                ],
+                env,
+                document,
+                message,
+            )?;
+            write!(
+                code,
+                ".on_scroll(move |__viewport| {{ let __absolute = __viewport.absolute_offset(); let __reversed = __viewport.absolute_offset_reversed(); let __relative = __viewport.relative_offset(); let __bounds = __viewport.bounds(); let __content_bounds = __viewport.content_bounds(); {message_code} }})"
+            )
+            .unwrap();
         }
+        code.push_str(&scroll_style_code(&scroll.styles, env, document)?);
         append_size(&mut code, &style);
         if let Some(width) = &scroll.width {
             write!(code, ".width({})", length_code(width, env, document)?).unwrap();
@@ -3947,6 +3976,153 @@ fn scroll_bar_code(
         }
     }
     Ok(code)
+}
+
+fn scroll_style_code(
+    styles: &[ScrollStatusStyle],
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<String, Error> {
+    if styles.is_empty() {
+        return Ok(String::new());
+    }
+    let mut code = String::from(
+        ".style(move |__theme, __status| { let mut __style = ::iced::widget::scrollable::default(__theme, __status); match __status {",
+    );
+    for (status, pattern) in [
+        (
+            ScrollStatus::Active,
+            "Active { is_horizontal_scrollbar_disabled: __horizontal_disabled, is_vertical_scrollbar_disabled: __vertical_disabled }",
+        ),
+        (
+            ScrollStatus::Hovered,
+            "Hovered { is_horizontal_scrollbar_hovered: __horizontal_interaction, is_vertical_scrollbar_hovered: __vertical_interaction, is_horizontal_scrollbar_disabled: __horizontal_disabled, is_vertical_scrollbar_disabled: __vertical_disabled }",
+        ),
+        (
+            ScrollStatus::Dragged,
+            "Dragged { is_horizontal_scrollbar_dragged: __horizontal_interaction, is_vertical_scrollbar_dragged: __vertical_interaction, is_horizontal_scrollbar_disabled: __horizontal_disabled, is_vertical_scrollbar_disabled: __vertical_disabled }",
+        ),
+    ] {
+        write!(code, " ::iced::widget::scrollable::Status::{pattern} => {{").unwrap();
+        for style in styles.iter().filter(|style| style.status == status) {
+            write!(code, " if {} {{", scroll_selector_code(style)).unwrap();
+            append_scroll_status_style(&mut code, style, env, document)?;
+            code.push_str(" }");
+        }
+        code.push_str(" }");
+    }
+    code.push_str(" } __style })");
+    Ok(code)
+}
+
+fn scroll_selector_code(style: &ScrollStatusStyle) -> String {
+    let mut conditions = Vec::new();
+    for (value, binding) in [
+        (style.horizontal_disabled, "__horizontal_disabled"),
+        (style.vertical_disabled, "__vertical_disabled"),
+        (style.horizontal_interaction, "__horizontal_interaction"),
+        (style.vertical_interaction, "__vertical_interaction"),
+    ] {
+        if let Some(value) = value {
+            conditions.push(format!("{binding} == {value}"));
+        }
+    }
+    if conditions.is_empty() {
+        "true".into()
+    } else {
+        conditions.join(" && ")
+    }
+}
+
+fn append_scroll_status_style(
+    code: &mut String,
+    style: &ScrollStatusStyle,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<(), Error> {
+    append_scroll_surface_style(
+        code,
+        &style.container,
+        "__style.container",
+        true,
+        true,
+        env,
+        document,
+    )?;
+    for (rail, target) in [
+        (&style.horizontal_rail, "__style.horizontal_rail"),
+        (&style.vertical_rail, "__style.vertical_rail"),
+    ] {
+        append_scroll_surface_style(code, &rail.rail, target, true, false, env, document)?;
+        append_scroll_surface_style(
+            code,
+            &rail.scroller,
+            &format!("{target}.scroller"),
+            false,
+            false,
+            env,
+            document,
+        )?;
+    }
+    if let Some(gap) = &style.gap {
+        write!(
+            code,
+            " __style.gap = ::std::option::Option::Some({});",
+            background_code(gap, env, document)?
+        )
+        .unwrap();
+    }
+    append_scroll_surface_style(
+        code,
+        &style.auto_scroll,
+        "__style.auto_scroll",
+        false,
+        false,
+        env,
+        document,
+    )?;
+    if let Some(color) = &style.auto_scroll_icon {
+        write!(
+            code,
+            " __style.auto_scroll.icon = {};",
+            theme_color(document, color)
+        )
+        .unwrap();
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn append_scroll_surface_style(
+    code: &mut String,
+    options: &ContainerStyleOptions,
+    target: &str,
+    optional_background: bool,
+    text: bool,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<(), Error> {
+    let mut options = options.clone();
+    if !optional_background && let Some(background) = options.background.take() {
+        write!(
+            code,
+            " {target}.background = {};",
+            background_code(&background, env, document)?
+        )
+        .unwrap();
+    }
+    write!(code, " {{ let __style = &mut {target};").unwrap();
+    append_surface_style_overrides(code, &options, env, document)?;
+    if text && let Some(color) = &options.text_color {
+        write!(
+            code,
+            " __style.text_color = ::std::option::Option::Some({});",
+            theme_color(document, color)
+        )
+        .unwrap();
+    }
+    code.push_str(" }");
+    Ok(())
 }
 
 fn render_children(
@@ -7477,10 +7653,26 @@ on scrolled(ax, ay, rx, ry)
   absolute_y = ay
   relative_x = rx
   relative_y = ry
+on viewport(ax, ay, reversed_x, reversed_y, rx, ry, bx, by, bw, bh, cx, cy, cw, ch)
 view
-  scroll #feed direction=both width=fill height=200.0 bar=hidden bar-width=8.0 bar-margin=2.0 scroller-width=6.0 bar-spacing=4.0 anchor-x=end anchor-y=start auto=true scroll=scrolled
-    col
-      text "Scrollable"
+  col
+    scroll #feed direction=both width=fill height=200.0 bar=hidden bar-width=8.0 bar-margin=2.0 scroller-width=6.0 bar-spacing=4.0 anchor-x=end anchor-y=start auto=true scroll=scrolled
+      text "Legacy offsets"
+    scroll direction=both width=fill height=200.0 viewport=viewport
+      col
+        text "Complete viewport"
+      active horizontal-disabled=false vertical-disabled=false
+        container background=background text=foreground border=primary border-width=1.0 radius=4.0 radius-tl=1.0 radius-tr=2.0 radius-br=3.0 radius-bl=4.0 shadow=danger shadow-x=1.0 shadow-y=2.0 shadow-blur=4.0 pixel-snap=true
+        horizontal-rail background=background border=primary border-width=1.0 radius=2.0
+        horizontal-scroller background=primary border=foreground border-width=1.0 radius=2.0
+        vertical-rail background=background border=primary border-width=1.0 radius=2.0
+        vertical-scroller background=primary border=foreground border-width=1.0 radius=2.0
+        gap background=background
+        auto background=background border=primary border-width=1.0 radius=4.0 shadow=danger shadow-x=1.0 shadow-y=2.0 shadow-blur=4.0 icon=foreground
+      hovered horizontal-hovered=true vertical-hovered=false horizontal-disabled=false vertical-disabled=false
+        horizontal-scroller background=foreground
+      dragged horizontal-dragged=false vertical-dragged=true horizontal-disabled=false vertical-disabled=false
+        vertical-scroller background=danger
 "#;
         let generated = compile(source, "scrolling.ice").unwrap();
         assert!(generated.contains("scrollable::Direction::Both"));
@@ -7491,6 +7683,19 @@ view
         assert!(generated.contains(
             "__ScrollingMessage::Scrolled(__absolute.x as f64, __absolute.y as f64, __relative.x as f64, __relative.y as f64)"
         ));
+        assert!(generated.contains("absolute_offset_reversed()"));
+        assert!(generated.contains("let __bounds = __viewport.bounds()"));
+        assert!(generated.contains("let __content_bounds = __viewport.content_bounds()"));
+        assert!(generated.contains("scrollable::Status::Hovered"));
+        assert!(generated.contains("__horizontal_interaction == true"));
+        assert!(generated.contains("let __style = &mut __style.container"));
+        assert!(generated.contains("__style.text_color = ::std::option::Option::Some"));
+        assert!(generated.contains("__style.horizontal_rail.scroller.background"));
+        assert!(generated.contains("__style.vertical_rail.scroller.background"));
+        assert!(generated.contains("__style.gap = ::std::option::Option::Some"));
+        assert!(generated.contains("let __style = &mut __style.auto_scroll"));
+        assert!(generated.contains("__style.shadow.blur_radius = 4.0 as f32"));
+        assert!(generated.contains("__style.auto_scroll.icon"));
     }
 
     #[test]

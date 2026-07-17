@@ -769,6 +769,17 @@ fn infer_view(
                         "scroll viewport",
                     )?;
                 }
+                if let Some(route) = &scroll.viewport_route {
+                    infer_ordered_payload_route(
+                        route,
+                        &[const { Type::F64 }; 14],
+                        env,
+                        document,
+                        signatures,
+                        "complete scroll viewport",
+                    )?;
+                }
+                check_scroll_styles(&scroll.styles, env, document)?;
             }
             check_styles(styles, document, span, StyleTarget::Layout(*kind))?;
             for child in children {
@@ -2975,6 +2986,38 @@ fn check_text_input_styles(
                     format!("unknown {widget} {label} color `{color}`"),
                 ));
             }
+        }
+    }
+    Ok(())
+}
+
+fn check_scroll_styles(
+    styles: &[ScrollStatusStyle],
+    env: &HashMap<String, Type>,
+    document: &Document,
+) -> Result<(), Error> {
+    for style in styles {
+        for surface in [
+            &style.container,
+            &style.horizontal_rail.rail,
+            &style.horizontal_rail.scroller,
+            &style.vertical_rail.rail,
+            &style.vertical_rail.scroller,
+            &style.auto_scroll,
+        ] {
+            check_container_style_options(surface, env, document, &style.span, "E129")?;
+        }
+        if let Some(gap) = &style.gap {
+            check_background_value(gap, env, document, &style.span, "E129", "scroll gap")?;
+        }
+        if let Some(color) = &style.auto_scroll_icon
+            && !valid_theme_color(color, document)
+        {
+            return Err(Error::new(
+                "E129",
+                &style.span,
+                format!("unknown scroll auto icon color `{color}`"),
+            ));
         }
     }
     Ok(())
@@ -5795,15 +5838,48 @@ on scrolled(ax, ay, rx, ry)
   absolute_y = ay
   relative_x = rx
   relative_y = ry
+on viewport(ax, ay, reversed_x, reversed_y, rx, ry, bx, by, bw, bh, cx, cy, cw, ch)
 view
-  scroll #feed direction=both width=fill height=200.0 bar=hidden bar-width=8.0 bar-margin=2.0 scroller-width=6.0 bar-spacing=4.0 anchor-x=end anchor-y=start auto=true scroll=scrolled
-    col
-      text "Scrollable"
+  col
+    scroll #feed direction=both width=fill height=200.0 bar=hidden bar-width=8.0 bar-margin=2.0 scroller-width=6.0 bar-spacing=4.0 anchor-x=end anchor-y=start auto=true scroll=scrolled
+      text "Legacy offsets"
+    scroll direction=both width=fill height=200.0 viewport=viewport
+      col
+        text "Complete viewport"
+      active horizontal-disabled=false vertical-disabled=false
+        container background=background text=foreground border=primary border-width=1.0 radius=4.0 radius-tl=1.0 radius-tr=2.0 radius-br=3.0 radius-bl=4.0 shadow=danger shadow-x=1.0 shadow-y=2.0 shadow-blur=4.0 pixel-snap=true
+        horizontal-rail background=background border=primary border-width=1.0 radius=2.0
+        horizontal-scroller background=primary border=foreground border-width=1.0 radius=2.0
+        vertical-rail background=background border=primary border-width=1.0 radius=2.0
+        vertical-scroller background=primary border=foreground border-width=1.0 radius=2.0
+        gap background=background
+        auto background=background border=primary border-width=1.0 radius=4.0 shadow=danger shadow-x=1.0 shadow-y=2.0 shadow-blur=4.0 icon=foreground
+      hovered horizontal-hovered=true vertical-hovered=false horizontal-disabled=false vertical-disabled=false
+        horizontal-scroller background=foreground
+      dragged horizontal-dragged=false vertical-dragged=true horizontal-disabled=false vertical-disabled=false
+        vertical-scroller background=danger
 "#;
         let document = analyze(source).unwrap();
         for param in &document.handlers[0].params {
             assert_eq!(param.ty.display(), "f64");
         }
+        assert_eq!(document.handlers[1].params.len(), 14);
+        for param in &document.handlers[1].params {
+            assert_eq!(param.ty.display(), "f64");
+        }
+
+        let error = analyze(&source.replace("horizontal-hovered=true", "horizontal-hovered=maybe"))
+            .unwrap_err();
+        assert_eq!(error.code, "E074");
+        assert!(error.message.contains("true or false"));
+
+        let error = analyze(&source.replace(
+            "auto=true scroll=scrolled",
+            "auto=true scroll=scrolled viewport=viewport",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E074");
+        assert!(error.message.contains("either scroll= or viewport="));
     }
 
     #[test]
