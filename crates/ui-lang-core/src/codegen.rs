@@ -1487,6 +1487,88 @@ fn render_layout(
             body.push_str(".align_y(::iced::Center)");
         }
     }
+    if matches!(kind, Layout::Column | Layout::Row) {
+        if let Some(spacing) = &options.spacing {
+            write!(
+                body,
+                ".spacing({} as f32)",
+                expr_code(spacing, env, document, ValueMode::Owned)?
+            )
+            .unwrap();
+        }
+        if let Some(padding) = typed_padding_code(&options.padding, env, document)? {
+            write!(body, ".padding({padding})").unwrap();
+        }
+        if let Some(width) = &options.width {
+            write!(body, ".width({})", length_code(width, env, document)?).unwrap();
+        }
+        if let Some(height) = &options.height {
+            write!(body, ".height({})", length_code(height, env, document)?).unwrap();
+        }
+        if let Some(max_width) = &options.max_width {
+            write!(
+                body,
+                ".max_width({} as f32)",
+                expr_code(max_width, env, document, ValueMode::Owned)?
+            )
+            .unwrap();
+        }
+        if let Some(align) = options.align {
+            let alignment = match (kind, align) {
+                (Layout::Column, FlexAlignment::Start) => "::iced::alignment::Horizontal::Left",
+                (Layout::Column, FlexAlignment::Center) => "::iced::alignment::Horizontal::Center",
+                (Layout::Column, FlexAlignment::End) => "::iced::alignment::Horizontal::Right",
+                (Layout::Row, FlexAlignment::Start) => "::iced::alignment::Vertical::Top",
+                (Layout::Row, FlexAlignment::Center) => "::iced::alignment::Vertical::Center",
+                (Layout::Row, FlexAlignment::End) => "::iced::alignment::Vertical::Bottom",
+                _ => unreachable!("only row and column reach flex alignment"),
+            };
+            let method = if kind == Layout::Column {
+                "align_x"
+            } else {
+                "align_y"
+            };
+            write!(body, ".{method}({alignment})").unwrap();
+        }
+        if let Some(clip) = &options.clip {
+            write!(
+                body,
+                ".clip({})",
+                expr_code(clip, env, document, ValueMode::Owned)?
+            )
+            .unwrap();
+        }
+        if options.wrap {
+            body.push_str(".wrap()");
+            if let Some(spacing) = &options.wrap_spacing {
+                let method = if kind == Layout::Column {
+                    "horizontal_spacing"
+                } else {
+                    "vertical_spacing"
+                };
+                write!(
+                    body,
+                    ".{method}({} as f32)",
+                    expr_code(spacing, env, document, ValueMode::Owned)?
+                )
+                .unwrap();
+            }
+            if let Some(align) = options.wrap_align {
+                let alignment = match (kind, align) {
+                    (Layout::Column, FlexAlignment::Start) => "::iced::alignment::Vertical::Top",
+                    (Layout::Column, FlexAlignment::Center) => {
+                        "::iced::alignment::Vertical::Center"
+                    }
+                    (Layout::Column, FlexAlignment::End) => "::iced::alignment::Vertical::Bottom",
+                    (Layout::Row, FlexAlignment::Start) => "::iced::alignment::Horizontal::Left",
+                    (Layout::Row, FlexAlignment::Center) => "::iced::alignment::Horizontal::Center",
+                    (Layout::Row, FlexAlignment::End) => "::iced::alignment::Horizontal::Right",
+                    _ => unreachable!("only row and column can wrap"),
+                };
+                write!(body, ".align_x({alignment})").unwrap();
+            }
+        }
+    }
     if kind == Layout::Grid
         && let Some(columns) = &options.columns
     {
@@ -1936,6 +2018,38 @@ fn length_code(
             expr_code(value, env, document, ValueMode::Owned)?
         ),
     })
+}
+
+fn typed_padding_code(
+    padding: &PaddingOptions,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<Option<String>, Error> {
+    if padding.all.is_none()
+        && padding.x.is_none()
+        && padding.y.is_none()
+        && padding.top.is_none()
+        && padding.right.is_none()
+        && padding.bottom.is_none()
+        && padding.left.is_none()
+    {
+        return Ok(None);
+    }
+    let code = |value: Option<&Expr>| {
+        value
+            .map(|value| expr_code(value, env, document, ValueMode::Owned))
+            .transpose()
+    };
+    let all = code(padding.all.as_ref())?.unwrap_or_else(|| "0.0".into());
+    let x = code(padding.x.as_ref())?.unwrap_or_else(|| all.clone());
+    let y = code(padding.y.as_ref())?.unwrap_or_else(|| all.clone());
+    let top = code(padding.top.as_ref())?.unwrap_or_else(|| y.clone());
+    let right = code(padding.right.as_ref())?.unwrap_or_else(|| x.clone());
+    let bottom = code(padding.bottom.as_ref())?.unwrap_or(y);
+    let left = code(padding.left.as_ref())?.unwrap_or(x);
+    Ok(Some(format!(
+        "::iced::Padding {{ top: {top} as f32, right: {right} as f32, bottom: {bottom} as f32, left: {left} as f32 }}"
+    )))
 }
 
 fn radius_code(
@@ -3006,6 +3120,35 @@ view
             generated
                 .contains(".clip(true).width(::iced::Length::FillPortion(2)).height(120.0 as f32)")
         );
+    }
+
+    #[test]
+    fn lowers_complete_flex_layouts_and_wrapping() {
+        let source = r#"app Layouts
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+view
+  col width=fill height=shrink spacing=8.0 padding=1.0 padding-x=2.0 padding-y=3.0 padding-top=4.0 padding-right=5.0 padding-bottom=6.0 padding-left=7.0 max-width=640.0 align=center clip=true wrap wrap-spacing=12.0 wrap-align=end
+    row width=fill(2) height=48.0 spacing=4.0 padding=2.0 align=end clip=false wrap wrap-spacing=6.0 wrap-align=start
+      text "One"
+      text "Two"
+"#;
+        let generated = compile(source, "layouts.ice").unwrap();
+        assert!(generated.contains("::iced::widget::column(__children).spacing(8.0 as f32)"));
+        assert!(generated.contains("::iced::Padding { top: 4.0 as f32, right: 5.0 as f32, bottom: 6.0 as f32, left: 7.0 as f32 }"));
+        assert!(generated.contains(".width(::iced::Fill).height(::iced::Shrink)"));
+        assert!(generated.contains(".max_width(640.0 as f32)"));
+        assert!(generated.contains(
+            ".align_x(::iced::alignment::Horizontal::Center).clip(true).wrap().horizontal_spacing(12.0 as f32).align_x(::iced::alignment::Vertical::Bottom)"
+        ));
+        assert!(generated.contains(".width(::iced::Length::FillPortion(2)).height(48.0 as f32)"));
+        assert!(generated.contains(
+            ".align_y(::iced::alignment::Vertical::Bottom).clip(false).wrap().vertical_spacing(6.0 as f32).align_x(::iced::alignment::Horizontal::Left)"
+        ));
     }
 
     #[test]

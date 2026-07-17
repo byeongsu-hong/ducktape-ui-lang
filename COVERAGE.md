@@ -15,7 +15,7 @@ container API, so container remains partial.
 
 ## Typed system reachability
 
-Ice 0.20 has three checked Rust boundaries:
+Ice 0.21 has three checked Rust boundaries:
 
 | Boundary | Rust ABI | Covers |
 | --- | --- | --- |
@@ -34,7 +34,7 @@ public behavior has direct documented Ice syntax and tests.
 | `button` | partial | native string or arbitrary child content, disabled route, typed size/padding/clip and basic styles; full style catalog missing |
 | `canvas` | missing | drawing program, geometry, cache, events |
 | `checkbox` | partial | native label/value/disabled event, size/width/spacing, text typography/wrapping/default-mono font and custom icon; arbitrary fonts and full style catalog missing |
-| `column` | partial | native children, spacing, padding, size/alignment/basic decoration; full sizing API missing |
+| `column` | native | children, typed spacing/per-side padding, all `Length` bounds, max width, cross-axis alignment, clipping and wrapping column spacing/alignment |
 | `combo_box` | partial | native typed search state/selection, input, hover, open/close, sizing, padding and text size; dynamic option replacement, icon/font/shaping and style catalogs missing |
 | `container` | partial | generated around layouts; explicit alignment, clipping, sizing, style API missing |
 | `float` | partial | native scale and fixed x/y translation; viewport-aware translation closure and style API missing |
@@ -52,7 +52,7 @@ public behavior has direct documented Ice syntax and tests.
 | `qr_code` | missing | data, cell size, theme |
 | `radio` | partial | native bool/i64 values and selection event; generic values/style API missing |
 | `responsive` | partial | native width breakpoint with narrow/wide views and typed bounds; arbitrary size-dependent view closure missing |
-| `row` | partial | native children, spacing, padding, size/alignment/basic decoration; full sizing API missing |
+| `row` | native | children, typed spacing/per-side padding, all `Length` bounds, cross-axis alignment, clipping and wrapping row spacing/alignment |
 | `rule` | partial | native axis/thickness, all fill modes, default/weak preset, checked color/opacity, per-corner radius and snap; arbitrary runtime style closures and advanced classes missing |
 | `scrollable` | partial | native content/ID, all directions, bounds, scrollbar geometry/visibility/spacing, anchors, auto-scroll and absolute/relative offset events; viewport bounds/reversed offsets and style catalog missing |
 | `sensor` | partial | native show/resize dimensions, hide, key, anticipation and delay; general key references missing |

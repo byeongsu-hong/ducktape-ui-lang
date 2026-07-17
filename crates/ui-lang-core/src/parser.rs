@@ -511,7 +511,7 @@ fn parse_view(line: &Line) -> Result<ViewNode, Error> {
                     "grid" => Layout::Grid,
                     _ => Layout::Stack,
                 },
-                options,
+                options: Box::new(options),
                 id,
                 styles,
                 children: line
@@ -1203,6 +1203,7 @@ fn parse_extern_component(
 
 fn parse_layout_options(kind: &str, parts: &[String], line: &Line) -> Result<LayoutOptions, Error> {
     let mut options = LayoutOptions::default();
+    let is_flex = matches!(kind, "row" | "col");
     if kind == "scroll" {
         options.scroll = Some(ScrollOptions::default());
     }
@@ -1217,7 +1218,7 @@ fn parse_layout_options(kind: &str, parts: &[String], line: &Line) -> Result<Lay
             }
             options.columns = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else if let Some(value) = part.strip_prefix("clip=") {
-            if kind != "stack" || options.clip.is_some() {
+            if !(is_flex || kind == "stack") || options.clip.is_some() {
                 return Err(error(
                     "E074",
                     line,
@@ -1225,7 +1226,7 @@ fn parse_layout_options(kind: &str, parts: &[String], line: &Line) -> Result<Lay
                 ));
             }
             options.clip = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if kind == "stack"
+        } else if (is_flex || kind == "stack")
             && let Some(value) = part.strip_prefix("width=")
         {
             if options.width.is_some() {
@@ -1236,7 +1237,7 @@ fn parse_layout_options(kind: &str, parts: &[String], line: &Line) -> Result<Lay
                 ));
             }
             options.width = Some(parse_length(value, line)?);
-        } else if kind == "stack"
+        } else if (is_flex || kind == "stack")
             && let Some(value) = part.strip_prefix("height=")
         {
             if options.height.is_some() {
@@ -1257,6 +1258,34 @@ fn parse_layout_options(kind: &str, parts: &[String], line: &Line) -> Result<Lay
                     "stack under must be an integer from 0 to 65535",
                 )
             })?;
+        } else if is_flex && let Some(value) = part.strip_prefix("spacing=") {
+            options.spacing = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if is_flex && let Some(value) = part.strip_prefix("padding=") {
+            options.padding.all = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if is_flex && let Some(value) = part.strip_prefix("padding-x=") {
+            options.padding.x = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if is_flex && let Some(value) = part.strip_prefix("padding-y=") {
+            options.padding.y = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if is_flex && let Some(value) = part.strip_prefix("padding-top=") {
+            options.padding.top = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if is_flex && let Some(value) = part.strip_prefix("padding-right=") {
+            options.padding.right = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if is_flex && let Some(value) = part.strip_prefix("padding-bottom=") {
+            options.padding.bottom = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if is_flex && let Some(value) = part.strip_prefix("padding-left=") {
+            options.padding.left = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if kind == "col"
+            && let Some(value) = part.strip_prefix("max-width=")
+        {
+            options.max_width = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if is_flex && let Some(value) = part.strip_prefix("align=") {
+            options.align = Some(parse_flex_alignment(value, line)?);
+        } else if is_flex && part == "wrap" {
+            options.wrap = true;
+        } else if is_flex && let Some(value) = part.strip_prefix("wrap-spacing=") {
+            options.wrap_spacing = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if is_flex && let Some(value) = part.strip_prefix("wrap-align=") {
+            options.wrap_align = Some(parse_flex_alignment(value, line)?);
         } else if kind == "scroll" {
             let scroll = options.scroll.as_mut().expect("scroll options");
             if let Some(value) = part.strip_prefix("direction=") {
@@ -1313,7 +1342,27 @@ fn parse_layout_options(kind: &str, parts: &[String], line: &Line) -> Result<Lay
             ));
         }
     }
+    if !options.wrap && (options.wrap_spacing.is_some() || options.wrap_align.is_some()) {
+        return Err(error(
+            "E074",
+            line,
+            "wrap-spacing and wrap-align require `wrap`",
+        ));
+    }
     Ok(options)
+}
+
+fn parse_flex_alignment(source: &str, line: &Line) -> Result<FlexAlignment, Error> {
+    match source {
+        "start" => Ok(FlexAlignment::Start),
+        "center" => Ok(FlexAlignment::Center),
+        "end" => Ok(FlexAlignment::End),
+        _ => Err(error(
+            "E074",
+            line,
+            "layout alignment must be start, center, or end",
+        )),
+    }
 }
 
 fn parse_scroll_anchor(source: &str, line: &Line) -> Result<ScrollAnchor, Error> {

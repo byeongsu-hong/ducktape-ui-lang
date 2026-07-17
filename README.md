@@ -44,11 +44,11 @@ The punctuation has one job each:
 cargo run -p iced-app
 ```
 
-The complete task app is split at the intended boundary and includes grid and
-fully sized underlay stacks, optional selection state, native pick and
-searchable combo lists, native controls and media, native and extern
-tooltip/mouse areas, a
-responsive view, float/pin positioning, visibility sensing, a clipboard task,
+The complete task app is split at the intended boundary and includes complete
+wrapping row/column layouts, grid and fully sized underlay stacks, optional
+selection state, native pick and searchable combo lists, native controls and
+media, native and extern tooltip/mouse areas, a responsive view, float/pin
+positioning, visibility sensing, a clipboard task,
 configured scrolling with offset events, pointer movement/wheel events,
 formatted text, an extended text input and child-content buttons, plus an
 application event subscription, expanded boolean controls, configured rules,
@@ -84,7 +84,7 @@ cargo fmt --all
 
 ## Status
 
-This is an executable v0.20 language slice, not yet a complete iced replacement.
+This is an executable v0.21 language slice, not yet a complete iced replacement.
 It implements typed extern data/actions, state, handlers, async tasks, pure
 components, scoped IDs, `if`/`for`, five layouts, twenty native widget forms,
 checked style utilities, formatting, analysis, and iced code generation. Typed
