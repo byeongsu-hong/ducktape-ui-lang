@@ -1139,26 +1139,15 @@ fn infer_view(
                 (&options.padding, "input padding", 0.0),
                 (&options.text_size, "input text size", f64::EPSILON),
                 (&options.line_height, "input line height", f64::EPSILON),
-                (&options.icon_size, "input icon size", f64::EPSILON),
-                (&options.icon_spacing, "input icon spacing", 0.0),
             ] {
                 if let Some(value) = value {
                     require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
                     require_literal_range(value, min, None, label, span)?;
                 }
             }
-            if options.icon.is_none()
-                && (options.icon_side.is_some()
-                    || options.icon_size.is_some()
-                    || options.icon_spacing.is_some())
-            {
-                return Err(Error::new(
-                    "E129",
-                    span,
-                    "input icon properties require `icon=\"x\"`",
-                ));
-            }
             check_font(options.font.as_ref(), document, span)?;
+            check_text_input_icon(options.icon.as_ref(), env, document, "input")?;
+            check_text_input_styles(&options.style, env, document, span)?;
             check_styles(styles, document, span, StyleTarget::Input)?;
         }
         ViewNode::Button {
@@ -1537,7 +1526,7 @@ fn infer_view(
                 }
             }
             check_font(options.font.as_ref(), document, span)?;
-            check_text_input_icon(options.icon.as_ref(), env, document)?;
+            check_text_input_icon(options.icon.as_ref(), env, document, "combo")?;
             check_text_input_styles(&options.style, env, document, span)?;
             check_menu_style(options.menu_style.as_deref(), env, document, span)?;
             for (route, payload, label) in [
@@ -2931,12 +2920,13 @@ fn check_text_input_icon(
     icon: Option<&TextInputIcon>,
     env: &HashMap<String, Type>,
     document: &Document,
+    widget: &str,
 ) -> Result<(), Error> {
     let Some(icon) = icon else { return Ok(()) };
     check_font(icon.font.as_ref(), document, &icon.span)?;
     for (value, label) in [
-        (&icon.size, "combo icon size"),
-        (&icon.spacing, "combo icon spacing"),
+        (&icon.size, format!("{widget} icon size")),
+        (&icon.spacing, format!("{widget} icon spacing")),
     ] {
         if let Some(value) = value {
             require_type(
@@ -2944,7 +2934,7 @@ fn check_text_input_icon(
                 &Type::F64,
                 &icon.span,
             )?;
-            require_literal_range(value, 0.0, None, label, &icon.span)?;
+            require_literal_range(value, 0.0, None, &label, &icon.span)?;
         }
     }
     Ok(())
@@ -5825,6 +5815,7 @@ view
     #[test]
     fn checks_extended_text_input_routes_and_properties() {
         let source = r#"app Form
+font ui family=sans
 theme
   background #000000
   foreground #ffffff
@@ -5838,7 +5829,13 @@ on submitted
 on pasted(next)
   value = next
 view
-  input "Secret" #secret <-> value hint="Paste token" disabled=disabled secure=secure submit=submitted paste=pasted width=240.0 padding=8.0 text-size=14.0 line-height=1.2 align=center font=mono icon="•" icon-side=right icon-size=12.0 icon-spacing=4.0
+  input "Secret" #secret <-> value hint="Paste token" disabled=disabled secure=secure submit=submitted paste=pasted width=240.0 padding=8.0 text-size=14.0 line-height=1.2 align=center font=mono
+    active background=background border=foreground border-width=1.0 radius=4.0 icon=primary placeholder=danger value=foreground selection=primary
+    hovered background=background icon=foreground placeholder=danger value=foreground selection=primary
+    focused background=background border=primary
+    focused-hovered background=background border=foreground
+    disabled background=background value=danger
+    icon code="•" font=ui size=12.0 spacing=4.0 side=right
 "#;
         let document = analyze(source).unwrap();
         assert_eq!(document.handlers[1].params[0].ty.display(), "str");
@@ -5860,6 +5857,25 @@ view
         let error = analyze(source).unwrap_err();
         assert_eq!(error.code, "E129");
         assert!(error.message.contains("require `icon="));
+    }
+
+    #[test]
+    fn rejects_negative_input_icon_spacing() {
+        let source = r#"app Form
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  value = ""
+view
+  input "Value" <-> value
+    icon code="+" spacing=-1.0
+"#;
+        let error = analyze(source).unwrap_err();
+        assert_eq!(error.code, "E128");
+        assert!(error.message.contains("input icon spacing"));
     }
 
     #[test]

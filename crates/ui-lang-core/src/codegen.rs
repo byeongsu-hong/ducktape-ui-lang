@@ -1656,27 +1656,11 @@ fn render_node(
             if let Some(font) = &options.font {
                 write!(input, ".font({})", font_preset_code(font, document)?).unwrap();
             }
-            if let Some(icon) = options.icon {
-                let size = options.icon_size.as_ref().map_or_else(
-                    || Ok("None".to_owned()),
-                    |value| {
-                        Ok::<_, Error>(format!(
-                            "Some(({} as f32).into())",
-                            expr_code(value, env, document, ValueMode::Owned)?
-                        ))
-                    },
-                )?;
-                let spacing = options.icon_spacing.as_ref().map_or_else(
-                    || Ok("0.0".to_owned()),
-                    |value| expr_code(value, env, document, ValueMode::Owned),
-                )?;
-                let side = match options.icon_side.unwrap_or(IconSide::Left) {
-                    IconSide::Left => "Left",
-                    IconSide::Right => "Right",
-                };
+            if let Some(icon) = &options.icon {
                 write!(
                     input,
-                    ".icon(::iced::widget::text_input::Icon {{ font: ::iced::Font::DEFAULT, code_point: {icon:?}, size: {size}, spacing: {spacing} as f32, side: ::iced::widget::text_input::Side::{side} }})"
+                    ".icon({})",
+                    text_input_icon_code(icon, env, document)?
                 )
                 .unwrap();
             }
@@ -1719,6 +1703,12 @@ fn render_node(
                 }
             }
             input.push_str(&input_style_code(&style, document));
+            input.push_str(&text_input_style_code(
+                &options.style,
+                env,
+                document,
+                "style",
+            )?);
             Ok(format!(
                 "::iced::widget::column![::iced::widget::text({}), {input}].spacing(6).into()",
                 rust_string(label)
@@ -2139,7 +2129,12 @@ fn render_node(
                 )
                 .unwrap();
             }
-            code.push_str(&text_input_style_code(&options.style, env, document)?);
+            code.push_str(&text_input_style_code(
+                &options.style,
+                env,
+                document,
+                "input_style",
+            )?);
             code.push_str(&menu_style_code(
                 options.menu_style.as_deref(),
                 env,
@@ -5834,6 +5829,7 @@ fn text_input_style_code(
     styles: &TextInputStyleSet,
     env: &HashMap<String, Binding>,
     document: &Document,
+    method: &str,
 ) -> Result<String, Error> {
     let overrides = [
         ("Active", &styles.active),
@@ -5845,7 +5841,9 @@ fn text_input_style_code(
     if overrides.iter().all(|(_, style)| style.is_none()) {
         return Ok(String::new());
     }
-    let mut code = ".input_style(move |__theme, __status| { let mut __style = ::iced::widget::text_input::default(__theme, __status); match __status {".to_owned();
+    let mut code = format!(
+        ".{method}(move |__theme, __status| {{ let mut __style = ::iced::widget::text_input::default(__theme, __status); match __status {{"
+    );
     for (status, style) in overrides {
         let Some(style) = style else { continue };
         write!(code, " ::iced::widget::text_input::Status::{status} => {{").unwrap();
@@ -7479,6 +7477,7 @@ view
     #[test]
     fn lowers_extended_text_input_behavior() {
         let source = r#"app Form
+font ui family=sans
 theme
   background #000000
   foreground #ffffff
@@ -7492,7 +7491,13 @@ on submitted
 on pasted(next)
   value = next
 view
-  input "Secret" #secret <-> value hint="Paste token" disabled=disabled secure=secure submit=submitted paste=pasted width=240.0 padding=8.0 text-size=14.0 line-height=1.2 align=center font=mono icon="•" icon-side=right icon-size=12.0 icon-spacing=4.0
+  input "Secret" #secret <-> value hint="Paste token" disabled=disabled secure=secure submit=submitted paste=pasted width=240.0 padding=8.0 text-size=14.0 line-height=1.2 align=center font=mono
+    active background=background border=foreground border-width=1.0 radius=4.0 icon=primary placeholder=danger value=foreground selection=primary
+    hovered background=background icon=foreground placeholder=danger value=foreground selection=primary
+    focused background=background border=primary
+    focused-hovered background=background border=foreground
+    disabled background=background value=danger
+    icon code="•" font=ui size=12.0 spacing=4.0 side=right
 "#;
         let generated = compile(source, "form.ice").unwrap();
         assert!(generated.contains(".secure(self.secure)"));
@@ -7501,6 +7506,12 @@ view
         assert!(generated.contains(".align_x(::iced::alignment::Horizontal::Center)"));
         assert!(generated.contains(".font(::iced::Font::MONOSPACE)"));
         assert!(generated.contains("code_point: '•'"));
+        assert!(generated.contains("family: ::iced::font::Family::SansSerif"));
+        assert!(generated.contains("Side::Right"));
+        assert!(generated.contains(".style(move |__theme, __status|"));
+        assert!(generated.contains("Status::Focused { is_hovered: true }"));
+        assert!(generated.contains("__style.placeholder ="));
+        assert!(generated.contains("__style.selection ="));
         assert!(generated.contains(".on_submit_maybe(if self.disabled"));
         assert!(generated.contains(".on_paste_maybe(if self.disabled"));
     }
