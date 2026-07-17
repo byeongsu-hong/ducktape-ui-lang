@@ -89,11 +89,66 @@ pub struct Document {
     pub functions: Vec<ExternFn>,
     pub subscriptions: Vec<Subscription>,
     pub theme: BTreeMap<String, String>,
+    pub fonts: Vec<FontDecl>,
     pub qr_codes: Vec<QrData>,
     pub states: Vec<State>,
     pub components: Vec<Component>,
     pub handlers: Vec<Handler>,
     pub view: ViewNode,
+}
+
+#[derive(Clone, Debug)]
+pub struct FontDecl {
+    pub name: String,
+    pub family: FontFamily,
+    pub weight: FontWeight,
+    pub stretch: FontStretch,
+    pub style: FontStyle,
+    pub default: bool,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug)]
+pub enum FontFamily {
+    Named(String),
+    Serif,
+    SansSerif,
+    Cursive,
+    Fantasy,
+    Monospace,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum FontWeight {
+    Thin,
+    ExtraLight,
+    Light,
+    Normal,
+    Medium,
+    Semibold,
+    Bold,
+    ExtraBold,
+    Black,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum FontStretch {
+    UltraCondensed,
+    ExtraCondensed,
+    Condensed,
+    SemiCondensed,
+    Normal,
+    SemiExpanded,
+    Expanded,
+    ExtraExpanded,
+    UltraExpanded,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum FontStyle {
+    Normal,
+    Italic,
+    Oblique,
 }
 
 #[derive(Clone, Debug)]
@@ -618,10 +673,11 @@ pub enum InputAlignment {
     Right,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FontPreset {
     Default,
     Monospace,
+    Named(String),
 }
 
 #[derive(Clone, Debug, Default)]

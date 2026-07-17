@@ -15,7 +15,7 @@ container API, so container remains partial.
 
 ## Typed system reachability
 
-Ice 0.35 has three checked Rust boundaries:
+Ice 0.36 has three checked Rust boundaries:
 
 | Boundary | Rust ABI | Covers |
 | --- | --- | --- |
@@ -33,7 +33,7 @@ public behavior has direct documented Ice syntax and tests.
 | --- | --- | --- |
 | `button` | partial | native string or arbitrary child content, disabled route, typed size/padding/clip and basic styles; full style catalog missing |
 | `canvas` | missing | drawing program, geometry, cache, events |
-| `checkbox` | partial | native label/value/disabled event, size/width/spacing, text typography/wrapping/default-mono font and custom icon; arbitrary fonts and full style catalog missing |
+| `checkbox` | partial | native label/value/disabled event, size/width/spacing, text typography/wrapping, complete font descriptors and custom icon; full style catalog missing |
 | `column` | native | children, typed spacing/per-side padding, all `Length` bounds, max width, cross-axis alignment, clipping and wrapping column spacing/alignment |
 | `combo_box` | partial | native typed search state/selection, input, hover, open/close, sizing, padding and text size; dynamic option replacement, icon/font/shaping and style catalogs missing |
 | `container` | partial | generated around layouts; explicit alignment, clipping, sizing, style API missing |
@@ -62,24 +62,24 @@ public behavior has direct documented Ice syntax and tests.
 | `stack` | native | ordered children, all `Length` widths/heights, clipping and `push_under` base-layer behavior via `under=N` |
 | `svg` | partial | native path, all four iced length variants, fit, rotation and opacity; memory handles and status style missing |
 | `table` | native | typed cloned rows, arbitrary header/cell subtrees, automatic row/column identity scopes, all table width/padding/separator setters and all column width/alignment setters |
-| `text` | partial | native string/numeric value, bounds, relative/absolute line height, alignment, shaping, wrapping, default/mono font, color and bold; arbitrary font attributes, rich spans and full style catalog missing |
+| `text` | partial | native string/numeric value, bounds, relative/absolute line height, alignment, shaping, wrapping, complete font descriptors, color and bold; rich spans and full style catalog missing |
 | `text_editor` | partial | owned/replaced app state, generated action application, ID, placeholder, width/height/min/max, typography, padding, wrapping, disabled mode and all five built-in highlight themes; component-owned bindings, custom key binding/highlighter and full status styles remain |
-| `text_input` | partial | native binding, hint, disabled/secure, ID, submit/paste, typed width/padding/size/line-height, alignment, default/mono font, icon and basic style; arbitrary fonts and full style catalog missing |
+| `text_input` | partial | native binding, hint, disabled/secure, ID, submit/paste, typed width/padding/size/line-height, alignment, complete font descriptors, icon and basic style; full style catalog missing |
 | `themer` | partial | native default/app/all 22 built-in themes, checked default text color and solid background; gradient backgrounds and arbitrary alternate Theme types missing |
-| `toggler` | partial | native label/value/disabled event, size/width/spacing, text typography/wrapping/alignment and default-mono font; arbitrary fonts and full style catalog missing |
+| `toggler` | partial | native label/value/disabled event, size/width/spacing, text typography/wrapping/alignment and complete font descriptors; full style catalog missing |
 | `tooltip` | partial | native two-child content, all positions, gap, padding, viewport snap, delay, nine container presets, checked color/background/border/per-corner radius/shadow/pixel-snap styles; gradient backgrounds, arbitrary runtime closures and advanced classes missing |
 
 ## Application and runtime
 
 | iced surface | Ice status | Current representation / missing work |
 | --- | --- | --- |
-| application settings | partial | generated title/theme/run; window, fonts, antialiasing, executor, scale and presets missing |
+| application settings | partial | generated title/theme/run and default font; window, font byte preload, antialiasing, executor, scale and presets missing |
 | `Theme` and styles | partial | checked color tokens and a Tailwind-like subset; native theme/style catalogs and custom closures missing |
 | `Task` | partial | async externs, typed arbitrary iced `Task` adapters, direct system queries and standard/primary clipboard effects; direct batch, chain, stream, cancellation and progress syntax missing |
 | `Subscription` | partial | typed arbitrary iced `Subscription` adapters, batching, direct keyboard sources and system theme changes; other direct sources and combinators missing |
 | widget operations | missing | focus, cursor selection, scroll and selector operations |
 | clipboard | native | standard and primary read/write tasks; reads preserve iced's optional string payload and writes are checked fire-and-forget effects |
-| fonts | missing | font loading and discovery |
+| fonts | partial | every family/weight/stretch/style descriptor, checked named references and application default; byte loading remains |
 | system | native | current theme task, theme-change subscription, and every information field with optionality preserved; information requires iced's `sysinfo` feature |
 | window | missing | settings, open/close, multiple windows, resize/move/mode/focus/screenshot/monitor operations |
 | event routing | partial | raw event subscription adapter plus native structured keyboard payloads; general native event/status types missing |

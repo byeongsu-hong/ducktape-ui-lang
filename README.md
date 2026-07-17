@@ -113,14 +113,14 @@ cargo fmt --all
 
 ## Status
 
-This is an executable v0.35 language slice, not yet a complete iced replacement.
+This is an executable v0.36 language slice, not yet a complete iced replacement.
 It implements typed extern data/actions, state, handlers, async tasks, pure
 components with structured child slots, scoped IDs, relative multi-file `use`,
 `if`/`for`, six layouts including identity-preserving keyed columns,
 twenty-five native widget forms,
 dependency-keyed lazy subtrees, checked style utilities, formatting, analysis,
 direct typed keyboard, system, and clipboard operations, and iced code
-generation. Typed
+generation, plus complete iced font descriptors. Typed
 `Element`, `Task`, and `Subscription` adapters expose advanced iced features
 without embedding Rust inside `.ice`. Unsupported syntax is rejected instead
 of silently ignored.

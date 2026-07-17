@@ -4,6 +4,7 @@ use std::collections::{HashMap, HashSet};
 
 pub fn check(document: &mut Document) -> Result<(), Error> {
     check_unique(document)?;
+    check_fonts(document)?;
     check_slots(document)?;
     check_declared_types(document)?;
     check_theme(document)?;
@@ -198,6 +199,38 @@ fn check_unique(document: &Document) -> Result<(), Error> {
                 format!("duplicate component `{}`", component.name),
             ));
         }
+    }
+    Ok(())
+}
+
+fn check_fonts(document: &Document) -> Result<(), Error> {
+    let mut names = HashSet::new();
+    let mut default = None;
+    for font in &document.fonts {
+        if !names.insert(&font.name) {
+            return Err(Error::new(
+                "E100",
+                &font.span,
+                format!("duplicate font `{}`", font.name),
+            ));
+        }
+        if font.default && default.replace(&font.name).is_some() {
+            return Err(Error::new(
+                "E114",
+                &font.span,
+                "only one font may be default",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn check_font(font: Option<&FontPreset>, document: &Document, span: &Span) -> Result<(), Error> {
+    if let Some(FontPreset::Named(name)) = font
+        && !document.fonts.iter().any(|font| font.name == *name)
+    {
+        return Err(Error::new("E114", span, format!("unknown font `{name}`"))
+            .hint(format!("declare `font {name} ...` before using it")));
     }
     Ok(())
 }
@@ -540,6 +573,7 @@ fn infer_view(
                     "input icon properties require `icon=\"x\"`",
                 ));
             }
+            check_font(options.font.as_ref(), document, span)?;
             check_styles(styles, document, span, StyleTarget::Input)?;
         }
         ViewNode::Button {
@@ -1178,6 +1212,7 @@ fn infer_view(
                     "editor min-height cannot exceed max-height",
                 ));
             }
+            check_font(options.font.as_ref(), document, span)?;
         }
         ViewNode::Table {
             item,
@@ -1766,6 +1801,7 @@ fn check_bool_control_options(
     document: &Document,
     span: &Span,
 ) -> Result<(), Error> {
+    check_font(options.font.as_ref(), document, span)?;
     if let Some(length) = &options.width
         && let LengthValue::Fixed(value) = length
     {
@@ -1883,6 +1919,7 @@ fn check_text_options(
     document: &Document,
     span: &Span,
 ) -> Result<(), Error> {
+    check_font(options.font.as_ref(), document, span)?;
     for length in [&options.width, &options.height].into_iter().flatten() {
         if let LengthValue::Fixed(value) = length {
             require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
@@ -3653,6 +3690,43 @@ view
         let error = analyze(&invalid).unwrap_err();
         assert_eq!(error.code, "E128");
         assert!(error.message.contains("text line height"));
+    }
+
+    #[test]
+    fn checks_complete_font_descriptors_and_references() {
+        let source = r#"app Typography
+font thin family="Inter" weight=thin stretch=ultra-condensed style=normal default=true
+font extra_light family=serif weight=extra-light stretch=extra-condensed style=italic
+font light family=sans weight=light stretch=condensed style=oblique
+font normal family=cursive weight=normal stretch=semi-condensed style=normal
+font medium family=fantasy weight=medium stretch=normal style=normal
+font semibold family=mono weight=semibold stretch=semi-expanded style=normal
+font bold weight=bold stretch=expanded style=normal
+font extra_bold weight=extra-bold stretch=extra-expanded style=normal
+font black weight=black stretch=ultra-expanded style=normal
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+view
+  text "Fonts" font=black
+"#;
+        let document = analyze(source).unwrap();
+        assert_eq!(document.fonts.len(), 9);
+
+        let error = analyze(&source.replace("font=black", "font=missing")).unwrap_err();
+        assert_eq!(error.code, "E114");
+        assert!(error.message.contains("missing"));
+
+        let error = analyze(&source.replace(
+            "font extra_light family=serif",
+            "font extra_light family=serif default=true",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E114");
+        assert!(error.message.contains("only one"));
     }
 
     #[test]

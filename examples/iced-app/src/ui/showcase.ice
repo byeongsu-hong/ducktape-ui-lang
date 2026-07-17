@@ -1,5 +1,7 @@
 app Showcase
 
+font ui family=sans weight=medium stretch=normal style=normal default=true
+
 extern crate::backend
   Task(id:i64, title:str, done:bool)
   AppError(message:str)
@@ -223,7 +225,7 @@ subscribe
 view
   col @w-full h-full p-6 gap-6 bg-background
     row @w-full items-center gap-3
-      text "Tasks" @text-2xl font-bold text-foreground
+      text "Tasks" font=ui @text-2xl font-bold text-foreground
       lazy tasks as cached_tasks
         text len(cached_tasks) @text-sm text-muted
       text last_key @text-sm text-muted
@@ -236,7 +238,7 @@ view
       button "Read primary" -> read_primary
 
     row @w-full items-center gap-3
-      input "New task" #new-task <-> draft hint="What needs doing?" disabled=loading secure=false submit=submit paste=draft_pasted width=fill text-size=14.0 line-height=1.2 align=left font=default icon="+" icon-side=left icon-size=14.0 icon-spacing=6.0 @px-4 py-3 bg-surface border border-border rounded-lg focus:border-primary
+      input "New task" #new-task <-> draft hint="What needs doing?" disabled=loading secure=false submit=submit paste=draft_pasted width=fill text-size=14.0 line-height=1.2 align=left font=ui icon="+" icon-side=left icon-size=14.0 icon-spacing=6.0 @px-4 py-3 bg-surface border border-border rounded-lg focus:border-primary
       button disabled=empty(trim(draft)) height=44.0 padding=8.0 clip=true @bg-surface text-foreground rounded-lg disabled:opacity-50 -> copy_draft
         row @gap-2 items-center
           text "Copy" @text-sm text-foreground
@@ -287,7 +289,7 @@ view
       col width=fill height=shrink spacing=8.0 padding=16.0 max-width=672.0 align=start clip=false wrap wrap-spacing=8.0 wrap-align=start @bg-surface rounded-lg
         text "View mode" @text-lg font-bold text-foreground
         markdown help text-size=14.0 h1-size=28.0 h2-size=24.0 h3-size=20.0 h4-size=18.0 h5-size=16.0 h6-size=14.0 code-size=12.0 spacing=10.0 -> docs_link _
-        editor #notes <-> notes placeholder="Write notes" width=640.0 height=120.0 min-height=80.0 max-height=240.0 size=14.0 line-height=1.3 padding=8.0 wrapping=word font=mono highlight="rs" highlight-theme=base16-ocean disabled=loading
+        editor #notes <-> notes placeholder="Write notes" width=640.0 height=120.0 min-height=80.0 max-height=240.0 size=14.0 line-height=1.3 padding=8.0 wrapping=word font=ui highlight="rs" highlight-theme=base16-ocean disabled=loading
         pick display_modes display_mode placeholder="Choose a view" width=fill menu-height=160.0 padding=8.0 text-size=14.0 open=picker_opened close=picker_closed -> display_mode_changed _
         combo searchable_modes display_mode "Search views" width=fill menu-height=160.0 padding=8.0 text-size=14.0 input=mode_searched hover=mode_hovered open=picker_opened close=picker_closed -> display_mode_changed _
         if picker_open
