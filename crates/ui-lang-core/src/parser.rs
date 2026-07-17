@@ -3094,7 +3094,6 @@ fn parse_pick_list(
     route_source: Option<&str>,
     line: &Line,
 ) -> Result<ViewNode, Error> {
-    ensure_leaf(line)?;
     if !styles.is_empty() {
         return Err(error(
             "E087",
@@ -3122,6 +3121,12 @@ fn parse_pick_list(
             config.padding = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else if let Some(value) = part.strip_prefix("text-size=") {
             config.text_size = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("line-height=") {
+            config.line_height = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("shaping=") {
+            config.shaping = Some(parse_text_shaping(value, line, "E087")?);
+        } else if let Some(value) = part.strip_prefix("font=") {
+            config.font = Some(parse_font_preset(value, line)?);
         } else if let Some(value) = part.strip_prefix("open=") {
             config.open = Some(parse_route(value, line)?);
         } else if let Some(value) = part.strip_prefix("close=") {
@@ -3134,11 +3139,241 @@ fn parse_pick_list(
             ));
         }
     }
+    for child in &line.children {
+        parse_pick_list_child(child, &mut config)?;
+    }
     Ok(ViewNode::PickList {
         options: parse_expr(&parts[1], line)?,
         selected: parse_expr(&parts[2], line)?,
         options_config: config,
         route: parse_route(route.trim(), line)?,
+        span: Span::line(line.number),
+    })
+}
+
+fn parse_pick_list_child(line: &Line, options: &mut PickListOptions) -> Result<(), Error> {
+    let parts = split_words(&line.text);
+    match parts.first().map(String::as_str) {
+        Some("active" | "hovered" | "opened" | "opened-hovered") => {
+            ensure_leaf(line)?;
+            parse_pick_list_status(&parts, line, &mut options.style)
+        }
+        Some("menu") => {
+            ensure_leaf(line)?;
+            if options.menu_style.is_some() {
+                return Err(error("E087", line, "duplicate pick menu style"));
+            }
+            options.menu_style = Some(Box::new(parse_pick_list_menu(&parts, line)?));
+            Ok(())
+        }
+        Some("handle") => {
+            if options.handle.is_some() {
+                return Err(error("E087", line, "duplicate pick handle"));
+            }
+            options.handle = Some(parse_pick_list_handle(&parts, line)?);
+            Ok(())
+        }
+        _ => Err(error(
+            "E087",
+            line,
+            "pick blocks use active, hovered, opened, opened-hovered, menu, or handle",
+        )),
+    }
+}
+
+fn parse_pick_list_status(
+    parts: &[String],
+    line: &Line,
+    styles: &mut PickListStyleSet,
+) -> Result<(), Error> {
+    let status = parts.first().expect("pick status line");
+    let slot = match status.as_str() {
+        "active" => &mut styles.active,
+        "hovered" => &mut styles.hovered,
+        "opened" => &mut styles.opened,
+        "opened-hovered" => &mut styles.opened_hovered,
+        _ => unreachable!("pick status dispatch validates the status"),
+    };
+    if slot.is_some() {
+        return Err(error(
+            "E087",
+            line,
+            format!("duplicate pick {status} style"),
+        ));
+    }
+    let mut style = PickListStatusStyle {
+        span: Some(Span::line(line.number)),
+        ..PickListStatusStyle::default()
+    };
+    for part in &parts[1..] {
+        if let Some(value) = part.strip_prefix("placeholder=") {
+            style.placeholder_color = Some(value.to_owned());
+        } else if let Some(value) = part.strip_prefix("handle=") {
+            style.handle_color = Some(value.to_owned());
+        } else if parse_container_style_option(part, &mut style.options, line)? {
+            if style.options.shadow_color.is_some()
+                || style.options.shadow_x.is_some()
+                || style.options.shadow_y.is_some()
+                || style.options.shadow_blur.is_some()
+                || style.options.pixel_snap.is_some()
+            {
+                return Err(error(
+                    "E087",
+                    line,
+                    format!("unknown pick status property `{part}`"),
+                ));
+            }
+        } else {
+            return Err(error(
+                "E087",
+                line,
+                format!("unknown pick status property `{part}`"),
+            ));
+        }
+    }
+    *slot = Some(style);
+    Ok(())
+}
+
+fn parse_pick_list_menu(parts: &[String], line: &Line) -> Result<PickListMenuStyle, Error> {
+    let mut style = PickListMenuStyle {
+        span: Some(Span::line(line.number)),
+        ..PickListMenuStyle::default()
+    };
+    for part in &parts[1..] {
+        if let Some(value) = part.strip_prefix("selected-text=") {
+            style.selected_text_color = Some(value.to_owned());
+        } else if let Some(value) = part.strip_prefix("selected-background=") {
+            style.selected_background = Some(parse_background_value(value, line)?);
+        } else if parse_container_style_option(part, &mut style.options, line)? {
+            if style.options.pixel_snap.is_some() {
+                return Err(error("E087", line, "pick menu does not support pixel-snap"));
+            }
+        } else {
+            return Err(error(
+                "E087",
+                line,
+                format!("unknown pick menu property `{part}`"),
+            ));
+        }
+    }
+    Ok(style)
+}
+
+fn parse_pick_list_handle(parts: &[String], line: &Line) -> Result<PickListHandle, Error> {
+    let kind = parts.get(1).map(String::as_str).ok_or_else(|| {
+        error(
+            "E087",
+            line,
+            "pick handle uses arrow, static, dynamic, or none",
+        )
+    })?;
+    match kind {
+        "arrow" => {
+            ensure_leaf(line)?;
+            let mut size = None;
+            for part in &parts[2..] {
+                if let Some(value) = part.strip_prefix("size=") {
+                    size = Some(parse_expr(strip_wrapping_parens(value), line)?);
+                } else {
+                    return Err(error(
+                        "E087",
+                        line,
+                        format!("unknown arrow handle property `{part}`"),
+                    ));
+                }
+            }
+            Ok(PickListHandle::Arrow { size })
+        }
+        "static" => {
+            ensure_leaf(line)?;
+            Ok(PickListHandle::Static(parse_pick_list_icon(
+                &parts[2..],
+                line,
+            )?))
+        }
+        "dynamic" => {
+            if parts.len() != 2
+                || line.children.len() != 2
+                || line.children[0].text.split_ascii_whitespace().next() != Some("closed")
+                || line.children[1].text.split_ascii_whitespace().next() != Some("open")
+            {
+                return Err(error(
+                    "E087",
+                    line,
+                    "dynamic pick handle requires closed then open icon lines",
+                ));
+            }
+            let closed = split_words(&line.children[0].text);
+            let open = split_words(&line.children[1].text);
+            ensure_leaf(&line.children[0])?;
+            ensure_leaf(&line.children[1])?;
+            Ok(PickListHandle::Dynamic {
+                closed: parse_pick_list_icon(&closed[1..], &line.children[0])?,
+                open: parse_pick_list_icon(&open[1..], &line.children[1])?,
+            })
+        }
+        "none" => {
+            ensure_leaf(line)?;
+            if parts.len() != 2 {
+                return Err(error("E087", line, "none handle has no properties"));
+            }
+            Ok(PickListHandle::None)
+        }
+        _ => Err(error(
+            "E087",
+            line,
+            "pick handle uses arrow, static, dynamic, or none",
+        )),
+    }
+}
+
+fn parse_pick_list_icon(parts: &[String], line: &Line) -> Result<PickListIcon, Error> {
+    let mut code_point = None;
+    let mut font = None;
+    let mut size = None;
+    let mut line_height = None;
+    let mut shaping = None;
+    for part in parts {
+        if let Some(value) = part.strip_prefix("code=") {
+            let value = string_literal(value, line)?;
+            let mut chars = value.chars();
+            code_point = chars.next();
+            if code_point.is_none() || chars.next().is_some() {
+                return Err(error(
+                    "E087",
+                    line,
+                    "pick handle code must contain one character",
+                ));
+            }
+        } else if let Some(value) = part.strip_prefix("font=") {
+            font = Some(parse_font_preset(value, line)?);
+        } else if let Some(value) = part.strip_prefix("size=") {
+            size = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("line-height=") {
+            line_height = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("shaping=") {
+            shaping = Some(parse_text_shaping(value, line, "E087")?);
+        } else {
+            return Err(error(
+                "E087",
+                line,
+                format!("unknown pick handle icon property `{part}`"),
+            ));
+        }
+    }
+    Ok(PickListIcon {
+        code_point: code_point.ok_or_else(|| {
+            error(
+                "E087",
+                line,
+                "static and dynamic pick handles require code=\"…\"",
+            )
+        })?,
+        font,
+        size,
+        line_height,
+        shaping,
         span: Span::line(line.number),
     })
 }
@@ -5742,6 +5977,35 @@ view
             "input \"Query\" <-> query",
         );
         parse(&source).unwrap();
+    }
+
+    #[test]
+    fn parses_every_pick_list_handle() {
+        for handle in [
+            "handle arrow size=12.0",
+            "handle static code=\"⌄\" font=default size=12.0 line-height=1.0 shaping=basic",
+            "handle dynamic\n      closed code=\"⌄\"\n      open code=\"⌃\"",
+            "handle none",
+        ] {
+            let source = format!(
+                r#"app Selection
+state
+  choices = ["List", "Board"]
+  selected:str? = none
+on selected(next)
+  selected = some(next)
+view
+  pick choices selected -> selected _
+    active text=foreground placeholder=muted handle=primary background=surface border=border border-width=1.0 radius=4.0
+    hovered text=foreground
+    opened text=foreground
+    opened-hovered text=foreground
+    menu text=foreground selected-text=foreground selected-background=primary background=surface shadow=black shadow-y=2.0
+    {handle}
+"#
+            );
+            parse(&source).unwrap_or_else(|error| panic!("{handle}: {error:?}"));
+        }
     }
 
     #[test]

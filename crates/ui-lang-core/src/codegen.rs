@@ -1977,6 +1977,33 @@ fn render_node(
                 )
                 .unwrap();
             }
+            if let Some(height) = &options_config.line_height {
+                write!(
+                    code,
+                    ".text_line_height(::iced::widget::text::LineHeight::Relative({} as f32))",
+                    expr_code(height, env, document, ValueMode::Owned)?
+                )
+                .unwrap();
+            }
+            if let Some(shaping) = options_config.shaping {
+                write!(
+                    code,
+                    ".text_shaping(::iced::widget::text::Shaping::{})",
+                    text_shaping_code(shaping)
+                )
+                .unwrap();
+            }
+            if let Some(font) = &options_config.font {
+                write!(code, ".font({})", font_preset_code(font, document)?).unwrap();
+            }
+            if let Some(handle) = &options_config.handle {
+                write!(
+                    code,
+                    ".handle({})",
+                    pick_list_handle_code(handle, env, document)?
+                )
+                .unwrap();
+            }
             if let Some(route) = &options_config.open {
                 write!(
                     code,
@@ -1993,6 +2020,7 @@ fn render_node(
                 )
                 .unwrap();
             }
+            code.push_str(&pick_list_style_code(options_config, env, document)?);
             Ok(format!("{code}.into()"))
         }
         ViewNode::ComboBox {
@@ -5494,6 +5522,220 @@ fn radio_style_code(
     Ok(code)
 }
 
+fn pick_list_handle_code(
+    handle: &PickListHandle,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<String, Error> {
+    Ok(match handle {
+        PickListHandle::Arrow { size } => {
+            let size = size.as_ref().map_or_else(
+                || Ok("::std::option::Option::None".to_owned()),
+                |value| {
+                    Ok::<_, Error>(format!(
+                        "::std::option::Option::Some(({} as f32).into())",
+                        expr_code(value, env, document, ValueMode::Owned)?
+                    ))
+                },
+            )?;
+            format!("::iced::widget::pick_list::Handle::Arrow {{ size: {size} }}")
+        }
+        PickListHandle::Static(icon) => format!(
+            "::iced::widget::pick_list::Handle::Static({})",
+            pick_list_icon_code(icon, env, document)?
+        ),
+        PickListHandle::Dynamic { closed, open } => format!(
+            "::iced::widget::pick_list::Handle::Dynamic {{ closed: {}, open: {} }}",
+            pick_list_icon_code(closed, env, document)?,
+            pick_list_icon_code(open, env, document)?
+        ),
+        PickListHandle::None => "::iced::widget::pick_list::Handle::None".to_owned(),
+    })
+}
+
+fn pick_list_icon_code(
+    icon: &PickListIcon,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<String, Error> {
+    let font = icon.font.as_ref().map_or_else(
+        || Ok("::iced::Font::DEFAULT".to_owned()),
+        |font| font_preset_code(font, document),
+    )?;
+    let size = icon.size.as_ref().map_or_else(
+        || Ok("::std::option::Option::None".to_owned()),
+        |value| {
+            Ok::<_, Error>(format!(
+                "::std::option::Option::Some(({} as f32).into())",
+                expr_code(value, env, document, ValueMode::Owned)?
+            ))
+        },
+    )?;
+    let line_height = icon.line_height.as_ref().map_or_else(
+        || Ok("::iced::widget::text::LineHeight::default()".to_owned()),
+        |value| {
+            Ok::<_, Error>(format!(
+                "::iced::widget::text::LineHeight::Relative({} as f32)",
+                expr_code(value, env, document, ValueMode::Owned)?
+            ))
+        },
+    )?;
+    let shaping = icon.shaping.map_or_else(
+        || "::iced::widget::text::Shaping::default()".to_owned(),
+        |shaping| {
+            format!(
+                "::iced::widget::text::Shaping::{}",
+                text_shaping_code(shaping)
+            )
+        },
+    );
+    Ok(format!(
+        "::iced::widget::pick_list::Icon {{ font: {font}, code_point: {:?}, size: {size}, line_height: {line_height}, shaping: {shaping} }}",
+        icon.code_point
+    ))
+}
+
+fn pick_list_style_code(
+    options: &PickListOptions,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<String, Error> {
+    let overrides = [
+        ("Active", &options.style.active),
+        ("Hovered", &options.style.hovered),
+        ("Opened { is_hovered: false }", &options.style.opened),
+        ("Opened { is_hovered: true }", &options.style.opened_hovered),
+    ];
+    let mut code = String::new();
+    if overrides.iter().any(|(_, style)| style.is_some()) {
+        code.push_str(".style(move |__theme, __status| { let mut __style = ::iced::widget::pick_list::default(__theme, __status); match __status {");
+        for (status, style) in overrides {
+            let Some(style) = style else { continue };
+            write!(code, " ::iced::widget::pick_list::Status::{status} => {{").unwrap();
+            append_pick_list_surface_overrides(&mut code, &style.options, env, document, false)?;
+            if let Some(color) = &style.placeholder_color {
+                write!(
+                    code,
+                    " __style.placeholder_color = {};",
+                    theme_color(document, color)
+                )
+                .unwrap();
+            }
+            if let Some(color) = &style.handle_color {
+                write!(
+                    code,
+                    " __style.handle_color = {};",
+                    theme_color(document, color)
+                )
+                .unwrap();
+            }
+            code.push_str(" }");
+        }
+        code.push_str(" _ => {} } __style })");
+    }
+    if let Some(style) = options.menu_style.as_deref() {
+        code.push_str(".menu_style(move |__theme| { let mut __style = ::iced::overlay::menu::default(__theme);");
+        append_pick_list_surface_overrides(&mut code, &style.options, env, document, true)?;
+        if let Some(color) = &style.selected_text_color {
+            write!(
+                code,
+                " __style.selected_text_color = {};",
+                theme_color(document, color)
+            )
+            .unwrap();
+        }
+        if let Some(background) = &style.selected_background {
+            write!(
+                code,
+                " __style.selected_background = {};",
+                background_code(background, env, document)?
+            )
+            .unwrap();
+        }
+        code.push_str(" __style })");
+    }
+    Ok(code)
+}
+
+fn append_pick_list_surface_overrides(
+    code: &mut String,
+    options: &ContainerStyleOptions,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+    shadow: bool,
+) -> Result<(), Error> {
+    if let Some(background) = &options.background {
+        write!(
+            code,
+            " __style.background = {};",
+            background_code(background, env, document)?
+        )
+        .unwrap();
+    }
+    if let Some(color) = &options.text_color {
+        write!(
+            code,
+            " __style.text_color = {};",
+            theme_color(document, color)
+        )
+        .unwrap();
+    }
+    if let Some(color) = &options.border_color {
+        write!(
+            code,
+            " __style.border.color = {};",
+            theme_color(document, color)
+        )
+        .unwrap();
+    }
+    if let Some(width) = &options.border_width {
+        write!(
+            code,
+            " __style.border.width = {} as f32;",
+            expr_code(width, env, document, ValueMode::Owned)?
+        )
+        .unwrap();
+    }
+    if let Some(radius) = radius_code(
+        options.radius.as_ref(),
+        [
+            options.radius_top_left.as_ref(),
+            options.radius_top_right.as_ref(),
+            options.radius_bottom_right.as_ref(),
+            options.radius_bottom_left.as_ref(),
+        ],
+        env,
+        document,
+    )? {
+        write!(code, " __style.border.radius = {radius};").unwrap();
+    }
+    if shadow {
+        if let Some(color) = &options.shadow_color {
+            write!(
+                code,
+                " __style.shadow.color = {};",
+                theme_color(document, color)
+            )
+            .unwrap();
+        }
+        for (value, field) in [
+            (&options.shadow_x, "__style.shadow.offset.x"),
+            (&options.shadow_y, "__style.shadow.offset.y"),
+            (&options.shadow_blur, "__style.shadow.blur_radius"),
+        ] {
+            if let Some(value) = value {
+                write!(
+                    code,
+                    " {field} = {} as f32;",
+                    expr_code(value, env, document, ValueMode::Owned)?
+                )
+                .unwrap();
+            }
+        }
+    }
+    Ok(())
+}
+
 fn text_shaping_code(shaping: TextShaping) -> &'static str {
     match shaping {
         TextShaping::Auto => "Auto",
@@ -6860,6 +7102,7 @@ view
     #[test]
     fn lowers_list_literals_options_and_pick_lists() {
         let source = r#"app Selection
+font ui family=sans
 theme
   background #000000
   foreground #ffffff
@@ -6873,7 +7116,15 @@ on selected(next)
 on opened
 on closed
 view
-  pick choices selected placeholder="Choose" width=fill menu-height=120.0 padding=8.0 text-size=14.0 open=opened close=closed -> selected _
+  pick choices selected placeholder="Choose" width=fill menu-height=120.0 padding=8.0 text-size=14.0 line-height=1.2 shaping=advanced font=ui open=opened close=closed -> selected _
+    active text=foreground placeholder=danger handle=primary background=background border=foreground border-width=1.0 radius=4.0
+    hovered text=foreground
+    opened text=foreground
+    opened-hovered text=foreground
+    menu text=foreground selected-text=background selected-background=primary background=background border=foreground border-width=1.0 radius=6.0 shadow=danger shadow-x=1.0 shadow-y=2.0 shadow-blur=4.0
+    handle dynamic
+      closed code="⌄" font=ui size=12.0 line-height=1.0 shaping=basic
+      open code="⌃" font=ui size=13.0 line-height=1.1 shaping=advanced
 "#;
         let generated = compile(source, "selection.ice").unwrap();
         assert!(
@@ -6885,6 +7136,18 @@ view
                 .contains("::iced::widget::pick_list(self.choices.clone(), self.selected.clone()")
         );
         assert!(generated.contains(".on_open(__SelectionMessage::Opened)"));
+        assert!(
+            generated.contains(
+                ".text_line_height(::iced::widget::text::LineHeight::Relative(1.2 as f32))"
+            )
+        );
+        assert!(generated.contains(".text_shaping(::iced::widget::text::Shaping::Advanced)"));
+        assert!(generated.contains("::iced::widget::pick_list::Handle::Dynamic"));
+        assert!(generated.contains("Status::Opened { is_hovered: false }"));
+        assert!(generated.contains("Status::Opened { is_hovered: true }"));
+        assert!(generated.contains(".menu_style(move |__theme|"));
+        assert!(generated.contains("__style.selected_background"));
+        assert!(generated.contains("__style.shadow.blur_radius = 4.0 as f32"));
         assert!(generated.contains("self.selected = ::std::option::Option::Some(next);"));
     }
 
