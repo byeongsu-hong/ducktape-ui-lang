@@ -631,12 +631,26 @@ fn parse_subscription(line: &Line) -> Result<Subscription, Error> {
         return Err(error(
             "E084",
             line,
-            "subscription uses `name(args)`, `keyboard event`, `mouse event`, `touch event`, `window event`, or `system theme` before `-> handler _`",
+            "subscription uses `name(args)`, `input-method event`, `keyboard event`, `mouse event`, `touch event`, `window event`, or `system theme` before `-> handler _`",
         ));
     };
     let call = call.trim();
     let source = if call == "system theme" {
         SubscriptionSource::SystemTheme
+    } else if let Some(event) = call.strip_prefix("input-method ") {
+        SubscriptionSource::InputMethod(match event.trim() {
+            "opened" => InputMethodEvent::Opened,
+            "preedit" => InputMethodEvent::Preedit,
+            "commit" => InputMethodEvent::Commit,
+            "closed" => InputMethodEvent::Closed,
+            _ => {
+                return Err(error(
+                    "E084",
+                    line,
+                    "input-method event must be opened, preedit, commit, or closed",
+                ));
+            }
+        })
     } else if let Some(event) = call.strip_prefix("window ") {
         SubscriptionSource::Window(match event.trim() {
             "frame" => WindowEvent::Frame,

@@ -2050,6 +2050,15 @@ fn infer_subscriptions(
 ) -> Result<(), Error> {
     for subscription in &document.subscriptions {
         let ordered_payloads = match &subscription.source {
+            SubscriptionSource::InputMethod(event) => Some(match event {
+                InputMethodEvent::Opened | InputMethodEvent::Closed => Vec::new(),
+                InputMethodEvent::Preedit => vec![
+                    Type::Str,
+                    Type::Option(Box::new(Type::I64)),
+                    Type::Option(Box::new(Type::I64)),
+                ],
+                InputMethodEvent::Commit => vec![Type::Str],
+            }),
             SubscriptionSource::Mouse(event) => Some(match event {
                 MouseEvent::Entered | MouseEvent::Left => Vec::new(),
                 MouseEvent::Moved => vec![Type::F64, Type::F64],
@@ -2078,6 +2087,7 @@ fn infer_subscriptions(
         };
         if let Some(payloads) = ordered_payloads {
             let label = match &subscription.source {
+                SubscriptionSource::InputMethod(_) => "input-method subscription",
                 SubscriptionSource::Mouse(_) => "mouse subscription",
                 SubscriptionSource::Touch(_) => "touch subscription",
                 SubscriptionSource::Window(_) => "window subscription",
@@ -2104,6 +2114,7 @@ fn infer_subscriptions(
                 check_call_args(source, args, states, document, &subscription.span)?;
                 source.output.clone()
             }
+            SubscriptionSource::InputMethod(_) => unreachable!("handled above"),
             SubscriptionSource::Keyboard(KeyboardEvent::Press) => Type::KeyPress,
             SubscriptionSource::Keyboard(KeyboardEvent::Release) => Type::KeyRelease,
             SubscriptionSource::Keyboard(KeyboardEvent::Modifiers) => Type::KeyModifiers,
@@ -3128,6 +3139,41 @@ fn type_error(span: &Span, expected: &Type, actual: &Type) -> Error {
 #[cfg(test)]
 mod tests {
     use crate::analyze;
+
+    #[test]
+    fn checks_all_native_input_method_subscription_payloads() {
+        let source = include_str!("../../../examples/iced-app/src/ui/input_method_events.ice");
+        let document = analyze(source).unwrap();
+        let preedit = document
+            .handlers
+            .iter()
+            .find(|handler| handler.name == "preedit")
+            .unwrap();
+        assert_eq!(
+            preedit
+                .params
+                .iter()
+                .map(|param| param.ty.display())
+                .collect::<Vec<_>>(),
+            ["str", "i64?", "i64?"]
+        );
+
+        let error = analyze(&source.replace(
+            "input-method preedit -> preedit _ _ _",
+            "input-method preedit -> preedit _ _",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E129");
+        assert!(error.message.contains("expects 3 payloads"));
+
+        let error = analyze(&source.replace(
+            "input-method closed -> closed",
+            "input-method disabled -> closed",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E084");
+        assert!(error.message.contains("input-method event must be"));
+    }
 
     #[test]
     fn checks_all_native_mouse_subscription_payloads() {

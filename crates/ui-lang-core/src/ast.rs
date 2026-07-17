@@ -262,11 +262,20 @@ pub struct Subscription {
 #[derive(Clone, Debug)]
 pub enum SubscriptionSource {
     Extern { function: String, args: Vec<Expr> },
+    InputMethod(InputMethodEvent),
     Keyboard(KeyboardEvent),
     Mouse(MouseEvent),
     SystemTheme,
     Touch(TouchEvent),
     Window(WindowEvent),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InputMethodEvent {
+    Opened,
+    Preedit,
+    Commit,
+    Closed,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

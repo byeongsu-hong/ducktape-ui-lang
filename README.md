@@ -91,8 +91,8 @@ structured keyboard press/release/modifier subscriptions.
 It also exercises native system information/theme tasks and theme-change
 subscriptions, standard/primary clipboard reads and writes, and every checked
 main-window effect/query task. Compile fixtures cover every native window,
-mouse, and touch event subscription without adding continuous event loops to
-the demo.
+mouse, touch, and input-method event subscription without adding continuous
+event loops to the demo.
 
 Key files:
 
@@ -124,15 +124,16 @@ cargo fmt --all
 
 ## Status
 
-This is an executable v0.43 language slice, not yet a complete iced replacement.
+This is an executable v0.44 language slice, not yet a complete iced replacement.
 It implements typed extern data/actions, state, handlers, async tasks, pure
 components with named props and structured child slots, scoped IDs, relative
 multi-file `use`,
 `if`/`for`, six layouts including identity-preserving keyed columns,
 twenty-five native widget forms,
 dependency-keyed lazy subtrees, checked style utilities, formatting, analysis,
-direct typed keyboard, mouse, touch, system, and clipboard operations, and iced code
-generation, plus complete iced font descriptors. Static app IDs also support
+direct typed keyboard, mouse, touch, input-method, system, and clipboard
+operations, and iced code generation, plus complete iced font descriptors.
+Static app IDs also support
 direct focus, cursor, selection, and scroll tasks. Static application and
 cross-platform initial window settings compile to native iced configuration.
 The main window also has checked runtime effect and query tasks.
