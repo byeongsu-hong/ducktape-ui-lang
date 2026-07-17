@@ -30,6 +30,5 @@ view
 
     Panel("Task list") #tasks-panel
       scroll #task-list direction=vertical width=fill height=fill
-        col @w-full gap-2
-          for task in tasks
-            TaskRow(task, loading) #task(task.id)
+        keyed task in tasks by=task.id width=fill spacing=8.0
+          TaskRow(task, loading)

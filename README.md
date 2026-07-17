@@ -67,7 +67,7 @@ src/ui/
 
 [`showcase.ice`](examples/iced-app/src/ui/showcase.ice) is the separate
 compile-tested kitchen sink. It includes complete wrapping row/column layouts,
-grid and fully sized underlay stacks, optional
+grid, keyed columns and fully sized underlay stacks, optional
 selection state, native pick and searchable combo lists, native controls and
 media, native and extern tooltip/mouse areas, a responsive view, float/pin
 positioning, visibility sensing, a clipboard task,
@@ -107,10 +107,10 @@ cargo fmt --all
 
 ## Status
 
-This is an executable v0.27 language slice, not yet a complete iced replacement.
+This is an executable v0.28 language slice, not yet a complete iced replacement.
 It implements typed extern data/actions, state, handlers, async tasks, pure
 components with structured child slots, scoped IDs, relative multi-file `use`,
-`if`/`for`, five layouts,
+`if`/`for`, six layouts including identity-preserving keyed columns,
 twenty-two native widget forms,
 checked style utilities, formatting, analysis, and iced code generation. Typed
 `Element`, `Task`, and `Subscription` adapters expose advanced iced features

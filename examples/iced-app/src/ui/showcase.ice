@@ -266,6 +266,5 @@ view
           text "Stack overlay" @text-sm text-foreground
 
     scroll #task-list direction=vertical width=fill height=fill bar=visible bar-width=8.0 bar-margin=2.0 scroller-width=6.0 bar-spacing=2.0 anchor-y=start auto=true scroll=task_list_scrolled
-      col @w-full gap-2
-        for task in tasks
-          TaskRow(task, loading) #task(task.id)
+      keyed task in tasks by=task.id width=fill height=shrink spacing=8.0 padding=4.0 padding-left=8.0 max-width=720.0 align=center
+        TaskRow(task, loading)

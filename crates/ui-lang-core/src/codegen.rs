@@ -1475,12 +1475,99 @@ fn render_node(
             }
             Ok(format!("{code}.into()"))
         }
+        ViewNode::KeyedColumn {
+            item,
+            items,
+            key,
+            options,
+            child,
+            span,
+        } => render_keyed_column(
+            item, items, key, options, child, span, document, message, env, scope, slot,
+        ),
         ViewNode::If { span, .. } | ViewNode::For { span, .. } => Err(Error::new(
             "E170",
             span,
             "if and for must be children of a layout node",
         )),
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_keyed_column(
+    item: &str,
+    items: &Expr,
+    key: &Expr,
+    options: &LayoutOptions,
+    child: &ViewNode,
+    span: &Span,
+    document: &Document,
+    message: &str,
+    env: &HashMap<String, Binding>,
+    scope: &str,
+    slot: Option<&SlotContext>,
+) -> Result<String, Error> {
+    let Type::List(inner) = expr_type(
+        items,
+        &env.iter()
+            .map(|(name, binding)| (name.clone(), binding.ty.clone()))
+            .collect(),
+        document,
+        span,
+    )?
+    else {
+        unreachable!("checker validates keyed lists")
+    };
+    let items = expr_code(items, env, document, ValueMode::Borrowed)?;
+    let mut child_env = env.clone();
+    child_env.insert(
+        item.into(),
+        Binding {
+            code: item.into(),
+            ty: *inner,
+            local: false,
+        },
+    );
+    let key = expr_code(key, &child_env, document, ValueMode::Owned)?;
+    let child_scope = format!("format!(\"{{}}/key({{:?}})\", {scope}, __key)");
+    let child = render_node(child, document, message, &child_env, &child_scope, slot)?;
+    let mut code = format!(
+        "{{ let mut __children: ::std::vec::Vec<_> = ::std::vec::Vec::new(); for {item} in {items}.iter() {{ let __key = {key}; let __child: ::iced::Element<'_, {message}> = {child}; __children.push((__key, __child)); }} let __layout = ::iced::widget::keyed_column(__children)"
+    );
+    if let Some(spacing) = &options.spacing {
+        write!(
+            code,
+            ".spacing({} as f32)",
+            expr_code(spacing, env, document, ValueMode::Owned)?
+        )
+        .unwrap();
+    }
+    if let Some(padding) = typed_padding_code(&options.padding, env, document)? {
+        write!(code, ".padding({padding})").unwrap();
+    }
+    if let Some(width) = &options.width {
+        write!(code, ".width({})", length_code(width, env, document)?).unwrap();
+    }
+    if let Some(height) = &options.height {
+        write!(code, ".height({})", length_code(height, env, document)?).unwrap();
+    }
+    if let Some(max_width) = &options.max_width {
+        write!(
+            code,
+            ".max_width({} as f32)",
+            expr_code(max_width, env, document, ValueMode::Owned)?
+        )
+        .unwrap();
+    }
+    if let Some(align) = options.align {
+        let align = match align {
+            FlexAlignment::Start => "Start",
+            FlexAlignment::Center => "Center",
+            FlexAlignment::End => "End",
+        };
+        write!(code, ".align_items(::iced::Alignment::{align})").unwrap();
+    }
+    Ok(format!("{code}; __layout.into() }}"))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2159,6 +2246,7 @@ fn input_bindings(root: &ViewNode) -> Vec<String> {
                 content: Some(content),
                 ..
             } => collect(content, output),
+            ViewNode::KeyedColumn { child, .. } => collect(child, output),
             ViewNode::Button {
                 content: Some(content),
                 ..
@@ -2196,6 +2284,7 @@ fn needs_extern_noop(document: &Document) -> bool {
                 content: Some(content),
                 ..
             } => contains(content),
+            ViewNode::KeyedColumn { child, .. } => contains(child),
             ViewNode::Button {
                 content: Some(content),
                 ..
@@ -3388,6 +3477,36 @@ view
         assert!(generated.contains(
             "format!(\"{}/name\", format!(\"{}/card\", format!(\"{}/Card\", format!(\"{}/editor\", \"Composition\"))))"
         ));
+    }
+
+    #[test]
+    fn lowers_fully_configured_keyed_columns() {
+        let source = r#"app Keyed
+extern crate::backend
+  Item(id:i64, name:str)
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  items:[Item] = []
+view
+  keyed item in items by=item.id width=fill(2) height=120.0 spacing=8.0 padding=4.0 padding-left=12.0 max-width=640.0 align=end
+    scroll #row
+      text item.name
+"#;
+        let generated = compile(source, "keyed.ice").unwrap();
+        assert!(generated.contains("for item in self.items.iter()"));
+        assert!(generated.contains("__children.push((__key, __child))"));
+        assert!(generated.contains("::iced::widget::keyed_column(__children)"));
+        assert!(generated.contains(".spacing(8.0 as f32)"));
+        assert!(generated.contains("left: 12.0 as f32"));
+        assert!(generated.contains(".width(::iced::Length::FillPortion(2))"));
+        assert!(generated.contains(".height(120.0 as f32)"));
+        assert!(generated.contains(".max_width(640.0 as f32)"));
+        assert!(generated.contains(".align_items(::iced::Alignment::End)"));
+        assert!(generated.contains("format!(\"{}/key({:?})\""));
     }
 
     #[test]
