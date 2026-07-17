@@ -25,6 +25,8 @@ fn run() -> Result<(), String> {
 
     match command {
         "fmt" => {
+            let roots = app_files(&files)?;
+            analyze(&roots)?;
             if check_only {
                 cargo(&["fmt", "--all", "--", "--check"])?;
             } else {
@@ -33,8 +35,7 @@ fn run() -> Result<(), String> {
             let mut changed = Vec::new();
             for path in &files {
                 let source = fs::read_to_string(path).map_err(|error| error.to_string())?;
-                let formatted = ui_lang_core::format_source(&source)
-                    .map_err(|error| error.render(&path.display().to_string()))?;
+                let formatted = ui_lang_core::format_fragment(&source);
                 if source != formatted {
                     changed.push(path.display().to_string());
                     if !check_only {
@@ -52,11 +53,13 @@ fn run() -> Result<(), String> {
             }
         }
         "check" => {
-            analyze(&files)?;
+            let roots = app_files(&files)?;
+            analyze(&roots)?;
             cargo(&["check", "--workspace"])?;
         }
         "clippy" => {
-            analyze(&files)?;
+            let roots = app_files(&files)?;
+            analyze(&roots)?;
             cargo(&["clippy", "--workspace", "--all-targets", "--no-deps"])?;
         }
         "expand" => {
@@ -64,10 +67,9 @@ fn run() -> Result<(), String> {
                 .get(1)
                 .ok_or_else(|| "cargo ice expand <file.ice>".to_owned())?;
             let path = root.join(requested);
-            let source = fs::read_to_string(&path).map_err(|error| error.to_string())?;
-            let generated = ui_lang_core::compile(&source, &path.display().to_string())
+            let generated = ui_lang_core::compile_file(&path)
                 .map_err(|error| error.render(&path.display().to_string()))?;
-            print!("{generated}");
+            print!("{}", generated.rust);
         }
         "help" | "--help" | "-h" => {
             println!("cargo ice <fmt [--check] | check | clippy | expand <file.ice>>");
@@ -79,12 +81,25 @@ fn run() -> Result<(), String> {
 
 fn analyze(files: &[PathBuf]) -> Result<(), String> {
     for path in files {
-        let source = fs::read_to_string(path).map_err(|error| error.to_string())?;
-        ui_lang_core::analyze(&source)
+        ui_lang_core::analyze_file(path)
             .map_err(|error| error.render(&path.display().to_string()))?;
     }
-    println!("checked {} .ice file(s)", files.len());
+    println!("checked {} .ice app graph(s)", files.len());
     Ok(())
+}
+
+fn app_files(files: &[PathBuf]) -> Result<Vec<PathBuf>, String> {
+    let mut roots = Vec::new();
+    for path in files {
+        let source = fs::read_to_string(path).map_err(|error| error.to_string())?;
+        if ui_lang_core::source_is_app(&source) {
+            roots.push(path.clone());
+        }
+    }
+    if roots.is_empty() {
+        return Err("no .ice file contains a top-level `app` declaration".into());
+    }
+    Ok(roots)
 }
 
 fn ice_files(root: &Path) -> Result<Vec<PathBuf>, String> {

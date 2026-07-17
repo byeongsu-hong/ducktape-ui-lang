@@ -2,6 +2,10 @@ use crate::{Error, parse};
 
 pub fn format_source(source: &str) -> Result<String, Error> {
     parse(source)?;
+    Ok(format_fragment(source))
+}
+
+pub fn format_fragment(source: &str) -> String {
     let mut output = String::new();
     let mut indents = vec![0usize];
     let mut blank = false;
@@ -28,7 +32,7 @@ pub fn format_source(source: &str) -> Result<String, Error> {
         output.push_str(text);
         output.push('\n');
     }
-    Ok(output)
+    output
 }
 
 #[cfg(test)]

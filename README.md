@@ -2,7 +2,7 @@
 
 Ice is a small, statically checked frontend language that compiles to
 [iced](https://iced.rs/). Humans write the screen and interaction flow in a
-compact `.ice` file; Rust keeps domain rules, I/O, and custom platform code.
+compact `.ice` files; Rust keeps domain rules, I/O, and custom platform code.
 
 ```text
 .ice source -> parser -> typed AST/IR -> semantic checker -> iced Rust backend
@@ -14,6 +14,11 @@ adapter that includes a file and emits ordinary Rust.
 ## Taste of the language
 
 ```ice
+app Tasks
+
+use "backend.ice"
+use "theme.ice"
+
 state
   draft = ""
   loading = false
@@ -28,6 +33,9 @@ view
     input "New task" #new-task <-> draft @w-full p-3 bg-surface rounded-lg
     button "Add" disabled=loading @p-3 bg-primary text-white rounded-lg -> submit
 ```
+
+`use` resolves relative to the importing file. Imported declarations share the
+same checked app graph, and errors still point to the fragment that caused them.
 
 The punctuation has one job each:
 
@@ -44,8 +52,21 @@ The punctuation has one job each:
 cargo run -p iced-app
 ```
 
-The complete task app is split at the intended boundary and includes complete
-wrapping row/column layouts, grid and fully sized underlay stacks, optional
+The runnable task app is intentionally small and split by concern:
+
+```text
+src/ui/
+├── tasks.ice                 app and view
+├── backend.ice               typed Rust boundary
+├── state.ice                 UI state
+├── theme.ice                 color tokens
+├── components/task_row.ice   reusable view
+└── handlers/tasks.ice        transitions and effects
+```
+
+[`showcase.ice`](examples/iced-app/src/ui/showcase.ice) is the separate
+compile-tested kitchen sink. It includes complete wrapping row/column layouts,
+grid and fully sized underlay stacks, optional
 selection state, native pick and searchable combo lists, native controls and
 media, native and extern tooltip/mouse areas, a responsive view, float/pin
 positioning, visibility sensing, a clipboard task,
@@ -53,10 +74,11 @@ configured scrolling with offset events, pointer movement/wheel events,
 formatted text, an extended text input and child-content buttons, plus an
 application event subscription, expanded boolean controls, configured rules,
 sliders with nested status styles, configured progress bars, and configured
-native tooltip styles:
+native tooltip styles.
 
-- [`tasks.ice`](examples/iced-app/src/ui/tasks.ice) owns UI state, events,
-  layout, and style;
+Key files:
+
+- [`tasks.ice`](examples/iced-app/src/ui/tasks.ice) is the readable root;
 - [`main.rs`](examples/iced-app/src/main.rs) owns the Rust backend;
 - [`SPEC.md`](SPEC.md) defines the implemented language.
 
@@ -84,9 +106,10 @@ cargo fmt --all
 
 ## Status
 
-This is an executable v0.21 language slice, not yet a complete iced replacement.
+This is an executable v0.22 language slice, not yet a complete iced replacement.
 It implements typed extern data/actions, state, handlers, async tasks, pure
-components, scoped IDs, `if`/`for`, five layouts, twenty native widget forms,
+components, scoped IDs, relative multi-file `use`, `if`/`for`, five layouts,
+twenty native widget forms,
 checked style utilities, formatting, analysis, and iced code generation. Typed
 `Element`, `Task`, and `Subscription` adapters expose advanced iced features
 without embedding Rust inside `.ice`. Unsupported syntax is rejected instead

@@ -65,6 +65,7 @@ mod backend {
         Ok(tasks.clone())
     }
 
+    #[cfg(test)]
     pub fn native_help(active: bool) -> iced::Element<'static, bool> {
         let hint = if active {
             "Pointer entered the external component"
@@ -81,14 +82,17 @@ mod backend {
         .into()
     }
 
+    #[cfg(test)]
     pub fn copy_text(text: String) -> iced::Task<Result<(), AppError>> {
         iced::Task::batch([iced::clipboard::write::<()>(text), iced::Task::done(())]).map(Ok)
     }
 
+    #[cfg(test)]
     pub fn app_events() -> iced::Subscription<bool> {
         iced::event::listen_with(|event, _status, _window| focus_event(event))
     }
 
+    #[cfg(test)]
     fn focus_event(event: iced::Event) -> Option<bool> {
         matches!(event, iced::Event::Window(iced::window::Event::Focused)).then_some(true)
     }
@@ -113,4 +117,9 @@ mod backend {
 
 fn main() -> iced::Result {
     Tasks::run()
+}
+
+#[cfg(test)]
+mod showcase {
+    ui_lang::include_app!("src/ui/showcase.ice");
 }
