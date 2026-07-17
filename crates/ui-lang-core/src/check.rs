@@ -872,6 +872,39 @@ fn infer_view(
                     require_literal_range(value, 0.0, None, label, span)?;
                 }
             }
+            for color in [
+                &options.style.region_background,
+                &options.style.region_border,
+                &options.style.hovered_split,
+                &options.style.picked_split,
+            ]
+            .into_iter()
+            .flatten()
+            {
+                if !valid_theme_color(color, document) {
+                    return Err(Error::new(
+                        "E187",
+                        span,
+                        format!("unknown pane-grid style color `{color}`"),
+                    ));
+                }
+            }
+            for value in [
+                &options.style.region_border_width,
+                &options.style.region_radius,
+                &options.style.region_radius_top_left,
+                &options.style.region_radius_top_right,
+                &options.style.region_radius_bottom_right,
+                &options.style.region_radius_bottom_left,
+                &options.style.hovered_split_width,
+                &options.style.picked_split_width,
+            ]
+            .into_iter()
+            .flatten()
+            {
+                require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+                require_literal_range(value, 0.0, None, "pane-grid style metric", span)?;
+            }
             if let Some(click) = &options.click {
                 infer_route(click, Some(Type::Str), env, document, signatures)?;
             }
@@ -4745,6 +4778,10 @@ state
 on close
 view
   pane-grid #work split=vertical
+    style
+      hovered-region background=primary/50 border=foreground border-width=2.0 radius=4.0 radius-tl=1.0 radius-tr=2.0 radius-br=3.0 radius-bl=4.0
+      hovered-split color=primary width=3.0
+      picked-split color=danger width=4.0
     pane files @bg-background border border-primary rounded
       title padding=4.0 padding-x=8.0 padding-top=6.0 always-controls @bg-primary text-white
         text "Files"
@@ -4791,6 +4828,24 @@ view
                 .unwrap_err();
         assert_eq!(error.code, "E042");
         assert!(error.message.contains("has no effect on `pane`"));
+
+        let error =
+            analyze(&source.replace("background=primary/50", "background=missing")).unwrap_err();
+        assert_eq!(error.code, "E187");
+        assert!(error.message.contains("unknown pane-grid style color"));
+
+        let error = analyze(&source.replace("width=3.0", "width=-1.0")).unwrap_err();
+        assert_eq!(error.code, "E128");
+        assert!(error.message.contains("pane-grid style metric"));
+
+        let error =
+            analyze(&source.replace("hovered-split color", "active-split color")).unwrap_err();
+        assert_eq!(error.code, "E187");
+        assert!(
+            error
+                .message
+                .contains("hovered-region, hovered-split, or picked-split")
+        );
     }
 
     #[test]

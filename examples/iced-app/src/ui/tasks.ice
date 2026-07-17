@@ -44,6 +44,10 @@ view
           text "No tasks yet." @text-sm text-muted
 
         pane-grid #workspace split=vertical ratio=0.7 width=fill height=fill spacing=8.0 min-size=120.0 resize=8.0 drag click=pane_clicked(_)
+          style
+            hovered-region background=primary/25 border=primary border-width=2.0 radius=8.0
+            hovered-split color=primary width=3.0
+            picked-split color=foreground width=3.0
           pane tasks @bg-surface border border-border rounded-lg
             title padding=12.0 always-controls @bg-background border border-border
               text "Task list" @text-lg font-bold text-foreground

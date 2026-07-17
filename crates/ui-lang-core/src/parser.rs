@@ -1990,17 +1990,39 @@ fn parse_pane_grid(parts: &[String], styles: Vec<String>, line: &Line) -> Result
             ));
         }
     }
+    let children = if line
+        .children
+        .first()
+        .is_some_and(|child| child.text == "style")
+    {
+        options.style = parse_pane_grid_style(&line.children[0])?;
+        &line.children[1..]
+    } else {
+        if line
+            .children
+            .iter()
+            .skip(1)
+            .any(|child| child.text == "style")
+        {
+            return Err(error(
+                "E187",
+                line,
+                "pane-grid `style` must be its first child",
+            ));
+        }
+        line.children.as_slice()
+    };
     let mut names = std::collections::HashSet::new();
     let mut panes = Vec::new();
     let configuration = if let Some(axis) = legacy_axis {
-        if line.children.len() < 2 {
+        if children.len() < 2 {
             return Err(error(
                 "E187",
                 line,
                 "pane-grid shorthand requires two open `pane name` children",
             ));
         }
-        let open = &line.children[..2];
+        let open = &children[..2];
         let a = parse_pane_configuration(&open[0], &mut names, &mut panes)?;
         let b = parse_pane_configuration(&open[1], &mut names, &mut panes)?;
         if !matches!(&a, PaneConfiguration::Pane(_)) || !matches!(&b, PaneConfiguration::Pane(_)) {
@@ -2010,7 +2032,7 @@ fn parse_pane_grid(parts: &[String], styles: Vec<String>, line: &Line) -> Result
                 "pane-grid shorthand accepts two open panes; use a nested split tree instead",
             ));
         }
-        for pane in &line.children[2..] {
+        for pane in &children[2..] {
             parse_closed_pane(pane, &mut names, &mut panes)?;
         }
         PaneConfiguration::Split {
@@ -2027,7 +2049,7 @@ fn parse_pane_grid(parts: &[String], styles: Vec<String>, line: &Line) -> Result
                 "pane-grid `ratio=` requires legacy `split=` or a nested split node",
             ));
         }
-        let (configuration, closed) = line.children.split_first().ok_or_else(|| {
+        let (configuration, closed) = children.split_first().ok_or_else(|| {
             error(
                 "E187",
                 line,
@@ -2047,6 +2069,95 @@ fn parse_pane_grid(parts: &[String], styles: Vec<String>, line: &Line) -> Result
         panes,
         span: Span::line(line.number),
     })
+}
+
+fn parse_pane_grid_style(line: &Line) -> Result<PaneGridStyle, Error> {
+    if line.children.is_empty() {
+        return Err(error(
+            "E187",
+            line,
+            "pane-grid style requires at least one status",
+        ));
+    }
+    let mut style = PaneGridStyle::default();
+    let mut statuses = std::collections::HashSet::new();
+    for status in &line.children {
+        if !status.children.is_empty() {
+            return Err(error("E187", status, "pane-grid style statuses are leaves"));
+        }
+        let parts = split_words(&status.text);
+        let kind = parts.first().map(String::as_str).unwrap_or("");
+        if !statuses.insert(kind.to_owned()) {
+            return Err(error(
+                "E187",
+                status,
+                format!("duplicate pane-grid style status `{kind}`"),
+            ));
+        }
+        if parts.len() == 1 {
+            return Err(error(
+                "E187",
+                status,
+                format!("pane-grid style status `{kind}` requires properties"),
+            ));
+        }
+        let parse = |value: &str| parse_expr(strip_wrapping_parens(value), status);
+        for part in &parts[1..] {
+            match kind {
+                "hovered-region" => {
+                    if let Some(value) = part.strip_prefix("background=") {
+                        style.region_background = Some(value.to_owned());
+                    } else if let Some(value) = part.strip_prefix("border=") {
+                        style.region_border = Some(value.to_owned());
+                    } else if let Some(value) = part.strip_prefix("border-width=") {
+                        style.region_border_width = Some(parse(value)?);
+                    } else if let Some(value) = part.strip_prefix("radius=") {
+                        style.region_radius = Some(parse(value)?);
+                    } else if let Some(value) = part.strip_prefix("radius-tl=") {
+                        style.region_radius_top_left = Some(parse(value)?);
+                    } else if let Some(value) = part.strip_prefix("radius-tr=") {
+                        style.region_radius_top_right = Some(parse(value)?);
+                    } else if let Some(value) = part.strip_prefix("radius-br=") {
+                        style.region_radius_bottom_right = Some(parse(value)?);
+                    } else if let Some(value) = part.strip_prefix("radius-bl=") {
+                        style.region_radius_bottom_left = Some(parse(value)?);
+                    } else {
+                        return Err(error(
+                            "E187",
+                            status,
+                            format!("unknown hovered-region style property `{part}`"),
+                        ));
+                    }
+                }
+                "hovered-split" | "picked-split" => {
+                    let (color, width) = if kind == "hovered-split" {
+                        (&mut style.hovered_split, &mut style.hovered_split_width)
+                    } else {
+                        (&mut style.picked_split, &mut style.picked_split_width)
+                    };
+                    if let Some(value) = part.strip_prefix("color=") {
+                        *color = Some(value.to_owned());
+                    } else if let Some(value) = part.strip_prefix("width=") {
+                        *width = Some(parse(value)?);
+                    } else {
+                        return Err(error(
+                            "E187",
+                            status,
+                            format!("unknown {kind} style property `{part}`"),
+                        ));
+                    }
+                }
+                _ => {
+                    return Err(error(
+                        "E187",
+                        status,
+                        "pane-grid style status must be hovered-region, hovered-split, or picked-split",
+                    ));
+                }
+            }
+        }
+    }
+    Ok(style)
 }
 
 fn parse_component_call(
