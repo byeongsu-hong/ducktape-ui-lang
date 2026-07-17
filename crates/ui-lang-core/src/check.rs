@@ -2049,6 +2049,13 @@ fn infer_subscriptions(
     signatures: &mut HashMap<String, Vec<Option<Type>>>,
 ) -> Result<(), Error> {
     for subscription in &document.subscriptions {
+        if let Some(condition) = &subscription.condition {
+            require_type(
+                &expr_type(condition, states, document, &subscription.span)?,
+                &Type::Bool,
+                &subscription.span,
+            )?;
+        }
         let ordered_payloads = match &subscription.source {
             SubscriptionSource::Every { .. } => Some(Vec::new()),
             SubscriptionSource::InputMethod(event) => Some(match event {
@@ -3148,8 +3155,11 @@ mod tests {
         let source = include_str!("../../../examples/iced-app/src/ui/timer.ice");
         analyze(source).unwrap();
 
-        let error =
-            analyze(&source.replace("every 250ms -> tick", "every 250ms -> tick _")).unwrap_err();
+        let error = analyze(&source.replace(
+            "every 250ms when auto_refresh -> tick",
+            "every 250ms when auto_refresh -> tick _",
+        ))
+        .unwrap_err();
         assert_eq!(error.code, "E129");
         assert!(error.message.contains("expects 0 payloads"));
 
@@ -3157,6 +3167,10 @@ mod tests {
             let error = analyze(&source.replace("250ms", invalid)).unwrap_err();
             assert_eq!(error.code, "E084");
         }
+
+        let error = analyze(&source.replace("when auto_refresh", "when 1")).unwrap_err();
+        assert_eq!(error.code, "E101");
+        assert!(error.message.contains("expected `bool`"));
     }
 
     #[test]

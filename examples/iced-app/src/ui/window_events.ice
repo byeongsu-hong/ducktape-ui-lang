@@ -6,6 +6,9 @@ theme
   primary #333333
   danger #ff0000
 
+state
+  listen_frames = true
+
 on frame
 
 on opened(x, y, width, height)
@@ -31,7 +34,7 @@ on file_dropped(path)
 on files_hovered_left
 
 subscribe
-  window frame -> frame
+  window frame when listen_frames -> frame
   window opened -> opened _ _ _ _
   window closed -> closed
   window moved -> moved _ _
