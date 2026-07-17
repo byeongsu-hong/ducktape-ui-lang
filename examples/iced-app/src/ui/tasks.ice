@@ -81,6 +81,15 @@ view
               container width=fill height=fill padding=16.0
                 col @gap-3
                   text "Drag, resize, or arrange this pane." @text-sm text-muted
+                  canvas width=fill height=160.0 cache=detail_mode capture=true cursor=crosshair press=canvas_pressed
+                    rect x=0.0 y=0.0 width=canvas_width height=canvas_height fill=linear(1.57, background@0.0, surface@1.0) stroke=border
+                    circle x=48.0 y=48.0 radius=28.0 fill=primary stroke=foreground stroke-width=2.0
+                    path fill=primary/25 stroke=primary stroke-width=2.0 cap=round join=round
+                      move x=96.0 y=112.0
+                      bezier ax=136.0 ay=24.0 bx=176.0 by=152.0 x=224.0 y=64.0
+                      line x=224.0 y=112.0
+                      close
+                    text detail_mode x=16.0 y=136.0 color=foreground size=14.0 font=default
                   row wrap @gap-2
                     radio "Summary" value="summary" selected=(detail_mode == "summary") size=16.0 spacing=6.0 text-size=14.0 line-height=1.2 shaping=advanced wrapping=word font=default -> detail_mode_changed _
                       active selected background=linear(1.57, primary@0.0, surface@1.0) dot=foreground border=primary border-width=2.0 text=foreground

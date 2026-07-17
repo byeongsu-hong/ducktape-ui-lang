@@ -35,6 +35,8 @@ on about_link(url)
 
 on pane_clicked(name)
 
+on canvas_pressed(x, y)
+
 on maximize_details
   pane #workspace maximize details
 

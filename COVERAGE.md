@@ -15,7 +15,7 @@ counts toward the row below.
 
 ## Typed system reachability
 
-Ice 0.76 has three checked Rust boundaries:
+Ice 0.77 has three checked Rust boundaries:
 
 | Boundary | Rust ABI | Covers |
 | --- | --- | --- |
@@ -32,7 +32,7 @@ public behavior has direct documented Ice syntax and tests.
 | iced surface | Ice status | Current representation / missing work |
 | --- | --- | --- |
 | `button` | partial | native string or arbitrary child content, disabled route, typed size/padding/clip, all eight iced presets and all concrete fields for active/hovered/pressed/disabled styles including linear backgrounds; advanced classes remain |
-| `canvas` | missing | drawing program, geometry, cache, events |
+| `canvas` | partial | native declarative rectangle/circle/line/text/path geometry; complete path builder segments, fill rules, solid/linear fill and stroke, caps/joins/dashes, transforms, clips, typed `if`/`for`, dependency-keyed geometry cache, pointer routes/capture and cursor interaction; image/SVG drawing, cache groups, custom program state, arbitrary events and scheduled redraw remain |
 | `checkbox` | partial | native label/value/disabled event, size/width/spacing, text typography/wrapping, complete font descriptors and custom icon; all four presets and every concrete Style field across active/hovered/disabled checked and unchecked statuses; advanced classes remain |
 | `column` | native | children, typed spacing/per-side padding, all `Length` bounds, max width, cross-axis alignment, clipping and wrapping column spacing/alignment |
 | `combo_box` | partial | native typed replaceable search state/selection, every builder setter, complete text-input icon, every concrete input Style field across active/hovered/focused/focused-hovered/disabled statuses, complete menu overlay Style fields, and all events; advanced classes and direct incremental State mutation remain |

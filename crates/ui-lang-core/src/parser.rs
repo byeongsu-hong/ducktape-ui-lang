@@ -1414,6 +1414,7 @@ fn parse_view(line: &Line) -> Result<ViewNode, Error> {
         "image" | "svg" | "viewer" => parse_media(kind, &parts, styles, line),
         "tooltip" => parse_tooltip(&parts, styles, line),
         "mouse" => parse_mouse_area(&parts, styles, line),
+        "canvas" => parse_canvas(&parts, styles, line),
         "theme" => parse_theme(&parts, styles, line),
         "slot" => parse_slot(&parts, styles, line),
         "keyed" => parse_keyed_column(&parts, styles, line),
@@ -3981,6 +3982,625 @@ fn parse_mouse_interaction(source: &str, line: &Line) -> Result<MouseInteraction
         "zoom-out" => MouseInteraction::ZoomOut,
         _ => return Err(error("E087", line, format!("unknown cursor `{source}`"))),
     })
+}
+
+fn parse_canvas(parts: &[String], styles: Vec<String>, line: &Line) -> Result<ViewNode, Error> {
+    if !styles.is_empty() {
+        return Err(error("E190", line, "canvas does not accept `@` utilities"));
+    }
+    let mut options = CanvasOptions::default();
+    for part in &parts[1..] {
+        let expr = |value: &str| parse_expr(strip_wrapping_parens(value), line);
+        if let Some(value) = part.strip_prefix("width=") {
+            options.width = Some(parse_length(value, line)?);
+        } else if let Some(value) = part.strip_prefix("height=") {
+            options.height = Some(parse_length(value, line)?);
+        } else if let Some(value) = part.strip_prefix("cache=") {
+            options.cache = Some(expr(value)?);
+        } else if let Some(value) = part.strip_prefix("capture=") {
+            options.capture = Some(expr(value)?);
+        } else if let Some(value) = part.strip_prefix("press=") {
+            options.press = Some(parse_payload_route(value, line, 2)?);
+        } else if let Some(value) = part.strip_prefix("release=") {
+            options.release = Some(parse_payload_route(value, line, 2)?);
+        } else if let Some(value) = part.strip_prefix("right_press=") {
+            options.right_press = Some(parse_payload_route(value, line, 2)?);
+        } else if let Some(value) = part.strip_prefix("right_release=") {
+            options.right_release = Some(parse_payload_route(value, line, 2)?);
+        } else if let Some(value) = part.strip_prefix("middle_press=") {
+            options.middle_press = Some(parse_payload_route(value, line, 2)?);
+        } else if let Some(value) = part.strip_prefix("middle_release=") {
+            options.middle_release = Some(parse_payload_route(value, line, 2)?);
+        } else if let Some(value) = part.strip_prefix("enter=") {
+            options.enter = Some(parse_route(value, line)?);
+        } else if let Some(value) = part.strip_prefix("move=") {
+            options.move_route = Some(parse_payload_route(value, line, 2)?);
+        } else if let Some(value) = part.strip_prefix("scroll=") {
+            options.scroll = Some(parse_payload_route(value, line, 3)?);
+        } else if let Some(value) = part.strip_prefix("exit=") {
+            options.exit = Some(parse_route(value, line)?);
+        } else if let Some(value) = part.strip_prefix("cursor=") {
+            options.interaction = Some(parse_mouse_interaction(value, line)?);
+        } else {
+            return Err(error(
+                "E190",
+                line,
+                format!("unknown canvas property `{part}`"),
+            ));
+        }
+    }
+    Ok(ViewNode::Canvas {
+        options: Box::new(options),
+        commands: parse_canvas_commands(&line.children)?,
+        span: Span::line(line.number),
+    })
+}
+
+fn parse_canvas_commands(lines: &[Line]) -> Result<Vec<CanvasCommand>, Error> {
+    lines.iter().map(parse_canvas_command).collect()
+}
+
+fn parse_canvas_command(line: &Line) -> Result<CanvasCommand, Error> {
+    if let Some(condition) = line.text.strip_prefix("if ") {
+        return Ok(CanvasCommand::If {
+            condition: parse_expr(condition, line)?,
+            commands: parse_canvas_commands(&line.children)?,
+            span: Span::line(line.number),
+        });
+    }
+    if let Some(source) = line.text.strip_prefix("for ") {
+        let (item, items) = source
+            .split_once(" in ")
+            .ok_or_else(|| error("E190", line, "canvas loops use `for item in items`"))?;
+        return Ok(CanvasCommand::For {
+            item: identifier(item.trim(), line)?,
+            items: parse_expr(items.trim(), line)?,
+            commands: parse_canvas_commands(&line.children)?,
+            span: Span::line(line.number),
+        });
+    }
+    let (core, styles) = split_style_utilities(&line.text);
+    if !styles.is_empty() {
+        return Err(error(
+            "E190",
+            line,
+            "canvas drawing commands do not accept `@` utilities",
+        ));
+    }
+    let parts = split_words(core);
+    let kind = parts
+        .first()
+        .map(String::as_str)
+        .ok_or_else(|| error("E190", line, "empty canvas command"))?;
+    let span = Span::line(line.number);
+    match kind {
+        "rect" => {
+            ensure_leaf(line)?;
+            let fields = canvas_fields(
+                &parts[1..],
+                &[
+                    "x",
+                    "y",
+                    "width",
+                    "height",
+                    "radius",
+                    "radius-tl",
+                    "radius-tr",
+                    "radius-br",
+                    "radius-bl",
+                    "fill",
+                    "fill-rule",
+                    "stroke",
+                    "stroke-width",
+                    "cap",
+                    "join",
+                    "dash",
+                    "dash-offset",
+                ],
+                line,
+            )?;
+            let paint = parse_canvas_paint(&fields, line)?;
+            require_canvas_paint(&paint, line)?;
+            Ok(CanvasCommand::Rectangle {
+                x: canvas_required_expr(&fields, "x", line)?,
+                y: canvas_required_expr(&fields, "y", line)?,
+                width: canvas_required_expr(&fields, "width", line)?,
+                height: canvas_required_expr(&fields, "height", line)?,
+                radius: Box::new(parse_canvas_radius(&fields, line)?),
+                paint: Box::new(paint),
+                span,
+            })
+        }
+        "circle" => {
+            ensure_leaf(line)?;
+            let fields = canvas_fields(
+                &parts[1..],
+                &[
+                    "x",
+                    "y",
+                    "radius",
+                    "fill",
+                    "fill-rule",
+                    "stroke",
+                    "stroke-width",
+                    "cap",
+                    "join",
+                    "dash",
+                    "dash-offset",
+                ],
+                line,
+            )?;
+            let paint = parse_canvas_paint(&fields, line)?;
+            require_canvas_paint(&paint, line)?;
+            Ok(CanvasCommand::Circle {
+                x: canvas_required_expr(&fields, "x", line)?,
+                y: canvas_required_expr(&fields, "y", line)?,
+                radius: canvas_required_expr(&fields, "radius", line)?,
+                paint: Box::new(paint),
+                span,
+            })
+        }
+        "line" => {
+            ensure_leaf(line)?;
+            let fields = canvas_fields(
+                &parts[1..],
+                &[
+                    "x1",
+                    "y1",
+                    "x2",
+                    "y2",
+                    "stroke",
+                    "stroke-width",
+                    "cap",
+                    "join",
+                    "dash",
+                    "dash-offset",
+                ],
+                line,
+            )?;
+            Ok(CanvasCommand::Line {
+                x1: canvas_required_expr(&fields, "x1", line)?,
+                y1: canvas_required_expr(&fields, "y1", line)?,
+                x2: canvas_required_expr(&fields, "x2", line)?,
+                y2: canvas_required_expr(&fields, "y2", line)?,
+                stroke: Box::new(
+                    parse_canvas_stroke(&fields, line)?.ok_or_else(|| {
+                        error("E190", line, "canvas line requires `stroke=color`")
+                    })?,
+                ),
+                span,
+            })
+        }
+        "text" => parse_canvas_text(&parts, line),
+        "path" => {
+            let fields = canvas_fields(
+                &parts[1..],
+                &[
+                    "fill",
+                    "fill-rule",
+                    "stroke",
+                    "stroke-width",
+                    "cap",
+                    "join",
+                    "dash",
+                    "dash-offset",
+                ],
+                line,
+            )?;
+            if line.children.is_empty() {
+                return Err(error("E190", line, "canvas path requires path segments"));
+            }
+            let paint = parse_canvas_paint(&fields, line)?;
+            require_canvas_paint(&paint, line)?;
+            Ok(CanvasCommand::Path {
+                segments: line
+                    .children
+                    .iter()
+                    .map(parse_canvas_path_segment)
+                    .collect::<Result<_, _>>()?,
+                paint: Box::new(paint),
+                span,
+            })
+        }
+        "group" => {
+            let fields = canvas_fields(
+                &parts[1..],
+                &["x", "y", "rotate", "scale", "scale-x", "scale-y", "clip"],
+                line,
+            )?;
+            let clip = fields
+                .get("clip")
+                .map(|value| {
+                    parse_expr_list(strip_wrapping_parens(value), line)?
+                        .try_into()
+                        .map_err(|_| error("E190", line, "canvas clip needs x, y, width, height"))
+                })
+                .transpose()?;
+            Ok(CanvasCommand::Group {
+                transform: Box::new(CanvasTransform {
+                    x: canvas_optional_expr(&fields, "x", line)?,
+                    y: canvas_optional_expr(&fields, "y", line)?,
+                    rotate: canvas_optional_expr(&fields, "rotate", line)?,
+                    scale: canvas_optional_expr(&fields, "scale", line)?,
+                    scale_x: canvas_optional_expr(&fields, "scale-x", line)?,
+                    scale_y: canvas_optional_expr(&fields, "scale-y", line)?,
+                    clip,
+                }),
+                commands: parse_canvas_commands(&line.children)?,
+                span,
+            })
+        }
+        _ => Err(error(
+            "E190",
+            line,
+            format!("unknown canvas command `{kind}`"),
+        )),
+    }
+}
+
+fn parse_canvas_text(parts: &[String], line: &Line) -> Result<CanvasCommand, Error> {
+    ensure_leaf(line)?;
+    let value = parts
+        .get(1)
+        .ok_or_else(|| error("E190", line, "canvas text requires a value"))?;
+    let fields = canvas_fields(
+        &parts[2..],
+        &[
+            "x",
+            "y",
+            "max-width",
+            "color",
+            "size",
+            "line-height",
+            "line-height-px",
+            "font",
+            "align-x",
+            "align-y",
+            "shaping",
+        ],
+        line,
+    )?;
+    if fields.contains_key("line-height") && fields.contains_key("line-height-px") {
+        return Err(error(
+            "E190",
+            line,
+            "canvas text accepts only one line-height property",
+        ));
+    }
+    let line_height = if let Some(value) = fields.get("line-height") {
+        Some(TextLineHeight::Relative(parse_expr(
+            strip_wrapping_parens(value),
+            line,
+        )?))
+    } else if let Some(value) = fields.get("line-height-px") {
+        Some(TextLineHeight::Absolute(parse_expr(
+            strip_wrapping_parens(value),
+            line,
+        )?))
+    } else {
+        None
+    };
+    let align_x = fields
+        .get("align-x")
+        .map(|value| match value.as_str() {
+            "default" => Ok(TextAlignment::Default),
+            "left" => Ok(TextAlignment::Left),
+            "center" => Ok(TextAlignment::Center),
+            "right" => Ok(TextAlignment::Right),
+            "justified" => Ok(TextAlignment::Justified),
+            _ => Err(error(
+                "E190",
+                line,
+                "unknown canvas text horizontal alignment",
+            )),
+        })
+        .transpose()?;
+    let align_y = fields
+        .get("align-y")
+        .map(|value| match value.as_str() {
+            "top" => Ok(VerticalAlignment::Top),
+            "center" => Ok(VerticalAlignment::Center),
+            "bottom" => Ok(VerticalAlignment::Bottom),
+            _ => Err(error(
+                "E190",
+                line,
+                "unknown canvas text vertical alignment",
+            )),
+        })
+        .transpose()?;
+    Ok(CanvasCommand::Text {
+        value: parse_expr(value, line)?,
+        x: canvas_required_expr(&fields, "x", line)?,
+        y: canvas_required_expr(&fields, "y", line)?,
+        max_width: canvas_optional_expr(&fields, "max-width", line)?,
+        color: fields.get("color").cloned(),
+        size: canvas_optional_expr(&fields, "size", line)?,
+        line_height,
+        font: fields
+            .get("font")
+            .map(|value| parse_font_preset(value, line))
+            .transpose()?,
+        align_x,
+        align_y,
+        shaping: fields
+            .get("shaping")
+            .map(|value| parse_text_shaping(value, line, "E190"))
+            .transpose()?,
+        span: Span::line(line.number),
+    })
+}
+
+fn parse_canvas_path_segment(line: &Line) -> Result<CanvasPathSegment, Error> {
+    ensure_leaf(line)?;
+    let parts = split_words(&line.text);
+    let kind = parts
+        .first()
+        .map(String::as_str)
+        .ok_or_else(|| error("E190", line, "empty canvas path segment"))?;
+    let allowed = match kind {
+        "move" | "line" => &["x", "y"][..],
+        "arc" => &["x", "y", "radius", "start", "end"],
+        "arc-to" => &["ax", "ay", "bx", "by", "radius"],
+        "ellipse" => &["x", "y", "radius-x", "radius-y", "rotation", "start", "end"],
+        "bezier" => &["ax", "ay", "bx", "by", "x", "y"],
+        "quadratic" => &["cx", "cy", "x", "y"],
+        "rect" => &["x", "y", "width", "height"],
+        "rounded" => &[
+            "x",
+            "y",
+            "width",
+            "height",
+            "radius",
+            "radius-tl",
+            "radius-tr",
+            "radius-br",
+            "radius-bl",
+        ],
+        "circle" => &["x", "y", "radius"],
+        "close" if parts.len() == 1 => return Ok(CanvasPathSegment::Close),
+        _ => {
+            return Err(error(
+                "E190",
+                line,
+                format!("unknown canvas path segment `{kind}`"),
+            ));
+        }
+    };
+    let fields = canvas_fields(&parts[1..], allowed, line)?;
+    if kind == "rounded"
+        && !["radius", "radius-tl", "radius-tr", "radius-br", "radius-bl"]
+            .iter()
+            .any(|name| fields.contains_key(*name))
+    {
+        return Err(error(
+            "E190",
+            line,
+            "rounded path segment requires a radius",
+        ));
+    }
+    let value = |name| canvas_required_expr(&fields, name, line);
+    Ok(match kind {
+        "move" => CanvasPathSegment::Move(value("x")?, value("y")?),
+        "line" => CanvasPathSegment::Line(value("x")?, value("y")?),
+        "arc" => CanvasPathSegment::Arc {
+            x: value("x")?,
+            y: value("y")?,
+            radius: value("radius")?,
+            start: value("start")?,
+            end: value("end")?,
+        },
+        "arc-to" => CanvasPathSegment::ArcTo {
+            ax: value("ax")?,
+            ay: value("ay")?,
+            bx: value("bx")?,
+            by: value("by")?,
+            radius: value("radius")?,
+        },
+        "ellipse" => CanvasPathSegment::Ellipse {
+            x: value("x")?,
+            y: value("y")?,
+            radius_x: value("radius-x")?,
+            radius_y: value("radius-y")?,
+            rotation: value("rotation")?,
+            start: value("start")?,
+            end: value("end")?,
+        },
+        "bezier" => CanvasPathSegment::Bezier {
+            control_ax: value("ax")?,
+            control_ay: value("ay")?,
+            control_bx: value("bx")?,
+            control_by: value("by")?,
+            x: value("x")?,
+            y: value("y")?,
+        },
+        "quadratic" => CanvasPathSegment::Quadratic {
+            control_x: value("cx")?,
+            control_y: value("cy")?,
+            x: value("x")?,
+            y: value("y")?,
+        },
+        "rect" => CanvasPathSegment::Rectangle {
+            x: value("x")?,
+            y: value("y")?,
+            width: value("width")?,
+            height: value("height")?,
+        },
+        "rounded" => CanvasPathSegment::RoundedRectangle {
+            x: value("x")?,
+            y: value("y")?,
+            width: value("width")?,
+            height: value("height")?,
+            radius: parse_canvas_radius(&fields, line)?,
+        },
+        "circle" => CanvasPathSegment::Circle {
+            x: value("x")?,
+            y: value("y")?,
+            radius: value("radius")?,
+        },
+        _ => unreachable!("canvas path kind checked above"),
+    })
+}
+
+fn canvas_fields(
+    parts: &[String],
+    allowed: &[&str],
+    line: &Line,
+) -> Result<BTreeMap<String, String>, Error> {
+    let mut fields = BTreeMap::new();
+    for part in parts {
+        let (name, value) = part.split_once('=').ok_or_else(|| {
+            error(
+                "E190",
+                line,
+                format!("canvas properties use `name=value`, got `{part}`"),
+            )
+        })?;
+        if !allowed.contains(&name) {
+            return Err(error(
+                "E190",
+                line,
+                format!("unknown canvas property `{name}`"),
+            ));
+        }
+        if value.is_empty() || fields.insert(name.to_owned(), value.to_owned()).is_some() {
+            return Err(error(
+                "E190",
+                line,
+                format!("invalid or duplicate canvas property `{name}`"),
+            ));
+        }
+    }
+    Ok(fields)
+}
+
+fn canvas_required_expr(
+    fields: &BTreeMap<String, String>,
+    name: &str,
+    line: &Line,
+) -> Result<Expr, Error> {
+    fields
+        .get(name)
+        .ok_or_else(|| error("E190", line, format!("canvas command requires `{name}=`")))
+        .and_then(|value| parse_expr(strip_wrapping_parens(value), line))
+}
+
+fn canvas_optional_expr(
+    fields: &BTreeMap<String, String>,
+    name: &str,
+    line: &Line,
+) -> Result<Option<Expr>, Error> {
+    fields
+        .get(name)
+        .map(|value| parse_expr(strip_wrapping_parens(value), line))
+        .transpose()
+}
+
+fn parse_canvas_radius(
+    fields: &BTreeMap<String, String>,
+    line: &Line,
+) -> Result<CanvasRadius, Error> {
+    Ok(CanvasRadius {
+        all: canvas_optional_expr(fields, "radius", line)?,
+        top_left: canvas_optional_expr(fields, "radius-tl", line)?,
+        top_right: canvas_optional_expr(fields, "radius-tr", line)?,
+        bottom_right: canvas_optional_expr(fields, "radius-br", line)?,
+        bottom_left: canvas_optional_expr(fields, "radius-bl", line)?,
+    })
+}
+
+fn parse_canvas_paint(
+    fields: &BTreeMap<String, String>,
+    line: &Line,
+) -> Result<CanvasPaint, Error> {
+    let fill_rule = match fields.get("fill-rule").map(String::as_str) {
+        None | Some("non-zero") => CanvasFillRule::NonZero,
+        Some("even-odd") => CanvasFillRule::EvenOdd,
+        Some(_) => {
+            return Err(error(
+                "E190",
+                line,
+                "fill-rule must be non-zero or even-odd",
+            ));
+        }
+    };
+    Ok(CanvasPaint {
+        fill: fields
+            .get("fill")
+            .map(|value| parse_background_value(value, line))
+            .transpose()?,
+        fill_rule,
+        stroke: parse_canvas_stroke(fields, line)?,
+    })
+}
+
+fn require_canvas_paint(paint: &CanvasPaint, line: &Line) -> Result<(), Error> {
+    if paint.fill.is_none() && paint.stroke.is_none() {
+        Err(error(
+            "E190",
+            line,
+            "canvas shape requires `fill=` or `stroke=`",
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+fn parse_canvas_stroke(
+    fields: &BTreeMap<String, String>,
+    line: &Line,
+) -> Result<Option<CanvasStroke>, Error> {
+    let Some(style) = fields.get("stroke") else {
+        if ["stroke-width", "cap", "join", "dash", "dash-offset"]
+            .iter()
+            .any(|name| fields.contains_key(*name))
+        {
+            return Err(error("E190", line, "stroke options require `stroke=color`"));
+        }
+        return Ok(None);
+    };
+    let cap = match fields.get("cap").map(String::as_str) {
+        None | Some("butt") => CanvasLineCap::Butt,
+        Some("square") => CanvasLineCap::Square,
+        Some("round") => CanvasLineCap::Round,
+        Some(_) => {
+            return Err(error(
+                "E190",
+                line,
+                "canvas line cap must be butt, square, or round",
+            ));
+        }
+    };
+    let join = match fields.get("join").map(String::as_str) {
+        None | Some("miter") => CanvasLineJoin::Miter,
+        Some("round") => CanvasLineJoin::Round,
+        Some("bevel") => CanvasLineJoin::Bevel,
+        Some(_) => {
+            return Err(error(
+                "E190",
+                line,
+                "canvas line join must be miter, round, or bevel",
+            ));
+        }
+    };
+    let dash = fields
+        .get("dash")
+        .map(|value| parse_expr_list(strip_wrapping_parens(value), line))
+        .transpose()?
+        .unwrap_or_default();
+    Ok(Some(CanvasStroke {
+        style: parse_background_value(style, line)?,
+        width: fields.get("stroke-width").map_or_else(
+            || Ok(Expr::F64(1.0)),
+            |value| parse_expr(strip_wrapping_parens(value), line),
+        )?,
+        cap,
+        join,
+        dash,
+        dash_offset: fields.get("dash-offset").map_or_else(
+            || Ok(Expr::I64(0)),
+            |value| parse_expr(strip_wrapping_parens(value), line),
+        )?,
+    }))
 }
 
 fn parse_extern_component(
