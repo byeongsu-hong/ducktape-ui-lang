@@ -633,6 +633,7 @@ fn parse_view(line: &Line) -> Result<ViewNode, Error> {
         "image" | "svg" => parse_media(kind, &parts, styles, line),
         "tooltip" => parse_tooltip(&parts, styles, line),
         "mouse" => parse_mouse_area(&parts, styles, line),
+        "theme" => parse_theme(&parts, styles, line),
         "float" => parse_float(&parts, styles, line),
         "pin" => parse_pin(&parts, styles, line),
         "sensor" => parse_sensor(&parts, styles, line),
@@ -653,6 +654,78 @@ fn parse_view(line: &Line) -> Result<ViewNode, Error> {
             })
         }
         _ => Err(error("E064", line, format!("unknown view node `{kind}`"))),
+    }
+}
+
+fn parse_theme(parts: &[String], styles: Vec<String>, line: &Line) -> Result<ViewNode, Error> {
+    if !styles.is_empty() {
+        return Err(error("E094", line, "theme does not accept `@` utilities"));
+    }
+    if line.children.len() != 1 {
+        return Err(error("E094", line, "theme requires exactly one child"));
+    }
+    let mut preset = ThemePreset::Default;
+    let mut text = None;
+    let mut background = None;
+    let mut start = 1;
+    if let Some(value) = parts.get(1)
+        && !value.contains('=')
+    {
+        preset = parse_theme_preset(value, line)?;
+        start = 2;
+    }
+    for part in &parts[start..] {
+        if let Some(value) = part.strip_prefix("text=") {
+            text = Some(value.to_owned());
+        } else if let Some(value) = part.strip_prefix("background=") {
+            background = Some(value.to_owned());
+        } else {
+            return Err(error(
+                "E094",
+                line,
+                format!("unknown theme property `{part}`"),
+            ));
+        }
+    }
+    Ok(ViewNode::Theme {
+        preset,
+        text,
+        background,
+        content: Box::new(parse_view(&line.children[0])?),
+        span: Span::line(line.number),
+    })
+}
+
+fn parse_theme_preset(value: &str, line: &Line) -> Result<ThemePreset, Error> {
+    const BUILT_INS: &[&str] = &[
+        "light",
+        "dark",
+        "dracula",
+        "nord",
+        "solarized-light",
+        "solarized-dark",
+        "gruvbox-light",
+        "gruvbox-dark",
+        "catppuccin-latte",
+        "catppuccin-frappe",
+        "catppuccin-macchiato",
+        "catppuccin-mocha",
+        "tokyo-night",
+        "tokyo-night-storm",
+        "tokyo-night-light",
+        "kanagawa-wave",
+        "kanagawa-dragon",
+        "kanagawa-lotus",
+        "moonfly",
+        "nightfly",
+        "oxocarbon",
+        "ferra",
+    ];
+    match value {
+        "default" => Ok(ThemePreset::Default),
+        "app" => Ok(ThemePreset::App),
+        value if BUILT_INS.contains(&value) => Ok(ThemePreset::BuiltIn(value.into())),
+        _ => Err(error("E094", line, format!("unknown iced theme `{value}`"))),
     }
 }
 
@@ -3141,5 +3214,39 @@ view
         let error = parse(&source).unwrap_err();
         assert_eq!(error.code, "E093");
         assert!(error.message.contains("needs a name"));
+    }
+
+    #[test]
+    fn accepts_every_built_in_nested_theme() {
+        for preset in [
+            "light",
+            "dark",
+            "dracula",
+            "nord",
+            "solarized-light",
+            "solarized-dark",
+            "gruvbox-light",
+            "gruvbox-dark",
+            "catppuccin-latte",
+            "catppuccin-frappe",
+            "catppuccin-macchiato",
+            "catppuccin-mocha",
+            "tokyo-night",
+            "tokyo-night-storm",
+            "tokyo-night-light",
+            "kanagawa-wave",
+            "kanagawa-dragon",
+            "kanagawa-lotus",
+            "moonfly",
+            "nightfly",
+            "oxocarbon",
+            "ferra",
+        ] {
+            let source = SOURCE.replace(
+                "view\n  input",
+                &format!("view\n  theme {preset}\n    input"),
+            );
+            parse(&source).unwrap_or_else(|error| panic!("{preset}: {error:?}"));
+        }
     }
 }

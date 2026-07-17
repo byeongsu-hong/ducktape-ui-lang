@@ -1274,6 +1274,31 @@ fn render_node(
             }
             Ok(format!("{code}.into() }}"))
         }
+        ViewNode::Theme {
+            preset,
+            text,
+            background,
+            content,
+            ..
+        } => {
+            let content = render_node(content, document, message, env, scope)?;
+            let mut code = format!(
+                "{{ let __theme_content: ::iced::Element<'_, {message}> = {content}; ::iced::widget::themer({}, __theme_content)",
+                theme_preset_code(preset)
+            );
+            if let Some(color) = text {
+                write!(code, ".text_color(|_| {})", theme_color(document, color)).unwrap();
+            }
+            if let Some(color) = background {
+                write!(
+                    code,
+                    ".background(|_| ::iced::Background::Color({}))",
+                    theme_color(document, color)
+                )
+                .unwrap();
+            }
+            Ok(format!("{code}.into() }}"))
+        }
         ViewNode::Float {
             scale,
             x,
@@ -2084,7 +2109,9 @@ fn input_bindings(root: &ViewNode) -> Vec<String> {
                 collect(content, output);
                 collect(tip, output);
             }
-            ViewNode::MouseArea { content, .. } => collect(content, output),
+            ViewNode::MouseArea { content, .. } | ViewNode::Theme { content, .. } => {
+                collect(content, output)
+            }
             ViewNode::Button {
                 content: Some(content),
                 ..
@@ -2115,7 +2142,9 @@ fn needs_extern_noop(document: &Document) -> bool {
             | ViewNode::If { children, .. }
             | ViewNode::For { children, .. } => children.iter().any(contains),
             ViewNode::Tooltip { content, tip, .. } => contains(content) || contains(tip),
-            ViewNode::MouseArea { content, .. } => contains(content),
+            ViewNode::MouseArea { content, .. } | ViewNode::Theme { content, .. } => {
+                contains(content)
+            }
             ViewNode::Button {
                 content: Some(content),
                 ..
@@ -3098,6 +3127,17 @@ fn theme_color(document: &Document, token: &str) -> String {
     color_code(value, opacity)
 }
 
+fn theme_preset_code(preset: &ThemePreset) -> String {
+    match preset {
+        ThemePreset::Default => "::std::option::Option::None".into(),
+        ThemePreset::App => "::std::option::Option::Some(Self::__theme(self))".into(),
+        ThemePreset::BuiltIn(name) => format!(
+            "::std::option::Option::Some(::iced::Theme::{})",
+            pascal(name)
+        ),
+    }
+}
+
 fn qr_data_code(qr: &QrData) -> String {
     let module = "::iced::widget::qr_code";
     let data = match &qr.data {
@@ -3164,7 +3204,7 @@ fn rust_f64(value: f64) -> String {
 
 fn pascal(value: &str) -> String {
     value
-        .split('_')
+        .split(['_', '-'])
         .filter(|part| !part.is_empty())
         .map(|part| {
             let mut chars = part.chars();
@@ -3240,6 +3280,34 @@ view
             "::iced::widget::qr_code(&self.corrected).total_size(120.0 as f32).style(|theme|"
         ));
         assert!(generated.contains("qr_code::Style { cell: ::iced::Color"));
+    }
+
+    #[test]
+    fn lowers_nested_iced_themes() {
+        let source = r#"app Themes
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+  surface #111111
+view
+  col
+    theme app
+      text "App theme"
+    theme tokyo-night text=foreground background=surface
+      text "Built-in theme"
+    theme
+      text "Default mode"
+"#;
+        let generated = compile(source, "themes.ice").unwrap();
+        assert!(generated.contains("themer(::std::option::Option::Some(Self::__theme(self))"));
+        assert!(
+            generated.contains("themer(::std::option::Option::Some(::iced::Theme::TokyoNight)")
+        );
+        assert!(generated.contains(".text_color(|_| ::iced::Color"));
+        assert!(generated.contains(".background(|_| ::iced::Background::Color"));
+        assert!(generated.contains("themer(::std::option::Option::None"));
     }
 
     #[test]

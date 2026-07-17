@@ -378,6 +378,13 @@ pub enum ViewNode {
         content: Box<ViewNode>,
         span: Span,
     },
+    Theme {
+        preset: ThemePreset,
+        text: Option<String>,
+        background: Option<String>,
+        content: Box<ViewNode>,
+        span: Span,
+    },
     Float {
         scale: Expr,
         x: Expr,
@@ -404,6 +411,13 @@ pub enum ViewNode {
         height: Option<LengthValue>,
         span: Span,
     },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ThemePreset {
+    Default,
+    App,
+    BuiltIn(String),
 }
 
 #[derive(Clone, Debug)]
