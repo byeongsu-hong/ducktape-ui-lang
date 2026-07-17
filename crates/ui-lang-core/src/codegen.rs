@@ -503,24 +503,17 @@ fn generate_boot(out: &mut String, document: &Document, message: &str) -> Result
     for node in pane_grids(&document.view) {
         let ViewNode::PaneGrid {
             name,
-            axis,
-            ratio,
-            panes,
+            configuration,
             ..
         } = node
         else {
             unreachable!()
         };
-        let axis = match axis {
-            PaneAxis::Horizontal => "Horizontal",
-            PaneAxis::Vertical => "Vertical",
-        };
         writeln!(
             out,
-            "{}: ::iced::widget::pane_grid::State::with_configuration(::iced::widget::pane_grid::Configuration::Split {{ axis: ::iced::widget::pane_grid::Axis::{axis}, ratio: {ratio:?}, a: ::std::boxed::Box::new(::iced::widget::pane_grid::Configuration::Pane({})), b: ::std::boxed::Box::new(::iced::widget::pane_grid::Configuration::Pane({})) }}),",
+            "{}: ::iced::widget::pane_grid::State::with_configuration({}),",
             pane_field(name),
-            rust_string(&panes[0].name),
-            rust_string(&panes[1].name)
+            pane_configuration_code(configuration)
         )
         .unwrap();
     }
@@ -1186,6 +1179,10 @@ fn generate_statements(
                     PaneEdge::Right => "Right",
                     PaneEdge::Bottom => "Bottom",
                 };
+                let axis = |axis: &PaneAxis| match axis {
+                    PaneAxis::Horizontal => "Horizontal",
+                    PaneAxis::Vertical => "Vertical",
+                };
                 match operation {
                     PaneOperation::Maximize { pane: name } => writeln!(
                         out,
@@ -1244,6 +1241,21 @@ fn generate_statements(
                         )
                         .unwrap();
                     }
+                    PaneOperation::Split {
+                        target,
+                        pane: name,
+                        axis: direction,
+                        ratio,
+                    } => writeln!(
+                        out,
+                        "{{ let __target = {}; let __pane = {}; if let (::std::option::Option::Some(__target), ::std::option::Option::None) = (__target, __pane) {{ if let ::std::option::Option::Some((_, __split)) = {state}.{field}.split(::iced::widget::pane_grid::Axis::{}, __target, {}) {{ {state}.{field}.resize(__split, ({}) as f32); }} }} }}",
+                        pane(target),
+                        pane(name),
+                        axis(direction),
+                        rust_string(name),
+                        expr_code(ratio, env, document, ValueMode::Owned)?
+                    )
+                    .unwrap(),
                     PaneOperation::Maximized | PaneOperation::Adjacent { .. } => {
                         has_task = true;
                         let value = match operation {
@@ -4002,6 +4014,26 @@ fn pane_field(name: &str) -> String {
     format!("__pane_{name}")
 }
 
+fn pane_configuration_code(configuration: &PaneConfiguration) -> String {
+    match configuration {
+        PaneConfiguration::Pane(name) => format!(
+            "::iced::widget::pane_grid::Configuration::Pane({})",
+            rust_string(name)
+        ),
+        PaneConfiguration::Split { axis, ratio, a, b } => {
+            let axis = match axis {
+                PaneAxis::Horizontal => "Horizontal",
+                PaneAxis::Vertical => "Vertical",
+            };
+            format!(
+                "::iced::widget::pane_grid::Configuration::Split {{ axis: ::iced::widget::pane_grid::Axis::{axis}, ratio: {ratio:?}, a: ::std::boxed::Box::new({}), b: ::std::boxed::Box::new({}) }}",
+                pane_configuration_code(a),
+                pane_configuration_code(b)
+            )
+        }
+    }
+}
+
 fn pane_resize_variant(name: &str) -> String {
     format!("__Pane{}Resize", pascal(name))
 }
@@ -5895,6 +5927,42 @@ view
     }
 
     #[test]
+    fn lowers_nested_pane_configuration_and_closed_templates() {
+        let source = r#"app Workspace
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+on open_preview
+  pane #work split editor preview horizontal ratio=0.4
+view
+  pane-grid #work width=fill height=fill
+    split vertical ratio=0.7
+      pane files
+        text "Files"
+      split horizontal ratio=0.6
+        pane editor
+          text "Editor"
+        pane terminal
+          text "Terminal"
+    pane preview closed
+      text "Preview"
+"#;
+        let generated = compile(source, "workspace.ice").unwrap();
+        assert_eq!(
+            generated.matches("pane_grid::Configuration::Split").count(),
+            2
+        );
+        assert!(generated.contains("pane_grid::Axis::Vertical"));
+        assert!(generated.contains("pane_grid::Axis::Horizontal"));
+        assert!(generated.contains("Configuration::Pane(\"terminal\")"));
+        assert!(!generated.contains("Configuration::Pane(\"preview\")"));
+        assert!(generated.contains("\"preview\" =>"));
+        assert!(generated.contains(".split(::iced::widget::pane_grid::Axis::Horizontal"));
+    }
+
+    #[test]
     fn lowers_pane_state_operations_and_queries() {
         let source = r#"app Workspace
 theme
@@ -5909,6 +5977,7 @@ on arrange
   pane #work move editor left
   pane #work resize 0.6
   pane #work drop editor files top
+  pane #work split editor preview horizontal ratio=0.4
   pane #work close editor
 on inspect
   pane #work maximized -> observed _
@@ -5921,6 +5990,8 @@ view
       text "Files"
     pane editor
       text "Editor"
+    pane preview closed
+      text "Preview"
 "#;
         let generated = compile(source, "workspace.ice").unwrap();
         assert!(generated.contains("self.__pane_work.maximize(__pane)"));
@@ -5931,6 +6002,8 @@ view
         assert!(generated.contains("self.__pane_work.resize(__split, (0.6) as f32)"));
         assert!(generated.contains("pane_grid::Target::Pane(__target"));
         assert!(generated.contains("pane_grid::Region::Edge"));
+        assert!(generated.contains(".split(::iced::widget::pane_grid::Axis::Horizontal"));
+        assert!(generated.contains("\"preview\""));
         assert!(generated.contains("self.__pane_work.close(__pane)"));
         assert!(generated.contains("self.__pane_work.maximized()"));
         assert!(generated.contains("pane_grid::Direction::Right"));

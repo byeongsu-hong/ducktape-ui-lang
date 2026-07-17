@@ -431,6 +431,12 @@ pub enum PaneOperation {
         target: String,
         edge: Option<PaneEdge>,
     },
+    Split {
+        target: String,
+        pane: String,
+        axis: PaneAxis,
+        ratio: Expr,
+    },
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -577,8 +583,7 @@ pub enum ViewNode {
     },
     PaneGrid {
         name: String,
-        axis: PaneAxis,
-        ratio: f32,
+        configuration: PaneConfiguration,
         options: PaneGridOptions,
         panes: Vec<PaneView>,
         span: Span,
@@ -1355,6 +1360,17 @@ pub struct OverlayOptions {
 pub enum PaneAxis {
     Horizontal,
     Vertical,
+}
+
+#[derive(Clone, Debug)]
+pub enum PaneConfiguration {
+    Pane(String),
+    Split {
+        axis: PaneAxis,
+        ratio: f32,
+        a: Box<PaneConfiguration>,
+        b: Box<PaneConfiguration>,
+    },
 }
 
 #[derive(Clone, Debug)]

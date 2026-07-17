@@ -125,7 +125,7 @@ cargo fmt --all
 
 ## Status
 
-This is an executable v0.53 language slice, not yet a complete iced replacement.
+This is an executable v0.54 language slice, not yet a complete iced replacement.
 It implements typed extern data/actions, state, handlers, async tasks, pure
 components with named props, default children, and React-like named structural
 slots, scoped IDs, relative
@@ -139,8 +139,9 @@ plus complete iced font descriptors. Static app IDs also support
 direct focus, cursor, selection, and scroll tasks. Static application and
 cross-platform initial window settings compile to native iced configuration.
 The main window also has checked runtime effect and query tasks.
-Persistent pane grids support checked arrange, resize, close, maximize, and
-adjacency query operations.
+Persistent pane grids support recursive initial layouts, declared dynamic
+panes, and checked split, arrange, resize, close, maximize, and adjacency query
+operations.
 Typed `Element`, `Task`, and `Subscription` adapters expose advanced iced
 features without embedding Rust inside `.ice`. Unsupported syntax is rejected
 instead of silently ignored.
