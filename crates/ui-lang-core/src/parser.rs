@@ -911,6 +911,29 @@ fn parse_handler(header: &str, line: &Line) -> Result<Handler, Error> {
 }
 
 fn parse_statement(line: &Line) -> Result<Statement, Error> {
+    let group = match line.text.as_str() {
+        "parallel" => Some(TaskGroupKind::Parallel),
+        "sequential" => Some(TaskGroupKind::Sequential),
+        _ => None,
+    };
+    if let Some(kind) = group {
+        if line.children.is_empty() {
+            return Err(error(
+                "E050",
+                line,
+                "task groups require at least one indented task",
+            ));
+        }
+        return Ok(Statement::TaskGroup {
+            kind,
+            statements: line
+                .children
+                .iter()
+                .map(parse_statement)
+                .collect::<Result<_, _>>()?,
+            span: Span::line(line.number),
+        });
+    }
     ensure_leaf(line)?;
     if let Some(condition) = line.text.strip_prefix("return if ") {
         return Ok(Statement::ReturnIf {
@@ -7552,6 +7575,36 @@ view
             document.qr_codes[0].data,
             QrPayload::Text("https://example.com/ice docs".into())
         );
+    }
+
+    #[test]
+    fn parses_structured_task_groups() {
+        let source = SOURCE.replace(
+            "  run load() -> loaded _ | failed _",
+            "  parallel\n    run load() -> loaded _ | failed _\n    sequential\n      task clipboard read -> clipboard_read _\n      task system theme -> theme_read _",
+        );
+        let document = parse(&source).unwrap();
+        let Statement::TaskGroup {
+            kind, statements, ..
+        } = &document.handlers[0].statements[0]
+        else {
+            panic!("expected task group");
+        };
+        assert_eq!(*kind, TaskGroupKind::Parallel);
+        assert_eq!(statements.len(), 2);
+        assert!(matches!(
+            &statements[1],
+            Statement::TaskGroup {
+                kind: TaskGroupKind::Sequential,
+                statements,
+                ..
+            } if statements.len() == 2
+        ));
+
+        let error = parse(&SOURCE.replace("  run load() -> loaded _ | failed _", "  parallel"))
+            .unwrap_err();
+        assert_eq!(error.code, "E050");
+        assert!(error.message.contains("at least one"));
     }
 
     #[test]

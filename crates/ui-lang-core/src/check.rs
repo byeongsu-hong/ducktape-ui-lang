@@ -41,6 +41,9 @@ pub fn check(document: &mut Document) -> Result<(), Error> {
             }
         }
     }
+    for handler in &document.handlers {
+        check_task_groups(handler)?;
+    }
 
     let mut signatures: HashMap<String, Vec<Option<Type>>> = document
         .handlers
@@ -4225,6 +4228,17 @@ fn infer_runs(
         .map(|param| (param.name.clone(), Type::Unknown))
         .collect();
     for statement in &handler.statements {
+        if let Statement::TaskGroup { statements, .. } = statement {
+            infer_runs(
+                &Handler {
+                    statements: statements.clone(),
+                    ..handler.clone()
+                },
+                document,
+                signatures,
+            )?;
+            continue;
+        }
         if let Statement::WidgetOperation {
             operation: WidgetOperation::Focused { .. },
             route: Some(route),
@@ -4504,6 +4518,20 @@ fn check_handler(
                 let action = extern_function(document, function, (*kind).into(), span)?;
                 check_call_args(action, args, &env, document, span)?;
             }
+            Statement::TaskGroup { statements, .. } => {
+                for statement in statements {
+                    check_handler(
+                        &Handler {
+                            statements: vec![statement.clone()],
+                            ..handler.clone()
+                        },
+                        states,
+                        document,
+                        operation_ids,
+                        pane_grids,
+                    )?;
+                }
+            }
             Statement::ClipboardWrite { value, span, .. } => {
                 if index + 1 != handler.statements.len() {
                     return Err(Error::new(
@@ -4757,6 +4785,64 @@ fn check_handler(
         }
     }
     Ok(())
+}
+
+fn check_task_groups(handler: &Handler) -> Result<(), Error> {
+    for (index, statement) in handler.statements.iter().enumerate() {
+        let Statement::TaskGroup {
+            statements, span, ..
+        } = statement
+        else {
+            continue;
+        };
+        if index + 1 != handler.statements.len() {
+            return Err(Error::new(
+                "E141",
+                span,
+                "task group must be the final statement in a handler",
+            ));
+        }
+        if let Some(span) = statements.iter().find_map(invalid_task_group_member) {
+            return Err(Error::new(
+                "E143",
+                span,
+                "task groups only accept task-producing statements",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn invalid_task_group_member(statement: &Statement) -> Option<&Span> {
+    match statement {
+        Statement::Run { .. }
+        | Statement::ClipboardWrite { .. }
+        | Statement::WidgetOperation { .. }
+        | Statement::WindowOperation { .. }
+        | Statement::PaneOperation {
+            operation: PaneOperation::Maximized | PaneOperation::Adjacent { .. },
+            ..
+        } => None,
+        Statement::TaskGroup { statements, .. } => {
+            statements.iter().find_map(invalid_task_group_member)
+        }
+        Statement::Assign { .. } | Statement::ReturnIf { .. } | Statement::PaneOperation { .. } => {
+            Some(statement_span(statement))
+        }
+    }
+}
+
+fn statement_span(statement: &Statement) -> &Span {
+    match statement {
+        Statement::Assign { span, .. }
+        | Statement::ReturnIf { span, .. }
+        | Statement::Run { span, .. }
+        | Statement::TaskGroup { span, .. }
+        | Statement::ClipboardWrite { span, .. }
+        | Statement::WidgetOperation { span, .. }
+        | Statement::WindowOperation { span, .. }
+        | Statement::PaneOperation { span, .. } => span,
+    }
 }
 
 impl From<EffectKind> for ExternKind {
@@ -5574,6 +5660,51 @@ view
 "#;
         let document = analyze(source).unwrap();
         assert_eq!(document.handlers[1].params[0].ty.display(), "[Item]");
+    }
+
+    #[test]
+    fn checks_structured_task_groups() {
+        let source = r#"app Grouped
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  mode = ""
+on start
+  parallel
+    task system theme -> theme_read _
+    sequential
+      task clipboard read -> clipboard_read _
+      task system info -> info_read _
+on theme_read(next)
+  mode = next
+on clipboard_read(next)
+on info_read(info)
+view
+  text mode
+"#;
+        let document = analyze(source).unwrap();
+        assert_eq!(document.handlers[1].params[0].ty.display(), "str");
+        assert_eq!(document.handlers[2].params[0].ty.display(), "str?");
+        assert_eq!(document.handlers[3].params[0].ty.display(), "system-info");
+
+        let error = analyze(&source.replace(
+            "      task clipboard read -> clipboard_read _",
+            "      mode = \"invalid\"",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E143");
+        assert!(error.message.contains("task-producing"));
+
+        let error = analyze(&source.replace(
+            "on theme_read(next)",
+            "  mode = \"too late\"\non theme_read(next)",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E141");
+        assert!(error.message.contains("final statement"));
     }
 
     #[test]

@@ -236,6 +236,11 @@ mod font_events {
 }
 
 #[cfg(test)]
+mod task_groups {
+    ui_lang::include_app!("src/ui/task_groups.ice");
+}
+
+#[cfg(test)]
 mod timer {
     ui_lang::include_app!("src/ui/timer.ice");
 }
