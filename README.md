@@ -18,6 +18,7 @@ app Tasks
 
 use "backend.ice"
 use "theme.ice"
+use "components/panel.ice"
 
 state
   draft = ""
@@ -30,8 +31,10 @@ on submit
 
 view
   col @w-full h-full p-6 gap-4 bg-background
-    input "New task" #new-task <-> draft @w-full p-3 bg-surface rounded-lg
-    button "Add" disabled=loading @p-3 bg-primary text-white rounded-lg -> submit
+    Panel title="Create task" #create-task
+      row @w-full gap-3
+        input "New task" #new-task <-> draft @w-full p-3 bg-surface rounded-lg
+        button "Add" disabled=loading @p-3 bg-primary text-white rounded-lg -> submit
 ```
 
 `use` resolves relative to the importing file. Imported declarations share the
@@ -113,9 +116,10 @@ cargo fmt --all
 
 ## Status
 
-This is an executable v0.37 language slice, not yet a complete iced replacement.
+This is an executable v0.38 language slice, not yet a complete iced replacement.
 It implements typed extern data/actions, state, handlers, async tasks, pure
-components with structured child slots, scoped IDs, relative multi-file `use`,
+components with named props and structured child slots, scoped IDs, relative
+multi-file `use`,
 `if`/`for`, six layouts including identity-preserving keyed columns,
 twenty-five native widget forms,
 dependency-keyed lazy subtrees, checked style utilities, formatting, analysis,

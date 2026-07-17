@@ -381,7 +381,7 @@ view
 
     scroll #task-list direction=vertical width=fill height=fill bar=visible bar-width=8.0 bar-margin=2.0 scroller-width=6.0 bar-spacing=2.0 anchor-y=start auto=true scroll=task_list_scrolled
       keyed task in tasks by=task.id width=fill height=shrink spacing=8.0 padding=4.0 padding-left=8.0 max-width=720.0 align=center
-        TaskRow(task, loading)
+        TaskRow task=task loading=loading
 
     table task in tasks width=fill padding=4.0 padding-x=8.0 padding-y=6.0 separator=1.0 separator-x=2.0 separator-y=1.0
       column width=fill align-x=left align-y=center

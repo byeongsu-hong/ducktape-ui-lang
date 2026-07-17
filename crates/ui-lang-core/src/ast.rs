@@ -332,6 +332,12 @@ pub struct Id {
 }
 
 #[derive(Clone, Debug)]
+pub struct ComponentArg {
+    pub name: Option<String>,
+    pub value: Expr,
+}
+
+#[derive(Clone, Debug)]
 pub enum ViewNode {
     Layout {
         kind: Layout,
@@ -498,7 +504,7 @@ pub enum ViewNode {
     },
     Component {
         name: String,
-        args: Vec<Expr>,
+        args: Vec<ComponentArg>,
         id: Option<Id>,
         content: Option<Box<ViewNode>>,
         span: Span,
