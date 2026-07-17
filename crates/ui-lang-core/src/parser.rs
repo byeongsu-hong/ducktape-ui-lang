@@ -3997,6 +3997,8 @@ fn parse_canvas(parts: &[String], styles: Vec<String>, line: &Line) -> Result<Vi
             options.height = Some(parse_length(value, line)?);
         } else if let Some(value) = part.strip_prefix("cache=") {
             options.cache = Some(expr(value)?);
+        } else if let Some(value) = part.strip_prefix("cache-group=") {
+            options.cache_group = Some(identifier(value, line)?);
         } else if let Some(value) = part.strip_prefix("capture=") {
             options.capture = Some(expr(value)?);
         } else if let Some(value) = part.strip_prefix("press=") {
@@ -4172,6 +4174,105 @@ fn parse_canvas_command(line: &Line) -> Result<CanvasCommand, Error> {
             })
         }
         "text" => parse_canvas_text(&parts, line),
+        "image" => {
+            ensure_leaf(line)?;
+            let source = parts
+                .get(1)
+                .ok_or_else(|| error("E190", line, "canvas image requires a source"))?;
+            let fields = canvas_fields(
+                &parts[2..],
+                &[
+                    "x",
+                    "y",
+                    "width",
+                    "height",
+                    "filter",
+                    "rotation",
+                    "opacity",
+                    "snap",
+                    "radius",
+                    "radius-tl",
+                    "radius-tr",
+                    "radius-br",
+                    "radius-bl",
+                ],
+                line,
+            )?;
+            let filter = match fields.get("filter").map(String::as_str) {
+                None | Some("linear") => ImageFilter::Linear,
+                Some("nearest") => ImageFilter::Nearest,
+                Some(_) => {
+                    return Err(error(
+                        "E190",
+                        line,
+                        "canvas image filter must be linear or nearest",
+                    ));
+                }
+            };
+            Ok(CanvasCommand::Image {
+                source: parse_expr(source, line)?,
+                x: canvas_required_expr(&fields, "x", line)?,
+                y: canvas_required_expr(&fields, "y", line)?,
+                width: canvas_required_expr(&fields, "width", line)?,
+                height: canvas_required_expr(&fields, "height", line)?,
+                filter,
+                rotation: fields.get("rotation").map_or_else(
+                    || Ok(Expr::F64(0.0)),
+                    |value| parse_expr(strip_wrapping_parens(value), line),
+                )?,
+                opacity: fields.get("opacity").map_or_else(
+                    || Ok(Expr::F64(1.0)),
+                    |value| parse_expr(strip_wrapping_parens(value), line),
+                )?,
+                snap: fields.get("snap").map_or_else(
+                    || Ok(Expr::Bool(false)),
+                    |value| parse_expr(strip_wrapping_parens(value), line),
+                )?,
+                radius: Box::new(parse_canvas_radius(&fields, line)?),
+                span,
+            })
+        }
+        "svg" => {
+            ensure_leaf(line)?;
+            let source = parts
+                .get(1)
+                .ok_or_else(|| error("E190", line, "canvas svg requires a source"))?;
+            let memory_count = parts[2..]
+                .iter()
+                .filter(|part| part.as_str() == "memory")
+                .count();
+            if memory_count > 1 {
+                return Err(error("E190", line, "duplicate canvas svg `memory` flag"));
+            }
+            let properties = parts[2..]
+                .iter()
+                .filter(|part| part.as_str() != "memory")
+                .cloned()
+                .collect::<Vec<_>>();
+            let fields = canvas_fields(
+                &properties,
+                &["x", "y", "width", "height", "color", "rotation", "opacity"],
+                line,
+            )?;
+            Ok(CanvasCommand::Svg {
+                source: parse_expr(source, line)?,
+                memory: memory_count == 1,
+                x: canvas_required_expr(&fields, "x", line)?,
+                y: canvas_required_expr(&fields, "y", line)?,
+                width: canvas_required_expr(&fields, "width", line)?,
+                height: canvas_required_expr(&fields, "height", line)?,
+                color: fields.get("color").cloned(),
+                rotation: fields.get("rotation").map_or_else(
+                    || Ok(Expr::F64(0.0)),
+                    |value| parse_expr(strip_wrapping_parens(value), line),
+                )?,
+                opacity: fields.get("opacity").map_or_else(
+                    || Ok(Expr::F64(1.0)),
+                    |value| parse_expr(strip_wrapping_parens(value), line),
+                )?,
+                span,
+            })
+        }
         "path" => {
             let fields = canvas_fields(
                 &parts[1..],
