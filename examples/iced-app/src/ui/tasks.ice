@@ -30,7 +30,7 @@ view
     if empty(tasks) && !loading
       text "No tasks yet." @text-sm text-muted
 
-    Panel("Task list") #tasks-panel
+    Panel title="Task list" #tasks-panel
       scroll #task-list direction=vertical width=fill height=fill
         keyed task in tasks by=task.id width=fill spacing=8.0
-          TaskRow(task, loading)
+          TaskRow task=task loading=loading

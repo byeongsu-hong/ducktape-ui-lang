@@ -880,19 +880,7 @@ fn parse_view(line: &Line) -> Result<ViewNode, Error> {
                     "component calls do not accept `@` utilities; style the component root",
                 ));
             }
-            let (name, args_source) = parse_signature(kind, line)?;
-            let id = parts
-                .get(1)
-                .filter(|part| part.starts_with('#'))
-                .map(|part| parse_id(part, line))
-                .transpose()?;
-            if parts.len() > 1 + usize::from(id.is_some()) {
-                return Err(error(
-                    "E040",
-                    line,
-                    "component calls only accept arguments, an optional ID, and one child",
-                ));
-            }
+            let (name, args, id) = parse_component_call(&parts, line)?;
             let content = match line.children.as_slice() {
                 [] => None,
                 [content] => Some(Box::new(parse_view(content)?)),
@@ -906,7 +894,7 @@ fn parse_view(line: &Line) -> Result<ViewNode, Error> {
             };
             Ok(ViewNode::Component {
                 name,
-                args: parse_expr_list(&args_source, line)?,
+                args,
                 id,
                 content,
                 span,
@@ -914,6 +902,57 @@ fn parse_view(line: &Line) -> Result<ViewNode, Error> {
         }
         _ => Err(error("E064", line, format!("unknown view node `{kind}`"))),
     }
+}
+
+fn parse_component_call(
+    parts: &[String],
+    line: &Line,
+) -> Result<(String, Vec<ComponentArg>, Option<Id>), Error> {
+    let head = &parts[0];
+    if head.contains('(') {
+        let (name, args) = parse_signature(head, line)?;
+        let id = parts
+            .get(1)
+            .filter(|part| part.starts_with('#'))
+            .map(|part| parse_id(part, line))
+            .transpose()?;
+        if parts.len() > 1 + usize::from(id.is_some()) {
+            return Err(error(
+                "E040",
+                line,
+                "positional component calls only accept `Name(...)` and an optional ID",
+            ));
+        }
+        return Ok((
+            name,
+            parse_expr_list(&args, line)?
+                .into_iter()
+                .map(|value| ComponentArg { name: None, value })
+                .collect(),
+            id,
+        ));
+    }
+
+    let name = identifier(head, line)?;
+    let mut args = Vec::new();
+    let mut id = None;
+    for part in &parts[1..] {
+        if part.starts_with('#') {
+            if id.is_some() {
+                return Err(error("E040", line, "component call has more than one ID"));
+            }
+            id = Some(parse_id(part, line)?);
+            continue;
+        }
+        let Some((prop, value)) = split_top_once(part, '=') else {
+            return Err(error("E040", line, "component props use `name=value`"));
+        };
+        args.push(ComponentArg {
+            name: Some(identifier(prop.trim(), line)?),
+            value: parse_expr(strip_wrapping_parens(value.trim()), line)?,
+        });
+    }
+    Ok((name, args, id))
 }
 
 fn parse_text_editor(

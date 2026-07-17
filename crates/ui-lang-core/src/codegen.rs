@@ -1347,11 +1347,18 @@ fn render_node(
                 .find(|item| item.name == *name)
                 .ok_or_else(|| Error::new("E122", span, format!("unknown component `{name}`")))?;
             let mut component_env = HashMap::new();
-            for ((param, ty), arg) in component.params.iter().zip(args) {
+            for (index, (param, ty)) in component.params.iter().enumerate() {
+                let arg = if args.iter().any(|arg| arg.name.is_some()) {
+                    args.iter()
+                        .find(|arg| arg.name.as_ref() == Some(param))
+                        .expect("checker requires every named component prop")
+                } else {
+                    &args[index]
+                };
                 component_env.insert(
                     param.clone(),
                     Binding {
-                        code: expr_code(arg, env, document, ValueMode::Borrowed)?,
+                        code: expr_code(&arg.value, env, document, ValueMode::Borrowed)?,
                         ty: ty.clone(),
                         local: false,
                     },
@@ -4151,10 +4158,10 @@ component Card(title:str)
     text title
     slot
 component Wrapper(title:str)
-  Card(title)
+  Card title=title
     slot
 view
-  Wrapper("Editor") #editor
+  Wrapper title="Editor" #editor
     input "Name" #name <-> draft
 "#;
         let generated = compile(source, "composition.ice").unwrap();

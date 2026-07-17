@@ -253,6 +253,16 @@ fn check_unique(document: &Document) -> Result<(), Error> {
                 format!("duplicate component `{}`", component.name),
             ));
         }
+        let mut params = HashSet::new();
+        for (param, _) in &component.params {
+            if !params.insert(param) {
+                return Err(Error::new(
+                    "E100",
+                    &component.span,
+                    format!("duplicate component prop `{param}`"),
+                ));
+            }
+        }
     }
     Ok(())
 }
@@ -1325,20 +1335,56 @@ fn infer_view(
                 .iter()
                 .find(|item| item.name == *name)
                 .ok_or_else(|| Error::new("E122", span, format!("unknown component `{name}`")))?;
-            if args.len() != component.params.len() {
-                return Err(Error::new(
-                    "E123",
-                    span,
-                    format!(
-                        "component `{name}` expects {} arguments, got {}",
-                        component.params.len(),
-                        args.len()
-                    ),
-                ));
-            }
-            for (arg, (_, expected)) in args.iter().zip(&component.params) {
-                let actual = expr_type(arg, env, document, span)?;
-                require_type(&actual, expected, span)?;
+            if args.iter().any(|arg| arg.name.is_some()) {
+                let mut supplied = HashSet::new();
+                for arg in args {
+                    let prop = arg.name.as_ref().expect("named component call");
+                    let Some((_, expected)) =
+                        component.params.iter().find(|(param, _)| param == prop)
+                    else {
+                        return Err(Error::new(
+                            "E123",
+                            span,
+                            format!("component `{name}` has no prop `{prop}`"),
+                        ));
+                    };
+                    if !supplied.insert(prop) {
+                        return Err(Error::new(
+                            "E123",
+                            span,
+                            format!("component `{name}` receives prop `{prop}` more than once"),
+                        ));
+                    }
+                    let actual = expr_type(&arg.value, env, document, span)?;
+                    require_type(&actual, expected, span)?;
+                }
+                if let Some((missing, _)) = component
+                    .params
+                    .iter()
+                    .find(|(param, _)| !supplied.contains(param))
+                {
+                    return Err(Error::new(
+                        "E123",
+                        span,
+                        format!("component `{name}` is missing prop `{missing}`"),
+                    ));
+                }
+            } else {
+                if args.len() != component.params.len() {
+                    return Err(Error::new(
+                        "E123",
+                        span,
+                        format!(
+                            "component `{name}` expects {} arguments, got {}",
+                            component.params.len(),
+                            args.len()
+                        ),
+                    ));
+                }
+                for (arg, (_, expected)) in args.iter().zip(&component.params) {
+                    let actual = expr_type(&arg.value, env, document, span)?;
+                    require_type(&actual, expected, span)?;
+                }
             }
             match (slot_count(&component.root) == 1, content) {
                 (true, None) => {
@@ -3049,19 +3095,24 @@ theme
   danger #ff0000
 state
   draft = ""
-component Card(title:str)
+component Card(title:str, padded:bool)
   col
     text title
     slot
 view
-  Card("Editor")
+  Card padded=true title="Editor"
     input "Name" <-> draft
 "#;
         analyze(source).unwrap();
+        analyze(&source.replace(
+            "Card padded=true title=\"Editor\"",
+            "Card(\"Editor\", true)",
+        ))
+        .unwrap();
 
         let error = analyze(&source.replace(
-            "  Card(\"Editor\")\n    input \"Name\" <-> draft",
-            "  Card(\"Editor\")",
+            "  Card padded=true title=\"Editor\"\n    input \"Name\" <-> draft",
+            "  Card padded=true title=\"Editor\"",
         ))
         .unwrap_err();
         assert_eq!(error.code, "E124");
@@ -3071,6 +3122,25 @@ view
             analyze(&source.replace("    text title\n    slot", "    text title")).unwrap_err();
         assert_eq!(error.code, "E124");
         assert!(error.message.contains("does not declare a slot"));
+
+        let error = analyze(&source.replace("padded=true ", "")).unwrap_err();
+        assert_eq!(error.code, "E123");
+        assert!(error.message.contains("missing prop `padded`"));
+
+        let error = analyze(&source.replace("padded=true", "raised=true")).unwrap_err();
+        assert_eq!(error.code, "E123");
+        assert!(error.message.contains("no prop `raised`"));
+
+        let error = analyze(&source.replace("padded=true", "title=\"Again\"")).unwrap_err();
+        assert_eq!(error.code, "E123");
+        assert!(error.message.contains("prop `title` more than once"));
+
+        let error = analyze(&source.replace("title=\"Editor\"", "title=true")).unwrap_err();
+        assert!(error.message.contains("expected `str`, got `bool`"));
+
+        let error = analyze(&source.replace("padded:bool", "title:bool")).unwrap_err();
+        assert_eq!(error.code, "E100");
+        assert!(error.message.contains("duplicate component prop `title`"));
     }
 
     #[test]
