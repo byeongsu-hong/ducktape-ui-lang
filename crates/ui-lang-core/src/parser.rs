@@ -574,7 +574,15 @@ fn parse_view(line: &Line) -> Result<ViewNode, Error> {
     if route_source.is_some()
         && !matches!(
             kind,
-            "button" | "checkbox" | "toggler" | "slider" | "radio" | "pick" | "combo" | "extern"
+            "button"
+                | "checkbox"
+                | "toggler"
+                | "slider"
+                | "radio"
+                | "pick"
+                | "combo"
+                | "markdown"
+                | "extern"
         )
     {
         return Err(error(
@@ -637,6 +645,7 @@ fn parse_view(line: &Line) -> Result<ViewNode, Error> {
         "slot" => parse_slot(&parts, styles, line),
         "keyed" => parse_keyed_column(&parts, styles, line),
         "lazy" => parse_lazy(&parts, styles, line),
+        "markdown" => parse_markdown(&parts, styles, route_source, line),
         "float" => parse_float(&parts, styles, line),
         "pin" => parse_pin(&parts, styles, line),
         "sensor" => parse_sensor(&parts, styles, line),
@@ -683,6 +692,63 @@ fn parse_view(line: &Line) -> Result<ViewNode, Error> {
         }
         _ => Err(error("E064", line, format!("unknown view node `{kind}`"))),
     }
+}
+
+fn parse_markdown(
+    parts: &[String],
+    styles: Vec<String>,
+    route: Option<&str>,
+    line: &Line,
+) -> Result<ViewNode, Error> {
+    ensure_leaf(line)?;
+    if !styles.is_empty() {
+        return Err(error(
+            "E097",
+            line,
+            "markdown does not accept `@` utilities",
+        ));
+    }
+    let content = parts
+        .get(1)
+        .ok_or_else(|| error("E097", line, "markdown requires a content state"))?;
+    let route = route.ok_or_else(|| {
+        error(
+            "E097",
+            line,
+            "markdown requires a link route such as `-> open_link _`",
+        )
+    })?;
+    let mut options = MarkdownOptions::default();
+    for part in &parts[2..] {
+        let (name, value) = part
+            .split_once('=')
+            .ok_or_else(|| error("E097", line, format!("unknown markdown property `{part}`")))?;
+        let value = parse_expr(strip_wrapping_parens(value), line)?;
+        match name {
+            "text-size" => options.text_size = Some(value),
+            "h1-size" => options.h1_size = Some(value),
+            "h2-size" => options.h2_size = Some(value),
+            "h3-size" => options.h3_size = Some(value),
+            "h4-size" => options.h4_size = Some(value),
+            "h5-size" => options.h5_size = Some(value),
+            "h6-size" => options.h6_size = Some(value),
+            "code-size" => options.code_size = Some(value),
+            "spacing" => options.spacing = Some(value),
+            _ => {
+                return Err(error(
+                    "E097",
+                    line,
+                    format!("unknown markdown property `{name}`"),
+                ));
+            }
+        }
+    }
+    Ok(ViewNode::Markdown {
+        content: identifier(content, line)?,
+        options,
+        route: parse_route(route, line)?,
+        span: Span::line(line.number),
+    })
 }
 
 fn parse_lazy(parts: &[String], styles: Vec<String>, line: &Line) -> Result<ViewNode, Error> {
@@ -2721,6 +2787,7 @@ fn parse_type(source: &str, line: &Line) -> Result<Type, Error> {
         "i64" => Type::I64,
         "f64" => Type::F64,
         "str" => Type::Str,
+        "markdown" => Type::Markdown,
         "unit" => Type::Unit,
         value if value.chars().next().is_some_and(char::is_uppercase) => {
             Type::Named(identifier(value, line)?)

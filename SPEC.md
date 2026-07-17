@@ -1,4 +1,4 @@
-# Ice Language Specification 0.29
+# Ice Language Specification 0.30
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.29 syntax.
+marked “planned” is a design constraint, not accepted 0.30 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.29.
+  block comments are not part of 0.30.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -176,7 +176,7 @@ node           = layout | text | input | button | checkbox | toggler
                | rule | qr_code | space | float | pin | sensor | responsive
                | media | tooltip | mouse_area | theme_boundary
                | component_call | slot | extern_component_call | if_node | for_node
-               | keyed_column | lazy_node
+               | keyed_column | lazy_node | markdown_view
 layout         = "col" id? column_property* styles? INDENT node+
                | "row" id? flex_property* styles? INDENT node+
                | "scroll" id? scroll_property* styles? INDENT node
@@ -191,6 +191,10 @@ keyed_property = ("width=" | "height=") length | "spacing=" expr
                | "max-width=" expr
                | "align=" ("start" | "center" | "end")
 lazy_node      = "lazy" expr "as" name INDENT node
+markdown_view  = "markdown" name markdown_property* "->" route
+markdown_property = ("text-size=" | "h1-size=" | "h2-size="
+                  | "h3-size=" | "h4-size=" | "h5-size=" | "h6-size="
+                  | "code-size=" | "spacing=") expr
 column_property = flex_property | "max-width=" expr
 flex_property  = ("width=" | "height=") length | "spacing=" expr
                | ("padding=" | "padding-x=" | "padding-y="
@@ -497,6 +501,25 @@ an enclosing component are rejected because those forms borrow app-owned data.
 Components and structured children remain usable when their complete expanded
 tree satisfies the same static rule.
 
+Markdown content is parsed into owned iced state instead of being reparsed by
+the view. A literal initializes it directly, and `markdown(source)` replaces it
+from a runtime str:
+
+```ice
+state
+  help:markdown = "# Help [docs](https://iced.rs)"
+
+on open_link(url)
+
+view
+  markdown help text-size=16.0 spacing=12.0 -> open_link _
+```
+
+The route receives the clicked URI as str. `text-size`, every h1-h6 size,
+`code-size`, and `spacing` map directly to iced Markdown `Settings`; sizes must
+be positive and spacing non-negative. The reference app enables iced's Markdown
+parser and syntax highlighter features.
+
 Spaces inside a compound expression should be wrapped in parentheses when the
 expression shares a line with widget properties:
 
@@ -515,6 +538,7 @@ button "Add" disabled=(loading || empty(trim(draft))) -> submit
 | `[T]` | `Vec<T>` |
 | `T?` | `Option<T>` |
 | `combo[T]` | `iced::widget::combo_box::State<T>` |
+| `markdown` | `iced::widget::markdown::Content` |
 | `Name` | the named struct in the extern namespace |
 | `unit` | `()` |
 
@@ -540,7 +564,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.29 message payloads.
+`Clone` for 0.30 message payloads.
 
 Three typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
@@ -692,6 +716,7 @@ The implemented native nodes are:
 | `for` | iterates a list and adds one typed item binding |
 | `keyed` | repeats one child template with a bool/i64/f64 identity key and native column sizing/alignment |
 | `lazy` | caches one owned static child subtree by a checked hashable dependency |
+| `markdown` | renders owned parsed content with all text/heading/code sizes, spacing and str link events |
 
 `if` and `for` are child control-flow nodes inside a layout. There is no virtual
 DOM or runtime reconciliation layer; the iced backend constructs the current
@@ -863,7 +888,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 0.29 does not claim that remapping.
+extern line; 0.30 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -884,7 +909,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 0.29 native backend is enough for CRUD/settings-style screens, selection,
+The 0.30 native backend is enough for CRUD/settings-style screens, selection,
 media, hover
 overlays, and common pointer events, not all of iced. It still lacks direct
 syntax for canvas, general overlays/modals, rich text
@@ -918,7 +943,7 @@ compile-tested widget example is
 [`examples/iced-app/src/ui/showcase.ice`](examples/iced-app/src/ui/showcase.ice).
 Together they exercise
 state inference, typed extern structs/functions, mount and result handlers,
-direct input binding, `if`, `for`, native keyed columns and lazy subtrees, pure components, structured slot composition,
+direct input binding, `if`, `for`, native keyed columns and lazy subtrees, parsed Markdown, pure components, structured slot composition,
 dynamic component IDs,
 theme utilities, disabled controls, fallible asynchronous tasks, complete
 wrapping row/column layouts, grids and fully sized underlay stacks, toggles,

@@ -76,7 +76,7 @@ formatted text, an extended text input and child-content buttons, plus an
 application event subscription, expanded boolean controls, configured rules,
 sliders with nested status styles, configured progress bars, configured native
 tooltip styles, a styled fixed-version QR code, nested built-in themes, and
-dependency-keyed lazy subtrees.
+dependency-keyed lazy subtrees, plus parsed Markdown with link events.
 
 Key files:
 
@@ -108,11 +108,11 @@ cargo fmt --all
 
 ## Status
 
-This is an executable v0.29 language slice, not yet a complete iced replacement.
+This is an executable v0.30 language slice, not yet a complete iced replacement.
 It implements typed extern data/actions, state, handlers, async tasks, pure
 components with structured child slots, scoped IDs, relative multi-file `use`,
 `if`/`for`, six layouts including identity-preserving keyed columns,
-twenty-two native widget forms,
+twenty-three native widget forms,
 dependency-keyed lazy subtrees, checked style utilities, formatting, analysis,
 and iced code generation. Typed
 `Element`, `Task`, and `Subscription` adapters expose advanced iced features

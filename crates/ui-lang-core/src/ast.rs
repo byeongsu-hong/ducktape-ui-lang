@@ -21,6 +21,7 @@ pub enum Type {
     List(Box<Type>),
     Option(Box<Type>),
     Combo(Box<Type>),
+    Markdown,
     Named(String),
     Unit,
     Unknown,
@@ -38,6 +39,7 @@ impl Type {
             Self::Combo(inner) => {
                 format!("::iced::widget::combo_box::State<{}>", inner.rust(structs))
             }
+            Self::Markdown => "::iced::widget::markdown::Content".into(),
             Self::Named(name) => structs
                 .iter()
                 .find(|item| item.name == *name)
@@ -56,6 +58,7 @@ impl Type {
             Self::List(inner) => format!("[{}]", inner.display()),
             Self::Option(inner) => format!("{}?", inner.display()),
             Self::Combo(inner) => format!("combo[{}]", inner.display()),
+            Self::Markdown => "markdown".into(),
             Self::Named(name) => name.clone(),
             Self::Unit => "unit".into(),
             Self::Unknown => "unknown".into(),
@@ -363,6 +366,12 @@ pub enum ViewNode {
         child: Box<ViewNode>,
         span: Span,
     },
+    Markdown {
+        content: String,
+        options: MarkdownOptions,
+        route: Route,
+        span: Span,
+    },
     Component {
         name: String,
         args: Vec<Expr>,
@@ -429,6 +438,19 @@ pub enum ViewNode {
         height: Option<LengthValue>,
         span: Span,
     },
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct MarkdownOptions {
+    pub text_size: Option<Expr>,
+    pub h1_size: Option<Expr>,
+    pub h2_size: Option<Expr>,
+    pub h3_size: Option<Expr>,
+    pub h4_size: Option<Expr>,
+    pub h5_size: Option<Expr>,
+    pub h6_size: Option<Expr>,
+    pub code_size: Option<Expr>,
+    pub spacing: Option<Expr>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -25,7 +25,10 @@ pub fn check(document: &mut Document) -> Result<(), Error> {
                 ));
             };
             require_type(&actual, expected, &state.span)?;
-        } else if actual != Type::Unknown && !compatible(&state.ty, &actual) {
+        } else if !(state.ty == Type::Markdown && actual == Type::Str)
+            && actual != Type::Unknown
+            && !compatible(&state.ty, &actual)
+        {
             return Err(type_error(&state.span, &state.ty, &actual));
         }
     }
@@ -1047,6 +1050,34 @@ fn infer_view(
             let mut child_ids = HashSet::new();
             infer_view(child, &child_env, document, signatures, &mut child_ids)?;
         }
+        ViewNode::Markdown {
+            content,
+            options,
+            route,
+            span,
+        } => {
+            let content_type = env.get(content).ok_or_else(|| {
+                Error::new("E139", span, format!("unknown markdown state `{content}`"))
+            })?;
+            require_type(content_type, &Type::Markdown, span)?;
+            for (value, label, min) in [
+                (&options.text_size, "markdown text size", f64::EPSILON),
+                (&options.h1_size, "markdown h1 size", f64::EPSILON),
+                (&options.h2_size, "markdown h2 size", f64::EPSILON),
+                (&options.h3_size, "markdown h3 size", f64::EPSILON),
+                (&options.h4_size, "markdown h4 size", f64::EPSILON),
+                (&options.h5_size, "markdown h5 size", f64::EPSILON),
+                (&options.h6_size, "markdown h6 size", f64::EPSILON),
+                (&options.code_size, "markdown code size", f64::EPSILON),
+                (&options.spacing, "markdown spacing", 0.0),
+            ] {
+                if let Some(value) = value {
+                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+                    require_literal_range(value, min, None, label, span)?;
+                }
+            }
+            infer_route(route, Some(Type::Str), env, document, signatures)?;
+        }
         ViewNode::Component {
             name,
             args,
@@ -1429,7 +1460,7 @@ fn lazy_hashable(ty: &Type) -> bool {
     match ty {
         Type::Bool | Type::I64 | Type::Str | Type::Named(_) => true,
         Type::List(inner) | Type::Option(inner) => lazy_hashable(inner),
-        Type::F64 | Type::Combo(_) | Type::Unit | Type::Unknown => false,
+        Type::F64 | Type::Combo(_) | Type::Markdown | Type::Unit | Type::Unknown => false,
     }
 }
 
@@ -1454,6 +1485,11 @@ fn check_lazy_subtree(
             "E139",
             span,
             "named QR data cannot live in lazy because iced QR code borrows app state",
+        )),
+        ViewNode::Markdown { span, .. } => Err(Error::new(
+            "E139",
+            span,
+            "markdown cannot live in lazy because iced markdown borrows parsed content",
         )),
         ViewNode::Slot { span } if !supplied_slot => Err(Error::new(
             "E139",
@@ -2109,6 +2145,13 @@ pub(crate) fn expr_type(
                     &args[0], env, document, span,
                 )?)))
             }
+            "markdown" => {
+                if args.len() != 1 {
+                    return Err(Error::new("E152", span, "markdown expects one argument"));
+                }
+                require_type(&expr_type(&args[0], env, document, span)?, &Type::Str, span)?;
+                Ok(Type::Markdown)
+            }
             _ => Err(Error::new(
                 "E152",
                 span,
@@ -2638,6 +2681,34 @@ view
         let error = analyze(&component_source).unwrap_err();
         assert_eq!(error.code, "E139");
         assert!(error.message.contains("borrows app state"));
+    }
+
+    #[test]
+    fn checks_markdown_content_settings_and_links() {
+        let source = r##"app Docs
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  docs:markdown = "# Hello [world](https://example.com)"
+on open(url)
+on reset
+  docs = markdown("# Reset")
+view
+  markdown docs text-size=16.0 h1-size=32.0 h2-size=28.0 h3-size=24.0 h4-size=20.0 h5-size=18.0 h6-size=16.0 code-size=13.0 spacing=12.0 -> open _
+"##;
+        let document = analyze(source).unwrap();
+        assert_eq!(document.states[0].ty.display(), "markdown");
+        assert_eq!(document.handlers[0].params[0].ty.display(), "str");
+
+        let error = analyze(&source.replace("spacing=12.0", "spacing=-1.0")).unwrap_err();
+        assert!(error.message.contains("outside its valid range"));
+
+        let error = analyze(&source.replace("markdown docs", "markdown missing")).unwrap_err();
+        assert_eq!(error.code, "E139");
+        assert!(error.message.contains("unknown markdown state"));
     }
 
     #[test]
