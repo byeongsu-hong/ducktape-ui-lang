@@ -1,4 +1,4 @@
-# Ice Language Specification 0.2
+# Ice Language Specification 0.3
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.2 syntax.
+marked “planned” is a design constraint, not accepted 0.3 syntax.
 
 ## 1. Design contract
 
@@ -79,7 +79,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.2.
+  block comments are not part of 0.3.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -96,6 +96,7 @@ theme
 state
 component
 on
+subscribe
 view
 ```
 
@@ -110,16 +111,22 @@ defined in section 6.
 
 ```text
 document       = app_decl extern_decl? theme_decl state_decl?
-                 component_decl* handler_decl* view_decl
+                 component_decl* handler_decl* subscribe_decl? view_decl
 
 app_decl       = "app" PascalName
 
 extern_decl    = "extern" rust_path INDENT extern_item+
-extern_item    = struct_sig | function_sig
+extern_item    = struct_sig | function_sig | extern_component_sig
+               | extern_task_sig | extern_subscription_sig
 struct_sig     = PascalName "(" field_list? ")"
 field_list     = field ("," field)*
 field          = name ":" type
 function_sig   = name "(" field_list? ")" "->" type ("!" type)?
+extern_component_sig
+               = "component" name "(" field_list? ")" "->" type
+extern_task_sig = "task" name "(" field_list? ")" "->" type ("!" type)?
+extern_subscription_sig
+               = "subscription" name "(" field_list? ")" "->" type
 
 theme_decl     = "theme" INDENT color_entry+
 color_entry    = name color
@@ -135,12 +142,17 @@ handler_decl   = "on" name ("(" name_list? ")")?
 statement      = name "=" expr
                | "return if" expr
                | "run" call "->" route ("|" route)?
+               | "task" call "->" route ("|" route)?
+
+subscribe_decl = "subscribe" INDENT subscription_use+
+subscription_use
+               = call "->" route
 
 view_decl      = "view" INDENT node
 
 node           = layout | text | input | button | checkbox | toggler
                | slider | progress | radio | rule | space
-               | component_call | if_node | for_node
+               | component_call | extern_component_call | if_node | for_node
 layout         = ("col" | "row" | "scroll") id? styles? INDENT node+
                | "grid" id? ("columns=" expr)? styles? INDENT node+
                | "stack" id? ("clip=" expr)? styles? INDENT node+
@@ -160,6 +172,8 @@ rule           = "rule" ("horizontal" | "vertical")
                  ("thickness=" expr)? styles?
 space          = "space" ("width=" expr)? ("height=" expr)? styles?
 component_call = PascalName "(" expr_list? ")" id?
+extern_component_call
+               = "extern" name "(" expr_list? ")" ("->" route)?
 if_node        = "if" expr INDENT node+
 for_node       = "for" name "in" expr INDENT node+
 
@@ -208,10 +222,35 @@ crate::backend::list_tasks
 crate::backend::create_task
 ```
 
-Extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
+Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.2 message payloads.
+`Clone` for 0.3 message payloads.
+
+Three typed iced adapters expose framework capabilities without embedding Rust
+expressions in Ice:
+
+```ice
+extern crate::backend
+  component native_help(active:bool) -> bool
+  task copy_text(text:str) -> unit
+  subscription app_events() -> bool
+```
+
+Their Rust signatures are:
+
+```rust
+fn native_help(active: bool) -> iced::Element<'static, bool>;
+fn copy_text(text: String) -> iced::Task<()>;
+fn app_events() -> iced::Subscription<bool>;
+```
+
+An extern component receives owned props and returns a default-renderer
+`Element<'static, Event>`. A task returns `Task<Event>` or
+`Task<Result<Event, Error>>`. A subscription returns `Subscription<Event>`.
+Generated probes type-check every declaration against the actual Rust item.
+Extern component and subscription declarations are infallible; errors are
+ordinary event payloads when an adapter needs them.
 
 Struct declarations are read-only views of Rust data. Ice may read a declared
 field (`task.title`) but cannot construct or mutate the struct. Declaring a
@@ -269,18 +308,25 @@ Rules:
 - assignment targets must be declared state;
 - assigned expressions must have the state type;
 - `return if` requires `bool`;
-- `run` must be the final statement because it returns one iced `Task`;
+- `run` and `task` must be the final statement because each returns one iced
+  `Task`;
 - fallible externs require both success and error routes;
 - infallible externs permit only the success route;
 - handler parameter types are inferred from every incoming route;
 - incompatible incoming payloads are a type error;
 - `_` means the payload produced by the current widget or action route.
 
+`run` wraps an async Rust function with `Task::perform`. `task` directly maps a
+Rust function that already returns an iced `Task`, which exposes clipboard,
+window, focus, scroll, font, system, cancellation, batching, and other runtime
+operations without duplicating their implementation in Ice.
+
 Examples of payload flow:
 
 ```ice
 checkbox task.title checked=task.done -> toggle(task.id, _)
 run list_tasks() -> loaded _ | failed _
+task copy_text(draft) -> copied
 
 on toggle(id, checked)
   run set_task_done(id, checked) -> updated _ | failed _
@@ -332,6 +378,31 @@ They have one root, typed inputs, no local mutable state, no lifecycle, and no
 implicit capture of app state. They may route events to app handlers. The
 compiler expands them into the typed view IR; they are not runtime component
 objects.
+
+### Extern components and subscriptions
+
+An extern component is an owned Rust `Element` adapter:
+
+```ice
+extern native_help(external_hover) -> external_hover_changed _
+```
+
+Its arguments and emitted payload are checked against the declaration. A
+non-`unit` output requires a route. A `unit` component may omit the route; its
+messages are mapped to an internal no-op. Extern components own their styling,
+so `@` utilities and `#` IDs are not accepted on the call.
+
+Subscriptions are declared separately from activation:
+
+```ice
+subscribe
+  app_events() -> external_event _
+```
+
+The compiler batches active subscriptions and wires the application builder.
+Subscription routes accept only `_`; handlers can read current state after the
+event arrives. This prevents generated `'static` subscription closures from
+capturing a borrowed application state.
 
 ### IDs
 
@@ -429,7 +500,7 @@ The implemented families are:
 `cargo check` so rustc verifies extern items and generated iced types. A missing
 Rust item is named by its `crate::module::item` path in rustc's diagnostic. A
 future source-map layer may remap those rustc spans into the precise extern line;
-0.2 does not claim that remapping.
+0.3 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -447,27 +518,28 @@ future source-map layer may remap those rustc spans into the precise extern line
 `cargo-ice` discovers `.ice` files recursively below the current directory and
 skips `.git` and `target`.
 
-## 12. Current coverage and planned escape hatch
+## 12. Current coverage and escape hatches
 
-The 0.2 native backend is enough for CRUD/settings-style screens, not all of
-iced. It still lacks pick lists, combo boxes, image, SVG, canvas, tooltip,
-overlay/modal, rich text and text editors, subscriptions/streams,
-keyboard/mouse/clipboard events, widget operations, multiple windows, and
-custom widgets. [`COVERAGE.md`](COVERAGE.md) is the exact versioned ledger.
+The 0.3 native backend is enough for CRUD/settings-style screens, not all of
+iced. It still lacks direct syntax for pick lists, combo boxes, image, SVG,
+canvas, overlay/modal, rich text and text editors, raw input events, widget
+operations, multiple windows, and custom widgets. [`COVERAGE.md`](COVERAGE.md)
+is the exact versioned ledger.
 
 The language must not grow one ad-hoc syntax form for every iced API. The next
-extension is a typed extern-widget boundary: Ice declares typed properties and
-emitted events, while Rust supplies an iced `Element` adapter. That boundary
-will make advanced widgets available without admitting arbitrary Rust into
-expressions or duplicating iced in the core grammar. Its exact syntax and ABI
-are planned, not accepted by the 0.2 parser.
+layer is therefore implemented as three typed Rust adapters: component, task,
+and subscription. They make advanced widgets and runtime operations reachable
+without admitting arbitrary Rust into expressions or duplicating iced in the
+core grammar. Direct native syntax remains preferable for common UI concepts.
 
 Native language coverage and system coverage are therefore separate:
 
 ```text
-common screen structure -> small checked Ice vocabulary
-advanced/custom widget  -> typed Rust widget adapter (planned)
-domain and I/O           -> typed Rust async externs (implemented)
+common screen structure -> checked native Ice vocabulary
+advanced/custom widget  -> typed Rust Element adapter
+iced runtime operation  -> typed Rust Task adapter
+event/stream source      -> typed Rust Subscription adapter
+domain and I/O           -> typed Rust async extern
 ```
 
 ## 13. Reference application
@@ -479,4 +551,6 @@ its Rust boundary in
 state inference, typed extern structs/functions, mount and result handlers,
 direct input binding, `if`, `for`, a pure component, dynamic component IDs,
 theme utilities, disabled controls, fallible asynchronous tasks, grid and stack
-layouts, toggles, sliders, progress, radio controls, rules, and fixed spacing.
+layouts, toggles, sliders, progress, radio controls, rules, fixed spacing, an
+extern tooltip/mouse-area component, a clipboard task, and a raw-event
+subscription.

@@ -64,6 +64,30 @@ mod backend {
         task.done = done;
         Ok(tasks.clone())
     }
+
+    pub fn native_help(active: bool) -> iced::Element<'static, bool> {
+        let hint = if active {
+            "Pointer entered the external component"
+        } else {
+            "This tooltip and mouse area are built in Rust"
+        };
+        iced::widget::mouse_area(iced::widget::tooltip(
+            iced::widget::text("Extern component"),
+            iced::widget::text(hint),
+            iced::widget::tooltip::Position::Bottom,
+        ))
+        .on_enter(true)
+        .on_exit(false)
+        .into()
+    }
+
+    pub fn copy_text(text: String) -> iced::Task<Result<(), AppError>> {
+        iced::Task::batch([iced::clipboard::write::<()>(text), iced::Task::done(())]).map(Ok)
+    }
+
+    pub fn app_events() -> iced::Subscription<bool> {
+        iced::event::listen().map(|_| true)
+    }
 }
 
 fn main() -> iced::Result {

@@ -13,6 +13,20 @@ An internal use of an iced widget does not count as coverage. For example, the
 backend wraps layouts in `container`, but Ice cannot yet express the full
 container API, so container remains partial.
 
+## Typed system reachability
+
+Ice 0.3 has three checked Rust boundaries:
+
+| Boundary | Rust ABI | Covers |
+| --- | --- | --- |
+| `extern name(args)` | `fn(...) -> Element<'static, Event>` | any owned default-renderer widget tree, including custom widgets |
+| `task name(args)` | `fn(...) -> Task<Event>` or `Task<Result<Event, Error>>` | widget/window/clipboard/font/system operations and arbitrary task composition |
+| `subscribe` | `fn(...) -> Subscription<Event>` | event, keyboard, mouse, window, system, channel, timer, stream, and custom recipe sources |
+
+Generated probes verify the concrete Rust signatures. Reachability is not the
+same as native coverage: a row stays partial or missing until its complete
+public behavior has direct documented Ice syntax and tests.
+
 ## Widgets and layout
 
 | iced surface | Ice status | Current representation / missing work |
@@ -29,7 +43,7 @@ container API, so container remains partial.
 | `keyed` | partial | scoped IDs exist; keyed column diffing is not exposed |
 | `lazy` | missing | lazy/cache boundary |
 | `markdown` | missing | parsing/settings/link events |
-| `mouse_area` | missing | pointer/button/enter/exit/scroll events |
+| `mouse_area` | missing | pointer/button/enter/exit/scroll events; extern component exercised in sample |
 | `overlay` | missing | modal/overlay positioning and dismissal |
 | `pane_grid` | missing | pane state, resizing, dragging, focus |
 | `pick_list` | missing | choices, selection, open/close events |
@@ -53,7 +67,7 @@ container API, so container remains partial.
 | `text_input` | partial | native string binding, hint, disabled, ID and basic style; submit/paste/secure/icon/alignment missing |
 | `themer` | missing | nested theme boundary |
 | `toggler` | partial | native label/value/disabled event; size/spacing/style API missing |
-| `tooltip` | missing | position, gap, padding, snap and delay |
+| `tooltip` | missing | position, gap, padding, snap and delay; extern component exercised in sample |
 
 ## Application and runtime
 
@@ -61,17 +75,17 @@ container API, so container remains partial.
 | --- | --- | --- |
 | application settings | partial | generated title/theme/run; window, fonts, antialiasing, executor, scale and presets missing |
 | `Theme` and styles | partial | checked color tokens and a Tailwind-like subset; native theme/style catalogs and custom closures missing |
-| `Task` | partial | one async extern call per handler; batch, chain, stream, cancellation, progress and arbitrary task adapters missing |
-| `Subscription` | missing | time, event, keyboard, mouse, window, system, channel and custom recipe subscriptions |
+| `Task` | partial | async externs and typed arbitrary iced `Task` adapters; direct batch, chain, stream, cancellation and progress syntax missing |
+| `Subscription` | partial | typed arbitrary iced `Subscription` adapters and batching; direct source/combinator syntax missing |
 | widget operations | missing | focus, cursor selection, scroll and selector operations |
-| clipboard | missing | read/write and primary clipboard |
+| clipboard | partial | typed Task adapter with write exercised; direct read/write syntax and `Option` payload missing |
 | fonts | missing | font loading and discovery |
 | system | missing | system information query |
 | window | missing | settings, open/close, multiple windows, resize/move/mode/focus/screenshot/monitor operations |
-| event routing | missing | raw iced events and event status |
+| event routing | partial | raw event subscription adapter exercised; native event/status types missing |
 | keyboard | missing | key/modifier events and subscriptions |
 | mouse/touch | missing | pointer, wheel, touch and interaction APIs |
-| custom widget | missing | typed Rust `Element`/advanced `Widget` escape hatch |
+| custom widget | partial | typed owned `Element<'static, Event>` adapter; borrowed elements and custom Theme/Renderer missing |
 | custom renderer | missing | renderer/graphics backend escape hatch |
 
 ## Evidence rule

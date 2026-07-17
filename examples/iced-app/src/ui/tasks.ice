@@ -6,6 +6,9 @@ extern crate::backend
   list_tasks() -> [Task] ! AppError
   create_task(title:str) -> [Task] ! AppError
   set_task_done(id:i64, done:bool) -> [Task] ! AppError
+  component native_help(active:bool) -> bool
+  task copy_text(text:str) -> unit ! AppError
+  subscription app_events() -> bool
 
 theme
   background #0f172a
@@ -24,6 +27,8 @@ state
   volume = 40.0
   notifications = true
   view_mode = 0
+  external_hover = false
+  event_seen = false
 
 component TaskRow(task:Task, loading:bool)
   row #root @w-full items-center p-4 bg-surface border border-border rounded-lg
@@ -78,6 +83,21 @@ on notifications_changed(next)
 on view_mode_changed(next)
   view_mode = next
 
+on copy_draft
+  return if empty(trim(draft))
+  task copy_text(draft) -> copied | failed _
+
+on copied
+
+on external_hover_changed(next)
+  external_hover = next
+
+on external_event(next)
+  event_seen = next
+
+subscribe
+  app_events() -> external_event _
+
 view
   col @w-full h-full p-6 gap-6 bg-background
     row @w-full items-center gap-3
@@ -86,6 +106,7 @@ view
 
     row @w-full items-center gap-3
       input "New task" #new-task <-> draft hint="What needs doing?" disabled=loading @w-full px-4 py-3 bg-surface border border-border rounded-lg focus:border-primary
+      button "Copy" disabled=empty(trim(draft)) @px-4 py-3 bg-surface text-foreground rounded-lg disabled:opacity-50 -> copy_draft
       button "Add" disabled=(loading || empty(trim(draft))) @px-4 py-3 bg-primary text-white rounded-lg hover:bg-primary/90 pressed:bg-primary/70 disabled:opacity-50 -> submit
 
     if error != ""
@@ -108,6 +129,9 @@ view
         toggler "Notifications" checked=notifications -> notifications_changed _
         slider volume min=0.0 max=100.0 step=5.0 release=volume_committed -> volume_changed _
         progress volume
+        extern native_help(external_hover) -> external_hover_changed _
+        if event_seen
+          text "External subscription active" @text-xs text-muted
       col @w-full gap-2 p-4 bg-surface rounded-lg
         text "View mode" @text-lg font-bold text-foreground
         radio "List" value=0 selected=(view_mode == 0) -> view_mode_changed _

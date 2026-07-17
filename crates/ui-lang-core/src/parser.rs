@@ -16,6 +16,7 @@ pub fn parse(source: &str) -> Result<Document, Error> {
     let mut extern_path = None;
     let mut structs = Vec::new();
     let mut functions = Vec::new();
+    let mut subscriptions = Vec::new();
     let mut theme = BTreeMap::new();
     let mut states = Vec::new();
     let mut components = Vec::new();
@@ -39,10 +40,26 @@ pub fn parse(source: &str) -> Result<Document, Error> {
             let path = rust_path(path.trim(), line)?;
             extern_path = Some(path.clone());
             for item in &line.children {
-                if item.text.chars().next().is_some_and(char::is_uppercase) {
+                if let Some(source) = item.text.strip_prefix("component ") {
+                    functions.push(parse_extern_fn(source, item, &path, ExternKind::Component)?);
+                } else if let Some(source) = item.text.strip_prefix("task ") {
+                    functions.push(parse_extern_fn(source, item, &path, ExternKind::Task)?);
+                } else if let Some(source) = item.text.strip_prefix("subscription ") {
+                    functions.push(parse_extern_fn(
+                        source,
+                        item,
+                        &path,
+                        ExternKind::Subscription,
+                    )?);
+                } else if item.text.chars().next().is_some_and(char::is_uppercase) {
                     structs.push(parse_extern_struct(item, &path)?);
                 } else {
-                    functions.push(parse_extern_fn(item, &path)?);
+                    functions.push(parse_extern_fn(
+                        &item.text,
+                        item,
+                        &path,
+                        ExternKind::Future,
+                    )?);
                 }
             }
         } else if line.text == "theme" {
@@ -75,6 +92,13 @@ pub fn parse(source: &str) -> Result<Document, Error> {
             components.push(parse_component(header, line)?);
         } else if let Some(header) = line.text.strip_prefix("on ") {
             handlers.push(parse_handler(header, line)?);
+        } else if line.text == "subscribe" {
+            subscriptions.extend(
+                line.children
+                    .iter()
+                    .map(parse_subscription)
+                    .collect::<Result<Vec<_>, _>>()?,
+            );
         } else if line.text == "view" {
             if view.is_some() {
                 return Err(error("E004", line, "an app may only have one view"));
@@ -102,6 +126,7 @@ pub fn parse(source: &str) -> Result<Document, Error> {
         extern_path,
         structs,
         functions,
+        subscriptions,
         theme,
         states,
         components,
@@ -184,11 +209,16 @@ fn parse_extern_struct(line: &Line, namespace: &str) -> Result<ExternStruct, Err
     })
 }
 
-fn parse_extern_fn(line: &Line, namespace: &str) -> Result<ExternFn, Error> {
+fn parse_extern_fn(
+    source: &str,
+    line: &Line,
+    namespace: &str,
+    kind: ExternKind,
+) -> Result<ExternFn, Error> {
     ensure_leaf(line)?;
-    let close = matching_paren(&line.text, line)?;
-    let name = identifier(line.text[..line.text.find('(').unwrap_or(0)].trim(), line)?;
-    let params_source = &line.text[line.text.find('(').unwrap_or(0) + 1..close];
+    let close = matching_paren(source, line)?;
+    let name = identifier(source[..source.find('(').unwrap_or(0)].trim(), line)?;
+    let params_source = &source[source.find('(').unwrap_or(0) + 1..close];
     let mut params = Vec::new();
     if !params_source.trim().is_empty() {
         for param in split_top(params_source, ',') {
@@ -198,7 +228,7 @@ fn parse_extern_fn(line: &Line, namespace: &str) -> Result<ExternFn, Error> {
             params.push((identifier(name.trim(), line)?, parse_type(ty.trim(), line)?));
         }
     }
-    let rest = line.text[close + 1..].trim();
+    let rest = source[close + 1..].trim();
     let Some(rest) = rest.strip_prefix("->") else {
         return Err(error(
             "E022",
@@ -213,12 +243,38 @@ fn parse_extern_fn(line: &Line, namespace: &str) -> Result<ExternFn, Error> {
         ),
         None => (parse_type(rest.trim(), line)?, None),
     };
+    if error_ty.is_some() && matches!(kind, ExternKind::Component | ExternKind::Subscription) {
+        return Err(error(
+            "E023",
+            line,
+            "extern components and subscriptions cannot declare an error type",
+        ));
+    }
     Ok(ExternFn {
+        kind,
         rust_path: format!("{namespace}::{name}"),
         name,
         params,
         output,
         error: error_ty,
+        span: Span::line(line.number),
+    })
+}
+
+fn parse_subscription(line: &Line) -> Result<Subscription, Error> {
+    ensure_leaf(line)?;
+    let Some((call, route)) = split_top_marker(&line.text, "->") else {
+        return Err(error(
+            "E084",
+            line,
+            "subscription uses `name(args) -> handler _`",
+        ));
+    };
+    let (function, args) = parse_signature(call.trim(), line)?;
+    Ok(Subscription {
+        function,
+        args: parse_expr_list(&args, line)?,
+        route: parse_route(route.trim(), line)?,
         span: Span::line(line.number),
     })
 }
@@ -322,9 +378,27 @@ fn parse_statement(line: &Line) -> Result<Statement, Error> {
             span: Span::line(line.number),
         });
     }
-    if let Some(run) = line.text.strip_prefix("run ") {
+    let effect = line
+        .text
+        .strip_prefix("run ")
+        .map(|source| (EffectKind::Future, source))
+        .or_else(|| {
+            line.text
+                .strip_prefix("task ")
+                .map(|source| (EffectKind::Task, source))
+        });
+    if let Some((kind, run)) = effect {
         let Some((call, routes)) = split_top_marker(run, "->") else {
-            return Err(error("E050", line, "run requires `-> success _ | error _`"));
+            let keyword = if kind == EffectKind::Future {
+                "run"
+            } else {
+                "task"
+            };
+            return Err(error(
+                "E050",
+                line,
+                format!("{keyword} requires `-> success _ | error _`"),
+            ));
         };
         let (function, args_source) = parse_signature(call.trim(), line)?;
         let args = parse_expr_list(&args_source, line)?;
@@ -336,6 +410,7 @@ fn parse_statement(line: &Line) -> Result<Statement, Error> {
             None => (parse_route(routes.trim(), line)?, None),
         };
         return Ok(Statement::Run {
+            kind,
             function,
             args,
             success,
@@ -403,7 +478,10 @@ fn parse_view(line: &Line) -> Result<ViewNode, Error> {
         return Err(error("E061", line, "empty view node"));
     };
     if route_source.is_some()
-        && !matches!(kind, "button" | "checkbox" | "toggler" | "slider" | "radio")
+        && !matches!(
+            kind,
+            "button" | "checkbox" | "toggler" | "slider" | "radio" | "extern"
+        )
     {
         return Err(error(
             "E081",
@@ -468,6 +546,7 @@ fn parse_view(line: &Line) -> Result<ViewNode, Error> {
         "radio" => parse_radio(&parts, styles, route_source, line),
         "rule" => parse_rule(&parts, styles, line),
         "space" => parse_space(&parts, styles, line),
+        "extern" => parse_extern_component(&parts, styles, route_source, line),
         _ if kind.chars().next().is_some_and(char::is_uppercase) => {
             ensure_leaf(line)?;
             let (name, args_source) = parse_signature(kind, line)?;
@@ -485,6 +564,36 @@ fn parse_view(line: &Line) -> Result<ViewNode, Error> {
         }
         _ => Err(error("E064", line, format!("unknown view node `{kind}`"))),
     }
+}
+
+fn parse_extern_component(
+    parts: &[String],
+    styles: Vec<String>,
+    route: Option<&str>,
+    line: &Line,
+) -> Result<ViewNode, Error> {
+    ensure_leaf(line)?;
+    if !styles.is_empty() {
+        return Err(error(
+            "E083",
+            line,
+            "extern components own their styling and do not accept `@` utilities",
+        ));
+    }
+    if parts.len() != 2 {
+        return Err(error(
+            "E083",
+            line,
+            "extern component uses `extern name(args) -> handler _`",
+        ));
+    }
+    let (function, args) = parse_signature(&parts[1], line)?;
+    Ok(ViewNode::ExternComponent {
+        function,
+        args: parse_expr_list(&args, line)?,
+        route: route.map(|route| parse_route(route, line)).transpose()?,
+        span: Span::line(line.number),
+    })
 }
 
 fn parse_layout_options(kind: &str, parts: &[String], line: &Line) -> Result<LayoutOptions, Error> {

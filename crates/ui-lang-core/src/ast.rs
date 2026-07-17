@@ -61,6 +61,7 @@ pub struct Document {
     pub extern_path: Option<String>,
     pub structs: Vec<ExternStruct>,
     pub functions: Vec<ExternFn>,
+    pub subscriptions: Vec<Subscription>,
     pub theme: BTreeMap<String, String>,
     pub states: Vec<State>,
     pub components: Vec<Component>,
@@ -78,11 +79,28 @@ pub struct ExternStruct {
 
 #[derive(Clone, Debug)]
 pub struct ExternFn {
+    pub kind: ExternKind,
     pub name: String,
     pub rust_path: String,
     pub params: Vec<(String, Type)>,
     pub output: Type,
     pub error: Option<Type>,
+    pub span: Span,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExternKind {
+    Future,
+    Component,
+    Task,
+    Subscription,
+}
+
+#[derive(Clone, Debug)]
+pub struct Subscription {
+    pub function: String,
+    pub args: Vec<Expr>,
+    pub route: Route,
     pub span: Span,
 }
 
@@ -128,12 +146,19 @@ pub enum Statement {
         span: Span,
     },
     Run {
+        kind: EffectKind,
         function: String,
         args: Vec<Expr>,
         success: Route,
         error: Option<Route>,
         span: Span,
     },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EffectKind {
+    Future,
+    Task,
 }
 
 #[derive(Clone, Debug)]
@@ -258,6 +283,12 @@ pub enum ViewNode {
         name: String,
         args: Vec<Expr>,
         id: Option<Id>,
+        span: Span,
+    },
+    ExternComponent {
+        function: String,
+        args: Vec<Expr>,
+        route: Option<Route>,
         span: Span,
     },
 }
