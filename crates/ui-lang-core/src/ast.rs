@@ -19,6 +19,7 @@ pub enum Type {
     F64,
     Str,
     List(Box<Type>),
+    Option(Box<Type>),
     Named(String),
     Unit,
     Unknown,
@@ -32,6 +33,7 @@ impl Type {
             Self::F64 => "f64".into(),
             Self::Str => "::std::string::String".into(),
             Self::List(inner) => format!("::std::vec::Vec<{}>", inner.rust(structs)),
+            Self::Option(inner) => format!("::std::option::Option<{}>", inner.rust(structs)),
             Self::Named(name) => structs
                 .iter()
                 .find(|item| item.name == *name)
@@ -48,6 +50,7 @@ impl Type {
             Self::F64 => "f64".into(),
             Self::Str => "str".into(),
             Self::List(inner) => format!("[{}]", inner.display()),
+            Self::Option(inner) => format!("{}?", inner.display()),
             Self::Named(name) => name.clone(),
             Self::Unit => "unit".into(),
             Self::Unknown => "unknown".into(),
@@ -256,6 +259,13 @@ pub enum ViewNode {
         route: Route,
         span: Span,
     },
+    PickList {
+        options: Expr,
+        selected: Expr,
+        options_config: PickListOptions,
+        route: Route,
+        span: Span,
+    },
     Rule {
         axis: Axis,
         thickness: Expr,
@@ -308,6 +318,17 @@ pub enum ViewNode {
         content: Box<ViewNode>,
         span: Span,
     },
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct PickListOptions {
+    pub placeholder: Option<Expr>,
+    pub width: Option<LengthValue>,
+    pub menu_height: Option<LengthValue>,
+    pub padding: Option<Expr>,
+    pub text_size: Option<Expr>,
+    pub open: Option<Route>,
+    pub close: Option<Route>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -442,6 +463,8 @@ pub enum Expr {
     F64(f64),
     Str(String),
     EmptyList,
+    List(Vec<Expr>),
+    None,
     Path(Vec<String>),
     Call {
         name: String,

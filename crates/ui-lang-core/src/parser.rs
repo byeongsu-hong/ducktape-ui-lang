@@ -480,7 +480,7 @@ fn parse_view(line: &Line) -> Result<ViewNode, Error> {
     if route_source.is_some()
         && !matches!(
             kind,
-            "button" | "checkbox" | "toggler" | "slider" | "radio" | "extern"
+            "button" | "checkbox" | "toggler" | "slider" | "radio" | "pick" | "extern"
         )
     {
         return Err(error(
@@ -544,6 +544,7 @@ fn parse_view(line: &Line) -> Result<ViewNode, Error> {
         "slider" => parse_slider(&parts, styles, route_source, line),
         "progress" => parse_progress(&parts, styles, line),
         "radio" => parse_radio(&parts, styles, route_source, line),
+        "pick" => parse_pick_list(&parts, styles, route_source, line),
         "rule" => parse_rule(&parts, styles, line),
         "space" => parse_space(&parts, styles, line),
         "extern" => parse_extern_component(&parts, styles, route_source, line),
@@ -567,6 +568,61 @@ fn parse_view(line: &Line) -> Result<ViewNode, Error> {
         }
         _ => Err(error("E064", line, format!("unknown view node `{kind}`"))),
     }
+}
+
+fn parse_pick_list(
+    parts: &[String],
+    styles: Vec<String>,
+    route_source: Option<&str>,
+    line: &Line,
+) -> Result<ViewNode, Error> {
+    ensure_leaf(line)?;
+    if !styles.is_empty() {
+        return Err(error(
+            "E087",
+            line,
+            "pick uses typed properties instead of `@` utilities",
+        ));
+    }
+    if parts.len() < 3 {
+        return Err(error(
+            "E087",
+            line,
+            "pick expects `pick options selected -> handler _`",
+        ));
+    }
+    let route = route_source.ok_or_else(|| error("E087", line, "pick requires `-> handler _`"))?;
+    let mut config = PickListOptions::default();
+    for part in &parts[3..] {
+        if let Some(value) = part.strip_prefix("placeholder=") {
+            config.placeholder = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("width=") {
+            config.width = Some(parse_length(value, line)?);
+        } else if let Some(value) = part.strip_prefix("menu-height=") {
+            config.menu_height = Some(parse_length(value, line)?);
+        } else if let Some(value) = part.strip_prefix("padding=") {
+            config.padding = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("text-size=") {
+            config.text_size = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("open=") {
+            config.open = Some(parse_route(value, line)?);
+        } else if let Some(value) = part.strip_prefix("close=") {
+            config.close = Some(parse_route(value, line)?);
+        } else {
+            return Err(error(
+                "E087",
+                line,
+                format!("unknown pick property `{part}`"),
+            ));
+        }
+    }
+    Ok(ViewNode::PickList {
+        options: parse_expr(&parts[1], line)?,
+        selected: parse_expr(&parts[2], line)?,
+        options_config: config,
+        route: parse_route(route.trim(), line)?,
+        span: Span::line(line.number),
+    })
 }
 
 fn parse_media(
@@ -1281,6 +1337,9 @@ fn parse_id(source: &str, line: &Line) -> Result<Id, Error> {
 
 fn parse_type(source: &str, line: &Line) -> Result<Type, Error> {
     let source = source.trim();
+    if let Some(inner) = source.strip_suffix('?') {
+        return Ok(Type::Option(Box::new(parse_type(inner, line)?)));
+    }
     if source.starts_with('[') && source.ends_with(']') {
         return Ok(Type::List(Box::new(parse_type(
             &source[1..source.len() - 1],
@@ -1408,14 +1467,23 @@ impl<'a> ExprParser<'a> {
             Token::I64(value) => Ok(Expr::I64(value)),
             Token::F64(value) => Ok(Expr::F64(value)),
             Token::LBracket => {
-                if self.next() != Some(Token::RBracket) {
-                    return Err(error(
-                        "E070",
-                        self.line,
-                        "only an empty list literal is supported",
-                    ));
+                if self.peek() == Some(&Token::RBracket) {
+                    self.index += 1;
+                    return Ok(Expr::EmptyList);
                 }
-                Ok(Expr::EmptyList)
+                let mut values = Vec::new();
+                loop {
+                    values.push(self.binary(0)?);
+                    if self.peek() == Some(&Token::Comma) {
+                        self.index += 1;
+                    } else {
+                        break;
+                    }
+                }
+                if self.next() != Some(Token::RBracket) {
+                    return Err(error("E070", self.line, "missing closing `]`"));
+                }
+                Ok(Expr::List(values))
             }
             Token::LParen => {
                 let value = self.binary(0)?;
@@ -1426,6 +1494,7 @@ impl<'a> ExprParser<'a> {
             }
             Token::Ident(name) if name == "true" => Ok(Expr::Bool(true)),
             Token::Ident(name) if name == "false" => Ok(Expr::Bool(false)),
+            Token::Ident(name) if name == "none" => Ok(Expr::None),
             Token::Ident(name) => {
                 if self.peek() == Some(&Token::LParen) {
                     self.index += 1;
@@ -1741,6 +1810,19 @@ fn literal_type(expr: &Expr) -> Option<Type> {
         Expr::F64(_) => Type::F64,
         Expr::Str(_) => Type::Str,
         Expr::EmptyList => return None,
+        Expr::List(values) => {
+            let first = values.first().and_then(literal_type)?;
+            if values
+                .iter()
+                .skip(1)
+                .all(|value| literal_type(value).as_ref() == Some(&first))
+            {
+                Type::List(Box::new(first))
+            } else {
+                return None;
+            }
+        }
+        Expr::None => return None,
         _ => return None,
     })
 }
