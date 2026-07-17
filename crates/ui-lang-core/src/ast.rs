@@ -1372,6 +1372,7 @@ pub struct TextInputIcon {
 pub enum MediaKind {
     Image,
     Svg,
+    Viewer,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -1394,6 +1395,10 @@ pub struct MediaOptions {
     pub radius_bottom_right: Option<Expr>,
     pub radius_bottom_left: Option<Expr>,
     pub crop: Option<[Expr; 4]>,
+    pub padding: Option<Expr>,
+    pub min_scale: Option<Expr>,
+    pub max_scale: Option<Expr>,
+    pub scale_step: Option<Expr>,
 }
 
 #[derive(Clone, Debug)]

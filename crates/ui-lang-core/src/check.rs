@@ -2038,7 +2038,9 @@ fn infer_view(
         } => {
             let source_ty = expr_type(source, env, document, span)?;
             let valid_source = match kind {
-                MediaKind::Image => source_ty == Type::Str || source_ty == Type::Image,
+                MediaKind::Image | MediaKind::Viewer => {
+                    source_ty == Type::Str || source_ty == Type::Image
+                }
                 MediaKind::Svg if options.svg_memory => {
                     source_ty == Type::Str || source_ty == Type::Bytes
                 }
@@ -2047,7 +2049,7 @@ fn infer_view(
             if !valid_source {
                 let error = type_error(
                     span,
-                    if *kind == MediaKind::Image {
+                    if matches!(kind, MediaKind::Image | MediaKind::Viewer) {
                         &Type::Image
                     } else if options.svg_memory {
                         &Type::Bytes
@@ -2056,8 +2058,8 @@ fn infer_view(
                     },
                     &source_ty,
                 );
-                return Err(if *kind == MediaKind::Image {
-                    error.hint("image accepts a path string or image handle")
+                return Err(if matches!(kind, MediaKind::Image | MediaKind::Viewer) {
+                    error.hint("image and viewer accept a path string or image handle")
                 } else if options.svg_memory {
                     error.hint("SVG memory accepts UTF-8 text or raw bytes")
                 } else {
@@ -2113,6 +2115,26 @@ fn infer_view(
                         span,
                     )?;
                 }
+            }
+            for (value, label, min) in [
+                (&options.padding, "viewer padding", 0.0),
+                (&options.min_scale, "viewer minimum scale", f64::EPSILON),
+                (&options.max_scale, "viewer maximum scale", f64::EPSILON),
+                (&options.scale_step, "viewer scale step", f64::EPSILON),
+            ] {
+                if let Some(value) = value {
+                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+                    require_literal_range(value, min, None, label, span)?;
+                }
+            }
+            let min_scale = options.min_scale.as_ref().map_or(Some(0.25), f64_literal);
+            let max_scale = options.max_scale.as_ref().map_or(Some(10.0), f64_literal);
+            if matches!((min_scale, max_scale), (Some(min), Some(max)) if min > max) {
+                return Err(Error::new(
+                    "E128",
+                    span,
+                    "viewer minimum scale cannot exceed maximum scale",
+                ));
             }
             for color in options
                 .svg_color
@@ -6661,6 +6683,15 @@ view
         let error = analyze(&valid.replace("crop=(0, 0, 1, 1)", "crop=(-1, 0, 1, 1)")).unwrap_err();
         assert_eq!(error.code, "E128");
         assert!(error.message.contains("crop"));
+
+        let viewer = source.replace(
+            "image \"photo.ppm\" opacity=1.5",
+            "viewer \"photo.ppm\" padding=8.0 min-scale=0.5 max-scale=4.0 scale-step=0.25",
+        );
+        analyze(&viewer).unwrap();
+        let error = analyze(&viewer.replace("min-scale=0.5", "min-scale=5.0")).unwrap_err();
+        assert_eq!(error.code, "E128");
+        assert!(error.message.contains("minimum scale"));
 
         let source = source.replace(
             "image \"photo.ppm\" opacity=1.5",

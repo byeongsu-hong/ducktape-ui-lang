@@ -2340,6 +2340,10 @@ fn render_node(
             let source = expr_code(source, env, document, ValueMode::Owned)?;
             let mut code = match kind {
                 MediaKind::Image => format!("::iced::widget::image({source})"),
+                MediaKind::Viewer if source_type == Type::Str => format!(
+                    "::iced::widget::image::viewer(::iced::widget::image::Handle::from_path({source}))"
+                ),
+                MediaKind::Viewer => format!("::iced::widget::image::viewer({source})"),
                 MediaKind::Svg if options.svg_memory && source_type == Type::Bytes => format!(
                     "::iced::widget::svg(::iced::widget::svg::Handle::from_memory({source}))"
                 ),
@@ -2414,6 +2418,21 @@ fn render_node(
                     ".filter_method(::iced::widget::image::FilterMethod::{filter})"
                 )
                 .unwrap();
+            }
+            for (value, method) in [
+                (&options.padding, "padding"),
+                (&options.min_scale, "min_scale"),
+                (&options.max_scale, "max_scale"),
+                (&options.scale_step, "scale_step"),
+            ] {
+                if let Some(value) = value {
+                    write!(
+                        code,
+                        ".{method}({} as f32)",
+                        expr_code(value, env, document, ValueMode::Owned)?
+                    )
+                    .unwrap();
+                }
             }
             if let Some(scale) = &options.scale {
                 write!(
@@ -8456,6 +8475,8 @@ view
     image "photo.ppm" width=fill height=64.0 fit=cover filter=nearest rotation=solid(0.5) opacity=0.8 scale=1.2 expand=true radius=4.0 radius-tl=1.0 radius-br=2.0 crop=(1, 2, 30, 40)
     image encoded_image
     image rgba_image
+    viewer encoded_image width=fill(2) height=120.0 fit=contain filter=linear padding=8.0 min-scale=0.5 max-scale=4.0 scale-step=0.25
+    viewer "photo.ppm" width=64.0 height=64.0
     svg "icon.svg" width=48.0 height=shrink fit=scale-down rotation=0.1 opacity=0.9 color=foreground hover=primary
     svg "<svg/>" memory width=16.0 color=foreground hover=none
     svg bytes(3c 73 76 67 2f 3e) memory width=16.0
@@ -8474,6 +8495,8 @@ view
             generated.contains("image::Handle::from_bytes(::std::vec![0x50u8, 0x36u8, 0x0au8])")
         );
         assert!(generated.contains("image::Handle::from_rgba((1).clamp(0, u32::MAX as i64) as u32, (1).clamp(0, u32::MAX as i64) as u32, ::std::vec![0xffu8, 0x00u8, 0x00u8, 0xffu8])"));
+        assert!(generated.contains("::iced::widget::image::viewer(self.encoded_image.clone()).width(::iced::Length::FillPortion(2)).height(120.0 as f32).content_fit(::iced::ContentFit::Contain).filter_method(::iced::widget::image::FilterMethod::Linear).padding(8.0 as f32).min_scale(0.5 as f32).max_scale(4.0 as f32).scale_step(0.25 as f32)"));
+        assert!(generated.contains("::iced::widget::image::viewer(::iced::widget::image::Handle::from_path(\"photo.ppm\".to_owned()))"));
         assert!(generated.contains(".crop(::iced::Rectangle { x: (1).clamp(0, u32::MAX as i64) as u32, y: (2).clamp(0, u32::MAX as i64) as u32, width: (30).clamp(0, u32::MAX as i64) as u32, height: (40).clamp(0, u32::MAX as i64) as u32 })"));
         assert!(generated.contains(".filter_method(::iced::widget::image::FilterMethod::Nearest)"));
         assert!(generated.contains("::iced::widget::svg(\"icon.svg\".to_owned())"));

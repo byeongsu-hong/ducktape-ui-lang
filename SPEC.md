@@ -1,4 +1,4 @@
-# Ice Language Specification 0.75
+# Ice Language Specification 0.76
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.75 syntax.
+marked “planned” is a design constraint, not accepted 0.76 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.75.
+  block comments are not part of 0.76.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -606,7 +606,7 @@ qr_code        = "qr" name qr_property*
 qr_property    = ("cell-size=" | "total-size=") expr
                | ("cell=" | "background=") name ("/" u8)?
 space          = "space" ("width=" length)? ("height=" length)? styles?
-media          = ("image" | "svg") expr media_property*
+media          = ("image" | "svg" | "viewer") expr media_property*
 media_property = ("width=" | "height=") length
                | "fit=" ("contain" | "cover" | "fill" | "none" | "scale-down")
                | "rotation=" (expr | "solid(" expr ")") | "opacity=" expr
@@ -617,6 +617,8 @@ media_property = ("width=" | "height=") length
                | ("radius=" | "radius-tl=" | "radius-tr="
                  | "radius-br=" | "radius-bl=") expr
                | "crop=(" expr "," expr "," expr "," expr ")"
+               | ("padding=" | "min-scale=" | "max-scale="
+                 | "scale-step=") expr
 length         = "fill" | "fill(" u16 ")" | "shrink" | expr
 tooltip        = "tooltip" tooltip_property* INDENT node node
 tooltip_property
@@ -691,7 +693,7 @@ default/centered/fixed position, visibility, resizability, close/minimize
 buttons, decorations, transparency, blur, level, and close-request behavior.
 Sizes, text size, and scale factor must be positive; minimum size cannot exceed
 maximum size. Window icons and platform-specific settings are not part of
-0.75.
+0.76.
 
 Media fixed lengths, rotation, opacity, scale, and radius are `f64`; rotation
 is radians and defaults to floating layout behavior, while `solid(angle)` makes
@@ -701,6 +703,15 @@ Crop is `(x, y, width, height)` in non-negative `i64` source-pixel coordinates.
 `memory`, `color`, and `hover` are SVG-only. `memory` accepts UTF-8 SVG text or
 raw `bytes`; `color` filters both statuses and `hover` overrides the
 hovered status with a checked theme color or `none`.
+`viewer` wraps an image path or handle in iced's stateful zoom/pan widget. It
+accepts width, height, fit, filter, non-negative padding, positive minimum and
+maximum scales, and a positive scale step; the minimum cannot exceed the
+maximum. The widget owns gesture state in iced's tree, so no app state or event
+handler is needed:
+
+```ice
+viewer memory_image width=fill height=240.0 fit=contain filter=nearest padding=8.0 min-scale=0.5 max-scale=8.0 scale-step=0.1
+```
 Every `length` position accepts fixed `f64`, `fill`, `fill(N)` portions with a
 decimal `u16`, or `shrink`; out-of-range portions fail during parsing.
 `rule` exposes all four iced fill modes. Percent is checked in `0.0..=100.0`;
@@ -1086,7 +1097,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.75 message payloads.
+`Clone` for 0.76 message payloads.
 
 Three typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
@@ -1249,6 +1260,7 @@ The implemented native nodes are:
 | `qr` | named text/binary QR data with correction/version, cell/total sizing and checked colors |
 | `space` | optional fixed/fill/fill-portion/shrink width and height |
 | `image` | raster path or encoded/RGBA handle with every concrete sizing/fit/filter/floating-or-solid rotation/opacity/scale/expand/per-corner-radius/crop property |
+| `viewer` | interactive image zoom/pan with path/handle sources and complete sizing/fit/filter/padding/scale configuration |
 | `svg` | SVG path or UTF-8/raw-byte memory expression with typed layout and idle/hover color properties |
 | `tooltip` | exactly two children (content then tip), full positioning/timing plus preset, color, border, radius, shadow and pixel-snap styles |
 | `mouse` | one child; all button/enter/move/scroll/exit events and every iced cursor interaction |
@@ -1643,7 +1655,7 @@ weight, stretch, and style variant is accepted. At most one declaration may be
 the application default. `font=default` and `font=mono` remain built-ins;
 declared fonts also work on text, rich text and spans, input, editor, checkbox,
 toggler, radio, pick, combo, and their custom icons. Font
-byte loading is not part of 0.75.
+byte loading is not part of 0.76.
 
 Widget operation tasks target checked static IDs in the app view:
 
@@ -1663,7 +1675,7 @@ snap/end; and absolute scroll-to/scroll-by. Effects have no route and
 non-negative `i64`; relative offsets are `f64` in `0.0..=1.0`; absolute
 offsets are unrestricted `f64`. Targets must be real static IDs in the app
 scope. Repeated/component scopes and the feature-gated selector API remain
-outside 0.75.
+outside 0.76.
 
 Persistent pane grids expose their native layout-state operations directly in
 handlers:
@@ -1710,7 +1722,7 @@ and constraints, resizability, maximize/minimize state, position and movement,
 all modes, decorations, user attention, focus, level, system menu, mouse
 passthrough, monitor size, and automatic tabbing. Positive sizes and bool
 arguments are checked before Rust generation. New-window IDs, open/oldest/latest,
-icons, raw handles, screenshots, and callbacks remain outside 0.75.
+icons, raw handles, screenshots, and callbacks remain outside 0.76.
 
 Every iced window event has a direct subscription form:
 
@@ -1863,7 +1875,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 0.75 does not claim that remapping.
+extern line; 0.76 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -1884,7 +1896,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 0.75 native backend is enough for CRUD/settings-style screens, selection,
+The 0.76 native backend is enough for CRUD/settings-style screens, selection,
 media, hover
 overlays, and common pointer events, not all of iced. It still lacks direct
 syntax for canvas, arbitrary custom overlays, multiple
