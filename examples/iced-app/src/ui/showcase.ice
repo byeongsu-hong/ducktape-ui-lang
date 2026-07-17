@@ -534,7 +534,7 @@ view
                   text available_height @text-xs text-muted
                   text observed_width @text-xs text-muted
                   text observed_height @text-xs text-muted
-        float scale=1.02 x=0.0 y=-1.0
+        float scale=1.02 x=(viewport_width - original_width) y=-1.0 shadow=black/50 shadow-y=2.0 shadow-blur=4.0 radius=4.0
           text "Floating label" @text-xs text-foreground
         pin width=fill height=28.0 x=4.0 y=4.0
           text "Pinned label" @text-xs text-muted

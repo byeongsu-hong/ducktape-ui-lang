@@ -2767,16 +2767,39 @@ fn render_node(
             scale,
             x,
             y,
+            style,
             content,
             ..
         } => {
             let content = render_node(content, document, message, env, scope, slot)?;
             let scale = expr_code(scale, env, document, ValueMode::Owned)?;
-            let x = expr_code(x, env, document, ValueMode::Owned)?;
-            let y = expr_code(y, env, document, ValueMode::Owned)?;
-            Ok(format!(
-                "{{ let __float_content: ::iced::Element<'_, {message}> = {content}; ::iced::widget::float(__float_content).scale({scale} as f32).translate(move |_, _| ::iced::Vector::new({x} as f32, {y} as f32)).into() }}"
-            ))
+            let mut translate_env = env.clone();
+            for (name, code) in [
+                ("original_x", "(__original.x as f64)"),
+                ("original_y", "(__original.y as f64)"),
+                ("original_width", "(__original.width as f64)"),
+                ("original_height", "(__original.height as f64)"),
+                ("viewport_x", "(__viewport.x as f64)"),
+                ("viewport_y", "(__viewport.y as f64)"),
+                ("viewport_width", "(__viewport.width as f64)"),
+                ("viewport_height", "(__viewport.height as f64)"),
+            ] {
+                translate_env.insert(
+                    name.to_owned(),
+                    Binding {
+                        code: code.to_owned(),
+                        ty: Type::F64,
+                        local: true,
+                    },
+                );
+            }
+            let x = expr_code(x, &translate_env, document, ValueMode::Owned)?;
+            let y = expr_code(y, &translate_env, document, ValueMode::Owned)?;
+            let mut code = format!(
+                "{{ let __float_content: ::iced::Element<'_, {message}> = {content}; let __float = ::iced::widget::float(__float_content).scale({scale} as f32).translate(move |__original, __viewport| ::iced::Vector::new({x} as f32, {y} as f32))"
+            );
+            append_float_style(&mut code, style, env, document)?;
+            Ok(format!("{code}; __float.into() }}"))
         }
         ViewNode::Pin {
             width,
@@ -6256,6 +6279,61 @@ fn radius_code(
     )))
 }
 
+fn append_float_style(
+    code: &mut String,
+    style: &FloatStyleOptions,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<(), Error> {
+    let radius = radius_code(
+        style.radius.as_ref(),
+        [
+            style.radius_top_left.as_ref(),
+            style.radius_top_right.as_ref(),
+            style.radius_bottom_right.as_ref(),
+            style.radius_bottom_left.as_ref(),
+        ],
+        env,
+        document,
+    )?;
+    if style.shadow_color.is_none()
+        && style.shadow_x.is_none()
+        && style.shadow_y.is_none()
+        && style.shadow_blur.is_none()
+        && radius.is_none()
+    {
+        return Ok(());
+    }
+    code.push_str(".style(move |_| { let mut __style = ::iced::widget::float::Style::default();");
+    if let Some(color) = &style.shadow_color {
+        write!(
+            code,
+            " __style.shadow.color = {};",
+            theme_color(document, color)
+        )
+        .unwrap();
+    }
+    for (value, field) in [
+        (&style.shadow_x, "__style.shadow.offset.x"),
+        (&style.shadow_y, "__style.shadow.offset.y"),
+        (&style.shadow_blur, "__style.shadow.blur_radius"),
+    ] {
+        if let Some(value) = value {
+            write!(
+                code,
+                " {field} = {} as f32;",
+                expr_code(value, env, document, ValueMode::Owned)?
+            )
+            .unwrap();
+        }
+    }
+    if let Some(radius) = radius {
+        write!(code, " __style.shadow_border_radius = {radius};").unwrap();
+    }
+    code.push_str(" __style })");
+    Ok(())
+}
+
 fn background_code(
     background: &BackgroundValue,
     env: &HashMap<String, Binding>,
@@ -9114,7 +9192,7 @@ on resized(w, h)
 on hidden
 view
   col
-    float scale=1.1 x=4.0 y=-2.0
+    float scale=1.1 x=(viewport_x + viewport_width - original_x - original_width) y=(viewport_y + viewport_height - original_y - original_height) shadow=black/50 shadow-x=1.0 shadow-y=2.0 shadow-blur=4.0 radius=8.0 radius-tl=1.0 radius-tr=2.0 radius-br=3.0 radius-bl=4.0
       text "Floating"
     pin width=fill height=80.0 x=12.0 y=8.0
       text "Pinned"
@@ -9132,6 +9210,23 @@ view
 "#;
         let generated = compile(source, "structure.ice").unwrap();
         assert!(generated.contains("::iced::widget::float(__float_content).scale(1.1 as f32)"));
+        assert!(generated.contains("translate(move |__original, __viewport|"));
+        assert!(generated.contains(
+            "(((__viewport.x as f64) + (__viewport.width as f64)) - (__original.x as f64)) - (__original.width as f64)"
+        ));
+        assert!(generated.contains(
+            "(((__viewport.y as f64) + (__viewport.height as f64)) - (__original.y as f64)) - (__original.height as f64)"
+        ));
+        assert!(generated.contains("::iced::widget::float::Style::default()"));
+        assert!(generated.contains("__style.shadow.color = ::iced::Color::from_rgba8"));
+        assert!(generated.contains("__style.shadow.offset.x = 1.0 as f32"));
+        assert!(generated.contains("__style.shadow.offset.y = 2.0 as f32"));
+        assert!(generated.contains("__style.shadow.blur_radius = 4.0 as f32"));
+        assert!(generated.contains("__style.shadow_border_radius = ::iced::border::Radius"));
+        assert!(generated.contains("top_left: 1.0 as f32"));
+        assert!(generated.contains("top_right: 2.0 as f32"));
+        assert!(generated.contains("bottom_right: 3.0 as f32"));
+        assert!(generated.contains("bottom_left: 4.0 as f32"));
         assert!(generated.contains("::iced::widget::pin(__pin_content).x(12.0 as f32)"));
         assert!(generated.contains(
             ".on_show(move |__size| __StructureMessage::Shown(__size.width as f64, __size.height as f64))"

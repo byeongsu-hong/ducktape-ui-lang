@@ -2614,13 +2614,33 @@ fn infer_view(
             scale,
             x,
             y,
+            style,
             content,
             span,
         } => {
-            for value in [scale, x, y] {
-                require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+            require_type(&expr_type(scale, env, document, span)?, &Type::F64, span)?;
+            let mut translate_env = env.clone();
+            for name in [
+                "original_x",
+                "original_y",
+                "original_width",
+                "original_height",
+                "viewport_x",
+                "viewport_y",
+                "viewport_width",
+                "viewport_height",
+            ] {
+                translate_env.insert(name.to_owned(), Type::F64);
+            }
+            for value in [x, y] {
+                require_type(
+                    &expr_type(value, &translate_env, document, span)?,
+                    &Type::F64,
+                    span,
+                )?;
             }
             require_literal_range(scale, f64::EPSILON, None, "float scale", span)?;
+            check_float_style_options(style, env, document, span)?;
             infer_view(content, env, document, signatures, ids)?;
         }
         ViewNode::Pin {
@@ -3440,6 +3460,41 @@ fn check_container_style_options(
     }
     if let Some(snap) = &style.pixel_snap {
         require_type(&expr_type(snap, env, document, span)?, &Type::Bool, span)?;
+    }
+    Ok(())
+}
+
+fn check_float_style_options(
+    style: &FloatStyleOptions,
+    env: &HashMap<String, Type>,
+    document: &Document,
+    span: &Span,
+) -> Result<(), Error> {
+    if let Some(color) = &style.shadow_color
+        && !valid_theme_color(color, document)
+    {
+        return Err(Error::new(
+            "E128",
+            span,
+            format!("unknown float shadow color `{color}`"),
+        ));
+    }
+    for value in [
+        &style.shadow_blur,
+        &style.radius,
+        &style.radius_top_left,
+        &style.radius_top_right,
+        &style.radius_bottom_right,
+        &style.radius_bottom_left,
+    ]
+    .into_iter()
+    .flatten()
+    {
+        require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+        require_literal_range(value, 0.0, None, "float style metric", span)?;
+    }
+    for value in [&style.shadow_x, &style.shadow_y].into_iter().flatten() {
+        require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
     }
     Ok(())
 }
@@ -6083,7 +6138,7 @@ on resized(w, h)
 on hidden
 view
   col
-    float scale=1.1 x=4.0 y=-2.0
+    float scale=1.1 x=(viewport_x + viewport_width - original_x - original_width) y=(viewport_y + viewport_height - original_y - original_height) shadow=black/50 shadow-x=1.0 shadow-y=2.0 shadow-blur=4.0 radius=8.0 radius-tl=1.0 radius-tr=2.0 radius-br=3.0 radius-bl=4.0
       text "Floating"
     pin width=fill height=80.0 x=12.0 y=8.0
       text "Pinned"
@@ -6108,6 +6163,23 @@ view
         assert_eq!(document.handlers[0].params[0].ty.display(), "f64");
         assert_eq!(document.handlers[0].params[1].ty.display(), "f64");
         assert_eq!(document.handlers[1].params[0].ty.display(), "f64");
+
+        let bad_float_translation = source.replace(
+            "x=(viewport_x + viewport_width - original_x - original_width)",
+            "x=true",
+        );
+        let error = analyze(&bad_float_translation).unwrap_err();
+        assert!(error.message.contains("expected `f64`, got `bool`"));
+
+        let bad_float_blur = source.replace("shadow-blur=4.0", "shadow-blur=-1.0");
+        let error = analyze(&bad_float_blur).unwrap_err();
+        assert_eq!(error.code, "E128");
+        assert!(error.message.contains("float style metric"));
+
+        let bad_float_color = source.replace("shadow=black/50", "shadow=missing");
+        let error = analyze(&bad_float_color).unwrap_err();
+        assert_eq!(error.code, "E128");
+        assert!(error.message.contains("unknown float shadow color"));
 
         let bad_stack = source.replace("height=120.0 clip=true", "height=-1.0 clip=true");
         let error = analyze(&bad_stack).unwrap_err();

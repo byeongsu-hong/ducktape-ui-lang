@@ -2835,13 +2835,33 @@ fn parse_float(parts: &[String], styles: Vec<String>, line: &Line) -> Result<Vie
     let mut scale = Expr::F64(1.0);
     let mut x = Expr::F64(0.0);
     let mut y = Expr::F64(0.0);
+    let mut style = FloatStyleOptions::default();
+    let parse = |value: &str| parse_expr(strip_wrapping_parens(value), line);
     for part in &parts[1..] {
         if let Some(value) = part.strip_prefix("scale=") {
-            scale = parse_expr(strip_wrapping_parens(value), line)?;
+            scale = parse(value)?;
         } else if let Some(value) = part.strip_prefix("x=") {
-            x = parse_expr(strip_wrapping_parens(value), line)?;
+            x = parse(value)?;
         } else if let Some(value) = part.strip_prefix("y=") {
-            y = parse_expr(strip_wrapping_parens(value), line)?;
+            y = parse(value)?;
+        } else if let Some(value) = part.strip_prefix("shadow=") {
+            style.shadow_color = Some(value.to_owned());
+        } else if let Some(value) = part.strip_prefix("shadow-x=") {
+            style.shadow_x = Some(parse(value)?);
+        } else if let Some(value) = part.strip_prefix("shadow-y=") {
+            style.shadow_y = Some(parse(value)?);
+        } else if let Some(value) = part.strip_prefix("shadow-blur=") {
+            style.shadow_blur = Some(parse(value)?);
+        } else if let Some(value) = part.strip_prefix("radius=") {
+            style.radius = Some(parse(value)?);
+        } else if let Some(value) = part.strip_prefix("radius-tl=") {
+            style.radius_top_left = Some(parse(value)?);
+        } else if let Some(value) = part.strip_prefix("radius-tr=") {
+            style.radius_top_right = Some(parse(value)?);
+        } else if let Some(value) = part.strip_prefix("radius-br=") {
+            style.radius_bottom_right = Some(parse(value)?);
+        } else if let Some(value) = part.strip_prefix("radius-bl=") {
+            style.radius_bottom_left = Some(parse(value)?);
         } else {
             return Err(error(
                 "E089",
@@ -2854,6 +2874,7 @@ fn parse_float(parts: &[String], styles: Vec<String>, line: &Line) -> Result<Vie
         scale,
         x,
         y,
+        style,
         content: Box::new(parse_view(&line.children[0])?),
         span: Span::line(line.number),
     })

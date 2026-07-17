@@ -15,7 +15,7 @@ counts toward the row below.
 
 ## Typed system reachability
 
-Ice 0.81 has four checked Rust boundaries:
+Ice 0.82 has four checked Rust boundaries:
 
 | Boundary | Rust ABI | Covers |
 | --- | --- | --- |
@@ -38,7 +38,7 @@ public behavior has direct documented Ice syntax and tests.
 | `column` | native | children, typed spacing/per-side padding, all `Length` bounds, max width, cross-axis alignment, clipping and wrapping column spacing/alignment |
 | `combo_box` | partial | native typed replaceable search state/selection, every builder setter, complete text-input icon, every concrete input Style field across active/hovered/focused/focused-hovered/disabled statuses, complete menu overlay Style fields, and all events; advanced classes and direct incremental State mutation remain |
 | `container` | partial | native one-child container with ID, complete concrete layout API and every concrete Style field including linear background, text, per-corner border, shadow and pixel snap; advanced classes remain |
-| `float` | partial | native scale and fixed x/y translation; viewport-aware translation closure and style API missing |
+| `float` | native | one child, positive scale, all original-bounds and viewport geometry exposed as scoped f64 translation inputs, and every concrete Style field through checked shadow color/offset/blur and per-corner shadow radius |
 | `grid` | native | dynamic children, pixel spacing/width, fixed or fluid columns, aspect-ratio or all `Length` height modes |
 | `image` | native | path, encoded-memory and RGBA handles; all four iced length variants, fit, filter, floating/solid rotation, opacity, scale, expand, per-corner radius and crop cover the complete concrete widget API |
 | `image::Viewer` | native | path or memory/RGBA handle, all length and fit modes, both filters, padding, minimum/maximum scale and scale step cover the complete public builder API |

@@ -822,6 +822,7 @@ pub enum ViewNode {
         scale: Expr,
         x: Expr,
         y: Expr,
+        style: FloatStyleOptions,
         content: Box<ViewNode>,
         span: Span,
     },
@@ -844,6 +845,19 @@ pub enum ViewNode {
         height: Option<LengthValue>,
         span: Span,
     },
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct FloatStyleOptions {
+    pub shadow_color: Option<String>,
+    pub shadow_x: Option<Expr>,
+    pub shadow_y: Option<Expr>,
+    pub shadow_blur: Option<Expr>,
+    pub radius: Option<Expr>,
+    pub radius_top_left: Option<Expr>,
+    pub radius_top_right: Option<Expr>,
+    pub radius_bottom_right: Option<Expr>,
+    pub radius_bottom_left: Option<Expr>,
 }
 
 #[derive(Clone, Debug, Default)]

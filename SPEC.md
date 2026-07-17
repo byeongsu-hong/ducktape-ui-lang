@@ -1,4 +1,4 @@
-# Ice Language Specification 0.81
+# Ice Language Specification 0.82
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.81 syntax.
+marked “planned” is a design constraint, not accepted 0.82 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.81.
+  block comments are not part of 0.82.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -587,8 +587,12 @@ combo_icon_property
                = "code=" string | "font=" font_ref
                | ("size=" | "spacing=") expr
                | "side=" ("left" | "right")
-float          = "float" ("scale=" expr)? ("x=" expr)? ("y=" expr)?
-                 INDENT node
+float          = "float" float_property* INDENT node
+float_property = ("scale=" | "x=" | "y=" | "shadow-x="
+                 | "shadow-y=" | "shadow-blur=" | "radius="
+                 | "radius-tl=" | "radius-tr=" | "radius-br="
+                 | "radius-bl=") expr
+               | "shadow=" color_ref
 pin            = "pin" (("width=" | "height=") length)?
                  ("x=" expr)? ("y=" expr)? INDENT node
 sensor         = "sensor" sensor_property+ INDENT node
@@ -763,7 +767,7 @@ default/centered/fixed position, visibility, resizability, close/minimize
 buttons, decorations, transparency, blur, level, and close-request behavior.
 Sizes, text size, and scale factor must be positive; minimum size cannot exceed
 maximum size. Window icons and platform-specific settings are not part of
-0.81.
+0.82.
 
 Media fixed lengths, rotation, opacity, scale, and radius are `f64`; rotation
 is radians and defaults to floating layout behavior, while `solid(angle)` makes
@@ -1011,9 +1015,21 @@ Assigning a matching `[T]` to `combo[T]` state replaces its searchable options
 with a freshly indexed native `combo_box::State<T>`; mismatched lists fail
 before Rust generation.
 
-`float` applies positive scale and x/y translation to one child. `pin` places
-one child at x/y coordinates inside optional typed width/height bounds; x/y is
-the direct decomposition of iced's `position(Point)` helper.
+`float` applies positive scale and x/y translation to one child. Its x/y
+expressions can use the scoped `f64` names `original_x`, `original_y`,
+`original_width`, `original_height`, `viewport_x`, `viewport_y`,
+`viewport_width`, and `viewport_height` from iced's translation callback:
+
+```ice
+float scale=1.02 x=(viewport_width - original_width) y=-1.0 shadow=black/50 shadow-y=2.0 shadow-blur=4.0 radius=4.0
+  text "Floating label"
+```
+
+The shadow color, offset, blur, and uniform/per-corner radius properties cover
+every concrete `float::Style` field. The scoped geometry names exist only in
+`x=` and `y=`; style expressions and the child use the surrounding scope.
+`pin` places one child at x/y coordinates inside optional typed width/height
+bounds; x/y is the direct decomposition of iced's `position(Point)` helper.
 `sensor` observes one child: show/resize handlers receive `(width:f64,
 height:f64)`, while hide has no payload; anticipation is non-negative f64 and
 delay is non-negative i64 milliseconds. `key=` owns a comparable Ice value and
@@ -1167,7 +1183,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.81 message payloads.
+`Clone` for 0.82 message payloads.
 
 Four typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
@@ -1335,7 +1351,7 @@ The implemented native nodes are:
 | `radio` | string label, bool/i64/f64/str/extern value route, bool selection, complete sizing/typography/font and selected-aware status styles |
 | `pick` | `[T]` options, `T?` selection, complete typography/handle/status/menu configuration, `T`-payload route |
 | `combo` | searchable/replaced `combo[T]` state, `T?` selection, complete typography/icon/input/menu styles and all routes |
-| `float` | one child with positive scale and x/y translation |
+| `float` | one child with positive scale, bounds/viewport-aware x/y translation, shadow and per-corner shadow radius |
 | `pin` | one child with typed width/height and fixed x/y position |
 | `sensor` | one child with show/resize `(width, height)`, hide, key, anticipation and delay |
 | `responsive` | breakpoint sugar or one arbitrary size-dependent child tree with scoped width/height bindings and typed bounds |
@@ -1853,7 +1869,7 @@ weight, stretch, and style variant is accepted. At most one declaration may be
 the application default. `font=default` and `font=mono` remain built-ins;
 declared fonts also work on text, rich text and spans, input, editor, checkbox,
 toggler, radio, pick, combo, and their custom icons. Font
-byte loading is not part of 0.81.
+byte loading is not part of 0.82.
 
 Widget operation tasks target checked static IDs in the app view:
 
@@ -1873,7 +1889,7 @@ snap/end; and absolute scroll-to/scroll-by. Effects have no route and
 non-negative `i64`; relative offsets are `f64` in `0.0..=1.0`; absolute
 offsets are unrestricted `f64`. Targets must be real static IDs in the app
 scope. Repeated/component scopes and the feature-gated selector API remain
-outside 0.81.
+outside 0.82.
 
 Persistent pane grids expose their native layout-state operations directly in
 handlers:
@@ -1920,7 +1936,7 @@ and constraints, resizability, maximize/minimize state, position and movement,
 all modes, decorations, user attention, focus, level, system menu, mouse
 passthrough, monitor size, and automatic tabbing. Positive sizes and bool
 arguments are checked before Rust generation. New-window IDs, open/oldest/latest,
-icons, raw handles, screenshots, and callbacks remain outside 0.81.
+icons, raw handles, screenshots, and callbacks remain outside 0.82.
 
 Every iced window event has a direct subscription form:
 
@@ -2073,7 +2089,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 0.81 does not claim that remapping.
+extern line; 0.82 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -2094,7 +2110,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 0.81 native backend is enough for CRUD/settings-style screens, selection,
+The 0.82 native backend is enough for CRUD/settings-style screens, selection,
 media, hover overlays, declarative canvas geometry, and common pointer events,
 not all of iced. It still lacks direct syntax for arbitrary custom overlays,
 multiple windows, and custom widgets. [`COVERAGE.md`](COVERAGE.md) is
