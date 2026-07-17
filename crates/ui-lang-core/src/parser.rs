@@ -1323,27 +1323,64 @@ fn parse_view(line: &Line) -> Result<ViewNode, Error> {
                 ));
             }
             let (name, args, id) = parse_component_call(&parts, line)?;
-            let content = match line.children.as_slice() {
-                [] => None,
-                [content] => Some(Box::new(parse_view(content)?)),
-                _ => {
-                    return Err(error(
-                        "E040",
-                        line,
-                        "component calls accept one child root; wrap siblings in row or col",
-                    ));
-                }
-            };
+            let slots = parse_component_slots(line)?;
             Ok(ViewNode::Component {
                 name,
                 args,
                 id,
-                content,
+                slots,
                 span,
             })
         }
         _ => Err(error("E064", line, format!("unknown view node `{kind}`"))),
     }
+}
+
+fn parse_component_slots(line: &Line) -> Result<Vec<ComponentSlot>, Error> {
+    if line.children.is_empty() {
+        return Ok(Vec::new());
+    }
+    let named = line.children.iter().any(|child| child.text.ends_with(':'));
+    if !named {
+        return match line.children.as_slice() {
+            [content] => Ok(vec![ComponentSlot {
+                name: "children".into(),
+                content: Box::new(parse_view(content)?),
+                span: Span::line(content.number),
+            }]),
+            _ => Err(error(
+                "E040",
+                line,
+                "component children need one root or named `slot:` blocks",
+            )
+            .hint("wrap siblings in row or col, or write `header:` and `body:` blocks")),
+        };
+    }
+
+    line.children
+        .iter()
+        .map(|section| {
+            let Some(name) = section.text.strip_suffix(':') else {
+                return Err(error(
+                    "E040",
+                    section,
+                    "cannot mix a direct child with named component slots",
+                ));
+            };
+            if section.children.len() != 1 {
+                return Err(error(
+                    "E040",
+                    section,
+                    format!("component slot `{}` needs exactly one root", name.trim()),
+                ));
+            }
+            Ok(ComponentSlot {
+                name: identifier(name.trim(), section)?,
+                content: Box::new(parse_view(&section.children[0])?),
+                span: Span::line(section.number),
+            })
+        })
+        .collect()
 }
 
 fn parse_container(parts: &[String], styles: Vec<String>, line: &Line) -> Result<ViewNode, Error> {
@@ -1967,14 +2004,19 @@ fn parse_keyed_column(
 
 fn parse_slot(parts: &[String], styles: Vec<String>, line: &Line) -> Result<ViewNode, Error> {
     ensure_leaf(line)?;
-    if parts.len() != 1 || !styles.is_empty() {
+    if !(1..=2).contains(&parts.len()) || !styles.is_empty() {
         return Err(error(
             "E040",
             line,
-            "slot does not accept properties or styles",
+            "slot accepts an optional name and no properties or styles",
         ));
     }
     Ok(ViewNode::Slot {
+        name: parts
+            .get(1)
+            .map(|name| identifier(name, line))
+            .transpose()?
+            .unwrap_or_else(|| "children".into()),
         span: Span::line(line.number),
     })
 }

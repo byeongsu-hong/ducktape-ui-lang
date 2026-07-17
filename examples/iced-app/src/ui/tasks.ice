@@ -15,6 +15,7 @@ use "theme.ice"
 use "state.ice"
 use "components/task_row.ice"
 use "components/panel.ice"
+use "components/dialog.ice"
 use "handlers/tasks.ice"
 
 view
@@ -55,11 +56,13 @@ view
                 text "Details" @text-lg font-bold text-foreground
                 text "Drag or resize this pane." @text-sm text-muted
     layer
-      container width=480.0 height=shrink max-width=720.0 padding=24.0 @bg-surface border border-border rounded-lg
-        col @w-full gap-4
+      Dialog
+        header:
           text "About Ice Tasks" @text-xl font-bold text-foreground
+        body:
           rich-text width=fill wrapping=word @text-sm text-muted -> about_link _
             span "This dialog is a structured overlay written entirely in "
             span ".ice" link="https://github.com/byeongsu-hong/ducktape-ui-lang" underline @font-bold text-primary
             span "."
+        actions:
           button "Close" @px-4 py-2 bg-primary text-white rounded-md -> close_about

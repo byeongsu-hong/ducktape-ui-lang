@@ -15,7 +15,7 @@ counts toward the row below.
 
 ## Typed system reachability
 
-Ice 0.51 has three checked Rust boundaries:
+Ice 0.52 has three checked Rust boundaries:
 
 | Boundary | Rust ABI | Covers |
 | --- | --- | --- |

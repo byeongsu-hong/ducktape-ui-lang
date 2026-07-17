@@ -329,7 +329,7 @@ fn check_font(font: Option<&FontPreset>, document: &Document, span: &Span) -> Re
 
 fn check_slots(document: &Document) -> Result<(), Error> {
     let view_slots = slots(&document.view);
-    if let Some(span) = view_slots.first() {
+    if let Some((_, span)) = view_slots.first() {
         return Err(Error::new(
             "E124",
             span,
@@ -337,25 +337,27 @@ fn check_slots(document: &Document) -> Result<(), Error> {
         ));
     }
     for component in &document.components {
-        if slots(&component.root).len() > 1 {
-            return Err(Error::new(
-                "E124",
-                &component.span,
-                format!("component `{}` may contain only one slot", component.name),
-            ));
+        let mut names = HashSet::new();
+        for (name, span) in slots(&component.root) {
+            if !names.insert(name) {
+                return Err(Error::new(
+                    "E124",
+                    span,
+                    format!(
+                        "component `{}` declares slot `{name}` more than once",
+                        component.name
+                    ),
+                ));
+            }
         }
     }
     Ok(())
 }
 
-fn slot_count(node: &ViewNode) -> usize {
-    slots(node).len()
-}
-
-fn slots(node: &ViewNode) -> Vec<&Span> {
-    fn collect<'a>(node: &'a ViewNode, output: &mut Vec<&'a Span>) {
+fn slots(node: &ViewNode) -> Vec<(&str, &Span)> {
+    fn collect<'a>(node: &'a ViewNode, output: &mut Vec<(&'a str, &'a Span)>) {
         match node {
-            ViewNode::Slot { span } => output.push(span),
+            ViewNode::Slot { name, span } => output.push((name, span)),
             ViewNode::Layout { children, .. }
             | ViewNode::If { children, .. }
             | ViewNode::For { children, .. } => {
@@ -389,10 +391,11 @@ fn slots(node: &ViewNode) -> Vec<&Span> {
                     collect(&column.cell, output);
                 }
             }
-            ViewNode::Component {
-                content: Some(content),
-                ..
-            } => collect(content, output),
+            ViewNode::Component { slots, .. } => {
+                for slot in slots {
+                    collect(&slot.content, output);
+                }
+            }
             ViewNode::Responsive { content, .. } => match content {
                 ResponsiveContent::Breakpoint { narrow, wide, .. } => {
                     collect(narrow, output);
@@ -437,10 +440,9 @@ fn editor_span(node: &ViewNode) -> Option<&Span> {
         ViewNode::Table { columns, .. } => columns
             .iter()
             .find_map(|column| editor_span(&column.header).or_else(|| editor_span(&column.cell))),
-        ViewNode::Component {
-            content: Some(content),
-            ..
-        } => editor_span(content),
+        ViewNode::Component { slots, .. } => {
+            slots.iter().find_map(|slot| editor_span(&slot.content))
+        }
         ViewNode::Responsive { content, .. } => match content {
             ResponsiveContent::Breakpoint { narrow, wide, .. } => {
                 editor_span(narrow).or_else(|| editor_span(wide))
@@ -478,10 +480,9 @@ fn pane_grid_span(node: &ViewNode) -> Option<&Span> {
         ViewNode::Table { columns, .. } => columns.iter().find_map(|column| {
             pane_grid_span(&column.header).or_else(|| pane_grid_span(&column.cell))
         }),
-        ViewNode::Component {
-            content: Some(content),
-            ..
-        } => pane_grid_span(content),
+        ViewNode::Component { slots, .. } => {
+            slots.iter().find_map(|slot| pane_grid_span(&slot.content))
+        }
         ViewNode::Responsive { content, .. } => match content {
             ResponsiveContent::Breakpoint { narrow, wide, .. } => {
                 pane_grid_span(narrow).or_else(|| pane_grid_span(wide))
@@ -521,10 +522,9 @@ fn repeated_pane_grid_span(node: &ViewNode) -> Option<&Span> {
         ViewNode::PaneGrid { panes, .. } => panes
             .iter()
             .find_map(|pane| repeated_pane_grid_span(&pane.content)),
-        ViewNode::Component {
-            content: Some(content),
-            ..
-        } => repeated_pane_grid_span(content),
+        ViewNode::Component { slots, .. } => slots
+            .iter()
+            .find_map(|slot| repeated_pane_grid_span(&slot.content)),
         ViewNode::Responsive { content, .. } => match content {
             ResponsiveContent::Breakpoint { narrow, wide, .. } => {
                 repeated_pane_grid_span(narrow).or_else(|| repeated_pane_grid_span(wide))
@@ -1678,7 +1678,7 @@ fn infer_view(
             name,
             args,
             id,
-            content,
+            slots: supplied_slots,
             span,
         } => {
             check_id(id, env, document, ids, span)?;
@@ -1738,27 +1738,54 @@ fn infer_view(
                     require_type(&actual, expected, span)?;
                 }
             }
-            match (slot_count(&component.root) == 1, content) {
-                (true, None) => {
+            let declared_slots = slots(&component.root);
+            let mut supplied = HashSet::new();
+            for component_slot in supplied_slots {
+                if !supplied.insert(component_slot.name.as_str()) {
                     return Err(Error::new(
                         "E124",
-                        span,
-                        format!("component `{name}` requires one child for its slot"),
+                        &component_slot.span,
+                        format!(
+                            "component `{name}` receives slot `{}` more than once",
+                            component_slot.name
+                        ),
                     ));
                 }
-                (false, Some(_)) => {
+                if !declared_slots
+                    .iter()
+                    .any(|(declared, _)| *declared == component_slot.name)
+                {
                     return Err(Error::new(
                         "E124",
-                        span,
-                        format!("component `{name}` does not declare a slot"),
+                        &component_slot.span,
+                        format!(
+                            "component `{name}` does not declare slot `{}`",
+                            component_slot.name
+                        ),
                     )
-                    .hint("add `slot` inside the component definition"));
+                    .hint(format!(
+                        "add `slot {}` inside the component definition",
+                        component_slot.name
+                    )));
                 }
-                _ => {}
-            }
-            if let Some(content) = content {
                 let mut child_ids = HashSet::new();
-                infer_view(content, env, document, signatures, &mut child_ids)?;
+                infer_view(
+                    &component_slot.content,
+                    env,
+                    document,
+                    signatures,
+                    &mut child_ids,
+                )?;
+            }
+            if let Some((missing, _)) = declared_slots
+                .iter()
+                .find(|(declared, _)| !supplied.contains(*declared))
+            {
+                return Err(Error::new(
+                    "E124",
+                    span,
+                    format!("component `{name}` requires slot `{missing}`"),
+                ));
             }
         }
         ViewNode::Slot { .. } => {}
@@ -2137,7 +2164,7 @@ fn check_lazy_subtree(
             span,
             "editor cannot live in lazy because iced text editor borrows content state",
         )),
-        ViewNode::Slot { span } if !supplied_slot => Err(Error::new(
+        ViewNode::Slot { span, .. } if !supplied_slot => Err(Error::new(
             "E139",
             span,
             "a lazy subtree cannot borrow a slot from its enclosing component",
@@ -2194,13 +2221,10 @@ fn check_lazy_subtree(
             }
         },
         ViewNode::Component {
-            name,
-            content,
-            span,
-            ..
+            name, slots, span, ..
         } => {
-            if let Some(content) = content {
-                check_lazy_subtree(content, document, components, supplied_slot)?;
+            for slot in slots {
+                check_lazy_subtree(&slot.content, document, components, supplied_slot)?;
             }
             if !components.insert(name.clone()) {
                 return Err(Error::new(
@@ -2215,7 +2239,7 @@ fn check_lazy_subtree(
                 .find(|component| component.name == *name)
                 .expect("component names are checked before lazy safety");
             let result =
-                check_lazy_subtree(&component.root, document, components, content.is_some());
+                check_lazy_subtree(&component.root, document, components, !slots.is_empty());
             components.remove(name);
             result
         }
@@ -3843,12 +3867,12 @@ view
         ))
         .unwrap_err();
         assert_eq!(error.code, "E124");
-        assert!(error.message.contains("requires one child"));
+        assert!(error.message.contains("requires slot `children`"));
 
         let error =
             analyze(&source.replace("    text title\n    slot", "    text title")).unwrap_err();
         assert_eq!(error.code, "E124");
-        assert!(error.message.contains("does not declare a slot"));
+        assert!(error.message.contains("does not declare slot `children`"));
 
         let error = analyze(&source.replace("padded=true ", "")).unwrap_err();
         assert_eq!(error.code, "E123");
@@ -3868,6 +3892,65 @@ view
         let error = analyze(&source.replace("padded:bool", "title:bool")).unwrap_err();
         assert_eq!(error.code, "E100");
         assert!(error.message.contains("duplicate component prop `title`"));
+    }
+
+    #[test]
+    fn checks_named_component_slots() {
+        let source = r#"app Demo
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+component Dialog(title:str)
+  col
+    slot header
+    text title
+    slot body
+    slot actions
+on cancel
+on delete
+view
+  Dialog title="Delete task?"
+    header:
+      text "Danger zone"
+    body:
+      col
+        text "This cannot be undone."
+    actions:
+      row
+        button "Cancel" -> cancel
+        button "Delete" -> delete
+"#;
+        analyze(source).unwrap();
+
+        let error = analyze(&source.replace(
+            "    actions:\n      row\n        button \"Cancel\" -> cancel\n        button \"Delete\" -> delete\n",
+            "",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E124");
+        assert!(error.message.contains("requires slot `actions`"));
+
+        let error = analyze(&source.replace("    actions:", "    footer:")).unwrap_err();
+        assert_eq!(error.code, "E124");
+        assert!(error.message.contains("does not declare slot `footer`"));
+
+        let error = analyze(&source.replace(
+            "    body:\n      col\n        text \"This cannot be undone.\"",
+            "    body:\n      text \"First\"\n      text \"Second\"",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E040");
+        assert!(error.message.contains("slot `body` needs exactly one root"));
+
+        let error = analyze(&source.replace("    slot actions", "    slot body")).unwrap_err();
+        assert_eq!(error.code, "E124");
+        assert!(
+            error
+                .message
+                .contains("declares slot `body` more than once")
+        );
     }
 
     #[test]
@@ -4068,7 +4151,11 @@ view
 "#;
         let error = analyze(duplicate).unwrap_err();
         assert_eq!(error.code, "E124");
-        assert!(error.message.contains("only one slot"));
+        assert!(
+            error
+                .message
+                .contains("declares slot `children` more than once")
+        );
     }
 
     #[test]

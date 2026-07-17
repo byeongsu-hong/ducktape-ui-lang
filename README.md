@@ -69,6 +69,7 @@ src/ui/
 ├── state.ice                 UI state
 ├── theme.ice                 color tokens
 ├── components/panel.ice      component with a structured child slot
+├── components/dialog.ice     component with named structural slots
 ├── components/task_row.ice   reusable view
 └── handlers/tasks.ice        transitions and effects
 ```
@@ -124,9 +125,10 @@ cargo fmt --all
 
 ## Status
 
-This is an executable v0.51 language slice, not yet a complete iced replacement.
+This is an executable v0.52 language slice, not yet a complete iced replacement.
 It implements typed extern data/actions, state, handlers, async tasks, pure
-components with named props and structured child slots, scoped IDs, relative
+components with named props, default children, and React-like named structural
+slots, scoped IDs, relative
 multi-file `use`,
 `if`/`for`, six layouts including identity-preserving keyed columns,
 twenty-nine native widget forms,
