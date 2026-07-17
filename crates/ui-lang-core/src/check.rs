@@ -4128,6 +4128,58 @@ view
     }
 
     #[test]
+    fn checks_compound_component_slots() {
+        let source = r#"app Demo
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+component Dialog()
+  col
+    slot Header
+    slot Body
+    slot Actions
+component Dialog.Header(title:str)
+  col
+    text title
+    slot
+component Dialog.Body()
+  container
+    slot
+component Dialog.Actions()
+  row
+    slot
+on close
+view
+  Dialog
+    Dialog.Header title="About"
+      text "Compound title"
+    Dialog.Body
+      text "Structured body"
+    Dialog.Actions
+      button "Close" -> close
+"#;
+        analyze(source).unwrap();
+
+        let error = analyze(&source.replace("    slot Actions\n", "")).unwrap_err();
+        assert_eq!(error.code, "E124");
+        assert!(error.message.contains("does not declare slot `Actions`"));
+
+        let error = analyze(&source.replace(
+            "    Dialog.Actions\n      button \"Close\" -> close",
+            "    text \"not compound\"",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E040");
+        assert!(error.message.contains("cannot mix compound components"));
+
+        let error = analyze(&source.replace("Dialog.Header", "Dialog..Header")).unwrap_err();
+        assert_eq!(error.code, "E072");
+        assert!(error.message.contains("invalid component name"));
+    }
+
+    #[test]
     fn checks_keyed_columns_and_copyable_keys() {
         let source = r#"app Demo
 extern crate::backend

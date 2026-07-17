@@ -69,12 +69,12 @@ view
                 button "Close preview" -> close_preview
     layer
       Dialog
-        header:
+        Dialog.Header
           text "About Ice Tasks" @text-xl font-bold text-foreground
-        body:
+        Dialog.Body
           rich-text width=fill wrapping=word @text-sm text-muted -> about_link _
             span "This dialog is a structured overlay written entirely in "
             span ".ice" link="https://github.com/byeongsu-hong/ducktape-ui-lang" underline @font-bold text-primary
             span "."
-        actions:
+        Dialog.Actions
           button "Close" @px-4 py-2 bg-primary text-white rounded-md -> close_about

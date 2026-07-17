@@ -1,4 +1,4 @@
-# Ice Language Specification 0.54
+# Ice Language Specification 0.55
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.54 syntax.
+marked “planned” is a design constraint, not accepted 0.55 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.54.
+  block comments are not part of 0.55.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -177,7 +177,7 @@ qr_data_property = "correction=" ("low" | "medium" | "quartile" | "high")
 state_decl     = "state" INDENT state_entry+
 state_entry    = name (":" type)? "=" expr
 
-component_decl = "component" PascalName "(" field_list? ")"
+component_decl = "component" component_name "(" field_list? ")"
                  INDENT node
 
 handler_decl   = "on" name ("(" name_list? ")")?
@@ -489,8 +489,9 @@ built_in_iced_theme
                | "kanagawa-wave" | "kanagawa-dragon" | "kanagawa-lotus"
                | "moonfly" | "nightfly" | "oxocarbon" | "ferra"
 theme_property = ("text=" | "background=") name ("/" u8)?
-component_call = PascalName ("(" expr_list? ")" id? | component_item*)
-                 (INDENT (node | named_slot+))?
+component_name = PascalName ("." PascalName)*
+component_call = component_name ("(" expr_list? ")" id? | component_item*)
+                 (INDENT (node | named_slot+ | component_call+))?
 component_item = named_prop | id
 named_prop     = name "=" expr
 named_slot     = name ":" INDENT node
@@ -532,7 +533,7 @@ default/centered/fixed position, visibility, resizability, close/minimize
 buttons, decorations, transparency, blur, level, and close-request behavior.
 Sizes, text size, and scale factor must be positive; minimum size cannot exceed
 maximum size. Window icons and platform-specific settings are not part of
-0.54.
+0.55.
 
 Media fixed lengths, rotation, opacity, scale, and radius are `f64`; rotation
 is radians, opacity is `0.0..=1.0`, scale is positive, and sizes/radius are
@@ -781,7 +782,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.54 message payloads.
+`Clone` for 0.55 message payloads.
 
 Three typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
@@ -1081,6 +1082,45 @@ Dialog
       button "Delete" -> delete
 ```
 
+Qualified component names provide a React-style compound form without the
+extra `name:` layer. A direct `Dialog.Name` child fills the matching `Name`
+slot while remaining a normal checked component call:
+
+```ice
+component Dialog()
+  col @p-6 bg-surface rounded-lg
+    slot Header
+    slot Body
+    slot Actions
+
+component Dialog.Header()
+  row
+    slot
+
+component Dialog.Body()
+  container width=fill
+    slot
+
+component Dialog.Actions()
+  row @gap-2
+    slot
+
+Dialog
+  Dialog.Header
+    text "Delete task?" @font-bold
+  Dialog.Body
+    text "This cannot be undone."
+  Dialog.Actions
+    row @gap-2
+      button "Cancel" -> cancel
+      button "Delete" -> delete
+```
+
+All direct children in compound form must be immediate qualified children of
+the parent call. Mixing a `Dialog.Header` child with an unrelated direct child
+is a compile-time error. Explicit `header:` blocks remain useful when the slot
+content should not have its own component styling or behavior.
+
 Every declared slot is required and accepts exactly one root. Wrap sibling
 nodes in `row`, `col`, `grid`, or `stack`. Unknown, missing, and duplicate slot
 names are compile-time errors. A component can forward a named slot through
@@ -1240,7 +1280,7 @@ weight, stretch, and style variant is accepted. At most one declaration may be
 the application default. `font=default` and `font=mono` remain built-ins;
 declared fonts also work on text, rich text and spans, input, editor, checkbox,
 and toggler. Font
-byte loading is not part of 0.54.
+byte loading is not part of 0.55.
 
 Widget operation tasks target checked static IDs in the app view:
 
@@ -1260,7 +1300,7 @@ snap/end; and absolute scroll-to/scroll-by. Effects have no route and
 non-negative `i64`; relative offsets are `f64` in `0.0..=1.0`; absolute
 offsets are unrestricted `f64`. Targets must be real static IDs in the app
 scope. Repeated/component scopes and the feature-gated selector API remain
-outside 0.54.
+outside 0.55.
 
 Persistent pane grids expose their native layout-state operations directly in
 handlers:
@@ -1307,7 +1347,7 @@ and constraints, resizability, maximize/minimize state, position and movement,
 all modes, decorations, user attention, focus, level, system menu, mouse
 passthrough, monitor size, and automatic tabbing. Positive sizes and bool
 arguments are checked before Rust generation. New-window IDs, open/oldest/latest,
-icons, raw handles, screenshots, and callbacks remain outside 0.54.
+icons, raw handles, screenshots, and callbacks remain outside 0.55.
 
 Every iced window event has a direct subscription form:
 
@@ -1460,7 +1500,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 0.54 does not claim that remapping.
+extern line; 0.55 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -1481,7 +1521,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 0.54 native backend is enough for CRUD/settings-style screens, selection,
+The 0.55 native backend is enough for CRUD/settings-style screens, selection,
 media, hover
 overlays, and common pointer events, not all of iced. It still lacks direct
 syntax for canvas, arbitrary custom overlays, multiple
@@ -1514,7 +1554,7 @@ compile-tested widget example is
 [`examples/iced-app/src/ui/showcase.ice`](examples/iced-app/src/ui/showcase.ice).
 Together they exercise
 state inference, typed extern structs/functions, mount and result handlers,
-direct input/editor binding, typed conditional timer/keyboard/mouse/touch/input-method/system subscriptions with status filters, system tasks, clipboard effects, `if`, `for`, native keyed columns and lazy subtrees, parsed Markdown, structured tables, pure components, structured slot composition,
+direct input/editor binding, typed conditional timer/keyboard/mouse/touch/input-method/system subscriptions with status filters, system tasks, clipboard effects, `if`, `for`, native keyed columns and lazy subtrees, parsed Markdown, structured tables, pure components, structured and compound component composition,
 dynamic component IDs,
 theme utilities, disabled controls, fallible asynchronous tasks, complete
 wrapping row/column layouts, grids and fully sized underlay stacks, toggles,

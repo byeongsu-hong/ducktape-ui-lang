@@ -5557,6 +5557,38 @@ view
     }
 
     #[test]
+    fn lowers_compound_components_into_named_slots() {
+        let source = r#"app Composition
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+component Dialog()
+  col
+    slot Header
+    slot Body
+component Dialog.Header()
+  container #root
+    slot
+component Dialog.Body()
+  container #root
+    slot
+view
+  Dialog
+    Dialog.Header
+      text "Compound title"
+    Dialog.Body
+      text "Structured body"
+"#;
+        let generated = compile(source, "composition.ice").unwrap();
+        assert!(generated.contains("Compound title"));
+        assert!(generated.contains("Structured body"));
+        assert!(generated.contains("format!(\"{}/Dialog.Header\""));
+        assert!(generated.contains("format!(\"{}/Dialog.Body\""));
+    }
+
+    #[test]
     fn lowers_fully_configured_keyed_columns() {
         let source = r#"app Keyed
 extern crate::backend
