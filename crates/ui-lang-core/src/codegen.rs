@@ -611,6 +611,38 @@ fn generate_subscription(
                 )
                 .unwrap();
             }
+            SubscriptionSource::InputMethod(event) => {
+                let filter = match event {
+                    InputMethodEvent::Opened => {
+                        "matches!(__event, ::iced::Event::InputMethod(::iced::advanced::input_method::Event::Opened)).then_some(())"
+                    }
+                    InputMethodEvent::Preedit => {
+                        "match __event { ::iced::Event::InputMethod(::iced::advanced::input_method::Event::Preedit(content, range)) => { let (start, end) = range.map_or((::std::option::Option::None, ::std::option::Option::None), |range| (::std::option::Option::Some(i64::try_from(range.start).unwrap_or(i64::MAX)), ::std::option::Option::Some(i64::try_from(range.end).unwrap_or(i64::MAX)))); ::std::option::Option::Some((content, start, end)) }, _ => ::std::option::Option::None }"
+                    }
+                    InputMethodEvent::Commit => {
+                        "match __event { ::iced::Event::InputMethod(::iced::advanced::input_method::Event::Commit(content)) => ::std::option::Option::Some(content), _ => ::std::option::Option::None }"
+                    }
+                    InputMethodEvent::Closed => {
+                        "matches!(__event, ::iced::Event::InputMethod(::iced::advanced::input_method::Event::Closed)).then_some(())"
+                    }
+                };
+                let message_code = match event {
+                    InputMethodEvent::Opened | InputMethodEvent::Closed => {
+                        route_code(&subscription.route, "", &env, document, message)?
+                    }
+                    InputMethodEvent::Preedit => ordered_route_code(
+                        &subscription.route,
+                        &["__value.0", "__value.1", "__value.2"],
+                        &env,
+                        document,
+                        message,
+                    )?,
+                    InputMethodEvent::Commit => {
+                        route_code(&subscription.route, "__value", &env, document, message)?
+                    }
+                };
+                writeln!(out, "::iced::event::listen_with(|__event, _, _| {{ {filter} }}).map(move |__value| {message_code}),").unwrap();
+            }
             SubscriptionSource::Keyboard(event) => {
                 let filter = match event {
                     KeyboardEvent::Press => {
@@ -5365,6 +5397,17 @@ view
         assert!(generated.contains("::iced::keyboard::Event::ModifiersChanged"));
         assert!(generated.contains("self.key = event.key.clone()"));
         assert!(generated.contains("self.command = event.modifiers.command.clone()"));
+    }
+
+    #[test]
+    fn lowers_all_native_input_method_subscriptions() {
+        let source = include_str!("../../../examples/iced-app/src/ui/input_method_events.ice");
+        let generated = compile(source, "input_method_events.ice").unwrap();
+        assert!(generated.contains("::iced::advanced::input_method::Event::Opened"));
+        assert!(generated.contains("::iced::advanced::input_method::Event::Preedit"));
+        assert!(generated.contains("::iced::advanced::input_method::Event::Commit"));
+        assert!(generated.contains("::iced::advanced::input_method::Event::Closed"));
+        assert!(generated.contains("i64::try_from(range.start)"));
     }
 
     #[test]
