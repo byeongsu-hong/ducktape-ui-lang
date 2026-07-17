@@ -500,6 +500,13 @@ pub struct ComponentArg {
 }
 
 #[derive(Clone, Debug)]
+pub struct ComponentSlot {
+    pub name: String,
+    pub content: Box<ViewNode>,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug)]
 pub enum ViewNode {
     Layout {
         kind: Layout,
@@ -697,10 +704,11 @@ pub enum ViewNode {
         name: String,
         args: Vec<ComponentArg>,
         id: Option<Id>,
-        content: Option<Box<ViewNode>>,
+        slots: Vec<ComponentSlot>,
         span: Span,
     },
     Slot {
+        name: String,
         span: Span,
     },
     ExternComponent {

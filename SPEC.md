@@ -1,4 +1,4 @@
-# Ice Language Specification 0.51
+# Ice Language Specification 0.52
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.51 syntax.
+marked “planned” is a design constraint, not accepted 0.52 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.51.
+  block comments are not part of 0.52.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -473,10 +473,12 @@ built_in_iced_theme
                | "kanagawa-wave" | "kanagawa-dragon" | "kanagawa-lotus"
                | "moonfly" | "nightfly" | "oxocarbon" | "ferra"
 theme_property = ("text=" | "background=") name ("/" u8)?
-component_call = PascalName ("(" expr_list? ")" id? | component_item*) (INDENT node)?
+component_call = PascalName ("(" expr_list? ")" id? | component_item*)
+                 (INDENT (node | named_slot+))?
 component_item = named_prop | id
 named_prop     = name "=" expr
-slot           = "slot"
+named_slot     = name ":" INDENT node
+slot           = "slot" name?
 extern_component_call
                = "extern" name "(" expr_list? ")" ("->" route)?
 if_node        = "if" expr INDENT node+
@@ -514,7 +516,7 @@ default/centered/fixed position, visibility, resizability, close/minimize
 buttons, decorations, transparency, blur, level, and close-request behavior.
 Sizes, text size, and scale factor must be positive; minimum size cannot exceed
 maximum size. Window icons and platform-specific settings are not part of
-0.51.
+0.52.
 
 Media fixed lengths, rotation, opacity, scale, and radius are `f64`; rotation
 is radians, opacity is `0.0..=1.0`, scale is positive, and sizes/radius are
@@ -763,7 +765,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.51 message payloads.
+`Clone` for 0.52 message payloads.
 
 Three typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
@@ -1004,8 +1006,8 @@ implicit capture of app state. They may route events to app handlers. The
 compiler expands them into the typed view IR; they are not runtime component
 objects.
 
-A component may declare one required `slot` and receive one structured child
-tree at its call site:
+A component may declare required slots. Bare `slot` is the conventional
+`children` slot and receives one structured child tree at its call site:
 
 ```ice
 component Panel(title:str)
@@ -1024,11 +1026,36 @@ A component call may use checked named props in any order, as above. The older
 positional form `Panel("Tasks")` remains accepted for compatibility. Unknown,
 missing, duplicate, and incorrectly typed props are compile-time errors.
 
-A call to a slotted component must provide exactly one child root; siblings can
-be wrapped in `row`, `col`, `grid`, or `stack`. A component without `slot`
-rejects child content. Slot content keeps the caller's state, loop bindings,
-handlers, and IDs while rendering under the component instance scope. A wrapper
-component can forward its own `slot` as another component's child.
+For React-like compound structure, name the slots in the component and fill
+them with readable `name:` blocks at the call site:
+
+```ice
+component Dialog()
+  col @p-6 bg-surface rounded-lg
+    slot header
+    slot body
+    slot actions
+
+Dialog
+  header:
+    text "Delete task?" @font-bold
+  body:
+    text "This cannot be undone."
+  actions:
+    row @gap-2
+      button "Cancel" -> cancel
+      button "Delete" -> delete
+```
+
+Every declared slot is required and accepts exactly one root. Wrap sibling
+nodes in `row`, `col`, `grid`, or `stack`. Unknown, missing, and duplicate slot
+names are compile-time errors. A component can forward a named slot through
+another component by placing `slot name` inside the corresponding `name:`
+block.
+
+A component without slots rejects child content. Slot content keeps the
+caller's state, loop bindings, handlers, and IDs while rendering under the
+component instance scope.
 
 ### Extern components and subscriptions
 
@@ -1179,7 +1206,7 @@ weight, stretch, and style variant is accepted. At most one declaration may be
 the application default. `font=default` and `font=mono` remain built-ins;
 declared fonts also work on text, rich text and spans, input, editor, checkbox,
 and toggler. Font
-byte loading is not part of 0.51.
+byte loading is not part of 0.52.
 
 Widget operation tasks target checked static IDs in the app view:
 
@@ -1199,7 +1226,7 @@ snap/end; and absolute scroll-to/scroll-by. Effects have no route and
 non-negative `i64`; relative offsets are `f64` in `0.0..=1.0`; absolute
 offsets are unrestricted `f64`. Targets must be real static IDs in the app
 scope. Repeated/component scopes and the feature-gated selector API remain
-outside 0.51.
+outside 0.52.
 
 Main-window tasks resolve iced's oldest (initial) window ID without leaking its
 Rust type:
@@ -1222,7 +1249,7 @@ and constraints, resizability, maximize/minimize state, position and movement,
 all modes, decorations, user attention, focus, level, system menu, mouse
 passthrough, monitor size, and automatic tabbing. Positive sizes and bool
 arguments are checked before Rust generation. New-window IDs, open/oldest/latest,
-icons, raw handles, screenshots, and callbacks remain outside 0.51.
+icons, raw handles, screenshots, and callbacks remain outside 0.52.
 
 Every iced window event has a direct subscription form:
 
@@ -1375,7 +1402,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 0.51 does not claim that remapping.
+extern line; 0.52 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -1396,7 +1423,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 0.51 native backend is enough for CRUD/settings-style screens, selection,
+The 0.52 native backend is enough for CRUD/settings-style screens, selection,
 media, hover
 overlays, and common pointer events, not all of iced. It still lacks direct
 syntax for canvas, arbitrary custom overlays, multiple

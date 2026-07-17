@@ -2010,7 +2010,7 @@ fn render_node(
             name,
             args,
             id,
-            content,
+            slots,
             span,
         } => {
             let component = document
@@ -2040,9 +2040,15 @@ fn render_node(
                 || format!("format!(\"{{}}/{}\", {scope})", name),
                 |id| id_code(id, scope, env, document).unwrap_or_else(|_| scope.into()),
             );
-            let component_slot = content.as_deref().map(|content| SlotContext {
-                node: content.clone(),
-                env: env.clone(),
+            let component_slots = (!slots.is_empty()).then(|| SlotContext {
+                entries: slots
+                    .iter()
+                    .map(|component_slot| SlotContent {
+                        name: component_slot.name.clone(),
+                        node: (*component_slot.content).clone(),
+                        env: env.clone(),
+                    })
+                    .collect(),
                 parent: slot.cloned().map(Box::new),
             });
             render_node(
@@ -2051,10 +2057,10 @@ fn render_node(
                 message,
                 &component_env,
                 &component_scope,
-                component_slot.as_ref(),
+                component_slots.as_ref(),
             )
         }
-        ViewNode::Slot { span } => {
+        ViewNode::Slot { name, span } => {
             let slot = slot.ok_or_else(|| {
                 Error::new(
                     "E170",
@@ -2062,11 +2068,22 @@ fn render_node(
                     "slot reached codegen without component content",
                 )
             })?;
+            let content = slot
+                .entries
+                .iter()
+                .find(|entry| entry.name == *name)
+                .ok_or_else(|| {
+                    Error::new(
+                        "E170",
+                        span,
+                        format!("slot `{name}` reached codegen without component content"),
+                    )
+                })?;
             render_node(
-                &slot.node,
+                &content.node,
                 document,
                 message,
-                &slot.env,
+                &content.env,
                 scope,
                 slot.parent.as_deref(),
             )
@@ -3611,9 +3628,15 @@ struct Binding {
 
 #[derive(Clone)]
 struct SlotContext {
+    entries: Vec<SlotContent>,
+    parent: Option<Box<SlotContext>>,
+}
+
+#[derive(Clone)]
+struct SlotContent {
+    name: String,
     node: ViewNode,
     env: HashMap<String, Binding>,
-    parent: Option<Box<SlotContext>>,
 }
 
 #[derive(Clone, Copy)]
@@ -3916,11 +3939,12 @@ fn pane_grids(root: &ViewNode) -> Vec<&ViewNode> {
             ViewNode::Button {
                 content: Some(content),
                 ..
-            }
-            | ViewNode::Component {
-                content: Some(content),
-                ..
             } => collect(content, output),
+            ViewNode::Component { slots, .. } => {
+                for slot in slots {
+                    collect(&slot.content, output);
+                }
+            }
             ViewNode::Responsive { content, .. } => match content {
                 ResponsiveContent::Breakpoint { narrow, wide, .. } => {
                     collect(narrow, output);
@@ -3978,10 +4002,11 @@ fn state_bindings(root: &ViewNode, editors: bool) -> Vec<String> {
             ViewNode::MouseArea { content, .. }
             | ViewNode::Container { content, .. }
             | ViewNode::Theme { content, .. } => collect(content, editors, output),
-            ViewNode::Component {
-                content: Some(content),
-                ..
-            } => collect(content, editors, output),
+            ViewNode::Component { slots, .. } => {
+                for slot in slots {
+                    collect(&slot.content, editors, output);
+                }
+            }
             ViewNode::KeyedColumn { child, .. } | ViewNode::Lazy { child, .. } => {
                 collect(child, editors, output)
             }
@@ -4031,10 +4056,7 @@ fn needs_extern_noop(document: &Document) -> bool {
             ViewNode::MouseArea { content, .. }
             | ViewNode::Container { content, .. }
             | ViewNode::Theme { content, .. } => contains(content),
-            ViewNode::Component {
-                content: Some(content),
-                ..
-            } => contains(content),
+            ViewNode::Component { slots, .. } => slots.iter().any(|slot| contains(&slot.content)),
             ViewNode::KeyedColumn { child, .. } | ViewNode::Lazy { child, .. } => contains(child),
             ViewNode::Button {
                 content: Some(content),
@@ -5348,6 +5370,46 @@ view
         assert!(generated.contains(
             "format!(\"{}/name\", format!(\"{}/card\", format!(\"{}/Card\", format!(\"{}/editor\", \"Composition\"))))"
         ));
+    }
+
+    #[test]
+    fn lowers_named_slots_and_named_slot_forwarding() {
+        let source = r#"app Composition
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+component Frame()
+  col
+    slot heading
+    slot body
+component Dialog()
+  Frame
+    heading:
+      slot title
+    body:
+      col
+        slot content
+        slot actions
+on cancel
+on delete
+view
+  Dialog
+    title:
+      text "Delete task?"
+    content:
+      text "This cannot be undone."
+    actions:
+      row
+        button "Cancel" -> cancel
+        button "Delete" -> delete
+"#;
+        let generated = compile(source, "composition.ice").unwrap();
+        assert!(generated.contains("Delete task?"));
+        assert!(generated.contains("This cannot be undone."));
+        assert!(generated.contains("Cancel"));
+        assert!(generated.contains("Delete"));
     }
 
     #[test]
