@@ -33,7 +33,6 @@ state
   picker_open = false
   mode_query = ""
   hovered_mode = ""
-  sensor_key = 0
   observed_width = 0.0
   observed_height = 0.0
   external_hover = false
@@ -228,16 +227,23 @@ view
           text mode_query @text-xs text-muted
         if hovered_mode != ""
           text hovered_mode @text-xs text-muted
-        sensor show=panel_measured resize=panel_measured hide=panel_hidden key=sensor_key anticipate=16.0 delay=10
-          responsive at=360.0 width=fill height=32.0
-            text "Compact responsive view" @text-xs text-muted
-            row @gap-2
-              text "Wide" @text-xs text-muted
-              text observed_width @text-xs text-muted
+        sensor show=panel_measured resize=panel_measured hide=panel_hidden key=mode_query anticipate=16.0 delay=10
+          responsive size=(available_width, available_height) width=fill height=32.0
+            col @gap-2
+              if available_width < 360.0
+                text "Compact responsive view" @text-xs text-muted
+              if available_width >= 360.0
+                row @gap-2
+                  text "Wide" @text-xs text-muted
+                  text available_height @text-xs text-muted
+                  text observed_width @text-xs text-muted
+                  text observed_height @text-xs text-muted
         float scale=1.02 x=0.0 y=-1.0
           text "Floating label" @text-xs text-foreground
         pin width=fill height=28.0 x=4.0 y=4.0
           text "Pinned label" @text-xs text-muted
+        pin width=fill(2) height=shrink x=8.0 y=6.0
+          text "Pinned with flexible bounds" @text-xs text-muted
         radio "List" value=0 selected=(view_mode == 0) -> view_mode_changed _
         radio "Board" value=1 selected=(view_mode == 1) -> view_mode_changed _
         grid columns=2 height=shrink spacing=4.0 @w-full

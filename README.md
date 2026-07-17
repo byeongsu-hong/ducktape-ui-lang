@@ -106,7 +106,7 @@ cargo fmt --all
 
 ## Status
 
-This is an executable v0.23 language slice, not yet a complete iced replacement.
+This is an executable v0.24 language slice, not yet a complete iced replacement.
 It implements typed extern data/actions, state, handlers, async tasks, pure
 components, scoped IDs, relative multi-file `use`, `if`/`for`, five layouts,
 twenty native widget forms,

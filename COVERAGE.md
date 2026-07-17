@@ -15,7 +15,7 @@ container API, so container remains partial.
 
 ## Typed system reachability
 
-Ice 0.23 has three checked Rust boundaries:
+Ice 0.24 has three checked Rust boundaries:
 
 | Boundary | Rust ABI | Covers |
 | --- | --- | --- |
@@ -47,15 +47,15 @@ public behavior has direct documented Ice syntax and tests.
 | `overlay` | missing | modal/overlay positioning and dismissal |
 | `pane_grid` | missing | pane state, resizing, dragging, focus |
 | `pick_list` | partial | native typed choices/optional selection, placeholder, sizing, padding, text size, open/close events; font, shaping, handle and style catalogs missing |
-| `pin` | partial | native typed bounds and x/y positioning; point expression shorthand missing |
+| `pin` | native | one child, all `Length` bounds and pixel x/y positioning; x/y is behaviorally identical to iced's `position(Point)` helper |
 | `progress_bar` | partial | native range/value, all length/girth variants, horizontal/vertical, five presets, checked color backgrounds, border and per-corner radius; gradients, arbitrary runtime closures and advanced classes missing |
 | `qr_code` | missing | data, cell size, theme |
 | `radio` | partial | native bool/i64 values and selection event; generic values/style API missing |
-| `responsive` | partial | native width breakpoint with narrow/wide views and typed bounds; arbitrary size-dependent view closure missing |
+| `responsive` | native | arbitrary size-dependent child tree with scoped width/height bindings, breakpoint sugar and all `Length` bounds |
 | `row` | native | children, typed spacing/per-side padding, all `Length` bounds, cross-axis alignment, clipping and wrapping row spacing/alignment |
 | `rule` | partial | native axis/thickness, all fill modes, default/weak preset, checked color/opacity, per-corner radius and snap; arbitrary runtime style closures and advanced classes missing |
 | `scrollable` | partial | native content/ID, all directions, bounds, scrollbar geometry/visibility/spacing, anchors, auto-scroll and absolute/relative offset events; viewport bounds/reversed offsets and style catalog missing |
-| `sensor` | partial | native show/resize dimensions, hide, key, anticipation and delay; general key references missing |
+| `sensor` | native | show/resize dimensions, hide, comparable owned keys, anticipation and delay; owned keys provide the same continuity behavior as `key_ref` without borrowed lifetimes |
 | `shader` | missing | custom GPU primitive/program |
 | `slider` | partial | native f64 behavior/sizing plus nested active/hovered/dragged styles covering color rail/background/border/radius and circle/rectangle handles; generic numeric values, gradient backgrounds, arbitrary runtime closures and advanced classes missing |
 | `space` | native | optional fixed/fill/fill-portion/shrink width and height cover the complete widget API |
