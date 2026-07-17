@@ -15,7 +15,7 @@ container API, so container remains partial.
 
 ## Typed system reachability
 
-Ice 0.19 has three checked Rust boundaries:
+Ice 0.20 has three checked Rust boundaries:
 
 | Boundary | Rust ABI | Covers |
 | --- | --- | --- |
@@ -59,7 +59,7 @@ public behavior has direct documented Ice syntax and tests.
 | `shader` | missing | custom GPU primitive/program |
 | `slider` | partial | native f64 behavior/sizing plus nested active/hovered/dragged styles covering color rail/background/border/radius and circle/rectangle handles; generic numeric values, gradient backgrounds, arbitrary runtime closures and advanced classes missing |
 | `space` | native | optional fixed/fill/fill-portion/shrink width and height cover the complete widget API |
-| `stack` | partial | native children, clip, size/basic decoration; alignment and full sizing API missing |
+| `stack` | native | ordered children, all `Length` widths/heights, clipping and `push_under` base-layer behavior via `under=N` |
 | `svg` | partial | native path, all four iced length variants, fit, rotation and opacity; memory handles and status style missing |
 | `table` | missing | columns, headers, rows, sizing |
 | `text` | partial | native string/numeric value, bounds, relative/absolute line height, alignment, shaping, wrapping, default/mono font, color and bold; arbitrary font attributes, rich spans and full style catalog missing |

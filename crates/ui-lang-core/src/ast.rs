@@ -760,6 +760,9 @@ pub enum Layout {
 pub struct LayoutOptions {
     pub columns: Option<Expr>,
     pub clip: Option<Expr>,
+    pub width: Option<LengthValue>,
+    pub height: Option<LengthValue>,
+    pub under: u16,
     pub scroll: Option<ScrollOptions>,
 }
 
