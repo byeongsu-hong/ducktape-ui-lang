@@ -15,6 +15,14 @@ pub fn generate(document: &Document, source_path: &str) -> Result<String, Error>
     .unwrap();
 
     writeln!(out, "#[derive(Debug)]\npub struct {} {{", document.app).unwrap();
+    for qr in &document.qr_codes {
+        writeln!(
+            out,
+            "pub(crate) {}: ::iced::widget::qr_code::Data,",
+            qr.name
+        )
+        .unwrap();
+    }
     for state in &document.states {
         writeln!(
             out,
@@ -175,6 +183,9 @@ fn generate_boot(out: &mut String, document: &Document, message: &str) -> Result
         "fn __boot() -> (Self, ::iced::Task<{message}>) {{\nlet mut state = Self {{"
     )
     .unwrap();
+    for qr in &document.qr_codes {
+        writeln!(out, "{}: {},", qr.name, qr_data_code(qr)).unwrap();
+    }
     for state in &document.states {
         writeln!(
             out,
@@ -966,6 +977,46 @@ fn render_node(
             };
             let mut code = format!("::iced::widget::rule::{axis}({thickness} as f32)");
             append_rule_options(&mut code, options, env, document)?;
+            Ok(format!("{code}.into()"))
+        }
+        ViewNode::QrCode {
+            data,
+            cell_size,
+            total_size,
+            cell,
+            background,
+            ..
+        } => {
+            let mut code = format!("::iced::widget::qr_code(&self.{data})");
+            if let Some(value) = cell_size {
+                write!(
+                    code,
+                    ".cell_size({} as f32)",
+                    expr_code(value, env, document, ValueMode::Owned)?
+                )
+                .unwrap();
+            }
+            if let Some(value) = total_size {
+                write!(
+                    code,
+                    ".total_size({} as f32)",
+                    expr_code(value, env, document, ValueMode::Owned)?
+                )
+                .unwrap();
+            }
+            if cell.is_some() || background.is_some() {
+                let cell = cell.as_deref().map(|value| theme_color(document, value));
+                let background = background
+                    .as_deref()
+                    .map(|value| theme_color(document, value));
+                write!(
+                    code,
+                    ".style(|theme| {{ let default = ::iced::widget::qr_code::default(theme); ::iced::widget::qr_code::Style {{ cell: {}, background: {} }} }})",
+                    cell.unwrap_or_else(|| "default.cell".into()),
+                    background.unwrap_or_else(|| "default.background".into())
+                )
+                .unwrap();
+            }
             Ok(format!("{code}.into()"))
         }
         ViewNode::Space { width, height, .. } => {
@@ -3047,6 +3098,43 @@ fn theme_color(document: &Document, token: &str) -> String {
     color_code(value, opacity)
 }
 
+fn qr_data_code(qr: &QrData) -> String {
+    let module = "::iced::widget::qr_code";
+    let data = match &qr.data {
+        QrPayload::Text(value) => rust_string(value),
+        QrPayload::Bytes(values) => format!(
+            "&[{}][..]",
+            values
+                .iter()
+                .map(|value| format!("0x{value:02x}u8"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+    };
+    let correction = |value| match value {
+        QrCorrection::Low => format!("{module}::ErrorCorrection::Low"),
+        QrCorrection::Medium => format!("{module}::ErrorCorrection::Medium"),
+        QrCorrection::Quartile => format!("{module}::ErrorCorrection::Quartile"),
+        QrCorrection::High => format!("{module}::ErrorCorrection::High"),
+    };
+    let constructor = if let Some(version) = qr.version {
+        let version = match version {
+            QrVersion::Normal(value) => format!("{module}::Version::Normal({value})"),
+            QrVersion::Micro(value) => format!("{module}::Version::Micro({value})"),
+        };
+        let correction = correction(qr.correction.unwrap_or(QrCorrection::Medium));
+        format!("{module}::Data::with_version({data}, {version}, {correction})")
+    } else if let Some(value) = qr.correction {
+        format!(
+            "{module}::Data::with_error_correction({data}, {})",
+            correction(value)
+        )
+    } else {
+        format!("{module}::Data::new({data})")
+    };
+    format!("{constructor}.expect(\"invalid qr data `{}`\")", qr.name)
+}
+
 fn color_code(value: &str, opacity: Option<u8>) -> String {
     let hex = value.trim_start_matches('#');
     let byte = |range: std::ops::Range<usize>| u8::from_str_radix(&hex[range], 16).unwrap_or(0);
@@ -3119,6 +3207,39 @@ view
         assert!(generated.contains("async fn __ui_lang_check_load"));
         assert!(generated.contains("crate::backend::load(arg0).await"));
         assert!(generated.contains("let task = (||"));
+    }
+
+    #[test]
+    fn lowers_qr_data_and_widget_options() {
+        let source = r#"app Codes
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+qr automatic "one"
+qr corrected "two" correction=quartile
+qr fixed "three" correction=low version=micro(4)
+qr binary bytes(00 ff a4)
+view
+  col
+    qr automatic cell-size=5.0
+    qr corrected total-size=120.0 cell=primary background=white
+    qr fixed
+    qr binary
+"#;
+        let generated = compile(source, "codes.ice").unwrap();
+        assert!(generated.contains("qr_code::Data::new(\"one\")"));
+        assert!(generated.contains("qr_code::Data::with_error_correction(\"two\", ::iced::widget::qr_code::ErrorCorrection::Quartile)"));
+        assert!(generated.contains("qr_code::Data::with_version(\"three\", ::iced::widget::qr_code::Version::Micro(4), ::iced::widget::qr_code::ErrorCorrection::Low)"));
+        assert!(generated.contains("qr_code::Data::new(&[0x00u8, 0xffu8, 0xa4u8][..])"));
+        assert!(
+            generated.contains("::iced::widget::qr_code(&self.automatic).cell_size(5.0 as f32)")
+        );
+        assert!(generated.contains(
+            "::iced::widget::qr_code(&self.corrected).total_size(120.0 as f32).style(|theme|"
+        ));
+        assert!(generated.contains("qr_code::Style { cell: ::iced::Color"));
     }
 
     #[test]

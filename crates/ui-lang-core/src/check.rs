@@ -6,6 +6,7 @@ pub fn check(document: &mut Document) -> Result<(), Error> {
     check_unique(document)?;
     check_declared_types(document)?;
     check_theme(document)?;
+    check_qr_data(document)?;
 
     let states: HashMap<String, Type> = document
         .states
@@ -148,13 +149,22 @@ fn check_unique(document: &Document) -> Result<(), Error> {
             ));
         }
     }
-    let mut states = HashSet::new();
+    let mut fields = HashSet::new();
+    for qr in &document.qr_codes {
+        if !fields.insert(&qr.name) {
+            return Err(Error::new(
+                "E100",
+                &qr.span,
+                format!("duplicate qr data `{}`", qr.name),
+            ));
+        }
+    }
     for state in &document.states {
-        if !states.insert(&state.name) {
+        if !fields.insert(&state.name) {
             return Err(Error::new(
                 "E100",
                 &state.span,
-                format!("duplicate state `{}`", state.name),
+                format!("duplicate app field `{}`", state.name),
             ));
         }
     }
@@ -175,6 +185,23 @@ fn check_unique(document: &Document) -> Result<(), Error> {
                 "E100",
                 &component.span,
                 format!("duplicate component `{}`", component.name),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn check_qr_data(document: &Document) -> Result<(), Error> {
+    for qr in &document.qr_codes {
+        let valid = match qr.version {
+            None | Some(QrVersion::Normal(1..=40)) | Some(QrVersion::Micro(1..=4)) => true,
+            Some(QrVersion::Normal(_) | QrVersion::Micro(_)) => false,
+        };
+        if !valid {
+            return Err(Error::new(
+                "E136",
+                &qr.span,
+                "qr version must be normal(1..40) or micro(1..4)",
             ));
         }
     }
@@ -800,6 +827,41 @@ fn infer_view(
                 require_type(&expr_type(snap, env, document, span)?, &Type::Bool, span)?;
             }
             check_styles(styles, document, span, StyleTarget::Rule)?;
+        }
+        ViewNode::QrCode {
+            data,
+            cell_size,
+            total_size,
+            cell,
+            background,
+            span,
+        } => {
+            if !document.qr_codes.iter().any(|item| item.name == *data) {
+                return Err(
+                    Error::new("E136", span, format!("unknown qr data `{data}`"))
+                        .hint(format!("declare `qr {data} \"...\"` before the view")),
+                );
+            }
+            for (value, label) in [
+                (cell_size.as_ref(), "qr cell size"),
+                (total_size.as_ref(), "qr total size"),
+            ] {
+                if let Some(value) = value {
+                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+                    require_literal_range(value, 0.0, None, label, span)?;
+                }
+            }
+            for (color, label) in [(cell, "cell"), (background, "background")] {
+                if let Some(color) = color
+                    && !valid_theme_color(color, document)
+                {
+                    return Err(Error::new(
+                        "E136",
+                        span,
+                        format!("unknown qr {label} color `{color}`"),
+                    ));
+                }
+            }
         }
         ViewNode::Space {
             width,
@@ -2149,6 +2211,31 @@ view
         let error = analyze(source).unwrap_err();
         assert_eq!(error.code, "E129");
         assert!(error.message.contains("optional"));
+    }
+
+    #[test]
+    fn checks_qr_declarations_and_references() {
+        let source = r#"app Demo
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+qr code "hello" version=micro(0)
+view
+  qr code
+"#;
+        let error = analyze(source).unwrap_err();
+        assert_eq!(error.code, "E136");
+        assert!(error.message.contains("micro(1..4)"));
+
+        let source = source.replace(
+            "qr code \"hello\" version=micro(0)",
+            "qr saved \"hello\" version=micro(4)",
+        );
+        let error = analyze(&source).unwrap_err();
+        assert_eq!(error.code, "E136");
+        assert!(error.message.contains("unknown qr data `code`"));
     }
 
     #[test]
