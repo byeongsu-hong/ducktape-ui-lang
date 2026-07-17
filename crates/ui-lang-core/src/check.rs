@@ -2031,12 +2031,39 @@ fn infer_view(
             }
         }
         ViewNode::Media {
+            kind,
             source,
             options,
             span,
-            ..
         } => {
-            require_type(&expr_type(source, env, document, span)?, &Type::Str, span)?;
+            let source_ty = expr_type(source, env, document, span)?;
+            let valid_source = match kind {
+                MediaKind::Image => source_ty == Type::Str || source_ty == Type::Image,
+                MediaKind::Svg if options.svg_memory => {
+                    source_ty == Type::Str || source_ty == Type::Bytes
+                }
+                MediaKind::Svg => source_ty == Type::Str,
+            };
+            if !valid_source {
+                let error = type_error(
+                    span,
+                    if *kind == MediaKind::Image {
+                        &Type::Image
+                    } else if options.svg_memory {
+                        &Type::Bytes
+                    } else {
+                        &Type::Str
+                    },
+                    &source_ty,
+                );
+                return Err(if *kind == MediaKind::Image {
+                    error.hint("image accepts a path string or image handle")
+                } else if options.svg_memory {
+                    error.hint("SVG memory accepts UTF-8 text or raw bytes")
+                } else {
+                    error
+                });
+            }
             for length in [&options.width, &options.height].into_iter().flatten() {
                 if let LengthValue::Fixed(value) = length {
                     require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
@@ -2060,8 +2087,32 @@ fn infer_view(
                     )?;
                 }
             }
+            for value in [
+                &options.radius_top_left,
+                &options.radius_top_right,
+                &options.radius_bottom_right,
+                &options.radius_bottom_left,
+            ]
+            .into_iter()
+            .flatten()
+            {
+                require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+                require_literal_range(value, 0.0, None, "radius", span)?;
+            }
             if let Some(expand) = &options.expand {
                 require_type(&expr_type(expand, env, document, span)?, &Type::Bool, span)?;
+            }
+            if let Some(crop) = &options.crop {
+                for value in crop {
+                    require_type(&expr_type(value, env, document, span)?, &Type::I64, span)?;
+                    require_literal_range(
+                        value,
+                        0.0,
+                        Some(u32::MAX as f64),
+                        "image crop coordinate",
+                        span,
+                    )?;
+                }
             }
             for color in options
                 .svg_color
@@ -2359,7 +2410,7 @@ fn infer_view(
 
 fn lazy_hashable(ty: &Type) -> bool {
     match ty {
-        Type::Bool | Type::I64 | Type::Str | Type::Named(_) => true,
+        Type::Bool | Type::I64 | Type::Str | Type::Bytes | Type::Named(_) => true,
         Type::List(inner) | Type::Option(inner) => lazy_hashable(inner),
         Type::F64
         | Type::Combo(_)
@@ -2369,6 +2420,7 @@ fn lazy_hashable(ty: &Type) -> bool {
         | Type::KeyRelease
         | Type::KeyModifiers
         | Type::SystemInfo
+        | Type::Image
         | Type::Unit
         | Type::Unknown => false,
     }
@@ -2599,15 +2651,11 @@ fn check_container_style_options(
 fn f64_literal(expr: &Expr) -> Option<f64> {
     match expr {
         Expr::F64(value) => Some(*value),
+        Expr::I64(value) => Some(*value as f64),
         Expr::Unary {
             op: UnaryOp::Neg,
             value,
-        } if matches!(value.as_ref(), Expr::F64(_)) => {
-            let Expr::F64(value) = value.as_ref() else {
-                unreachable!()
-            };
-            Some(-value)
-        }
+        } => f64_literal(value).map(|value| -value),
         _ => None,
     }
 }
@@ -3868,6 +3916,7 @@ pub(crate) fn expr_type(
         Expr::I64(_) => Ok(Type::I64),
         Expr::F64(_) => Ok(Type::F64),
         Expr::Str(_) => Ok(Type::Str),
+        Expr::Bytes(_) => Ok(Type::Bytes),
         Expr::EmptyList => Ok(Type::List(Box::new(Type::Unknown))),
         Expr::List(values) => {
             let Some(first) = values.first() else {
@@ -3897,7 +3946,7 @@ pub(crate) fn expr_type(
                     return Err(Error::new("E152", span, "len expects one argument"));
                 }
                 match expr_type(&args[0], env, document, span)? {
-                    Type::List(_) | Type::Str => Ok(Type::I64),
+                    Type::List(_) | Type::Str | Type::Bytes => Ok(Type::I64),
                     actual => Err(Error::new(
                         "E152",
                         span,
@@ -3910,7 +3959,7 @@ pub(crate) fn expr_type(
                     return Err(Error::new("E152", span, "empty expects one argument"));
                 }
                 match expr_type(&args[0], env, document, span)? {
-                    Type::List(_) | Type::Str => Ok(Type::Bool),
+                    Type::List(_) | Type::Str | Type::Bytes => Ok(Type::Bool),
                     actual => Err(Error::new(
                         "E152",
                         span,
@@ -3946,6 +3995,48 @@ pub(crate) fn expr_type(
                 }
                 require_type(&expr_type(&args[0], env, document, span)?, &Type::Str, span)?;
                 Ok(Type::Editor)
+            }
+            "encoded" => {
+                if args.len() != 1 {
+                    return Err(Error::new("E152", span, "encoded expects one argument"));
+                }
+                require_type(
+                    &expr_type(&args[0], env, document, span)?,
+                    &Type::Bytes,
+                    span,
+                )?;
+                Ok(Type::Image)
+            }
+            "rgba" => {
+                if args.len() != 3 {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        "rgba expects width, height, and pixel bytes",
+                    ));
+                }
+                for (value, label) in [(&args[0], "rgba width"), (&args[1], "rgba height")] {
+                    require_type(&expr_type(value, env, document, span)?, &Type::I64, span)?;
+                    require_literal_range(value, 0.0, Some(u32::MAX as f64), label, span)?;
+                }
+                require_type(
+                    &expr_type(&args[2], env, document, span)?,
+                    &Type::Bytes,
+                    span,
+                )?;
+                if let (Expr::I64(width), Expr::I64(height), Expr::Bytes(pixels)) =
+                    (&args[0], &args[1], &args[2])
+                {
+                    let expected = (*width as u128) * (*height as u128) * 4;
+                    if expected != pixels.len() as u128 {
+                        return Err(Error::new(
+                            "E152",
+                            span,
+                            "rgba pixel data must contain width × height × 4 bytes",
+                        ));
+                    }
+                }
+                Ok(Type::Image)
             }
             _ => Err(Error::new(
                 "E152",
@@ -6556,6 +6647,20 @@ view
         let error = analyze(source).unwrap_err();
         assert_eq!(error.code, "E128");
         assert!(error.message.contains("opacity"));
+
+        let valid = source.replace(
+            "image \"photo.ppm\" opacity=1.5",
+            "image rgba(1, 1, bytes(ff 00 00 ff)) crop=(0, 0, 1, 1)",
+        );
+        analyze(&valid).unwrap();
+
+        let error = analyze(&valid.replace("bytes(ff 00 00 ff)", "bytes(ff 00 00)")).unwrap_err();
+        assert_eq!(error.code, "E152");
+        assert!(error.message.contains("width × height × 4"));
+
+        let error = analyze(&valid.replace("crop=(0, 0, 1, 1)", "crop=(-1, 0, 1, 1)")).unwrap_err();
+        assert_eq!(error.code, "E128");
+        assert!(error.message.contains("crop"));
 
         let source = source.replace(
             "image \"photo.ppm\" opacity=1.5",

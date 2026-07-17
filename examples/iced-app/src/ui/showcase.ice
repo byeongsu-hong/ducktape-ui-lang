@@ -69,6 +69,8 @@ state
   window_mode = "windowed"
   monitor_width:f64? = none
   monitor_height:f64? = none
+  encoded_image = encoded(bytes(50 36 0a 31 20 31 0a 32 35 35 0a ff 00 ff))
+  memory_image = rgba(2, 2, bytes(ff 00 00 ff 00 ff 00 ff 00 00 ff ff ff ff ff ff))
 
 component TaskRow(task:Task, loading:bool)
   row #root @w-full items-center p-4 bg-surface border border-border rounded-lg
@@ -466,8 +468,11 @@ view
           text "External subscription active" @text-xs text-muted
         row width=fill height=shrink spacing=12.0 padding-y=4.0 align=center clip=false wrap wrap-spacing=8.0 wrap-align=start
           image "examples/iced-app/assets/checker.ppm" width=48.0 height=48.0 fit=cover filter=nearest radius=8.0
+          image encoded_image width=24.0 height=48.0 fit=cover filter=nearest
+          image memory_image width=48.0 height=48.0 fit=cover filter=nearest rotation=solid(0.1) radius=8.0 radius-tl=2.0 radius-br=2.0 crop=(0, 0, 1, 2)
           svg "examples/iced-app/assets/ice.svg" width=48.0 height=48.0 fit=contain opacity=0.9 color=foreground hover=primary
           svg "<svg xmlns='http://www.w3.org/2000/svg' width='1' height='1'><rect width='1' height='1'/></svg>" memory width=16.0 height=16.0 color=foreground hover=primary
+          svg bytes(3c 73 76 67 2f 3e) memory width=16.0 height=16.0 color=foreground hover=primary
           tooltip position=bottom gap=4.0 padding=8.0 delay=100 snap=true style=rounded background=linear(1.57, surface@0.0, background@1.0) text=foreground border=border border-width=1.0 radius=8.0 radius-tl=4.0 shadow=black/50 shadow-x=0.0 shadow-y=4.0 shadow-blur=12.0 pixel-snap=true
             mouse enter=native_enter exit=native_exit press=native_press move=native_move scroll=native_scroll cursor=pointer
               text "Native pointer area" @text-sm text-foreground

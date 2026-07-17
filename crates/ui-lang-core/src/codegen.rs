@@ -2327,11 +2327,22 @@ fn render_node(
             kind,
             source,
             options,
-            ..
+            span,
         } => {
+            let source_type = expr_type(
+                source,
+                &env.iter()
+                    .map(|(name, binding)| (name.clone(), binding.ty.clone()))
+                    .collect(),
+                document,
+                span,
+            )?;
             let source = expr_code(source, env, document, ValueMode::Owned)?;
             let mut code = match kind {
                 MediaKind::Image => format!("::iced::widget::image({source})"),
+                MediaKind::Svg if options.svg_memory && source_type == Type::Bytes => format!(
+                    "::iced::widget::svg(::iced::widget::svg::Handle::from_memory({source}))"
+                ),
                 MediaKind::Svg if options.svg_memory => format!(
                     "::iced::widget::svg(::iced::widget::svg::Handle::from_memory(({source}).into_bytes()))"
                 ),
@@ -2354,10 +2365,15 @@ fn render_node(
                 write!(code, ".content_fit(::iced::ContentFit::{fit})").unwrap();
             }
             if let Some(rotation) = &options.rotation {
+                let rotation = expr_code(rotation, env, document, ValueMode::Owned)?;
                 write!(
                     code,
-                    ".rotation({} as f32)",
-                    expr_code(rotation, env, document, ValueMode::Owned)?
+                    ".rotation({})",
+                    if options.rotation_solid {
+                        format!("::iced::Rotation::Solid(::iced::Radians({rotation} as f32))")
+                    } else {
+                        format!("{rotation} as f32")
+                    }
                 )
                 .unwrap();
             }
@@ -2415,11 +2431,27 @@ fn render_node(
                 )
                 .unwrap();
             }
-            if let Some(radius) = &options.radius {
+            if let Some(radius) = radius_code(
+                options.radius.as_ref(),
+                [
+                    options.radius_top_left.as_ref(),
+                    options.radius_top_right.as_ref(),
+                    options.radius_bottom_right.as_ref(),
+                    options.radius_bottom_left.as_ref(),
+                ],
+                env,
+                document,
+            )? {
+                write!(code, ".border_radius({radius})").unwrap();
+            }
+            if let Some([x, y, width, height]) = &options.crop {
                 write!(
                     code,
-                    ".border_radius({} as f32)",
-                    expr_code(radius, env, document, ValueMode::Owned)?
+                    ".crop(::iced::Rectangle {{ x: {}, y: {}, width: {}, height: {} }})",
+                    u32_code(x, env, document)?,
+                    u32_code(y, env, document)?,
+                    u32_code(width, env, document)?,
+                    u32_code(height, env, document)?,
                 )
                 .unwrap();
             }
@@ -4243,6 +4275,14 @@ fn expr_code(
             ValueMode::Owned => format!("{}.to_owned()", rust_string(value)),
             ValueMode::Borrowed => rust_string(value),
         },
+        Expr::Bytes(values) => format!(
+            "::std::vec![{}]",
+            values
+                .iter()
+                .map(|value| format!("0x{value:02x}u8"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
         Expr::EmptyList => "::std::vec::Vec::new()".into(),
         Expr::List(values) => format!(
             "::std::vec![{}]",
@@ -4308,6 +4348,16 @@ fn expr_code(
                 "::iced::widget::text_editor::Content::with_text(&{})",
                 expr_code(&args[0], env, document, ValueMode::Owned)?
             ),
+            "encoded" => format!(
+                "::iced::widget::image::Handle::from_bytes({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "rgba" => format!(
+                "::iced::widget::image::Handle::from_rgba({}, {}, {})",
+                u32_code(&args[0], env, document)?,
+                u32_code(&args[1], env, document)?,
+                expr_code(&args[2], env, document, ValueMode::Owned)?
+            ),
             _ => unreachable!("checker rejects unknown calls"),
         },
         Expr::Unary { op, value } => format!(
@@ -4353,6 +4403,17 @@ fn expr_code(
             )
         }
     })
+}
+
+fn u32_code(
+    expr: &Expr,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<String, Error> {
+    Ok(format!(
+        "({}).clamp(0, u32::MAX as i64) as u32",
+        expr_code(expr, env, document, ValueMode::Owned)?
+    ))
 }
 
 fn route_code(
@@ -8382,6 +8443,9 @@ theme
   foreground #ffffff
   primary #333333
   danger #ff0000
+state
+  encoded_image = encoded(bytes(50 36 0a))
+  rgba_image = rgba(1, 1, bytes(ff 00 00 ff))
 on entered
 on exited
 on pressed
@@ -8389,9 +8453,12 @@ on moved(x, y)
 on scrolled(x, y, pixels)
 view
   col
-    image "photo.ppm" width=fill height=64.0 fit=cover filter=nearest rotation=0.5 opacity=0.8 scale=1.2 expand=true radius=4.0
+    image "photo.ppm" width=fill height=64.0 fit=cover filter=nearest rotation=solid(0.5) opacity=0.8 scale=1.2 expand=true radius=4.0 radius-tl=1.0 radius-br=2.0 crop=(1, 2, 30, 40)
+    image encoded_image
+    image rgba_image
     svg "icon.svg" width=48.0 height=shrink fit=scale-down rotation=0.1 opacity=0.9 color=foreground hover=primary
     svg "<svg/>" memory width=16.0 color=foreground hover=none
+    svg bytes(3c 73 76 67 2f 3e) memory width=16.0
     tooltip position=cursor gap=2.0 padding=5.0 delay=100 snap=false style=success background=linear(1.57, background@0.0, primary/25@1.0) text=foreground border=primary/75 border-width=1.0 radius=5.0 radius-tl=2.0 shadow=black/50 shadow-x=-1.0 shadow-y=2.0 shadow-blur=8.0 pixel-snap=true
       mouse enter=entered exit=exited press=pressed move=moved scroll=scrolled cursor=pointer
         text "Hover"
@@ -8399,11 +8466,23 @@ view
 "#;
         let generated = compile(source, "media.ice").unwrap();
         assert!(generated.contains("::iced::widget::image(\"photo.ppm\".to_owned())"));
+        assert!(
+            generated.contains(".rotation(::iced::Rotation::Solid(::iced::Radians(0.5 as f32)))")
+        );
+        assert!(generated.contains(".border_radius(::iced::border::Radius { top_left: 1.0 as f32, top_right: 4.0 as f32, bottom_right: 2.0 as f32, bottom_left: 4.0 as f32 })"));
+        assert!(
+            generated.contains("image::Handle::from_bytes(::std::vec![0x50u8, 0x36u8, 0x0au8])")
+        );
+        assert!(generated.contains("image::Handle::from_rgba((1).clamp(0, u32::MAX as i64) as u32, (1).clamp(0, u32::MAX as i64) as u32, ::std::vec![0xffu8, 0x00u8, 0x00u8, 0xffu8])"));
+        assert!(generated.contains(".crop(::iced::Rectangle { x: (1).clamp(0, u32::MAX as i64) as u32, y: (2).clamp(0, u32::MAX as i64) as u32, width: (30).clamp(0, u32::MAX as i64) as u32, height: (40).clamp(0, u32::MAX as i64) as u32 })"));
         assert!(generated.contains(".filter_method(::iced::widget::image::FilterMethod::Nearest)"));
         assert!(generated.contains("::iced::widget::svg(\"icon.svg\".to_owned())"));
         assert!(
             generated.contains("svg::Handle::from_memory((\"<svg/>\".to_owned()).into_bytes())")
         );
+        assert!(generated.contains(
+            "svg::Handle::from_memory(::std::vec![0x3cu8, 0x73u8, 0x76u8, 0x67u8, 0x2fu8, 0x3eu8])"
+        ));
         assert!(generated.contains("svg::Status::Idle => Some(::iced::Color"));
         assert!(generated.contains("svg::Status::Hovered => Some(::iced::Color"));
         assert!(generated.contains("svg::Status::Hovered => None"));
