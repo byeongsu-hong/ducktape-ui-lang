@@ -1,4 +1,4 @@
-# Ice Language Specification 0.25
+# Ice Language Specification 0.26
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.25 syntax.
+marked “planned” is a design constraint, not accepted 0.26 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.25.
+  block comments are not part of 0.26.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -174,7 +174,7 @@ view_decl      = "view" INDENT node
 node           = layout | text | input | button | checkbox | toggler
                | slider | progress | radio | pick_list | combo_box
                | rule | qr_code | space | float | pin | sensor | responsive
-               | media | tooltip | mouse_area
+               | media | tooltip | mouse_area | theme_boundary
                | component_call | extern_component_call | if_node | for_node
 layout         = "col" id? column_property* styles? INDENT node+
                | "row" id? flex_property* styles? INDENT node+
@@ -317,6 +317,18 @@ mouse_property = ("press=" | "release=" | "double=" | "right_press="
                | "right_release=" | "middle_press=" | "middle_release="
                | "enter=" | "move=" | "scroll=" | "exit=") route
                | "cursor=" mouse_cursor
+theme_boundary = "theme" theme_preset? theme_property* INDENT node
+theme_preset   = "default" | "app" | built_in_iced_theme
+built_in_iced_theme
+               = "light" | "dark" | "dracula" | "nord"
+               | "solarized-light" | "solarized-dark"
+               | "gruvbox-light" | "gruvbox-dark"
+               | "catppuccin-latte" | "catppuccin-frappe"
+               | "catppuccin-macchiato" | "catppuccin-mocha"
+               | "tokyo-night" | "tokyo-night-storm" | "tokyo-night-light"
+               | "kanagawa-wave" | "kanagawa-dragon" | "kanagawa-lotus"
+               | "moonfly" | "nightfly" | "oxocarbon" | "ferra"
+theme_property = ("text=" | "background=") name ("/" u8)?
 component_call = PascalName "(" expr_list? ")" id?
 extern_component_call
                = "extern" name "(" expr_list? ")" ("->" route)?
@@ -438,6 +450,12 @@ otherwise. The general `responsive size=(width, height)` form binds the current
 iced `Size` as two scoped `f64` names and accepts one arbitrary child tree, so
 conditions and component inputs can depend on either dimension.
 
+`theme` applies an iced theme to exactly one child subtree. With no preset or
+`default`, iced chooses the default theme for the outer light/dark mode; `app`
+reuses the app's generated custom palette. Every iced built-in theme is accepted
+in kebab case, such as `dark`, `catppuccin-mocha`, or `tokyo-night-storm`.
+Checked `text=` and solid `background=` colors override the subtree defaults.
+
 `stack` accepts every iced `Length` for width and height. Its first rendered
 child normally determines intrinsic size. `under=N` places the first N rendered
 children beneath that base without letting them determine intrinsic size,
@@ -495,7 +513,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.25 message payloads.
+`Clone` for 0.26 message payloads.
 
 Three typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
@@ -642,6 +660,7 @@ The implemented native nodes are:
 | `svg` | SVG path expression with typed length/fit/rotation/opacity properties |
 | `tooltip` | exactly two children (content then tip), full positioning/timing plus preset, color, border, radius, shadow and pixel-snap styles |
 | `mouse` | one child; all button/enter/move/scroll/exit events and every iced cursor interaction |
+| `theme` | one child with default/app/all built-in iced themes and checked text/background colors |
 | `if` | includes its children when a bool expression is true |
 | `for` | iterates a list and adds one typed item binding |
 
@@ -793,7 +812,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 0.25 does not claim that remapping.
+extern line; 0.26 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -814,7 +833,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 0.25 native backend is enough for CRUD/settings-style screens, selection,
+The 0.26 native backend is enough for CRUD/settings-style screens, selection,
 media, hover
 overlays, and common pointer events, not all of iced. It still lacks direct
 syntax for canvas, general overlays/modals, rich text

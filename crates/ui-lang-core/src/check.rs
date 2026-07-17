@@ -1108,6 +1108,26 @@ fn infer_view(
             }
             infer_view(content, env, document, signatures, ids)?;
         }
+        ViewNode::Theme {
+            text,
+            background,
+            content,
+            span,
+            ..
+        } => {
+            for (color, label) in [(text, "text"), (background, "background")] {
+                if let Some(color) = color
+                    && !valid_theme_color(color, document)
+                {
+                    return Err(Error::new(
+                        "E137",
+                        span,
+                        format!("unknown nested theme {label} color `{color}`"),
+                    ));
+                }
+            }
+            infer_view(content, env, document, signatures, ids)?;
+        }
         ViewNode::Float {
             scale,
             x,
@@ -2236,6 +2256,23 @@ view
         let error = analyze(&source).unwrap_err();
         assert_eq!(error.code, "E136");
         assert!(error.message.contains("unknown qr data `code`"));
+    }
+
+    #[test]
+    fn rejects_unknown_nested_theme_colors() {
+        let source = r#"app Demo
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+view
+  theme dark text=missing
+    text "Hello"
+"#;
+        let error = analyze(source).unwrap_err();
+        assert_eq!(error.code, "E137");
+        assert!(error.message.contains("missing"));
     }
 
     #[test]

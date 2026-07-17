@@ -74,7 +74,7 @@ configured scrolling with offset events, pointer movement/wheel events,
 formatted text, an extended text input and child-content buttons, plus an
 application event subscription, expanded boolean controls, configured rules,
 sliders with nested status styles, configured progress bars, configured native
-tooltip styles, and a styled, fixed-version QR code.
+tooltip styles, a styled fixed-version QR code, and nested built-in themes.
 
 Key files:
 
@@ -106,10 +106,10 @@ cargo fmt --all
 
 ## Status
 
-This is an executable v0.25 language slice, not yet a complete iced replacement.
+This is an executable v0.26 language slice, not yet a complete iced replacement.
 It implements typed extern data/actions, state, handlers, async tasks, pure
 components, scoped IDs, relative multi-file `use`, `if`/`for`, five layouts,
-twenty-one native widget forms,
+twenty-two native widget forms,
 checked style utilities, formatting, analysis, and iced code generation. Typed
 `Element`, `Task`, and `Subscription` adapters expose advanced iced features
 without embedding Rust inside `.ice`. Unsupported syntax is rejected instead
