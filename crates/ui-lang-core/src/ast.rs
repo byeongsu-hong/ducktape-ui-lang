@@ -569,7 +569,7 @@ pub enum ViewNode {
         span: Span,
     },
     Container {
-        options: ContainerOptions,
+        options: Box<ContainerOptions>,
         id: Option<Id>,
         styles: Vec<String>,
         content: Box<ViewNode>,
@@ -1344,6 +1344,7 @@ pub struct ContainerOptions {
     pub align_x: Option<FlexAlignment>,
     pub align_y: Option<FlexAlignment>,
     pub clip: Option<Expr>,
+    pub style: ContainerStyleOptions,
 }
 
 #[derive(Clone, Debug)]

@@ -2879,7 +2879,9 @@ fn render_container(
         )
         .unwrap();
     }
-    code.push_str(&container_style_code(&style, document));
+    if let Some(surface) = container_surface_style_value(&style, &options.style, env, document)? {
+        write!(code, ".style(move |_| {surface})").unwrap();
+    }
     let code = if style.self_center {
         format!("::iced::widget::container({code}).width(::iced::Fill).center_x(::iced::Fill)")
     } else {
@@ -3138,7 +3140,7 @@ fn render_pane_content(
     let body = render_node(&pane.content, document, message, env, scope, slot)?;
     let mut declarations = format!("let __pane_content: ::iced::Element<'_, {message}> = {body};");
     let mut content = String::from("::iced::widget::pane_grid::Content::new(__pane_content)");
-    if let Some(style) = pane_surface_style_value(
+    if let Some(style) = container_surface_style_value(
         &Style::parse(&pane.styles, document),
         &pane.style,
         env,
@@ -3181,7 +3183,7 @@ fn render_pane_content(
         if title.always_show_controls {
             title_bar.push_str(".always_show_controls()");
         }
-        if let Some(style) = pane_surface_style_value(
+        if let Some(style) = container_surface_style_value(
             &Style::parse(&title.styles, document),
             &title.style,
             env,
@@ -4493,7 +4495,7 @@ fn background_code(
     }
 }
 
-fn pane_surface_style_value(
+fn container_surface_style_value(
     utilities: &Style,
     options: &ContainerStyleOptions,
     env: &HashMap<String, Binding>,
@@ -6199,7 +6201,7 @@ theme
   primary #333333
   danger #ff0000
 view
-  container #card width=fill height=80.0 max-width=640.0 max-height=120.0 align-x=center align-y=end clip=true padding=8.0 padding-left=12.0 @w-full bg-background border border-foreground rounded-lg
+  container #card width=fill height=80.0 max-width=640.0 max-height=120.0 align-x=center align-y=end clip=true padding=8.0 padding-left=12.0 background=linear(1.57, background@0.0, primary/25@1.0) text=foreground border=primary border-width=2.0 radius=4.0 radius-tl=1.0 radius-tr=2.0 radius-br=3.0 radius-bl=4.0 shadow=black/50 shadow-x=-1.0 shadow-y=2.0 shadow-blur=6.0 pixel-snap=true @w-full bg-background border border-foreground rounded-lg
     text "Card"
 "#;
         let generated = compile(source, "boxed.ice").unwrap();
@@ -6211,6 +6213,10 @@ view
         assert!(generated.contains(".align_y(::iced::alignment::Vertical::Bottom)"));
         assert!(generated.contains(".clip(true)"));
         assert!(generated.contains("::iced::widget::container::Style"));
+        assert!(generated.contains("::iced::gradient::Linear::new(1.57 as f32)"));
+        assert!(generated.contains("__style.border.radius"));
+        assert!(generated.contains("__style.shadow.blur_radius = 6.0 as f32"));
+        assert!(generated.contains("__style.snap = true"));
     }
 
     #[test]
