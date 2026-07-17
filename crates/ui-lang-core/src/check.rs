@@ -270,6 +270,9 @@ fn check_declared_types(document: &Document) -> Result<(), Error> {
         for (_, ty) in &item.params {
             check(ty, &item.span)?;
         }
+        if let Some(progress) = &item.progress {
+            check(progress, &item.span)?;
+        }
         check(&item.output, &item.span)?;
         if let Some(error) = &item.error {
             check(error, &item.span)?;
@@ -4382,6 +4385,76 @@ fn infer_runs(
                 (None, None) => {}
             }
         }
+        if let Statement::Sip {
+            function,
+            progress,
+            success,
+            error,
+            span,
+            ..
+        } = statement
+        {
+            if std::iter::once(progress)
+                .chain(std::iter::once(success))
+                .chain(error.iter())
+                .any(|route| {
+                    route.args.len() > 1
+                        || route
+                            .args
+                            .iter()
+                            .any(|arg| !matches!(arg, RouteArg::Payload))
+                })
+            {
+                return Err(Error::new(
+                    "E127",
+                    span,
+                    "sip routes accept at most one `_`; read other state in the handler",
+                ));
+            }
+            let action = extern_function(document, function, ExternKind::Sip, span)?;
+            let progress_ty = action
+                .progress
+                .clone()
+                .expect("sip extern has a progress type");
+            infer_route(
+                progress,
+                Some(progress_ty),
+                &unknown_env,
+                document,
+                signatures,
+            )?;
+            infer_route(
+                success,
+                Some(action.output.clone()),
+                &unknown_env,
+                document,
+                signatures,
+            )?;
+            match (&action.error, error) {
+                (Some(error_ty), Some(route)) => infer_route(
+                    route,
+                    Some(error_ty.clone()),
+                    &unknown_env,
+                    document,
+                    signatures,
+                )?,
+                (Some(_), None) => {
+                    return Err(Error::new(
+                        "E131",
+                        span,
+                        "fallible extern sip requires an error route",
+                    ));
+                }
+                (None, Some(_)) => {
+                    return Err(Error::new(
+                        "E131",
+                        span,
+                        "infallible extern sip cannot have an error route",
+                    ));
+                }
+                (None, None) => {}
+            }
+        }
     }
     Ok(())
 }
@@ -4542,6 +4615,22 @@ fn check_handler(
                     continue;
                 }
                 let action = extern_function(document, function, (*kind).into(), span)?;
+                check_call_args(action, args, &env, document, span)?;
+            }
+            Statement::Sip {
+                function,
+                args,
+                span,
+                ..
+            } => {
+                if index + 1 != handler.statements.len() {
+                    return Err(Error::new(
+                        "E141",
+                        span,
+                        "sip must be the final statement in a handler",
+                    ));
+                }
+                let action = extern_function(document, function, ExternKind::Sip, span)?;
                 check_call_args(action, args, &env, document, span)?;
             }
             Statement::TaskGroup { statements, .. } => {
@@ -4877,6 +4966,7 @@ fn check_structured_tasks(handler: &Handler) -> Result<(), Error> {
 fn invalid_task_producer(statement: &Statement) -> Option<&Span> {
     match statement {
         Statement::Run { .. }
+        | Statement::Sip { .. }
         | Statement::ClipboardWrite { .. }
         | Statement::WidgetOperation { .. }
         | Statement::WindowOperation { .. }
@@ -4916,6 +5006,7 @@ fn statement_span(statement: &Statement) -> &Span {
         Statement::Assign { span, .. }
         | Statement::ReturnIf { span, .. }
         | Statement::Run { span, .. }
+        | Statement::Sip { span, .. }
         | Statement::TaskGroup { span, .. }
         | Statement::Abortable { span, .. }
         | Statement::Abort { span, .. }
@@ -4953,6 +5044,7 @@ fn extern_function<'a>(
                 ExternKind::Shader => "shader",
                 ExternKind::Task => "task",
                 ExternKind::Stream => "stream",
+                ExternKind::Sip => "sip",
                 ExternKind::Subscription => "subscription",
             };
             Error::new("E130", span, format!("unknown extern {label} `{name}`"))
@@ -5561,7 +5653,7 @@ fn type_error(span: &Span, expected: &Type, actual: &Type) -> Error {
 
 #[cfg(test)]
 mod tests {
-    use crate::{PaneConfiguration, ViewNode, analyze};
+    use crate::{PaneConfiguration, Type, ViewNode, analyze};
 
     #[test]
     fn checks_native_timer_subscription() {
@@ -5936,6 +6028,63 @@ view
         let error = analyze(&source.replace("stream numbers(3)", "stream missing(3)")).unwrap_err();
         assert_eq!(error.code, "E130");
         assert!(error.message.contains("extern stream"));
+    }
+
+    #[test]
+    fn checks_typed_task_sips() {
+        let source = r#"app Sips
+extern crate::backend
+  AppError(message:str)
+  sip transfer(size:i64) progress=f64 -> bytes
+  sip fallible() progress=i64 -> str ! AppError
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+on start
+  parallel
+    sip transfer(3)
+      progress -> advanced _
+      done -> downloaded _
+    sip fallible()
+      progress -> counted _
+      done -> finished _
+      error -> failed _
+on advanced(value)
+on downloaded(value)
+on counted(value)
+on finished(value)
+on failed(error)
+view
+  text "Sips"
+"#;
+        let document = analyze(source).unwrap();
+        assert_eq!(document.handlers[1].params[0].ty, Type::F64);
+        assert_eq!(document.handlers[2].params[0].ty, Type::Bytes);
+        assert_eq!(document.handlers[3].params[0].ty, Type::I64);
+        assert_eq!(document.handlers[4].params[0].ty, Type::Str);
+        assert_eq!(
+            document.handlers[5].params[0].ty,
+            Type::Named("AppError".into())
+        );
+
+        let error = analyze(&source.replace("transfer(3)", "transfer(true)")).unwrap_err();
+        assert_eq!(error.code, "E101");
+
+        let error = analyze(&source.replace("      error -> failed _\n", "")).unwrap_err();
+        assert_eq!(error.code, "E131");
+
+        let error = analyze(&source.replace(
+            "      progress -> advanced _",
+            "      progress -> advanced 1.0",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E127");
+
+        let error = analyze(&source.replace("sip transfer(3)", "sip missing(3)")).unwrap_err();
+        assert_eq!(error.code, "E130");
+        assert!(error.message.contains("extern sip"));
     }
 
     #[test]

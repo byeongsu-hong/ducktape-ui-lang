@@ -255,6 +255,7 @@ pub struct ExternFn {
     pub name: String,
     pub rust_path: String,
     pub params: Vec<(String, Type)>,
+    pub progress: Option<Type>,
     pub output: Type,
     pub error: Option<Type>,
     pub span: Span,
@@ -267,6 +268,7 @@ pub enum ExternKind {
     Shader,
     Task,
     Stream,
+    Sip,
     Subscription,
 }
 
@@ -392,6 +394,14 @@ pub enum Statement {
         kind: EffectKind,
         function: String,
         args: Vec<Expr>,
+        success: Route,
+        error: Option<Route>,
+        span: Span,
+    },
+    Sip {
+        function: String,
+        args: Vec<Expr>,
+        progress: Route,
         success: Route,
         error: Option<Route>,
         span: Span,
