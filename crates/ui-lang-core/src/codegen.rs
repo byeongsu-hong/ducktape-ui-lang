@@ -586,6 +586,14 @@ fn generate_subscription(
     writeln!(out, "::iced::Subscription::batch([").unwrap();
     for subscription in &document.subscriptions {
         let route = route_code(&subscription.route, "__value", &env, document, message)?;
+        let condition = subscription
+            .condition
+            .as_ref()
+            .map(|condition| expr_code(condition, &env, document, ValueMode::Owned))
+            .transpose()?;
+        if let Some(condition) = &condition {
+            write!(out, "if {condition} {{ ::iced::Subscription::batch([").unwrap();
+        }
         match &subscription.source {
             SubscriptionSource::Every { milliseconds } => {
                 let message_code = route_code(&subscription.route, "", &env, document, message)?;
@@ -737,6 +745,9 @@ fn generate_subscription(
                         "::iced::window::frames().map(move |_| {message_code}),"
                     )
                     .unwrap();
+                    if condition.is_some() {
+                        writeln!(out, "]) }} else {{ ::iced::Subscription::none() }},").unwrap();
+                    }
                     continue;
                 }
                 let filter = match event {
@@ -804,6 +815,9 @@ fn generate_subscription(
                 };
                 writeln!(out, "::iced::window::events().filter_map(|(_, __event)| {{ {filter} }}).map(move |__value| {message_code}),").unwrap();
             }
+        }
+        if condition.is_some() {
+            writeln!(out, "]) }} else {{ ::iced::Subscription::none() }},").unwrap();
         }
     }
     writeln!(out, "])\n}}").unwrap();
@@ -5408,7 +5422,19 @@ view
         let source = include_str!("../../../examples/iced-app/src/ui/timer.ice");
         let generated = compile(source, "timer.ice").unwrap();
         assert!(generated.contains("::iced::time::every(::std::time::Duration::from_millis(250))"));
+        assert!(generated.contains("if self.auto_refresh { ::iced::Subscription::batch(["));
+        assert!(generated.contains("]) } else { ::iced::Subscription::none() }"));
         assert!(generated.contains(".map(move |_| __TimerEventsMessage::Tick)"));
+    }
+
+    #[test]
+    fn lowers_a_condition_around_window_frames() {
+        let source = include_str!("../../../examples/iced-app/src/ui/window_events.ice");
+        let generated = compile(source, "window_events.ice").unwrap();
+        assert!(generated.contains(
+            "if self.listen_frames { ::iced::Subscription::batch([::iced::window::frames()"
+        ));
+        assert!(generated.contains("]) } else { ::iced::Subscription::none() }"));
     }
 
     #[test]

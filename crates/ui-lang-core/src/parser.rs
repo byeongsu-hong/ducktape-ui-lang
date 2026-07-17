@@ -635,6 +635,10 @@ fn parse_subscription(line: &Line) -> Result<Subscription, Error> {
         ));
     };
     let call = call.trim();
+    let (call, condition) = split_top_marker(call, " when ")
+        .map_or((call, None), |(call, condition)| {
+            (call.trim(), Some(condition.trim()))
+        });
     let source = if call == "system theme" {
         SubscriptionSource::SystemTheme
     } else if let Some(duration) = call.strip_prefix("every ") {
@@ -723,6 +727,9 @@ fn parse_subscription(line: &Line) -> Result<Subscription, Error> {
     };
     Ok(Subscription {
         source,
+        condition: condition
+            .map(|condition| parse_expr(condition, line))
+            .transpose()?,
         route: parse_route(route.trim(), line)?,
         span: Span::line(line.number),
     })

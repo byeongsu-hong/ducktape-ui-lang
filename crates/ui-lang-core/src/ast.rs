@@ -255,6 +255,7 @@ pub enum ExternKind {
 #[derive(Clone, Debug)]
 pub struct Subscription {
     pub source: SubscriptionSource,
+    pub condition: Option<Expr>,
     pub route: Route,
     pub span: Span,
 }
