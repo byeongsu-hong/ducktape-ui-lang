@@ -730,9 +730,13 @@ fn parse_responsive(parts: &[String], styles: Vec<String>, line: &Line) -> Resul
 }
 
 fn parse_size_route(source: &str, line: &Line) -> Result<Route, Error> {
+    parse_payload_route(source, line, 2)
+}
+
+fn parse_payload_route(source: &str, line: &Line, count: usize) -> Result<Route, Error> {
     let mut route = parse_route(source, line)?;
     if route.args.is_empty() {
-        route.args = vec![RouteArg::Payload, RouteArg::Payload];
+        route.args = vec![RouteArg::Payload; count];
     }
     Ok(route)
 }
@@ -1041,6 +1045,10 @@ fn parse_mouse_area(parts: &[String], styles: Vec<String>, line: &Line) -> Resul
             options.middle_release = Some(route(value)?);
         } else if let Some(value) = part.strip_prefix("enter=") {
             options.enter = Some(route(value)?);
+        } else if let Some(value) = part.strip_prefix("move=") {
+            options.move_route = Some(parse_payload_route(value, line, 2)?);
+        } else if let Some(value) = part.strip_prefix("scroll=") {
+            options.scroll = Some(parse_payload_route(value, line, 3)?);
         } else if let Some(value) = part.strip_prefix("exit=") {
             options.exit = Some(route(value)?);
         } else if let Some(value) = part.strip_prefix("cursor=") {

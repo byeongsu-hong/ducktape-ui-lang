@@ -39,6 +39,9 @@ state
   external_hover = false
   event_seen = false
   native_hover = false
+  pointer_x = 0.0
+  pointer_y = 0.0
+  scroll_pixels = false
 
 component TaskRow(task:Task, loading:bool)
   row #root @w-full items-center p-4 bg-surface border border-border rounded-lg
@@ -137,6 +140,15 @@ on native_exit
 on native_press
   native_hover = !native_hover
 
+on native_move(x, y)
+  pointer_x = x
+  pointer_y = y
+
+on native_scroll(x, y, pixels)
+  pointer_x = x
+  pointer_y = y
+  scroll_pixels = pixels
+
 subscribe
   app_events() -> external_event _
 
@@ -178,12 +190,13 @@ view
           image "examples/iced-app/assets/checker.ppm" width=48.0 height=48.0 fit=cover filter=nearest radius=8.0
           svg "examples/iced-app/assets/ice.svg" width=48.0 height=48.0 fit=contain opacity=0.9
           tooltip position=bottom gap=4.0 padding=8.0 delay=100 snap=true
-            mouse enter=native_enter exit=native_exit press=native_press cursor=pointer
+            mouse enter=native_enter exit=native_exit press=native_press move=native_move scroll=native_scroll cursor=pointer
               text "Native pointer area" @text-sm text-foreground
             col @p-2 bg-surface rounded-md
               text "Native tooltip" @text-sm text-foreground
               if native_hover
                 text "Pointer is inside" @text-xs text-muted
+              text pointer_x @text-xs text-muted
       col @w-full gap-2 p-4 bg-surface rounded-lg
         text "View mode" @text-lg font-bold text-foreground
         pick display_modes display_mode placeholder="Choose a view" width=fill menu-height=160.0 padding=8.0 text-size=14.0 open=picker_opened close=picker_closed -> display_mode_changed _
