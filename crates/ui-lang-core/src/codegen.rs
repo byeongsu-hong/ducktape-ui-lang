@@ -1809,6 +1809,7 @@ fn render_node(
             checked,
             disabled,
             options,
+            style,
             route,
             ..
         } => {
@@ -1823,6 +1824,7 @@ fn render_node(
             } else {
                 write!(code, ".on_toggle(move |__value| {message_code})").unwrap();
             }
+            code.push_str(&toggler_style_code(style, env, document)?);
             Ok(format!("{code}.into()"))
         }
         ViewNode::Slider {
@@ -5306,6 +5308,118 @@ fn checkbox_style_code(
     Ok(code)
 }
 
+fn toggler_style_code(
+    styles: &TogglerStyleSet,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<String, Error> {
+    let overrides = [
+        ("Active", true, &styles.active_checked),
+        ("Active", false, &styles.active_unchecked),
+        ("Hovered", true, &styles.hovered_checked),
+        ("Hovered", false, &styles.hovered_unchecked),
+        ("Disabled", true, &styles.disabled_checked),
+        ("Disabled", false, &styles.disabled_unchecked),
+    ];
+    if overrides.iter().all(|(_, _, style)| style.is_none()) {
+        return Ok(String::new());
+    }
+
+    let mut code = ".style(move |__theme, __status| { let mut __style = ::iced::widget::toggler::default(__theme, __status); match __status {".to_owned();
+    for (status, checked, style) in overrides {
+        let Some(style) = style else { continue };
+        write!(
+            code,
+            " ::iced::widget::toggler::Status::{status} {{ is_toggled: {checked} }} => {{"
+        )
+        .unwrap();
+        if let Some(background) = &style.background {
+            write!(
+                code,
+                " __style.background = {};",
+                background_code(background, env, document)?
+            )
+            .unwrap();
+        }
+        if let Some(color) = &style.background_border_color {
+            write!(
+                code,
+                " __style.background_border_color = {};",
+                theme_color(document, color)
+            )
+            .unwrap();
+        }
+        if let Some(width) = &style.background_border_width {
+            write!(
+                code,
+                " __style.background_border_width = {} as f32;",
+                expr_code(width, env, document, ValueMode::Owned)?
+            )
+            .unwrap();
+        }
+        if let Some(foreground) = &style.foreground {
+            write!(
+                code,
+                " __style.foreground = {};",
+                background_code(foreground, env, document)?
+            )
+            .unwrap();
+        }
+        if let Some(color) = &style.foreground_border_color {
+            write!(
+                code,
+                " __style.foreground_border_color = {};",
+                theme_color(document, color)
+            )
+            .unwrap();
+        }
+        if let Some(width) = &style.foreground_border_width {
+            write!(
+                code,
+                " __style.foreground_border_width = {} as f32;",
+                expr_code(width, env, document, ValueMode::Owned)?
+            )
+            .unwrap();
+        }
+        if let Some(color) = &style.text_color {
+            write!(
+                code,
+                " __style.text_color = ::std::option::Option::Some({});",
+                theme_color(document, color)
+            )
+            .unwrap();
+        }
+        if let Some(radius) = radius_code(
+            style.radius.as_ref(),
+            [
+                style.radius_top_left.as_ref(),
+                style.radius_top_right.as_ref(),
+                style.radius_bottom_right.as_ref(),
+                style.radius_bottom_left.as_ref(),
+            ],
+            env,
+            document,
+        )? {
+            write!(
+                code,
+                " __style.border_radius = ::std::option::Option::Some({radius});"
+            )
+            .unwrap();
+        }
+        if let Some(ratio) = &style.padding_ratio {
+            write!(
+                code,
+                " __style.padding_ratio = {} as f32;",
+                expr_code(ratio, env, document, ValueMode::Owned)?
+            )
+            .unwrap();
+        }
+        code.push_str(" }");
+    }
+    code.push_str(" _ => {} } __style })");
+    Ok(code)
+}
+
 fn text_shaping_code(shaping: TextShaping) -> &'static str {
     match shaping {
         TextShaping::Auto => "Auto",
@@ -6883,7 +6997,7 @@ view
     }
 
     #[test]
-    fn lowers_complete_checkbox_styles_and_toggler_typography() {
+    fn lowers_complete_boolean_control_styles_and_typography() {
         let source = r#"app Preferences
 theme
   background #000000
@@ -6904,6 +7018,12 @@ view
       disabled checked background=background icon=foreground text=foreground border=foreground
       disabled unchecked background=background icon=primary text=foreground border=primary
     toggler "Toggler" checked=enabled size=20.0 width=fill spacing=8.0 text-size=14.0 line-height=1.2 shaping=auto wrapping=glyph font=default align=right -> changed _
+      active checked background=linear(1.57, primary@0.0, background@1.0) background-border=primary background-border-width=1.0 foreground=linear(0.0, foreground@0.0, primary@1.0) foreground-border=foreground foreground-border-width=2.0 text=foreground radius=7.0 radius-tl=6.0 radius-tr=7.0 radius-br=8.0 radius-bl=9.0 padding-ratio=0.125
+      active unchecked background=background foreground=foreground text=primary
+      hovered checked background=primary foreground=foreground text=foreground
+      hovered unchecked background=foreground foreground=background text=primary
+      disabled checked background=background foreground=foreground text=foreground
+      disabled unchecked background=background foreground=primary text=foreground
 "#;
         let generated = compile(source, "preferences.ice").unwrap();
         assert!(generated.contains(".size(20.0 as f32).spacing(8.0 as f32)"));
@@ -6939,6 +7059,26 @@ view
             .unwrap();
             assert!(generated.contains(&format!("checkbox::{preset}(__theme, __status)")));
         }
+        assert!(generated.contains("toggler::default(__theme, __status)"));
+        for (status, checked) in [
+            ("Active", true),
+            ("Active", false),
+            ("Hovered", true),
+            ("Hovered", false),
+            ("Disabled", true),
+            ("Disabled", false),
+        ] {
+            assert!(generated.contains(&format!(
+                "toggler::Status::{status} {{ is_toggled: {checked} }}"
+            )));
+        }
+        assert!(generated.contains("__style.background_border_width = 1.0 as f32"));
+        assert!(generated.contains("__style.foreground = ::iced::Background"));
+        assert!(generated.contains("__style.foreground_border_width = 2.0 as f32"));
+        assert!(generated.contains("__style.text_color = ::std::option::Option::Some"));
+        assert!(generated.contains("__style.border_radius = ::std::option::Option::Some"));
+        assert!(generated.contains("top_left: 6.0 as f32"));
+        assert!(generated.contains("__style.padding_ratio = 0.125 as f32"));
     }
 
     #[test]

@@ -24,6 +24,13 @@ view
         row @w-full items-center gap-3
           text "Tasks" @text-2xl font-bold text-foreground
           text len(tasks) @text-sm text-muted
+          toggler "About" checked=about_open disabled=loading size=18.0 spacing=8.0 -> about_toggled _
+            active checked background=linear(1.57, primary@0.0, surface@1.0) background-border=primary background-border-width=1.0 foreground=linear(0.0, foreground@0.0, primary@1.0) foreground-border=foreground foreground-border-width=1.0 text=foreground radius=7.0 radius-tl=6.0 radius-tr=7.0 radius-br=8.0 radius-bl=9.0 padding-ratio=0.125
+            active unchecked background=surface foreground=foreground text=muted
+            hovered checked background=primary foreground=foreground text=foreground
+            hovered unchecked background=background foreground=primary text=foreground
+            disabled checked background=surface foreground=muted text=muted
+            disabled unchecked background=background foreground=muted text=muted
           button "About" style=text -> open_about
 
         row @w-full items-center gap-3

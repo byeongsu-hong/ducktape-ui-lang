@@ -638,6 +638,7 @@ pub enum ViewNode {
         checked: Expr,
         disabled: Option<Expr>,
         options: BoolControlOptions,
+        style: Box<TogglerStyleSet>,
         styles: Vec<String>,
         route: Route,
         span: Span,
@@ -1065,6 +1066,34 @@ pub struct CheckboxStatusStyle {
     pub radius_top_right: Option<Expr>,
     pub radius_bottom_right: Option<Expr>,
     pub radius_bottom_left: Option<Expr>,
+    pub span: Option<Span>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct TogglerStyleSet {
+    pub active_checked: Option<TogglerStatusStyle>,
+    pub active_unchecked: Option<TogglerStatusStyle>,
+    pub hovered_checked: Option<TogglerStatusStyle>,
+    pub hovered_unchecked: Option<TogglerStatusStyle>,
+    pub disabled_checked: Option<TogglerStatusStyle>,
+    pub disabled_unchecked: Option<TogglerStatusStyle>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct TogglerStatusStyle {
+    pub background: Option<BackgroundValue>,
+    pub background_border_color: Option<String>,
+    pub background_border_width: Option<Expr>,
+    pub foreground: Option<BackgroundValue>,
+    pub foreground_border_color: Option<String>,
+    pub foreground_border_width: Option<Expr>,
+    pub text_color: Option<String>,
+    pub radius: Option<Expr>,
+    pub radius_top_left: Option<Expr>,
+    pub radius_top_right: Option<Expr>,
+    pub radius_bottom_right: Option<Expr>,
+    pub radius_bottom_left: Option<Expr>,
+    pub padding_ratio: Option<Expr>,
     pub span: Option<Span>,
 }
 

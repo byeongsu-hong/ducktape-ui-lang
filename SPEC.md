@@ -1,4 +1,4 @@
-# Ice Language Specification 0.67
+# Ice Language Specification 0.68
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.67 syntax.
+marked “planned” is a design constraint, not accepted 0.68 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.67.
+  block comments are not part of 0.68.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -418,6 +418,7 @@ checkbox       = "checkbox" expr id? "checked=" expr bool_property*
                  (INDENT checkbox_status_style*)?
 toggler        = "toggler" expr "checked=" expr bool_property*
                  ("align=" text_alignment)? styles? "->" route
+                 (INDENT toggler_status_style*)?
 bool_property  = "disabled=" expr | "size=" expr | "width=" length
                | ("spacing=" | "text-size=" | "line-height=") expr
                | "shaping=" ("auto" | "basic" | "advanced")
@@ -433,6 +434,15 @@ checkbox_style_property = "background=" background_value
                         | ("icon=" | "text=" | "border=") color_ref
                         | ("border-width=" | "radius=" | "radius-tl="
                           | "radius-tr=" | "radius-br=" | "radius-bl=") expr
+toggler_status_style = ("active" | "hovered" | "disabled")
+                       ("checked" | "unchecked") toggler_style_property*
+toggler_style_property = ("background=" | "foreground=") background_value
+                       | ("background-border=" | "foreground-border="
+                         | "text=") color_ref
+                       | ("background-border-width="
+                         | "foreground-border-width=" | "radius="
+                         | "radius-tl=" | "radius-tr=" | "radius-br="
+                         | "radius-bl=" | "padding-ratio=") expr
 text_alignment = "default" | "left" | "center" | "right" | "justified"
 text_wrapping  = "none" | "word" | "glyph" | "word-or-glyph"
 color_ref      = name ("/" u8)?
@@ -579,7 +589,7 @@ default/centered/fixed position, visibility, resizability, close/minimize
 buttons, decorations, transparency, blur, level, and close-request behavior.
 Sizes, text size, and scale factor must be positive; minimum size cannot exceed
 maximum size. Window icons and platform-specific settings are not part of
-0.67.
+0.68.
 
 Media fixed lengths, rotation, opacity, scale, and radius are `f64`; rotation
 is radians, opacity is `0.0..=1.0`, scale is positive, and sizes/radius are
@@ -662,6 +672,24 @@ checkbox "Complete" checked=done style=success -> changed _
 Each line starts from the selected preset for that exact status and overrides
 any listed solid/linear background, icon/text color, or border color, width, and
 uniform/per-corner radius. Metrics are checked non-negative f64 expressions.
+
+A toggler uses the same six checked-aware status selectors. Each starts from
+iced's default style and may override every concrete field:
+
+```ice
+toggler "Notifications" checked=enabled -> changed _
+  active checked background=linear(1.57, primary@0.0, surface@1.0) background-border=primary background-border-width=1.0 foreground=foreground foreground-border=border foreground-border-width=1.0 text=foreground radius=8.0 padding-ratio=0.125
+  active unchecked background=surface foreground=foreground text=muted
+  hovered checked background=primary foreground=foreground text=foreground
+  hovered unchecked background=background foreground=primary text=foreground
+  disabled checked background=surface foreground=muted text=muted
+  disabled unchecked background=background foreground=muted text=muted
+```
+
+Background and foreground accept checked solid or linear values. Both borders,
+optional uniform/per-corner radius, and text color map directly to
+`toggler::Style`; widths and radii are non-negative, while `padding-ratio=` is
+checked in `0.0..=0.5` to keep the foreground dimensions non-negative.
 
 `slider` uses positive f64 normal and shift steps, an optional in-range default
 for command/control-click reset, and an optional release route. Horizontal
@@ -855,7 +883,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.67 message payloads.
+`Clone` for 0.68 message payloads.
 
 Three typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
@@ -989,7 +1017,7 @@ The implemented native nodes are:
 | `input` | required `str` binding; ID, hint, disabled/secure, submit/paste, sizing, alignment, default/mono font and icon properties |
 | `button` | string label or one child; optional ID/disabled, typed size/padding/clip, eight presets, complete status styles and required route |
 | `checkbox` | string label, bool value/route, disabled, sizing/typography/wrapping/font, custom icon, four presets and complete checked-aware status styles |
-| `toggler` | string label, bool value/route, disabled, sizing/typography/wrapping/font/alignment properties |
+| `toggler` | string label, bool value/route, disabled, sizing/typography/wrapping/font/alignment and complete checked-aware status styles |
 | `slider` | `f64` value/range/default/normal+shift steps, direction-aware sizing, change/release routes and nested status styles |
 | `progress` | `f64` value/range, all length/girth variants, vertical axis, five presets and color/border/radius style overrides |
 | `radio` | string label, `i64` or bool value, bool `selected`, value-payload route |
@@ -1397,7 +1425,7 @@ weight, stretch, and style variant is accepted. At most one declaration may be
 the application default. `font=default` and `font=mono` remain built-ins;
 declared fonts also work on text, rich text and spans, input, editor, checkbox,
 and toggler. Font
-byte loading is not part of 0.67.
+byte loading is not part of 0.68.
 
 Widget operation tasks target checked static IDs in the app view:
 
@@ -1417,7 +1445,7 @@ snap/end; and absolute scroll-to/scroll-by. Effects have no route and
 non-negative `i64`; relative offsets are `f64` in `0.0..=1.0`; absolute
 offsets are unrestricted `f64`. Targets must be real static IDs in the app
 scope. Repeated/component scopes and the feature-gated selector API remain
-outside 0.67.
+outside 0.68.
 
 Persistent pane grids expose their native layout-state operations directly in
 handlers:
@@ -1464,7 +1492,7 @@ and constraints, resizability, maximize/minimize state, position and movement,
 all modes, decorations, user attention, focus, level, system menu, mouse
 passthrough, monitor size, and automatic tabbing. Positive sizes and bool
 arguments are checked before Rust generation. New-window IDs, open/oldest/latest,
-icons, raw handles, screenshots, and callbacks remain outside 0.67.
+icons, raw handles, screenshots, and callbacks remain outside 0.68.
 
 Every iced window event has a direct subscription form:
 
@@ -1617,7 +1645,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 0.67 does not claim that remapping.
+extern line; 0.68 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -1638,7 +1666,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 0.67 native backend is enough for CRUD/settings-style screens, selection,
+The 0.68 native backend is enough for CRUD/settings-style screens, selection,
 media, hover
 overlays, and common pointer events, not all of iced. It still lacks direct
 syntax for canvas, arbitrary custom overlays, multiple

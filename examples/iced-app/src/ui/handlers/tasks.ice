@@ -22,6 +22,9 @@ on retry
 on open_about
   about_open = true
 
+on about_toggled(next)
+  about_open = next
+
 on close_about
   about_open = false
 

@@ -82,8 +82,7 @@ media, native and extern tooltip/mouse areas, a responsive view, float/pin
 positioning, visibility sensing, a clipboard task,
 configured scrolling with offset events, pointer movement/wheel events,
 formatted text, an extended text input and child-content buttons, plus an
-application event subscription, fully styled checked-aware checkboxes, expanded
-boolean controls, configured rules,
+application event subscription, expanded boolean controls, configured rules,
 sliders with nested status styles, configured progress bars, configured native
 tooltip styles, a styled fixed-version QR code, nested built-in themes, and
 dependency-keyed lazy subtrees, plus parsed Markdown with link events.
@@ -95,6 +94,8 @@ subscriptions, standard/primary clipboard reads and writes, and every checked
 main-window effect/query task. Compile fixtures cover every native window,
 mouse, touch, input-method, and timer subscription without adding continuous
 event loops to the demo.
+The native Tasks app separately exercises fully styled checked-aware checkboxes
+and togglers.
 
 Key files:
 
@@ -126,7 +127,7 @@ cargo fmt --all
 
 ## Status
 
-This is an executable v0.67 language slice, not yet a complete iced replacement.
+This is an executable v0.68 language slice, not yet a complete iced replacement.
 It implements typed extern data/actions, state, handlers, async tasks, pure
 components with named props, default children, named structural slots, and
 React-like qualified compound children, scoped IDs, relative

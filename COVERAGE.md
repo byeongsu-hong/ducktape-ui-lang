@@ -15,7 +15,7 @@ counts toward the row below.
 
 ## Typed system reachability
 
-Ice 0.67 has three checked Rust boundaries:
+Ice 0.68 has three checked Rust boundaries:
 
 | Boundary | Rust ABI | Covers |
 | --- | --- | --- |
@@ -66,7 +66,7 @@ public behavior has direct documented Ice syntax and tests.
 | `text_editor` | partial | owned/replaced app state, generated action application, ID, placeholder, width/height/min/max, typography, padding, wrapping, disabled mode and all five built-in highlight themes; component-owned bindings, custom key binding/highlighter and full status styles remain |
 | `text_input` | partial | native binding, hint, disabled/secure, ID, submit/paste, typed width/padding/size/line-height, alignment, complete font descriptors, icon and basic style; full style catalog missing |
 | `themer` | partial | native default/app/all 22 built-in themes, checked default text color and solid/linear background; arbitrary alternate Theme types missing |
-| `toggler` | partial | native label/value/disabled event, size/width/spacing, text typography/wrapping/alignment and complete font descriptors; full style catalog missing |
+| `toggler` | partial | native label/value/disabled event, size/width/spacing, text typography/wrapping/alignment and complete font descriptors; every concrete Style field across active/hovered/disabled checked and unchecked statuses; advanced classes remain |
 | `tooltip` | partial | native two-child content, all positions, gap, padding, viewport snap, delay, nine container presets, checked solid/linear background, text, border/per-corner radius, shadow and pixel snap; arbitrary runtime closures and advanced classes missing |
 
 ## Application and runtime
