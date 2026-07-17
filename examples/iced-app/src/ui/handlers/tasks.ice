@@ -19,6 +19,12 @@ on retry
   error = ""
   run list_tasks() -> loaded _ | failed _
 
+on open_about
+  about_open = true
+
+on close_about
+  about_open = false
+
 on loaded(next)
   tasks = next
   loading = false

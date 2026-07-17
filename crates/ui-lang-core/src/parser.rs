@@ -1283,6 +1283,7 @@ fn parse_view(line: &Line) -> Result<ViewNode, Error> {
         }
         "text" => parse_text(&parts, styles, line),
         "container" => parse_container(&parts, styles, line),
+        "overlay" => parse_overlay(&parts, styles, line),
         "input" => parse_input(&parts, styles, line),
         "button" => parse_button(&parts, styles, route_source, line),
         "checkbox" => parse_checkbox(&parts, styles, route_source, line),
@@ -1395,6 +1396,80 @@ fn parse_container(parts: &[String], styles: Vec<String>, line: &Line) -> Result
         id,
         styles,
         content: Box::new(parse_view(&line.children[0])?),
+        span: Span::line(line.number),
+    })
+}
+
+fn parse_overlay(parts: &[String], styles: Vec<String>, line: &Line) -> Result<ViewNode, Error> {
+    if !styles.is_empty() {
+        return Err(error(
+            "E185",
+            line,
+            "overlay uses typed properties and does not accept `@` utilities",
+        ));
+    }
+    if line.children.len() != 2
+        || line.children[0].text != "content"
+        || line.children[1].text != "layer"
+    {
+        return Err(error(
+            "E185",
+            line,
+            "overlay requires `content` then `layer` sections",
+        ));
+    }
+    for section in &line.children {
+        if section.children.len() != 1 {
+            return Err(error(
+                "E185",
+                section,
+                format!(
+                    "overlay `{}` requires exactly one child; wrap siblings in row, col, grid, or stack",
+                    section.text
+                ),
+            ));
+        }
+    }
+
+    let mut visible = None;
+    let mut dismiss = None;
+    let mut backdrop = "black/50".to_owned();
+    let mut padding = Expr::F64(24.0);
+    let mut align_x = FlexAlignment::Center;
+    let mut align_y = FlexAlignment::Center;
+    for part in &parts[1..] {
+        if let Some(value) = part.strip_prefix("when=") {
+            visible = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("dismiss=") {
+            dismiss = Some(parse_route(value, line)?);
+        } else if let Some(value) = part.strip_prefix("backdrop=") {
+            backdrop = value.to_owned();
+        } else if let Some(value) = part.strip_prefix("padding=") {
+            padding = parse_expr(strip_wrapping_parens(value), line)?;
+        } else if let Some(value) = part.strip_prefix("align-x=") {
+            align_x = parse_flex_alignment(value, line)?;
+        } else if let Some(value) = part.strip_prefix("align-y=") {
+            align_y = parse_flex_alignment(value, line)?;
+        } else {
+            return Err(error(
+                "E185",
+                line,
+                format!("unknown overlay property `{part}`"),
+            ));
+        }
+    }
+    let visible = visible.ok_or_else(|| error("E185", line, "overlay requires `when=`"))?;
+    Ok(ViewNode::Overlay {
+        options: OverlayOptions {
+            visible,
+            dismiss,
+            backdrop,
+            padding,
+            align_x,
+            align_y,
+        },
+        content: Box::new(parse_view(&line.children[0].children[0])?),
+        layer: Box::new(parse_view(&line.children[1].children[0])?),
         span: Span::line(line.number),
     })
 }

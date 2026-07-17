@@ -3,3 +3,4 @@ state
   draft = ""
   loading = false
   error = ""
+  about_open = false

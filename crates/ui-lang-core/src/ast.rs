@@ -516,6 +516,12 @@ pub enum ViewNode {
         content: Box<ViewNode>,
         span: Span,
     },
+    Overlay {
+        options: OverlayOptions,
+        content: Box<ViewNode>,
+        layer: Box<ViewNode>,
+        span: Span,
+    },
     Text {
         value: Expr,
         options: TextOptions,
@@ -1235,6 +1241,16 @@ pub struct ContainerOptions {
     pub align_x: Option<FlexAlignment>,
     pub align_y: Option<FlexAlignment>,
     pub clip: Option<Expr>,
+}
+
+#[derive(Clone, Debug)]
+pub struct OverlayOptions {
+    pub visible: Expr,
+    pub dismiss: Option<Route>,
+    pub backdrop: String,
+    pub padding: Expr,
+    pub align_x: FlexAlignment,
+    pub align_y: FlexAlignment,
 }
 
 #[derive(Clone, Debug, Default)]
