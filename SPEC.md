@@ -1,4 +1,4 @@
-# Ice Language Specification 0.59
+# Ice Language Specification 0.60
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.59 syntax.
+marked “planned” is a design constraint, not accepted 0.60 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.59.
+  block comments are not part of 0.60.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -496,8 +496,8 @@ tooltip_property
                | "gap=" expr | "padding=" expr | "delay=" expr | "snap=" expr
                | "style=" ("transparent" | "rounded" | "bordered" | "dark"
                  | "primary" | "secondary" | "success" | "warning" | "danger")
-               | ("background=" | "text=" | "border=" | "shadow=")
-                 name ("/" u8)?
+               | "background=" background_value
+               | ("text=" | "border=" | "shadow=") color_ref
                | ("border-width=" | "radius=" | "radius-tl="
                  | "radius-tr=" | "radius-br=" | "radius-bl="
                  | "shadow-x=" | "shadow-y=" | "shadow-blur=") expr
@@ -563,7 +563,7 @@ default/centered/fixed position, visibility, resizability, close/minimize
 buttons, decorations, transparency, blur, level, and close-request behavior.
 Sizes, text size, and scale factor must be positive; minimum size cannot exceed
 maximum size. Window icons and platform-specific settings are not part of
-0.59.
+0.60.
 
 Media fixed lengths, rotation, opacity, scale, and radius are `f64`; rotation
 is radians, opacity is `0.0..=1.0`, scale is positive, and sizes/radius are
@@ -644,8 +644,9 @@ border; border width and uniform/per-corner radii are non-negative f64 values.
 Literal reversed ranges are rejected before generation.
 
 `tooltip` styles start from transparent, rounded, bordered, dark, primary,
-secondary, success, warning, or danger iced container presets. Checked theme
-colors can override background, text, border, and shadow. Border width, shadow
+secondary, success, warning, or danger iced container presets. A checked solid
+or linear background plus theme colors can override the preset's background,
+text, border, and shadow. Border width, shadow
 blur, and uniform/per-corner radii are non-negative f64 values; shadow x/y may
 be negative. `pixel-snap=` controls the container style's pixel-grid snap and is
 separate from the tooltip overlay's viewport `snap=` behavior.
@@ -812,7 +813,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.59 message payloads.
+`Clone` for 0.60 message payloads.
 
 Three typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
@@ -1354,7 +1355,7 @@ weight, stretch, and style variant is accepted. At most one declaration may be
 the application default. `font=default` and `font=mono` remain built-ins;
 declared fonts also work on text, rich text and spans, input, editor, checkbox,
 and toggler. Font
-byte loading is not part of 0.59.
+byte loading is not part of 0.60.
 
 Widget operation tasks target checked static IDs in the app view:
 
@@ -1374,7 +1375,7 @@ snap/end; and absolute scroll-to/scroll-by. Effects have no route and
 non-negative `i64`; relative offsets are `f64` in `0.0..=1.0`; absolute
 offsets are unrestricted `f64`. Targets must be real static IDs in the app
 scope. Repeated/component scopes and the feature-gated selector API remain
-outside 0.59.
+outside 0.60.
 
 Persistent pane grids expose their native layout-state operations directly in
 handlers:
@@ -1421,7 +1422,7 @@ and constraints, resizability, maximize/minimize state, position and movement,
 all modes, decorations, user attention, focus, level, system menu, mouse
 passthrough, monitor size, and automatic tabbing. Positive sizes and bool
 arguments are checked before Rust generation. New-window IDs, open/oldest/latest,
-icons, raw handles, screenshots, and callbacks remain outside 0.59.
+icons, raw handles, screenshots, and callbacks remain outside 0.60.
 
 Every iced window event has a direct subscription form:
 
@@ -1574,7 +1575,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 0.59 does not claim that remapping.
+extern line; 0.60 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -1595,7 +1596,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 0.59 native backend is enough for CRUD/settings-style screens, selection,
+The 0.60 native backend is enough for CRUD/settings-style screens, selection,
 media, hover
 overlays, and common pointer events, not all of iced. It still lacks direct
 syntax for canvas, arbitrary custom overlays, multiple

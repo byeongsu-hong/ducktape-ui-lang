@@ -3334,7 +3334,7 @@ fn parse_tooltip(parts: &[String], styles: Vec<String>, line: &Line) -> Result<V
                 }
             });
         } else if let Some(value) = part.strip_prefix("background=") {
-            options.background = Some(value.to_owned());
+            options.background = Some(parse_background_value(value, line)?);
         } else if let Some(value) = part.strip_prefix("text=") {
             options.text_color = Some(value.to_owned());
         } else if let Some(value) = part.strip_prefix("border=") {

@@ -809,7 +809,7 @@ fn infer_view(
             if let Some(clip) = &options.clip {
                 require_type(&expr_type(clip, env, document, span)?, &Type::Bool, span)?;
             }
-            check_container_style_options(&options.style, env, document, span)?;
+            check_container_style_options(&options.style, env, document, span, "E184")?;
             check_styles(styles, document, span, StyleTarget::Container)?;
             infer_view(content, env, document, signatures, ids)?;
         }
@@ -874,7 +874,14 @@ fn infer_view(
                 }
             }
             if let Some(background) = &options.style.region_background {
-                check_background_value(background, env, document, span, "pane-grid background")?;
+                check_background_value(
+                    background,
+                    env,
+                    document,
+                    span,
+                    "E187",
+                    "pane-grid background",
+                )?;
             }
             for color in [
                 &options.style.region_border,
@@ -913,7 +920,7 @@ fn infer_view(
             }
             for pane in panes {
                 check_styles(&pane.styles, document, &pane.span, StyleTarget::PaneContent)?;
-                check_container_style_options(&pane.style, env, document, &pane.span)?;
+                check_container_style_options(&pane.style, env, document, &pane.span, "E187")?;
                 if let Some(title) = &pane.title {
                     for value in [
                         &title.padding.all,
@@ -935,7 +942,13 @@ fn infer_view(
                         require_literal_range(value, 0.0, None, "pane title padding", &title.span)?;
                     }
                     check_styles(&title.styles, document, &title.span, StyleTarget::PaneTitle)?;
-                    check_container_style_options(&title.style, env, document, &title.span)?;
+                    check_container_style_options(
+                        &title.style,
+                        env,
+                        document,
+                        &title.span,
+                        "E187",
+                    )?;
                 }
                 for node in pane.nodes() {
                     infer_view(node, env, document, signatures, ids)?;
@@ -2028,8 +2041,17 @@ fn infer_view(
                 &Type::Bool,
                 span,
             )?;
+            if let Some(background) = &options.background {
+                check_background_value(
+                    background,
+                    env,
+                    document,
+                    span,
+                    "E129",
+                    "tooltip background",
+                )?;
+            }
             for color in [
-                &options.background,
                 &options.text_color,
                 &options.border_color,
                 &options.shadow_color,
@@ -2420,13 +2442,14 @@ fn check_background_value(
     env: &HashMap<String, Type>,
     document: &Document,
     span: &Span,
+    code: &'static str,
     label: &str,
 ) -> Result<(), Error> {
     match background {
         BackgroundValue::Color(color) => {
             if !valid_theme_color(color, document) {
                 return Err(Error::new(
-                    "E187",
+                    code,
                     span,
                     format!("unknown {label} color `{color}`"),
                 ));
@@ -2437,7 +2460,7 @@ fn check_background_value(
             for stop in stops {
                 if !valid_theme_color(&stop.color, document) {
                     return Err(Error::new(
-                        "E187",
+                        code,
                         span,
                         format!("unknown {label} color `{}`", stop.color),
                     ));
@@ -2459,9 +2482,10 @@ fn check_container_style_options(
     env: &HashMap<String, Type>,
     document: &Document,
     span: &Span,
+    code: &'static str,
 ) -> Result<(), Error> {
     if let Some(background) = &style.background {
-        check_background_value(background, env, document, span, "surface")?;
+        check_background_value(background, env, document, span, code, "surface")?;
     }
     for (color, label) in [
         (&style.text_color, "surface text"),
@@ -2472,7 +2496,7 @@ fn check_container_style_options(
             && !valid_theme_color(color, document)
         {
             return Err(Error::new(
-                "E187",
+                code,
                 span,
                 format!("unknown {label} color `{color}`"),
             ));
@@ -5201,7 +5225,7 @@ theme
   danger #ff0000
 state
 view
-  tooltip position=bottom style=rounded background=background text=foreground border=primary/75 border-width=1.0 radius=5.0 radius-tl=2.0 radius-tr=3.0 radius-br=4.0 radius-bl=5.0 shadow=black/50 shadow-x=-1.0 shadow-y=2.0 shadow-blur=8.0 pixel-snap=true
+  tooltip position=bottom style=rounded background=linear(1.57, background@0.0, primary/25@1.0) text=foreground border=primary/75 border-width=1.0 radius=5.0 radius-tl=2.0 radius-tr=3.0 radius-br=4.0 radius-bl=5.0 shadow=black/50 shadow-x=-1.0 shadow-y=2.0 shadow-blur=8.0 pixel-snap=true
     text "Hover"
     text "Tip"
 "#;
@@ -5211,6 +5235,11 @@ view
         let error = analyze(&bad_color).unwrap_err();
         assert_eq!(error.code, "E129");
         assert!(error.message.contains("unknown tooltip color"));
+
+        let bad_background = source.replace("primary/25@1.0", "missing@1.0");
+        let error = analyze(&bad_background).unwrap_err();
+        assert_eq!(error.code, "E129");
+        assert!(error.message.contains("unknown tooltip background color"));
 
         let bad_blur = source.replace("shadow-blur=8.0", "shadow-blur=-1.0");
         let error = analyze(&bad_blur).unwrap_err();
