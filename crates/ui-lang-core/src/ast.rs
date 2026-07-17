@@ -266,6 +266,7 @@ pub enum ExternKind {
     Component,
     Shader,
     Task,
+    Stream,
     Subscription,
 }
 
@@ -556,6 +557,7 @@ pub enum WindowAttention {
 pub enum EffectKind {
     Future,
     Task,
+    Stream,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

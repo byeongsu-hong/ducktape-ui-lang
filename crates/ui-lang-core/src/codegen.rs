@@ -599,6 +599,12 @@ fn generate_extern_probes(out: &mut String, document: &Document) {
                 item.name, item.rust_path
             )
             .unwrap(),
+            ExternKind::Stream => writeln!(
+                out,
+                "#[allow(dead_code)] fn __ui_lang_check_stream_{}({params}) {{ let _: ::iced::Task<{output}> = ::iced::Task::run({}({args}), |value| value); }}",
+                item.name, item.rust_path
+            )
+            .unwrap(),
             ExternKind::Subscription => writeln!(
                 out,
                 "#[allow(dead_code)] fn __ui_lang_check_subscription_{}({params}) {{ let _: ::iced::Subscription<{output}> = {}({args}); }}",
@@ -1190,6 +1196,7 @@ fn generate_statements(
                 let extern_kind = match kind {
                     EffectKind::Future => ExternKind::Future,
                     EffectKind::Task => ExternKind::Task,
+                    EffectKind::Stream => ExternKind::Stream,
                 };
                 let action = document
                     .functions
@@ -1209,6 +1216,7 @@ fn generate_statements(
                     match kind {
                         EffectKind::Future => writeln!(out, "{}::iced::Task::perform({}({args}), |result| match result {{ ::std::result::Result::Ok(value) => {success_message}, ::std::result::Result::Err(error) => {error_message} }}){}", if return_task { "return " } else { "" }, action.rust_path, if return_task { ";" } else { "" }).unwrap(),
                         EffectKind::Task => writeln!(out, "{}{}({args}).map(|result| match result {{ ::std::result::Result::Ok(value) => {success_message}, ::std::result::Result::Err(error) => {error_message} }}){}", if return_task { "return " } else { "" }, action.rust_path, if return_task { ";" } else { "" }).unwrap(),
+                        EffectKind::Stream => writeln!(out, "{}::iced::Task::run({}({args}), |result| match result {{ ::std::result::Result::Ok(value) => {success_message}, ::std::result::Result::Err(error) => {error_message} }}){}", if return_task { "return " } else { "" }, action.rust_path, if return_task { ";" } else { "" }).unwrap(),
                     }
                 } else {
                     match kind {
@@ -1223,6 +1231,14 @@ fn generate_statements(
                         EffectKind::Task => writeln!(
                             out,
                             "{}{}({args}).map(|value| {success_message}){}",
+                            if return_task { "return " } else { "" },
+                            action.rust_path,
+                            if return_task { ";" } else { "" }
+                        )
+                        .unwrap(),
+                        EffectKind::Stream => writeln!(
+                            out,
+                            "{}::iced::Task::run({}({args}), |value| {success_message}){}",
                             if return_task { "return " } else { "" },
                             action.rust_path,
                             if return_task { ";" } else { "" }
@@ -8519,6 +8535,36 @@ view
         assert!(generated.contains("Some(__handle.abort_on_drop())"));
         assert!(generated.contains("__handle.abort()"));
         assert!(generated.contains("is_some_and(::iced::task::Handle::is_aborted)"));
+    }
+
+    #[test]
+    fn lowers_typed_task_streams() {
+        let source = r#"app Streams
+extern crate::backend
+  AppError(message:str)
+  stream numbers(limit:i64) -> i64
+  stream fallible() -> str ! AppError
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+on start
+  parallel
+    stream numbers(3) -> number _
+    stream fallible() -> text _ | failed _
+on number(value)
+on text(value)
+on failed(error)
+view
+  text "Streams"
+"#;
+        let generated = compile(source, "streams.ice").unwrap();
+        assert!(generated.contains("fn __ui_lang_check_stream_numbers"));
+        assert!(generated.contains("Task::run(crate::backend::numbers(arg0), |value| value)"));
+        assert!(generated.contains("Task::run(crate::backend::numbers(3), |value|"));
+        assert!(generated.contains("Task::run(crate::backend::fallible(), |result| match result"));
+        assert!(generated.contains("Result::Err(error) => __StreamsMessage::Failed(error)"));
     }
 
     #[test]

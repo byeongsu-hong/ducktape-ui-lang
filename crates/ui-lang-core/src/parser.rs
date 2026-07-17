@@ -49,6 +49,8 @@ pub fn parse(source: &str) -> Result<Document, Error> {
                     functions.push(parse_extern_fn(source, item, &path, ExternKind::Shader)?);
                 } else if let Some(source) = item.text.strip_prefix("task ") {
                     functions.push(parse_extern_fn(source, item, &path, ExternKind::Task)?);
+                } else if let Some(source) = item.text.strip_prefix("stream ") {
+                    functions.push(parse_extern_fn(source, item, &path, ExternKind::Stream)?);
                 } else if let Some(source) = item.text.strip_prefix("subscription ") {
                     functions.push(parse_extern_fn(
                         source,
@@ -1005,13 +1007,18 @@ fn parse_statement(line: &Line) -> Result<Statement, Error> {
             line.text
                 .strip_prefix("task ")
                 .map(|source| (EffectKind::Task, source))
+        })
+        .or_else(|| {
+            line.text
+                .strip_prefix("stream ")
+                .map(|source| (EffectKind::Stream, source))
         });
     if let Some((kind, run)) = effect {
         let Some((call, routes)) = split_top_marker(run, "->") else {
-            let keyword = if kind == EffectKind::Future {
-                "run"
-            } else {
-                "task"
+            let keyword = match kind {
+                EffectKind::Future => "run",
+                EffectKind::Task => "task",
+                EffectKind::Stream => "stream",
             };
             return Err(error(
                 "E050",
@@ -7684,6 +7691,48 @@ view
         .unwrap_err();
         assert_eq!(error.code, "E050");
         assert!(error.message.contains("exactly one"));
+    }
+
+    #[test]
+    fn parses_typed_task_streams() {
+        let source = r#"app Streams
+extern crate::backend
+  AppError(message:str)
+  stream numbers(limit:i64) -> i64
+  stream fallible() -> str ! AppError
+theme
+  background #000000
+on start
+  parallel
+    stream numbers(3) -> number _
+    stream fallible() -> text _ | failed _
+on number(value)
+on text(value)
+on failed(error)
+view
+  text "Streams"
+"#;
+        let document = parse(source).unwrap();
+        assert_eq!(document.functions[0].kind, ExternKind::Stream);
+        assert_eq!(
+            document.functions[1].error,
+            Some(Type::Named("AppError".into()))
+        );
+        let Statement::TaskGroup { statements, .. } = &document.handlers[0].statements[0] else {
+            panic!("expected task group");
+        };
+        assert!(statements.iter().all(|statement| matches!(
+            statement,
+            Statement::Run {
+                kind: EffectKind::Stream,
+                ..
+            }
+        )));
+
+        let error = parse(&source.replace("stream numbers(3) -> number _", "stream numbers(3)"))
+            .unwrap_err();
+        assert_eq!(error.code, "E050");
+        assert!(error.message.contains("stream requires"));
     }
 
     #[test]

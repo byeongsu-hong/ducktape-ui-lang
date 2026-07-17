@@ -4323,6 +4323,21 @@ fn infer_runs(
             span,
         } = statement
         {
+            if *kind == EffectKind::Stream
+                && std::iter::once(success).chain(error.iter()).any(|route| {
+                    route.args.len() > 1
+                        || route
+                            .args
+                            .iter()
+                            .any(|arg| !matches!(arg, RouteArg::Payload))
+                })
+            {
+                return Err(Error::new(
+                    "E127",
+                    span,
+                    "stream routes accept at most one `_`; read other state in the handler",
+                ));
+            }
             if let Some(output) = builtin_task_output(*kind, function, args, span)? {
                 infer_route(success, Some(output), &unknown_env, document, signatures)?;
                 if error.is_some() {
@@ -4505,10 +4520,15 @@ fn check_handler(
                 ..
             } => {
                 if index + 1 != handler.statements.len() {
+                    let effect = match kind {
+                        EffectKind::Future => "run",
+                        EffectKind::Task => "task",
+                        EffectKind::Stream => "stream",
+                    };
                     return Err(Error::new(
                         "E141",
                         span,
-                        "run must be the final statement in a handler",
+                        format!("{effect} must be the final statement in a handler"),
                     ));
                 }
                 if builtin_task_output(*kind, function, args, span)?.is_some() {
@@ -4911,6 +4931,7 @@ impl From<EffectKind> for ExternKind {
         match value {
             EffectKind::Future => Self::Future,
             EffectKind::Task => Self::Task,
+            EffectKind::Stream => Self::Stream,
         }
     }
 }
@@ -4931,6 +4952,7 @@ fn extern_function<'a>(
                 ExternKind::Component => "component",
                 ExternKind::Shader => "shader",
                 ExternKind::Task => "task",
+                ExternKind::Stream => "stream",
                 ExternKind::Subscription => "subscription",
             };
             Error::new("E130", span, format!("unknown extern {label} `{name}`"))
@@ -5854,6 +5876,66 @@ view
         let error = analyze(&source.replace("aborted(request)", "request == none")).unwrap_err();
         assert_eq!(error.code, "E153");
         assert!(error.message.contains("opaque"));
+    }
+
+    #[test]
+    fn checks_typed_task_streams() {
+        let source = r#"app Streams
+extern crate::backend
+  AppError(message:str)
+  stream numbers(limit:i64) -> i64
+  stream fallible() -> str ! AppError
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  count = 0
+on start
+  parallel
+    stream numbers(3) -> number _
+    stream fallible() -> text _ | failed _
+on number(value)
+  count = value
+on text(value)
+on failed(error)
+view
+  text count
+"#;
+        let document = analyze(source).unwrap();
+        assert_eq!(document.handlers[1].params[0].ty.display(), "i64");
+        assert_eq!(document.handlers[2].params[0].ty.display(), "str");
+        assert_eq!(document.handlers[3].params[0].ty.display(), "AppError");
+
+        let error = analyze(&source.replace("numbers(3)", "numbers(true)")).unwrap_err();
+        assert_eq!(error.code, "E101");
+
+        let error = analyze(&source.replace(
+            "stream fallible() -> text _ | failed _",
+            "stream fallible() -> text _",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E131");
+
+        let error = analyze(&source.replace(
+            "stream numbers(3) -> number _",
+            "stream numbers(3) -> number count",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E127");
+        assert!(error.message.contains("at most one `_`"));
+
+        let error = analyze(&source.replace(
+            "stream numbers(3) -> number _",
+            "stream numbers(3) -> number _ _",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E127");
+
+        let error = analyze(&source.replace("stream numbers(3)", "stream missing(3)")).unwrap_err();
+        assert_eq!(error.code, "E130");
+        assert!(error.message.contains("extern stream"));
     }
 
     #[test]

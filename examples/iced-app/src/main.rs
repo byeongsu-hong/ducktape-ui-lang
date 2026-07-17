@@ -169,6 +169,22 @@ mod backend {
     }
 
     #[cfg(test)]
+    pub fn count_stream(limit: i64) -> impl iced::futures::Stream<Item = i64> + Send + 'static {
+        iced::futures::stream::iter(0..limit.max(0))
+    }
+
+    #[cfg(test)]
+    pub fn fallible_stream()
+    -> impl iced::futures::Stream<Item = Result<i64, AppError>> + Send + 'static {
+        iced::futures::stream::iter([
+            Ok(1),
+            Err(AppError {
+                message: "stream failed".into(),
+            }),
+        ])
+    }
+
+    #[cfg(test)]
     pub fn app_events() -> iced::Subscription<bool> {
         iced::event::listen_with(|event, _status, _window| focus_event(event))
     }
@@ -253,6 +269,17 @@ mod task_cancel {
         let _ = app.__update(__TaskCancelMessage::Cancel);
         assert!(app.request.as_ref().unwrap().is_aborted());
         drop(task);
+    }
+}
+
+#[cfg(test)]
+mod task_stream {
+    ui_lang::include_app!("src/ui/task_stream.ice");
+
+    #[test]
+    fn constructs_both_native_stream_units() {
+        let (mut app, _) = TaskStream::__boot();
+        assert_eq!(app.__update(__TaskStreamMessage::Start).units(), 2);
     }
 }
 

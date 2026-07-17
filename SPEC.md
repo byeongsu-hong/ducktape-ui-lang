@@ -1,4 +1,4 @@
-# Ice Language Specification 0.85
+# Ice Language Specification 0.86
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.85 syntax.
+marked “planned” is a design constraint, not accepted 0.86 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.85.
+  block comments are not part of 0.86.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -144,7 +144,8 @@ window_setting = ("size" | "min-size" | "max-size") number number
 
 extern_decl    = "extern" rust_path INDENT extern_item+
 extern_item    = struct_sig | function_sig | extern_component_sig
-               | extern_shader_sig | extern_task_sig | extern_subscription_sig
+               | extern_shader_sig | extern_task_sig | extern_stream_sig
+               | extern_subscription_sig
 struct_sig     = PascalName "(" field_list? ")"
 field_list     = field ("," field)*
 field          = name ":" type
@@ -157,6 +158,7 @@ extern_component_sig
 extern_shader_sig
                = "shader" name "(" field_list? ")" "->" type
 extern_task_sig = "task" name "(" field_list? ")" "->" type ("!" type)?
+extern_stream_sig = "stream" name "(" field_list? ")" "->" type ("!" type)?
 extern_subscription_sig
                = "subscription" name "(" field_list? ")" "->" type
 
@@ -194,6 +196,7 @@ statement      = name "=" expr
                | "abort" name
                | "run" call "->" route ("|" route)?
                | "task" call "->" route ("|" route)?
+               | "stream" call "->" route ("|" route)?
                | "task system" ("info" | "theme") "->" route
                | "task clipboard" ("read" | "read-primary") "->" route
                | "task clipboard" ("write" | "write-primary") expr
@@ -206,6 +209,7 @@ abortable_task = "abortable" name ("abort-on-drop")? INDENT task_member
 task_member    = task_group | abortable_task
                | "run" call "->" route ("|" route)?
                | "task" call "->" route ("|" route)?
+               | "stream" call "->" route ("|" route)?
                | native_task
 native_task    = "task system" ("info" | "theme") "->" route
                | "task clipboard" ("read" | "read-primary") "->" route
@@ -790,7 +794,7 @@ default/centered/fixed position, visibility, resizability, close/minimize
 buttons, decorations, transparency, blur, level, and close-request behavior.
 Sizes, text size, and scale factor must be positive; minimum size cannot exceed
 maximum size. Window icons and platform-specific settings are not part of
-0.85.
+0.86.
 
 Media fixed lengths, rotation, opacity, scale, and radius are `f64`; rotation
 is radians and defaults to floating layout behavior, while `solid(angle)` makes
@@ -1207,9 +1211,9 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.85 message payloads.
+`Clone` for 0.86 message payloads.
 
-Four typed iced adapters expose framework capabilities without embedding Rust
+Five typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
 
 ```ice
@@ -1217,6 +1221,7 @@ extern crate::backend
   component native_help(active:bool) -> bool
   shader status_shader(speed:f64) -> bool
   task copy_text(text:str) -> unit
+  stream task_steps(count:i64) -> i64
   subscription app_events() -> bool
 ```
 
@@ -1226,6 +1231,7 @@ Their Rust signatures are:
 fn native_help(active: bool) -> iced::Element<'static, bool>;
 fn status_shader(speed: f64) -> impl iced::widget::shader::Program<bool>;
 fn copy_text(text: String) -> iced::Task<()>;
+fn task_steps(count: i64) -> impl iced::futures::Stream<Item = i64> + Send + 'static;
 fn app_events() -> iced::Subscription<bool>;
 ```
 
@@ -1239,8 +1245,10 @@ checked route:
 shader status_shader(1.0) width=fill height=32.0 -> shader_hovered _
 ```
 
-A task returns `Task<Event>` or `Task<Result<Event, Error>>`. A subscription
-returns `Subscription<Event>`. Generated probes type-check every declaration
+A task returns `Task<Event>` or `Task<Result<Event, Error>>`. A stream returns
+any static `Stream<Item = Event>` or `Stream<Item = Result<Event, Error>>` that
+meets iced's platform send bound. A subscription returns `Subscription<Event>`.
+Generated probes type-check every declaration
 against the actual Rust item. Extern component, shader, and subscription
 declarations are infallible; errors are ordinary event payloads when an adapter
 needs them. Shader programs retain native control of `State`, `Primitive`, GPU
@@ -1385,6 +1393,28 @@ cancels unfinished work when the last clone drops. `abort handle` calls
 `Handle::abort` when present and intentionally keeps the handle so
 `aborted(handle)` can report its status. A missing handle reports `false`.
 Task handles are opaque and cannot be compared or used as lazy keys.
+
+Native task streams route every yielded item through `Task::run`:
+
+```ice
+extern crate::backend
+  AppError(message:str)
+  stream progress(total:i64) -> i64
+  stream checked_progress() -> i64 ! AppError
+
+on start
+  parallel
+    stream progress(100) -> progressed _
+    stream checked_progress() -> progressed _ | failed _
+```
+
+An infallible stream item becomes the success-route payload. A fallible stream
+must yield `Result<T, E>` items and requires both success and error routes.
+Stream statements are task-producing, so they work inside `parallel`,
+`sequential`, and `abortable` blocks. Because the mapping closure runs once per
+item, stream routes may pass one `_` or discard the item with a parameterless
+route; they cannot capture other expressions. Read current UI state inside the
+destination handler.
 
 Examples of payload flow:
 
@@ -1975,7 +2005,7 @@ snap/end; and absolute scroll-to/scroll-by. Effects have no route and
 non-negative `i64`; relative offsets are `f64` in `0.0..=1.0`; absolute
 offsets are unrestricted `f64`. Targets must be real static IDs in the app
 scope. Repeated/component scopes and the feature-gated selector API remain
-outside 0.85.
+outside 0.86.
 
 Persistent pane grids expose their native layout-state operations directly in
 handlers:
@@ -2022,7 +2052,7 @@ and constraints, resizability, maximize/minimize state, position and movement,
 all modes, decorations, user attention, focus, level, system menu, mouse
 passthrough, monitor size, and automatic tabbing. Positive sizes and bool
 arguments are checked before Rust generation. New-window IDs, open/oldest/latest,
-icons, raw handles, screenshots, and callbacks remain outside 0.85.
+icons, raw handles, screenshots, and callbacks remain outside 0.86.
 
 Every iced window event has a direct subscription form:
 
@@ -2175,7 +2205,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 0.85 does not claim that remapping.
+extern line; 0.86 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -2196,7 +2226,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 0.85 native backend is enough for CRUD/settings-style screens, selection,
+The 0.86 native backend is enough for CRUD/settings-style screens, selection,
 media, hover overlays, declarative canvas geometry, and common pointer events,
 not all of iced. It still lacks direct syntax for arbitrary custom overlays,
 multiple windows, and custom widgets. [`COVERAGE.md`](COVERAGE.md) is
