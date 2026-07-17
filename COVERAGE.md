@@ -15,7 +15,7 @@ container API, so container remains partial.
 
 ## Typed system reachability
 
-Ice 0.33 has three checked Rust boundaries:
+Ice 0.34 has three checked Rust boundaries:
 
 | Boundary | Rust ABI | Covers |
 | --- | --- | --- |
@@ -75,12 +75,12 @@ public behavior has direct documented Ice syntax and tests.
 | --- | --- | --- |
 | application settings | partial | generated title/theme/run; window, fonts, antialiasing, executor, scale and presets missing |
 | `Theme` and styles | partial | checked color tokens and a Tailwind-like subset; native theme/style catalogs and custom closures missing |
-| `Task` | partial | async externs and typed arbitrary iced `Task` adapters; direct batch, chain, stream, cancellation and progress syntax missing |
-| `Subscription` | partial | typed arbitrary iced `Subscription` adapters, batching, and direct keyboard press/release/modifier sources; other direct sources and combinators missing |
+| `Task` | partial | async externs, typed arbitrary iced `Task` adapters, and direct system information/theme queries; direct batch, chain, stream, cancellation and progress syntax missing |
+| `Subscription` | partial | typed arbitrary iced `Subscription` adapters, batching, direct keyboard sources and system theme changes; other direct sources and combinators missing |
 | widget operations | missing | focus, cursor selection, scroll and selector operations |
 | clipboard | partial | typed Task adapter with write exercised; direct read/write syntax and `Option` payload missing |
 | fonts | missing | font loading and discovery |
-| system | missing | system information query |
+| system | native | current theme task, theme-change subscription, and every information field with optionality preserved; information requires iced's `sysinfo` feature |
 | window | missing | settings, open/close, multiple windows, resize/move/mode/focus/screenshot/monitor operations |
 | event routing | partial | raw event subscription adapter plus native structured keyboard payloads; general native event/status types missing |
 | keyboard | partial | direct subscriptions cover press, release and modifier-change events with logical/modified/physical key, location, text, repeat and every modifier query; typed key enums, constructors, matching and latin translation remain |

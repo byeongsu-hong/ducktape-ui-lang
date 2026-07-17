@@ -26,6 +26,7 @@ pub enum Type {
     KeyPress,
     KeyRelease,
     KeyModifiers,
+    SystemInfo,
     Named(String),
     Unit,
     Unknown,
@@ -48,6 +49,7 @@ impl Type {
             Self::KeyPress => "__IceKeyPress".into(),
             Self::KeyRelease => "__IceKeyRelease".into(),
             Self::KeyModifiers => "__IceKeyModifiers".into(),
+            Self::SystemInfo => "__IceSystemInfo".into(),
             Self::Named(name) => structs
                 .iter()
                 .find(|item| item.name == *name)
@@ -71,6 +73,7 @@ impl Type {
             Self::KeyPress => "key-press".into(),
             Self::KeyRelease => "key-release".into(),
             Self::KeyModifiers => "key-modifiers".into(),
+            Self::SystemInfo => "system-info".into(),
             Self::Named(name) => name.clone(),
             Self::Unit => "unit".into(),
             Self::Unknown => "unknown".into(),
@@ -160,6 +163,7 @@ pub struct Subscription {
 pub enum SubscriptionSource {
     Extern { function: String, args: Vec<Expr> },
     Keyboard(KeyboardEvent),
+    SystemTheme,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

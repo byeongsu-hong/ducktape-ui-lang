@@ -1612,6 +1612,7 @@ fn lazy_hashable(ty: &Type) -> bool {
         | Type::KeyPress
         | Type::KeyRelease
         | Type::KeyModifiers
+        | Type::SystemInfo
         | Type::Unit
         | Type::Unknown => false,
     }
@@ -1925,6 +1926,7 @@ fn infer_subscriptions(
             SubscriptionSource::Keyboard(KeyboardEvent::Press) => Type::KeyPress,
             SubscriptionSource::Keyboard(KeyboardEvent::Release) => Type::KeyRelease,
             SubscriptionSource::Keyboard(KeyboardEvent::Modifiers) => Type::KeyModifiers,
+            SubscriptionSource::SystemTheme => Type::Str,
         };
         if subscription
             .route
@@ -1963,12 +1965,23 @@ fn infer_runs(
         if let Statement::Run {
             kind,
             function,
+            args,
             success,
             error,
             span,
-            ..
         } = statement
         {
+            if let Some(output) = builtin_task_output(*kind, function, args, span)? {
+                infer_route(success, Some(output), &unknown_env, document, signatures)?;
+                if error.is_some() {
+                    return Err(Error::new(
+                        "E131",
+                        span,
+                        "system tasks are infallible and cannot have an error route",
+                    ));
+                }
+                continue;
+            }
             let action = extern_function(document, function, (*kind).into(), span)?;
             infer_route(
                 success,
@@ -2147,6 +2160,9 @@ fn check_handler(
                         "run must be the final statement in a handler",
                     ));
                 }
+                if builtin_task_output(*kind, function, args, span)?.is_some() {
+                    continue;
+                }
                 let action = extern_function(document, function, (*kind).into(), span)?;
                 check_call_args(action, args, &env, document, span)?;
             }
@@ -2209,6 +2225,23 @@ fn check_call_args(
         require_type(&actual, expected, span)?;
     }
     Ok(())
+}
+
+fn builtin_task_output(
+    kind: EffectKind,
+    function: &str,
+    args: &[Expr],
+    span: &Span,
+) -> Result<Option<Type>, Error> {
+    let output = match (kind, function) {
+        (EffectKind::Task, "__ice_system_info") => Some(Type::SystemInfo),
+        (EffectKind::Task, "__ice_system_theme") => Some(Type::Str),
+        _ => None,
+    };
+    if output.is_some() && !args.is_empty() {
+        return Err(Error::new("E142", span, "system tasks take no arguments"));
+    }
+    Ok(output)
 }
 
 pub(crate) fn expr_type(
@@ -2395,6 +2428,15 @@ fn field_type(ty: &Type, field: &str, document: &Document, span: &Span) -> Resul
             "shift" | "control" | "alt" | "logo" | "command" | "jump" | "macos_command" => {
                 Some(Type::Bool)
             }
+            _ => None,
+        },
+        Type::SystemInfo => match field {
+            "system_name" | "system_kernel" | "system_version" | "system_short_version" => {
+                Some(Type::Option(Box::new(Type::Str)))
+            }
+            "cpu_brand" | "graphics_backend" | "graphics_adapter" => Some(Type::Str),
+            "cpu_cores" | "memory_used" => Some(Type::Option(Box::new(Type::I64))),
+            "memory_total" => Some(Type::I64),
             _ => None,
         },
         _ => None,
@@ -3732,6 +3774,50 @@ view
         let error = analyze(&source.replace("event.physical_key", "event.repeat")).unwrap_err();
         assert_eq!(error.code, "E151");
         assert!(error.message.contains("key-release"));
+    }
+
+    #[test]
+    fn checks_native_system_tasks_and_theme_subscription() {
+        let source = r#"app Diagnostics
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  cpu = ""
+  memory = 0
+  used:i64? = none
+  mode = "none"
+on inspect
+  task system info -> inspected _
+on inspected(info)
+  cpu = info.cpu_brand
+  memory = info.memory_total
+  used = info.memory_used
+on read_theme
+  task system theme -> theme_changed _
+on theme_changed(next)
+  mode = next
+subscribe
+  system theme -> theme_changed _
+view
+  text cpu
+"#;
+        let document = analyze(source).unwrap();
+        assert_eq!(document.handlers[1].params[0].ty.display(), "system-info");
+        assert_eq!(document.handlers[3].params[0].ty.display(), "str");
+
+        let error = analyze(&source.replace("info.cpu_brand", "info.unknown")).unwrap_err();
+        assert_eq!(error.code, "E151");
+        assert!(error.message.contains("system-info"));
+
+        let error = analyze(&source.replace(
+            "task system theme -> theme_changed _",
+            "task system theme -> theme_changed _ | theme_changed _",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E131");
     }
 
     #[test]
