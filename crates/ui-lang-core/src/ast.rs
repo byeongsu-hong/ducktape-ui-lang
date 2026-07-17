@@ -23,6 +23,9 @@ pub enum Type {
     Combo(Box<Type>),
     Markdown,
     Editor,
+    KeyPress,
+    KeyRelease,
+    KeyModifiers,
     Named(String),
     Unit,
     Unknown,
@@ -42,6 +45,9 @@ impl Type {
             }
             Self::Markdown => "::iced::widget::markdown::Content".into(),
             Self::Editor => "::iced::widget::text_editor::Content".into(),
+            Self::KeyPress => "__IceKeyPress".into(),
+            Self::KeyRelease => "__IceKeyRelease".into(),
+            Self::KeyModifiers => "__IceKeyModifiers".into(),
             Self::Named(name) => structs
                 .iter()
                 .find(|item| item.name == *name)
@@ -62,6 +68,9 @@ impl Type {
             Self::Combo(inner) => format!("combo[{}]", inner.display()),
             Self::Markdown => "markdown".into(),
             Self::Editor => "editor".into(),
+            Self::KeyPress => "key-press".into(),
+            Self::KeyRelease => "key-release".into(),
+            Self::KeyModifiers => "key-modifiers".into(),
             Self::Named(name) => name.clone(),
             Self::Unit => "unit".into(),
             Self::Unknown => "unknown".into(),
@@ -142,10 +151,22 @@ pub enum ExternKind {
 
 #[derive(Clone, Debug)]
 pub struct Subscription {
-    pub function: String,
-    pub args: Vec<Expr>,
+    pub source: SubscriptionSource,
     pub route: Route,
     pub span: Span,
+}
+
+#[derive(Clone, Debug)]
+pub enum SubscriptionSource {
+    Extern { function: String, args: Vec<Expr> },
+    Keyboard(KeyboardEvent),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KeyboardEvent {
+    Press,
+    Release,
+    Modifiers,
 }
 
 #[derive(Clone, Debug)]
