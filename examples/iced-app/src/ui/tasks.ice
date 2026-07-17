@@ -45,11 +45,11 @@ view
 
         pane-grid #workspace split=vertical ratio=0.7 width=fill height=fill spacing=8.0 min-size=120.0 resize=8.0 drag click=pane_clicked(_)
           style
-            hovered-region background=primary/25 border=primary border-width=2.0 radius=8.0
+            hovered-region background=linear(0.785, primary/10@0.0, primary/40@1.0) border=primary border-width=2.0 radius=8.0
             hovered-split color=primary width=3.0
             picked-split color=foreground width=3.0
-          pane tasks @bg-surface border border-border rounded-lg
-            title padding=12.0 always-controls @bg-background border border-border
+          pane tasks background=linear(1.57, surface@0.0, background@1.0) shadow=black/50 shadow-y=2.0 shadow-blur=8.0 pixel-snap=true @bg-surface border border-border rounded-lg
+            title padding=12.0 always-controls background=linear(1.57, background@0.0, surface@1.0) border=border border-width=1.0 radius-tl=8.0 radius-tr=8.0 shadow=black/25 shadow-y=1.0 shadow-blur=3.0 pixel-snap=true @bg-background border border-border
               text "Task list" @text-lg font-bold text-foreground
             controls
               button "Inspect" -> inspect_adjacent

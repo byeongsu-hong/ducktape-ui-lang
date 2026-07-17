@@ -1679,8 +1679,92 @@ fn parse_pane_ratio(value: &str, line: &Line) -> Result<f32, Error> {
     Ok(ratio)
 }
 
+fn parse_background_value(source: &str, line: &Line) -> Result<BackgroundValue, Error> {
+    let Some(inner) = source
+        .strip_prefix("linear(")
+        .and_then(|value| value.strip_suffix(')'))
+    else {
+        if source.starts_with("linear(") {
+            return Err(error("E189", line, "linear background is missing `)`"));
+        }
+        return Ok(BackgroundValue::Color(source.to_owned()));
+    };
+    let parts = split_top(inner, ',');
+    let angle = parse_expr(
+        parts
+            .first()
+            .copied()
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| error("E189", line, "linear background requires an angle"))?,
+        line,
+    )?;
+    if parts.len() > 9 {
+        return Err(error(
+            "E189",
+            line,
+            "linear background accepts at most 8 color stops",
+        ));
+    }
+    let stops = parts[1..]
+        .iter()
+        .map(|stop| {
+            let (color, offset) = split_top_once(stop, '@')
+                .ok_or_else(|| error("E189", line, "linear color stops use `color@offset`"))?;
+            if color.is_empty() || offset.is_empty() {
+                return Err(error("E189", line, "linear color stops use `color@offset`"));
+            }
+            Ok(GradientStop {
+                color: color.to_owned(),
+                offset: parse_expr(offset, line)?,
+            })
+        })
+        .collect::<Result<_, Error>>()?;
+    Ok(BackgroundValue::Linear { angle, stops })
+}
+
+fn parse_container_style_option(
+    part: &str,
+    style: &mut ContainerStyleOptions,
+    line: &Line,
+) -> Result<bool, Error> {
+    let parse = |value: &str| parse_expr(strip_wrapping_parens(value), line);
+    if let Some(value) = part.strip_prefix("background=") {
+        style.background = Some(parse_background_value(value, line)?);
+    } else if let Some(value) = part.strip_prefix("text=") {
+        style.text_color = Some(value.to_owned());
+    } else if let Some(value) = part.strip_prefix("border=") {
+        style.border_color = Some(value.to_owned());
+    } else if let Some(value) = part.strip_prefix("border-width=") {
+        style.border_width = Some(parse(value)?);
+    } else if let Some(value) = part.strip_prefix("radius=") {
+        style.radius = Some(parse(value)?);
+    } else if let Some(value) = part.strip_prefix("radius-tl=") {
+        style.radius_top_left = Some(parse(value)?);
+    } else if let Some(value) = part.strip_prefix("radius-tr=") {
+        style.radius_top_right = Some(parse(value)?);
+    } else if let Some(value) = part.strip_prefix("radius-br=") {
+        style.radius_bottom_right = Some(parse(value)?);
+    } else if let Some(value) = part.strip_prefix("radius-bl=") {
+        style.radius_bottom_left = Some(parse(value)?);
+    } else if let Some(value) = part.strip_prefix("shadow=") {
+        style.shadow_color = Some(value.to_owned());
+    } else if let Some(value) = part.strip_prefix("shadow-x=") {
+        style.shadow_x = Some(parse(value)?);
+    } else if let Some(value) = part.strip_prefix("shadow-y=") {
+        style.shadow_y = Some(parse(value)?);
+    } else if let Some(value) = part.strip_prefix("shadow-blur=") {
+        style.shadow_blur = Some(parse(value)?);
+    } else if let Some(value) = part.strip_prefix("pixel-snap=") {
+        style.pixel_snap = Some(parse(value)?);
+    } else {
+        return Ok(false);
+    }
+    Ok(true)
+}
+
 fn parse_pane_view(
     name: &str,
+    style_parts: &[String],
     styles: Vec<String>,
     line: &Line,
     names: &mut std::collections::HashSet<String>,
@@ -1689,6 +1773,16 @@ fn parse_pane_view(
     let name = identifier(name, line)?;
     if !names.insert(name.clone()) {
         return Err(error("E187", line, format!("duplicate pane `{name}`")));
+    }
+    let mut style = ContainerStyleOptions::default();
+    for part in style_parts {
+        if !parse_container_style_option(part, &mut style, line)? {
+            return Err(error(
+                "E187",
+                line,
+                format!("unknown pane style property `{part}`"),
+            ));
+        }
     }
     let structured = line.children.iter().any(|child| {
         let (core, _) = split_style_utilities(&child.text);
@@ -1716,6 +1810,7 @@ fn parse_pane_view(
         content,
         title,
         styles,
+        style,
         span: Span::line(line.number),
     });
     Ok(name)
@@ -1824,6 +1919,7 @@ fn parse_pane_title(
 ) -> Result<PaneTitle, Error> {
     let mut padding = PaddingOptions::default();
     let mut always_show_controls = false;
+    let mut style = ContainerStyleOptions::default();
     for part in parts {
         let parse = |value: &str| parse_expr(strip_wrapping_parens(value), line);
         if let Some(value) = part.strip_prefix("padding=") {
@@ -1842,6 +1938,7 @@ fn parse_pane_title(
             padding.left = Some(parse(value)?);
         } else if part == "always-controls" {
             always_show_controls = true;
+        } else if parse_container_style_option(part, &mut style, line)? {
         } else {
             return Err(error(
                 "E187",
@@ -1857,6 +1954,7 @@ fn parse_pane_title(
         padding,
         always_show_controls,
         styles,
+        style,
         span: Span::line(line.number),
     })
 }
@@ -1869,8 +1967,13 @@ fn parse_pane_configuration(
     let (core, styles) = split_style_utilities(&line.text);
     let parts = split_words(core);
     match parts.first().map(String::as_str) {
-        Some("pane") if parts.len() == 2 => Ok(PaneConfiguration::Pane(parse_pane_view(
-            &parts[1], styles, line, names, panes,
+        Some("pane") if parts.len() >= 2 => Ok(PaneConfiguration::Pane(parse_pane_view(
+            &parts[1],
+            &parts[2..],
+            styles,
+            line,
+            names,
+            panes,
         )?)),
         Some("split") if (2..=3).contains(&parts.len()) => {
             if !styles.is_empty() {
@@ -1924,14 +2027,14 @@ fn parse_closed_pane(
 ) -> Result<(), Error> {
     let (core, styles) = split_style_utilities(&line.text);
     let parts = split_words(core);
-    if parts.len() != 3 || parts[0] != "pane" || parts[2] != "closed" {
+    if parts.len() < 3 || parts[0] != "pane" || parts[2] != "closed" {
         return Err(error(
             "E187",
             line,
             "extra pane templates use `pane name closed`",
         ));
     }
-    parse_pane_view(&parts[1], styles, line, names, panes)?;
+    parse_pane_view(&parts[1], &parts[3..], styles, line, names, panes)?;
     Ok(())
 }
 
@@ -2106,7 +2209,7 @@ fn parse_pane_grid_style(line: &Line) -> Result<PaneGridStyle, Error> {
             match kind {
                 "hovered-region" => {
                     if let Some(value) = part.strip_prefix("background=") {
-                        style.region_background = Some(value.to_owned());
+                        style.region_background = Some(parse_background_value(value, status)?);
                     } else if let Some(value) = part.strip_prefix("border=") {
                         style.region_border = Some(value.to_owned());
                     } else if let Some(value) = part.strip_prefix("border-width=") {

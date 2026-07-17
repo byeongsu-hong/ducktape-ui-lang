@@ -1,4 +1,4 @@
-# Ice Language Specification 0.57
+# Ice Language Specification 0.58
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.57 syntax.
+marked “planned” is a design constraint, not accepted 0.58 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.57.
+  block comments are not part of 0.58.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -305,15 +305,17 @@ pane_grid_style_status
                = "hovered-region" pane_region_style_property+
                | ("hovered-split" | "picked-split") pane_line_style_property+
 pane_region_style_property
-               = ("background=" | "border=") name ("/" u8)?
+               = "background=" background_value | "border=" color_ref
                | ("border-width=" | "radius=" | "radius-tl="
                  | "radius-tr=" | "radius-br=" | "radius-bl=") expr
 pane_line_style_property = "color=" name ("/" u8)? | "width=" expr
 pane_configuration = pane_view
                    | "split" pane_axis ("ratio=" number)?
                      INDENT pane_configuration pane_configuration
-pane_view      = "pane" name styles? INDENT (node | pane_section+)
-closed_pane    = "pane" name "closed" styles? INDENT (node | pane_section+)
+pane_view      = "pane" name pane_surface_property* styles?
+                 INDENT (node | pane_section+)
+closed_pane    = "pane" name "closed" pane_surface_property* styles?
+                 INDENT (node | pane_section+)
 pane_section   = "title" pane_title_property* styles? INDENT node
                | "controls" INDENT node
                | "compact-controls" INDENT node
@@ -322,7 +324,16 @@ pane_title_property
                = ("padding=" | "padding-x=" | "padding-y="
                  | "padding-top=" | "padding-right=" | "padding-bottom="
                  | "padding-left=") expr
-               | "always-controls"
+               | "always-controls" | pane_surface_property
+pane_surface_property
+               = "background=" background_value
+               | ("text=" | "border=" | "shadow=") color_ref
+               | ("border-width=" | "radius=" | "radius-tl="
+                 | "radius-tr=" | "radius-br=" | "radius-bl="
+                 | "shadow-x=" | "shadow-y=" | "shadow-blur="
+                 | "pixel-snap=") expr
+background_value = color_ref
+                 | "linear(" expr ("," color_ref "@" expr){0,8} ")"
 pane_axis      = "horizontal" | "vertical"
 keyed_column   = "keyed" name "in" expr "by=" expr keyed_property*
                  INDENT node
@@ -551,7 +562,7 @@ default/centered/fixed position, visibility, resizability, close/minimize
 buttons, decorations, transparency, blur, level, and close-request behavior.
 Sizes, text size, and scale factor must be positive; minimum size cannot exceed
 maximum size. Window icons and platform-specific settings are not part of
-0.57.
+0.58.
 
 Media fixed lengths, rotation, opacity, scale, and radius are `f64`; rotation
 is radians, opacity is `0.0..=1.0`, scale is positive, and sizes/radius are
@@ -800,7 +811,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.57 message payloads.
+`Clone` for 0.58 message payloads.
 
 Three typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
@@ -930,7 +941,7 @@ The implemented native nodes are:
 | `overlay` | named `content` and `layer` trees with checked visibility, alignment, padding, backdrop and optional dismissal |
 | `text` | one `str`, `i64`, or `f64` expression with bounds, size/line-height, font, alignment, shaping, wrapping and checked color/weight styles |
 | `rich-text` | zero or more structured spans with rich defaults, complete span highlights and optional string link events |
-| `pane-grid` | named pane trees backed by recursive persistent split state, structured title/full/compact controls, complete solid state styles, closed templates, dynamic opening, click, resize and drag/drop behavior |
+| `pane-grid` | named pane trees backed by recursive persistent split state, structured title/full/compact controls, complete concrete state and surface styles with linear backgrounds, closed templates, dynamic opening, click, resize and drag/drop behavior |
 | `input` | required `str` binding; ID, hint, disabled/secure, submit/paste, sizing, alignment, default/mono font and icon properties |
 | `button` | string label or one child; optional ID/disabled, typed size/padding/clip, required route |
 | `checkbox` | string label, bool value/route, disabled, sizing/typography/wrapping/font and custom icon properties |
@@ -1049,11 +1060,11 @@ as containers:
 ```ice
 pane-grid #workspace split=vertical resize=8.0 drag
   style
-    hovered-region background=primary/25 border=primary border-width=2.0 radius=8.0
+    hovered-region background=linear(0.785, primary/10@0.0, primary/40@1.0) border=primary border-width=2.0 radius=8.0
     hovered-split color=primary width=3.0
     picked-split color=foreground width=3.0
-  pane files @bg-surface border border-border rounded-lg
-    title padding=8.0 padding-x=12.0 always-controls @bg-background
+  pane files background=linear(1.57, surface@0.0, background@1.0) shadow=black/50 shadow-y=2.0 shadow-blur=8.0 pixel-snap=true @bg-surface border border-border rounded-lg
+    title padding=8.0 padding-x=12.0 always-controls background=background border=border border-width=1.0 radius-tl=8.0 radius-tr=8.0 @bg-background
       text "Files" @font-bold
     controls
       row @gap-2
@@ -1069,15 +1080,18 @@ pane-grid #workspace split=vertical resize=8.0 drag
 
 The legacy one-child form remains identical. Structured panes require exactly
 one `content` section; `controls` require `title`, and `compact-controls`
-require full `controls`. Pane and title `@` utilities cover solid background,
-text, border and radius styles; layout stays explicit in their child nodes.
+require full `controls`. Pane and title typed surface properties cover every
+concrete `container::Style` field: solid or linear background, text, border
+with per-corner radius, shadow offset/blur, and pixel snapping. Their checked
+`@` utilities remain a concise base and typed properties override them; layout
+stays explicit in child nodes. Linear angles are radians, offsets are checked
+in `0.0..=1.0`, and iced's maximum of eight color stops is enforced.
 
 The optional first `style` child maps directly to iced's complete concrete
-`pane_grid::Style`: hovered region background and border (including every
-corner radius), plus hovered and picked split line colors and widths. Omitted
-fields retain `pane_grid::default(theme)`. Colors are checked theme tokens with
-optional opacity; gradients remain part of the shared Background work rather
-than a pane-grid-only syntax.
+`pane_grid::Style`: hovered region solid or linear background and border
+(including every corner radius), plus hovered and picked split line colors and
+widths. Omitted fields retain `pane_grid::default(theme)`. Background parsing
+is shared with pane surfaces instead of being a pane-grid-only special case.
 
 Pane grids may only live in the app view because component/repeated instances
 need separately keyed persistent state. Click routes receive the stable pane
@@ -1337,7 +1351,7 @@ weight, stretch, and style variant is accepted. At most one declaration may be
 the application default. `font=default` and `font=mono` remain built-ins;
 declared fonts also work on text, rich text and spans, input, editor, checkbox,
 and toggler. Font
-byte loading is not part of 0.57.
+byte loading is not part of 0.58.
 
 Widget operation tasks target checked static IDs in the app view:
 
@@ -1357,7 +1371,7 @@ snap/end; and absolute scroll-to/scroll-by. Effects have no route and
 non-negative `i64`; relative offsets are `f64` in `0.0..=1.0`; absolute
 offsets are unrestricted `f64`. Targets must be real static IDs in the app
 scope. Repeated/component scopes and the feature-gated selector API remain
-outside 0.57.
+outside 0.58.
 
 Persistent pane grids expose their native layout-state operations directly in
 handlers:
@@ -1404,7 +1418,7 @@ and constraints, resizability, maximize/minimize state, position and movement,
 all modes, decorations, user attention, focus, level, system menu, mouse
 passthrough, monitor size, and automatic tabbing. Positive sizes and bool
 arguments are checked before Rust generation. New-window IDs, open/oldest/latest,
-icons, raw handles, screenshots, and callbacks remain outside 0.57.
+icons, raw handles, screenshots, and callbacks remain outside 0.58.
 
 Every iced window event has a direct subscription form:
 
@@ -1557,7 +1571,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 0.57 does not claim that remapping.
+extern line; 0.58 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -1578,7 +1592,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 0.57 native backend is enough for CRUD/settings-style screens, selection,
+The 0.58 native backend is enough for CRUD/settings-style screens, selection,
 media, hover
 overlays, and common pointer events, not all of iced. It still lacks direct
 syntax for canvas, arbitrary custom overlays, multiple

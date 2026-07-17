@@ -872,8 +872,10 @@ fn infer_view(
                     require_literal_range(value, 0.0, None, label, span)?;
                 }
             }
+            if let Some(background) = &options.style.region_background {
+                check_background_value(background, env, document, span, "pane-grid background")?;
+            }
             for color in [
-                &options.style.region_background,
                 &options.style.region_border,
                 &options.style.hovered_split,
                 &options.style.picked_split,
@@ -910,6 +912,7 @@ fn infer_view(
             }
             for pane in panes {
                 check_styles(&pane.styles, document, &pane.span, StyleTarget::PaneContent)?;
+                check_container_style_options(&pane.style, env, document, &pane.span)?;
                 if let Some(title) = &pane.title {
                     for value in [
                         &title.padding.all,
@@ -931,6 +934,7 @@ fn infer_view(
                         require_literal_range(value, 0.0, None, "pane title padding", &title.span)?;
                     }
                     check_styles(&title.styles, document, &title.span, StyleTarget::PaneTitle)?;
+                    check_container_style_options(&title.style, env, document, &title.span)?;
                 }
                 for node in pane.nodes() {
                     infer_view(node, env, document, signatures, ids)?;
@@ -2406,6 +2410,93 @@ fn require_literal_range(
             span,
             format!("{label} is outside its valid range"),
         ));
+    }
+    Ok(())
+}
+
+fn check_background_value(
+    background: &BackgroundValue,
+    env: &HashMap<String, Type>,
+    document: &Document,
+    span: &Span,
+    label: &str,
+) -> Result<(), Error> {
+    match background {
+        BackgroundValue::Color(color) => {
+            if !valid_theme_color(color, document) {
+                return Err(Error::new(
+                    "E187",
+                    span,
+                    format!("unknown {label} color `{color}`"),
+                ));
+            }
+        }
+        BackgroundValue::Linear { angle, stops } => {
+            require_type(&expr_type(angle, env, document, span)?, &Type::F64, span)?;
+            for stop in stops {
+                if !valid_theme_color(&stop.color, document) {
+                    return Err(Error::new(
+                        "E187",
+                        span,
+                        format!("unknown {label} color `{}`", stop.color),
+                    ));
+                }
+                require_type(
+                    &expr_type(&stop.offset, env, document, span)?,
+                    &Type::F64,
+                    span,
+                )?;
+                require_literal_range(&stop.offset, 0.0, Some(1.0), "gradient stop", span)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn check_container_style_options(
+    style: &ContainerStyleOptions,
+    env: &HashMap<String, Type>,
+    document: &Document,
+    span: &Span,
+) -> Result<(), Error> {
+    if let Some(background) = &style.background {
+        check_background_value(background, env, document, span, "pane surface")?;
+    }
+    for (color, label) in [
+        (&style.text_color, "pane text"),
+        (&style.border_color, "pane border"),
+        (&style.shadow_color, "pane shadow"),
+    ] {
+        if let Some(color) = color
+            && !valid_theme_color(color, document)
+        {
+            return Err(Error::new(
+                "E187",
+                span,
+                format!("unknown {label} color `{color}`"),
+            ));
+        }
+    }
+    for value in [
+        &style.border_width,
+        &style.radius,
+        &style.radius_top_left,
+        &style.radius_top_right,
+        &style.radius_bottom_right,
+        &style.radius_bottom_left,
+        &style.shadow_blur,
+    ]
+    .into_iter()
+    .flatten()
+    {
+        require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+        require_literal_range(value, 0.0, None, "pane surface metric", span)?;
+    }
+    for value in [&style.shadow_x, &style.shadow_y].into_iter().flatten() {
+        require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+    }
+    if let Some(snap) = &style.pixel_snap {
+        require_type(&expr_type(snap, env, document, span)?, &Type::Bool, span)?;
     }
     Ok(())
 }
@@ -4779,11 +4870,11 @@ on close
 view
   pane-grid #work split=vertical
     style
-      hovered-region background=primary/50 border=foreground border-width=2.0 radius=4.0 radius-tl=1.0 radius-tr=2.0 radius-br=3.0 radius-bl=4.0
+      hovered-region background=linear(0.785, primary/25@0.0, background@0.5, danger@1.0) border=foreground border-width=2.0 radius=4.0 radius-tl=1.0 radius-tr=2.0 radius-br=3.0 radius-bl=4.0
       hovered-split color=primary width=3.0
       picked-split color=danger width=4.0
-    pane files @bg-background border border-primary rounded
-      title padding=4.0 padding-x=8.0 padding-top=6.0 always-controls @bg-primary text-white
+    pane files background=linear(1.57, background@0.0, primary/25@1.0) text=foreground border=primary border-width=2.0 radius=4.0 radius-tl=1.0 radius-tr=2.0 radius-br=3.0 radius-bl=4.0 shadow=black/50 shadow-x=-1.0 shadow-y=2.0 shadow-blur=6.0 pixel-snap=true @bg-background border border-primary rounded
+      title padding=4.0 padding-x=8.0 padding-top=6.0 always-controls background=primary/50 text=foreground border=danger border-width=1.0 radius=3.0 shadow=black/50 shadow-x=1.0 shadow-y=2.0 shadow-blur=4.0 pixel-snap=false @bg-primary text-white
         text "Files"
       controls
         button "Close" -> close
@@ -4823,16 +4914,36 @@ view
                 .contains("title, controls, compact-controls, or content")
         );
 
-        let error =
-            analyze(&source.replace("pane files @bg-background", "pane files @p-4 bg-background"))
-                .unwrap_err();
+        let error = analyze(&source.replace("@bg-background", "@p-4 bg-background")).unwrap_err();
         assert_eq!(error.code, "E042");
         assert!(error.message.contains("has no effect on `pane`"));
 
-        let error =
-            analyze(&source.replace("background=primary/50", "background=missing")).unwrap_err();
+        let error = analyze(&source.replace("primary/25@0.0", "missing@0.0")).unwrap_err();
         assert_eq!(error.code, "E187");
-        assert!(error.message.contains("unknown pane-grid style color"));
+        assert!(error.message.contains("unknown pane-grid background color"));
+
+        let error = analyze(&source.replace("danger@1.0", "danger@1.1")).unwrap_err();
+        assert_eq!(error.code, "E128");
+        assert!(error.message.contains("gradient stop"));
+
+        let error = analyze(&source.replace("danger@1.0", "danger")).unwrap_err();
+        assert_eq!(error.code, "E189");
+        assert!(error.message.contains("color@offset"));
+
+        let error = analyze(&source.replace(
+            "linear(0.785, primary/25@0.0, background@0.5, danger@1.0)",
+            "linear(0.785, primary@0.0, primary@0.1, primary@0.2, primary@0.3, primary@0.4, primary@0.5, primary@0.6, primary@0.7, primary@1.0)",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E189");
+        assert!(error.message.contains("at most 8 color stops"));
+
+        let error = analyze(&source.replace("shadow-blur=6.0", "shadow-blur=-1.0")).unwrap_err();
+        assert_eq!(error.code, "E128");
+        assert!(error.message.contains("pane surface metric"));
+
+        let error = analyze(&source.replace("pixel-snap=true", "pixel-snap=1.0")).unwrap_err();
+        assert_eq!(error.code, "E101");
 
         let error = analyze(&source.replace("width=3.0", "width=-1.0")).unwrap_err();
         assert_eq!(error.code, "E128");
