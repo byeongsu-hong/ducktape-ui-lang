@@ -4870,16 +4870,16 @@ fn append_progress_options(
     if let Some(background) = &options.background {
         write!(
             code,
-            " __style.background = {}.into();",
-            theme_color(document, background)
+            " __style.background = {};",
+            background_code(background, env, document)?
         )
         .unwrap();
     }
     if let Some(bar) = &options.bar {
         write!(
             code,
-            " __style.bar = {}.into();",
-            theme_color(document, bar)
+            " __style.bar = {};",
+            background_code(bar, env, document)?
         )
         .unwrap();
     }
@@ -6102,7 +6102,7 @@ view
         hovered rail-start=foreground rail-end=background handle=rect(12) handle-color=foreground handle-radius=3.0 handle-radius-tl=1.0
         dragged rail-start=danger handle=circle(8.0) handle-color=danger
       slider amount min=0.0 max=100.0 step=1.0 width=fill height=18.0 -> amount_changed _
-      progress amount vertical length=fill(2) girth=20.0 style=secondary background=background bar=primary/75 border=foreground border-width=1.0 radius=4.0 radius-tl=2.0
+      progress amount vertical length=fill(2) girth=20.0 style=secondary background=linear(1.57, background@0.0, primary/25@1.0) bar=linear(0.0, primary/75@0.0, danger@1.0) border=foreground border-width=1.0 radius=4.0 radius-tl=2.0
       progress amount style=success
       progress amount style=warning
       progress amount style=danger
@@ -6143,6 +6143,10 @@ view
         assert!(generated.contains("progress_bar::success(__theme)"));
         assert!(generated.contains("progress_bar::warning(__theme)"));
         assert!(generated.contains("progress_bar::danger(__theme)"));
+        assert!(generated.contains("__style.background = ::iced::Background::from"));
+        assert!(generated.contains("__style.bar = ::iced::Background::from"));
+        assert!(generated.contains("::iced::gradient::Linear::new(1.57 as f32)"));
+        assert!(generated.contains("::iced::gradient::Linear::new(0.0 as f32)"));
         assert!(generated.contains("__style.border.radius"));
         assert!(generated.contains("::iced::widget::radio"));
         assert!(generated.contains("::iced::widget::rule::weak(__theme)"));

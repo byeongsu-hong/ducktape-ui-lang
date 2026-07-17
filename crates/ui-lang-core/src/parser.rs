@@ -4513,9 +4513,9 @@ fn parse_progress(parts: &[String], styles: Vec<String>, line: &Line) -> Result<
                 }
             });
         } else if let Some(value) = part.strip_prefix("background=") {
-            options.background = Some(value.to_owned());
+            options.background = Some(parse_background_value(value, line)?);
         } else if let Some(value) = part.strip_prefix("bar=") {
-            options.bar = Some(value.to_owned());
+            options.bar = Some(parse_background_value(value, line)?);
         } else if let Some(value) = part.strip_prefix("border=") {
             options.border_color = Some(value.to_owned());
         } else if let Some(value) = part.strip_prefix("border-width=") {

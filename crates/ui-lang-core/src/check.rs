@@ -1331,17 +1331,22 @@ fn infer_view(
                     require_literal_range(value, 0.0, None, "progress size", span)?;
                 }
             }
-            for color in [&options.background, &options.bar, &options.border_color]
-                .into_iter()
-                .flatten()
-            {
-                if !valid_theme_color(color, document) {
-                    return Err(Error::new(
-                        "E129",
-                        span,
-                        format!("unknown progress color `{color}`"),
-                    ));
+            for (background, label) in [
+                (&options.background, "progress background"),
+                (&options.bar, "progress bar"),
+            ] {
+                if let Some(background) = background {
+                    check_background_value(background, env, document, span, "E129", label)?;
                 }
+            }
+            if let Some(color) = &options.border_color
+                && !valid_theme_color(color, document)
+            {
+                return Err(Error::new(
+                    "E129",
+                    span,
+                    format!("unknown progress color `{color}`"),
+                ));
             }
             for (value, label) in [
                 (&options.border_width, "progress border width"),
@@ -5194,7 +5199,7 @@ state
   amount = 50.0
 view
   col
-    progress amount min=0.0 max=100.0 length=fill(2) girth=20.0 style=success background=background bar=primary/75 border=foreground border-width=1.0 radius=4.0 radius-tl=2.0 radius-tr=3.0 radius-br=4.0 radius-bl=5.0
+    progress amount min=0.0 max=100.0 length=fill(2) girth=20.0 style=success background=linear(1.57, background@0.0, primary/25@1.0) bar=linear(0.0, primary/75@0.0, danger@1.0) border=foreground border-width=1.0 radius=4.0 radius-tl=2.0 radius-tr=3.0 radius-br=4.0 radius-bl=5.0
     progress amount vertical length=120.0 girth=fill style=warning
 "#;
         analyze(source).unwrap();
@@ -5204,10 +5209,10 @@ view
         assert_eq!(error.code, "E128");
         assert!(error.message.contains("progress min cannot exceed max"));
 
-        let bad_color = source.replace("bar=primary/75", "bar=missing");
+        let bad_color = source.replace("danger@1.0", "missing@1.0");
         let error = analyze(&bad_color).unwrap_err();
         assert_eq!(error.code, "E129");
-        assert!(error.message.contains("unknown progress color"));
+        assert!(error.message.contains("unknown progress bar color"));
 
         let bad_radius = source.replace("radius=4.0", "radius=-1.0");
         let error = analyze(&bad_radius).unwrap_err();
