@@ -1243,6 +1243,7 @@ fn infer_view(
             checked,
             disabled,
             options,
+            style,
             styles,
             route,
             span,
@@ -1257,6 +1258,7 @@ fn infer_view(
                 )?;
             }
             check_bool_control_options(options, env, document, span)?;
+            check_toggler_styles(style, env, document, span)?;
             infer_route(route, Some(Type::Bool), env, document, signatures)?;
             check_styles(styles, document, span, StyleTarget::Toggler)?;
         }
@@ -2693,6 +2695,70 @@ fn check_checkbox_styles(
         {
             require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
             require_literal_range(value, 0.0, None, "checkbox style metric", span)?;
+        }
+    }
+    Ok(())
+}
+
+fn check_toggler_styles(
+    styles: &TogglerStyleSet,
+    env: &HashMap<String, Type>,
+    document: &Document,
+    parent_span: &Span,
+) -> Result<(), Error> {
+    for style in [
+        &styles.active_checked,
+        &styles.active_unchecked,
+        &styles.hovered_checked,
+        &styles.hovered_unchecked,
+        &styles.disabled_checked,
+        &styles.disabled_unchecked,
+    ]
+    .into_iter()
+    .flatten()
+    {
+        let span = style.span.as_ref().unwrap_or(parent_span);
+        for (background, label) in [
+            (&style.background, "toggler background"),
+            (&style.foreground, "toggler foreground"),
+        ] {
+            if let Some(background) = background {
+                check_background_value(background, env, document, span, "E129", label)?;
+            }
+        }
+        for (color, label) in [
+            (&style.background_border_color, "toggler background border"),
+            (&style.foreground_border_color, "toggler foreground border"),
+            (&style.text_color, "toggler text"),
+        ] {
+            if let Some(color) = color
+                && !valid_theme_color(color, document)
+            {
+                return Err(Error::new(
+                    "E129",
+                    span,
+                    format!("unknown {label} color `{color}`"),
+                ));
+            }
+        }
+        for value in [
+            &style.background_border_width,
+            &style.foreground_border_width,
+            &style.radius,
+            &style.radius_top_left,
+            &style.radius_top_right,
+            &style.radius_bottom_right,
+            &style.radius_bottom_left,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+            require_literal_range(value, 0.0, None, "toggler style metric", span)?;
+        }
+        if let Some(ratio) = &style.padding_ratio {
+            require_type(&expr_type(ratio, env, document, span)?, &Type::F64, span)?;
+            require_literal_range(ratio, 0.0, Some(0.5), "toggler padding ratio", span)?;
         }
     }
     Ok(())
@@ -5601,7 +5667,7 @@ view
     }
 
     #[test]
-    fn checks_checkbox_styles_and_boolean_control_typography() {
+    fn checks_complete_boolean_control_styles_and_typography() {
         let source = r#"app Preferences
 theme
   background #000000
@@ -5622,6 +5688,12 @@ view
       disabled checked background=background icon=foreground text=foreground border=foreground
       disabled unchecked background=background icon=primary text=foreground border=primary
     toggler "Toggler" checked=enabled size=20.0 width=fill spacing=8.0 text-size=14.0 line-height=1.2 shaping=auto wrapping=glyph font=default align=right -> changed _
+      active checked background=linear(1.57, primary@0.0, background@1.0) background-border=primary background-border-width=1.0 foreground=linear(0.0, foreground@0.0, primary@1.0) foreground-border=foreground foreground-border-width=2.0 text=foreground radius=7.0 radius-tl=6.0 radius-tr=7.0 radius-br=8.0 radius-bl=9.0 padding-ratio=0.125
+      active unchecked background=background foreground=foreground text=primary
+      hovered checked background=primary foreground=foreground text=foreground
+      hovered unchecked background=foreground foreground=background text=primary
+      disabled checked background=background foreground=foreground text=foreground
+      disabled unchecked background=background foreground=primary text=foreground
 "#;
         analyze(source).unwrap();
 
@@ -5646,6 +5718,31 @@ view
         .unwrap_err();
         assert_eq!(error.code, "E067");
         assert!(error.message.contains("duplicate checkbox active checked"));
+
+        let error = analyze(&source.replace(
+            "background-border=primary background-border-width",
+            "background-border=missing background-border-width",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E129");
+        assert!(
+            error
+                .message
+                .contains("toggler background border color `missing`")
+        );
+
+        let error =
+            analyze(&source.replace("padding-ratio=0.125", "padding-ratio=0.6")).unwrap_err();
+        assert_eq!(error.code, "E128");
+        assert!(error.message.contains("toggler padding ratio"));
+
+        let error = analyze(&source.replace(
+            "      active unchecked background=background foreground=foreground",
+            "      active checked background=background\n      active unchecked background=background foreground=foreground",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E075");
+        assert!(error.message.contains("duplicate toggler active checked"));
     }
 
     #[test]
