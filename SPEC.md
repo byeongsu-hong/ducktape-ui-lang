@@ -1,4 +1,4 @@
-# Ice Language Specification 0.33
+# Ice Language Specification 0.34
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.33 syntax.
+marked “planned” is a design constraint, not accepted 0.34 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.33.
+  block comments are not part of 0.34.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -164,11 +164,13 @@ statement      = name "=" expr
                | "return if" expr
                | "run" call "->" route ("|" route)?
                | "task" call "->" route ("|" route)?
+               | "task system" ("info" | "theme") "->" route
 
 subscribe_decl = "subscribe" INDENT subscription_use+
 subscription_use
                = call "->" route
                | "keyboard" ("press" | "release" | "modifiers") "->" route
+               | "system theme" "->" route
 
 view_decl      = "view" INDENT node
 
@@ -626,7 +628,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.33 message payloads.
+`Clone` for 0.34 message payloads.
 
 Three typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
@@ -867,6 +869,27 @@ names, and locations are `standard`, `left`, `right`, or `numpad`. Like
 `iced::keyboard::listen`, these subscriptions receive keyboard events that no
 widget captured.
 
+System queries and theme changes use the same task/subscription model:
+
+```ice
+on inspect
+  task system info -> inspected _
+
+on read_theme
+  task system theme -> theme_changed _
+
+subscribe
+  system theme -> theme_changed _
+```
+
+`system theme` produces `"none"`, `"light"`, or `"dark"`. The inferred
+`system-info` payload exposes `system_name`, `system_kernel`, `system_version`,
+`system_short_version`, `cpu_brand`, `cpu_cores`, `memory_total`, `memory_used`,
+`graphics_backend`, and `graphics_adapter`. Optional iced fields remain
+optional; core and byte counts use `i64` and saturate at `i64::MAX` instead of
+wrapping. `task system info` requires iced's `sysinfo` Cargo feature. Both
+system tasks are infallible and reject an error route.
+
 ### IDs
 
 IDs are identities, not CSS selectors. Static IDs must be unique in their local
@@ -965,7 +988,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 0.33 does not claim that remapping.
+extern line; 0.34 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -986,7 +1009,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 0.33 native backend is enough for CRUD/settings-style screens, selection,
+The 0.34 native backend is enough for CRUD/settings-style screens, selection,
 media, hover
 overlays, and common pointer events, not all of iced. It still lacks direct
 syntax for canvas, general overlays/modals, rich text, widget operations, multiple
@@ -1019,7 +1042,7 @@ compile-tested widget example is
 [`examples/iced-app/src/ui/showcase.ice`](examples/iced-app/src/ui/showcase.ice).
 Together they exercise
 state inference, typed extern structs/functions, mount and result handlers,
-direct input/editor binding, typed keyboard subscriptions, `if`, `for`, native keyed columns and lazy subtrees, parsed Markdown, structured tables, pure components, structured slot composition,
+direct input/editor binding, typed keyboard/system subscriptions and system tasks, `if`, `for`, native keyed columns and lazy subtrees, parsed Markdown, structured tables, pure components, structured slot composition,
 dynamic component IDs,
 theme utilities, disabled controls, fallible asynchronous tasks, complete
 wrapping row/column layouts, grids and fully sized underlay stacks, toggles,

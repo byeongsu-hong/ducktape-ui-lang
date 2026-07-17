@@ -14,6 +14,7 @@ pub fn generate(document: &Document, source_path: &str) -> Result<String, Error>
     )
     .unwrap();
     generate_keyboard_types(&mut out, document);
+    generate_system_types(&mut out, document);
 
     writeln!(out, "#[derive(Debug)]\npub struct {} {{", document.app).unwrap();
     for qr in &document.qr_codes {
@@ -154,6 +155,67 @@ fn __ice_key_location(value: ::iced::keyboard::Location) -> ::std::string::Strin
 }
 "#,
     );
+}
+
+fn generate_system_types(out: &mut String, document: &Document) {
+    let information = uses_system_task(document, "__ice_system_info");
+    let theme = uses_system_task(document, "__ice_system_theme")
+        || document
+            .subscriptions
+            .iter()
+            .any(|subscription| matches!(&subscription.source, SubscriptionSource::SystemTheme));
+    if information {
+        out.push_str(
+            r#"#[derive(Debug, Clone)]
+struct __IceSystemInfo {
+    system_name: ::std::option::Option<::std::string::String>,
+    system_kernel: ::std::option::Option<::std::string::String>,
+    system_version: ::std::option::Option<::std::string::String>,
+    system_short_version: ::std::option::Option<::std::string::String>,
+    cpu_brand: ::std::string::String,
+    cpu_cores: ::std::option::Option<i64>,
+    memory_total: i64,
+    memory_used: ::std::option::Option<i64>,
+    graphics_backend: ::std::string::String,
+    graphics_adapter: ::std::string::String,
+}
+fn __ice_system_info(value: ::iced::system::Information) -> __IceSystemInfo {
+    __IceSystemInfo {
+        system_name: value.system_name,
+        system_kernel: value.system_kernel,
+        system_version: value.system_version,
+        system_short_version: value.system_short_version,
+        cpu_brand: value.cpu_brand,
+        cpu_cores: value.cpu_cores.map(|value| i64::try_from(value).unwrap_or(i64::MAX)),
+        memory_total: i64::try_from(value.memory_total).unwrap_or(i64::MAX),
+        memory_used: value.memory_used.map(|value| i64::try_from(value).unwrap_or(i64::MAX)),
+        graphics_backend: value.graphics_backend,
+        graphics_adapter: value.graphics_adapter,
+    }
+}
+"#,
+        );
+    }
+    if theme {
+        out.push_str(
+            r#"fn __ice_system_theme(value: ::iced::theme::Mode) -> ::std::string::String {
+    match value {
+        ::iced::theme::Mode::None => "none",
+        ::iced::theme::Mode::Light => "light",
+        ::iced::theme::Mode::Dark => "dark",
+    }.to_owned()
+}
+"#,
+        );
+    }
+}
+
+fn uses_system_task(document: &Document, name: &str) -> bool {
+    document.handlers.iter().any(|handler| {
+        handler.statements.iter().any(|statement| {
+            matches!(statement, Statement::Run { kind: EffectKind::Task, function, .. } if function == name)
+        })
+    })
 }
 
 fn generate_extern_probes(out: &mut String, document: &Document) {
@@ -428,6 +490,9 @@ fn generate_subscription(
                 };
                 writeln!(out, "::iced::keyboard::listen().filter_map(|__event| {{ {filter} }}).map(move |__value| {route}),").unwrap();
             }
+            SubscriptionSource::SystemTheme => {
+                writeln!(out, "::iced::system::theme_changes().map(__ice_system_theme).map(move |__value| {route}),").unwrap();
+            }
         }
     }
     writeln!(out, "])\n}}").unwrap();
@@ -481,6 +546,27 @@ fn generate_statements(
                 span,
             } => {
                 has_task = true;
+                if *kind == EffectKind::Task
+                    && matches!(
+                        function.as_str(),
+                        "__ice_system_info" | "__ice_system_theme"
+                    )
+                {
+                    let task = if function == "__ice_system_info" {
+                        "::iced::system::information().map(__ice_system_info)"
+                    } else {
+                        "::iced::system::theme().map(__ice_system_theme)"
+                    };
+                    let success_message = route_code(success, "value", env, document, message)?;
+                    writeln!(
+                        out,
+                        "{}{task}.map(move |value| {success_message}){}",
+                        if return_task { "return " } else { "" },
+                        if return_task { ";" } else { "" }
+                    )
+                    .unwrap();
+                    continue;
+                }
                 let extern_kind = match kind {
                     EffectKind::Future => ExternKind::Future,
                     EffectKind::Task => ExternKind::Task,
@@ -4543,6 +4629,39 @@ view
         assert!(generated.contains("::iced::keyboard::Event::ModifiersChanged"));
         assert!(generated.contains("self.key = event.key.clone()"));
         assert!(generated.contains("self.command = event.modifiers.command.clone()"));
+    }
+
+    #[test]
+    fn lowers_native_system_tasks_and_subscription() {
+        let source = r#"app Diagnostics
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  cpu = ""
+  mode = "none"
+on inspect
+  task system info -> inspected _
+on inspected(info)
+  cpu = info.cpu_brand
+on read_theme
+  task system theme -> theme_changed _
+on theme_changed(next)
+  mode = next
+subscribe
+  system theme -> theme_changed _
+view
+  text cpu
+"#;
+        let generated = compile(source, "diagnostics.ice").unwrap();
+        assert!(generated.contains("struct __IceSystemInfo"));
+        assert!(generated.contains("fn __ice_system_info(value: ::iced::system::Information)"));
+        assert!(generated.contains("::iced::system::information().map(__ice_system_info)"));
+        assert!(generated.contains("::iced::system::theme().map(__ice_system_theme)"));
+        assert!(generated.contains("::iced::system::theme_changes().map(__ice_system_theme)"));
+        assert!(generated.contains("self.cpu = info.cpu_brand.clone()"));
     }
 
     #[test]

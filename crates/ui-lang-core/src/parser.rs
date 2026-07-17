@@ -361,11 +361,13 @@ fn parse_subscription(line: &Line) -> Result<Subscription, Error> {
         return Err(error(
             "E084",
             line,
-            "subscription uses `name(args) -> handler _` or `keyboard event -> handler _`",
+            "subscription uses `name(args)`, `keyboard event`, or `system theme` before `-> handler _`",
         ));
     };
     let call = call.trim();
-    let source = if let Some(event) = call.strip_prefix("keyboard ") {
+    let source = if call == "system theme" {
+        SubscriptionSource::SystemTheme
+    } else if let Some(event) = call.strip_prefix("keyboard ") {
         SubscriptionSource::Keyboard(match event.trim() {
             "press" => KeyboardEvent::Press,
             "release" => KeyboardEvent::Release,
@@ -513,8 +515,21 @@ fn parse_statement(line: &Line) -> Result<Statement, Error> {
                 format!("{keyword} requires `-> success _ | error _`"),
             ));
         };
-        let (function, args_source) = parse_signature(call.trim(), line)?;
-        let args = parse_expr_list(&args_source, line)?;
+        let call = call.trim();
+        let (function, args) = if kind == EffectKind::Task && call == "system info" {
+            ("__ice_system_info".into(), Vec::new())
+        } else if kind == EffectKind::Task && call == "system theme" {
+            ("__ice_system_theme".into(), Vec::new())
+        } else if call.starts_with("system ") {
+            return Err(error(
+                "E050",
+                line,
+                "system task must be `task system info` or `task system theme`",
+            ));
+        } else {
+            let (function, args_source) = parse_signature(call, line)?;
+            (function, parse_expr_list(&args_source, line)?)
+        };
         let (success, error_route) = match split_top_once(routes.trim(), '|') {
             Some((success, failure)) => (
                 parse_route(success.trim(), line)?,
