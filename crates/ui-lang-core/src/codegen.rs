@@ -673,6 +673,25 @@ fn generate_subscription(
             SubscriptionSource::SystemTheme => {
                 writeln!(out, "::iced::system::theme_changes().map(__ice_system_theme).map(move |__value| {route}),").unwrap();
             }
+            SubscriptionSource::Touch(event) => {
+                let variant = match event {
+                    TouchEvent::Pressed => "FingerPressed",
+                    TouchEvent::Moved => "FingerMoved",
+                    TouchEvent::Lifted => "FingerLifted",
+                    TouchEvent::Lost => "FingerLost",
+                };
+                let filter = format!(
+                    "match __event {{ ::iced::Event::Touch(::iced::touch::Event::{variant} {{ id, position }}) => ::std::option::Option::Some((id.0.to_string(), position.x as f64, position.y as f64)), _ => ::std::option::Option::None }}"
+                );
+                let message_code = ordered_route_code(
+                    &subscription.route,
+                    &["__value.0", "__value.1", "__value.2"],
+                    &env,
+                    document,
+                    message,
+                )?;
+                writeln!(out, "::iced::event::listen_with(|__event, _, _| {{ {filter} }}).map(move |__value| {message_code}),").unwrap();
+            }
             SubscriptionSource::Window(event) => {
                 if *event == WindowEvent::Frame {
                     let message_code =
@@ -5361,6 +5380,17 @@ view
         assert!(generated.contains("::iced::mouse::Event::ButtonReleased"));
         assert!(generated.contains("::iced::mouse::Event::WheelScrolled"));
         assert!(generated.contains("::iced::mouse::ScrollDelta::Pixels"));
+    }
+
+    #[test]
+    fn lowers_all_native_touch_subscriptions() {
+        let source = include_str!("../../../examples/iced-app/src/ui/touch_events.ice");
+        let generated = compile(source, "touch_events.ice").unwrap();
+        assert!(generated.contains("::iced::touch::Event::FingerPressed"));
+        assert!(generated.contains("::iced::touch::Event::FingerMoved"));
+        assert!(generated.contains("::iced::touch::Event::FingerLifted"));
+        assert!(generated.contains("::iced::touch::Event::FingerLost"));
+        assert!(generated.contains("id.0.to_string()"));
     }
 
     #[test]

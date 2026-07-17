@@ -1,4 +1,4 @@
-# Ice Language Specification 0.42
+# Ice Language Specification 0.43
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.42 syntax.
+marked “planned” is a design constraint, not accepted 0.43 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.42.
+  block comments are not part of 0.43.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -218,10 +218,12 @@ subscription_use
                = call "->" route
                | "keyboard" ("press" | "release" | "modifiers") "->" route
                | "mouse" mouse_event "->" route
+               | "touch" touch_event "->" route
                | "window" window_event "->" route
                | "system theme" "->" route
 mouse_event    = "entered" | "left" | "moved" | "pressed" | "released"
                | "wheel"
+touch_event    = "pressed" | "moved" | "lifted" | "lost"
 window_event   = "frame" | "opened" | "closed" | "moved" | "resized"
                | "rescaled" | "close-request" | "focused" | "unfocused"
                | "file-hovered" | "file-dropped" | "files-hovered-left"
@@ -462,7 +464,7 @@ default/centered/fixed position, visibility, resizability, close/minimize
 buttons, decorations, transparency, blur, level, and close-request behavior.
 Sizes, text size, and scale factor must be positive; minimum size cannot exceed
 maximum size. Window icons and platform-specific settings are not part of
-0.42.
+0.43.
 
 Media fixed lengths, rotation, opacity, scale, and radius are `f64`; rotation
 is radians, opacity is `0.0..=1.0`, scale is positive, and sizes/radius are
@@ -711,7 +713,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.42 message payloads.
+`Clone` for 0.43 message payloads.
 
 Three typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
@@ -941,6 +943,7 @@ subscribe
   keyboard modifiers -> key_modifiers_changed _
   mouse moved -> pointer_moved _ _
   mouse wheel -> wheel_scrolled _ _ _
+  touch pressed -> finger_pressed _ _ _
 ```
 
 The compiler batches active subscriptions and wires the application builder.
@@ -1005,7 +1008,7 @@ The family may be a named family or any of iced's five generic families. Every
 weight, stretch, and style variant is accepted. At most one declaration may be
 the application default. `font=default` and `font=mono` remain built-ins;
 declared fonts also work on text, input, editor, checkbox, and toggler. Font
-byte loading is not part of 0.42.
+byte loading is not part of 0.43.
 
 Widget operation tasks target checked static IDs in the app view:
 
@@ -1025,7 +1028,7 @@ snap/end; and absolute scroll-to/scroll-by. Effects have no route and
 non-negative `i64`; relative offsets are `f64` in `0.0..=1.0`; absolute
 offsets are unrestricted `f64`. Targets must be real static IDs in the app
 scope. Repeated/component scopes and the feature-gated selector API remain
-outside 0.42.
+outside 0.43.
 
 Main-window tasks resolve iced's oldest (initial) window ID without leaking its
 Rust type:
@@ -1048,7 +1051,7 @@ and constraints, resizability, maximize/minimize state, position and movement,
 all modes, decorations, user attention, focus, level, system menu, mouse
 passthrough, monitor size, and automatic tabbing. Positive sizes and bool
 arguments are checked before Rust generation. New-window IDs, open/oldest/latest,
-icons, raw handles, screenshots, and callbacks remain outside 0.42.
+icons, raw handles, screenshots, and callbacks remain outside 0.43.
 
 Every iced window event has a direct subscription form:
 
@@ -1087,6 +1090,21 @@ Wheel emits x/y as `f64` followed by `pixels:bool`; false means iced line
 units. These subscriptions observe captured and ignored runtime events. As
 with window subscriptions, routes accept only the exact number of `_`
 payloads.
+
+All four iced touch events are direct subscriptions:
+
+```ice
+subscribe
+  touch pressed -> pressed _ _ _
+  touch moved -> moved _ _ _
+  touch lifted -> lifted _ _ _
+  touch lost -> lost _ _ _
+```
+
+Each emits `(finger:str, x:f64, y:f64)`. The decimal string preserves iced's
+full `u64` finger identity without adding unsigned arithmetic to Ice. Routes
+accept exactly three `_` payloads and observe both captured and ignored touch
+events.
 
 ### IDs
 
@@ -1186,7 +1204,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 0.42 does not claim that remapping.
+extern line; 0.43 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -1207,7 +1225,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 0.42 native backend is enough for CRUD/settings-style screens, selection,
+The 0.43 native backend is enough for CRUD/settings-style screens, selection,
 media, hover
 overlays, and common pointer events, not all of iced. It still lacks direct
 syntax for canvas, general overlays/modals, rich text, multiple
@@ -1240,7 +1258,7 @@ compile-tested widget example is
 [`examples/iced-app/src/ui/showcase.ice`](examples/iced-app/src/ui/showcase.ice).
 Together they exercise
 state inference, typed extern structs/functions, mount and result handlers,
-direct input/editor binding, typed keyboard/mouse/system subscriptions, system tasks, clipboard effects, `if`, `for`, native keyed columns and lazy subtrees, parsed Markdown, structured tables, pure components, structured slot composition,
+direct input/editor binding, typed keyboard/mouse/touch/system subscriptions, system tasks, clipboard effects, `if`, `for`, native keyed columns and lazy subtrees, parsed Markdown, structured tables, pure components, structured slot composition,
 dynamic component IDs,
 theme utilities, disabled controls, fallible asynchronous tasks, complete
 wrapping row/column layouts, grids and fully sized underlay stacks, toggles,

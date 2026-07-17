@@ -265,6 +265,7 @@ pub enum SubscriptionSource {
     Keyboard(KeyboardEvent),
     Mouse(MouseEvent),
     SystemTheme,
+    Touch(TouchEvent),
     Window(WindowEvent),
 }
 
@@ -283,6 +284,14 @@ pub enum MouseEvent {
     Pressed,
     Released,
     Wheel,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TouchEvent {
+    Pressed,
+    Moved,
+    Lifted,
+    Lost,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
