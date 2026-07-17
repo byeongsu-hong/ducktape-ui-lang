@@ -2250,12 +2250,14 @@ fn render_node(
             options,
             ..
         } => {
-            let helper = match kind {
-                MediaKind::Image => "image",
-                MediaKind::Svg => "svg",
-            };
             let source = expr_code(source, env, document, ValueMode::Owned)?;
-            let mut code = format!("::iced::widget::{helper}({source})");
+            let mut code = match kind {
+                MediaKind::Image => format!("::iced::widget::image({source})"),
+                MediaKind::Svg if options.svg_memory => format!(
+                    "::iced::widget::svg(::iced::widget::svg::Handle::from_memory(({source}).into_bytes()))"
+                ),
+                MediaKind::Svg => format!("::iced::widget::svg({source})"),
+            };
             if let Some(width) = &options.width {
                 write!(code, ".width({})", length_code(width, env, document)?).unwrap();
             }
@@ -2285,6 +2287,25 @@ fn render_node(
                     code,
                     ".opacity({} as f32)",
                     expr_code(opacity, env, document, ValueMode::Owned)?
+                )
+                .unwrap();
+            }
+            if *kind == MediaKind::Svg
+                && (options.svg_color.is_some() || options.svg_hover_color.is_some())
+            {
+                let idle = options
+                    .svg_color
+                    .as_ref()
+                    .map(|color| format!("Some({})", theme_color(document, color)))
+                    .unwrap_or_else(|| "None".to_owned());
+                let hovered = match &options.svg_hover_color {
+                    Some(Some(color)) => format!("Some({})", theme_color(document, color)),
+                    Some(None) => "None".to_owned(),
+                    None => idle.clone(),
+                };
+                write!(
+                    code,
+                    ".style(|_, __status| ::iced::widget::svg::Style {{ color: match __status {{ ::iced::widget::svg::Status::Idle => {idle}, ::iced::widget::svg::Status::Hovered => {hovered} }} }})"
                 )
                 .unwrap();
             }
@@ -7200,7 +7221,8 @@ on scrolled(x, y, pixels)
 view
   col
     image "photo.ppm" width=fill height=64.0 fit=cover filter=nearest rotation=0.5 opacity=0.8 scale=1.2 expand=true radius=4.0
-    svg "icon.svg" width=48.0 height=shrink fit=scale-down rotation=0.1 opacity=0.9
+    svg "icon.svg" width=48.0 height=shrink fit=scale-down rotation=0.1 opacity=0.9 color=foreground hover=primary
+    svg "<svg/>" memory width=16.0 color=foreground hover=none
     tooltip position=cursor gap=2.0 padding=5.0 delay=100 snap=false style=success background=linear(1.57, background@0.0, primary/25@1.0) text=foreground border=primary/75 border-width=1.0 radius=5.0 radius-tl=2.0 shadow=black/50 shadow-x=-1.0 shadow-y=2.0 shadow-blur=8.0 pixel-snap=true
       mouse enter=entered exit=exited press=pressed move=moved scroll=scrolled cursor=pointer
         text "Hover"
@@ -7210,6 +7232,12 @@ view
         assert!(generated.contains("::iced::widget::image(\"photo.ppm\".to_owned())"));
         assert!(generated.contains(".filter_method(::iced::widget::image::FilterMethod::Nearest)"));
         assert!(generated.contains("::iced::widget::svg(\"icon.svg\".to_owned())"));
+        assert!(
+            generated.contains("svg::Handle::from_memory((\"<svg/>\".to_owned()).into_bytes())")
+        );
+        assert!(generated.contains("svg::Status::Idle => Some(::iced::Color"));
+        assert!(generated.contains("svg::Status::Hovered => Some(::iced::Color"));
+        assert!(generated.contains("svg::Status::Hovered => None"));
         assert!(generated.contains("tooltip::Position::FollowCursor"));
         assert!(generated.contains(".delay(::std::time::Duration::from_millis(100 as u64))"));
         assert!(generated.contains("container::success(__theme)"));

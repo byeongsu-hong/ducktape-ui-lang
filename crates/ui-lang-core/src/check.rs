@@ -2019,6 +2019,19 @@ fn infer_view(
             if let Some(expand) = &options.expand {
                 require_type(&expr_type(expand, env, document, span)?, &Type::Bool, span)?;
             }
+            for color in options
+                .svg_color
+                .iter()
+                .chain(options.svg_hover_color.iter().flatten())
+            {
+                if !valid_theme_color(color, document) {
+                    return Err(Error::new(
+                        "E129",
+                        span,
+                        format!("unknown svg color `{color}`"),
+                    ));
+                }
+            }
         }
         ViewNode::Tooltip {
             options,
@@ -5893,7 +5906,7 @@ view
     }
 
     #[test]
-    fn rejects_out_of_range_media_opacity() {
+    fn rejects_invalid_media_options() {
         let source = r#"app Demo
 theme
   background #000000
@@ -5906,5 +5919,21 @@ view
         let error = analyze(source).unwrap_err();
         assert_eq!(error.code, "E128");
         assert!(error.message.contains("opacity"));
+
+        let source = source.replace(
+            "image \"photo.ppm\" opacity=1.5",
+            "svg \"icon.svg\" color=missing",
+        );
+        let error = analyze(&source).unwrap_err();
+        assert_eq!(error.code, "E129");
+        assert!(error.message.contains("missing"));
+
+        let source = source.replace(
+            "svg \"icon.svg\" color=missing",
+            "image \"photo.ppm\" memory",
+        );
+        let error = analyze(&source).unwrap_err();
+        assert_eq!(error.code, "E085");
+        assert!(error.message.contains("only available on svg"));
     }
 }
