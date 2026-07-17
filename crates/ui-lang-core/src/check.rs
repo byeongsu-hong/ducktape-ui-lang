@@ -119,6 +119,10 @@ fn static_widget_ids(root: &ViewNode) -> HashSet<String> {
                 collect(content, output);
                 collect(tip, output);
             }
+            ViewNode::Overlay { content, layer, .. } => {
+                collect(content, output);
+                collect(layer, output);
+            }
             ViewNode::MouseArea { content, .. }
             | ViewNode::Theme { content, .. }
             | ViewNode::Float { content, .. }
@@ -355,6 +359,10 @@ fn slots(node: &ViewNode) -> Vec<&Span> {
                 collect(content, output);
                 collect(tip, output);
             }
+            ViewNode::Overlay { content, layer, .. } => {
+                collect(content, output);
+                collect(layer, output);
+            }
             ViewNode::Table { columns, .. } => {
                 for column in columns {
                     collect(&column.header, output);
@@ -400,6 +408,9 @@ fn editor_span(node: &ViewNode) -> Option<&Span> {
         | ViewNode::KeyedColumn { child: content, .. }
         | ViewNode::Lazy { child: content, .. } => editor_span(content),
         ViewNode::Tooltip { content, tip, .. } => editor_span(content).or_else(|| editor_span(tip)),
+        ViewNode::Overlay { content, layer, .. } => {
+            editor_span(content).or_else(|| editor_span(layer))
+        }
         ViewNode::Table { columns, .. } => columns
             .iter()
             .find_map(|column| editor_span(&column.header).or_else(|| editor_span(&column.cell))),
@@ -606,6 +617,36 @@ fn infer_view(
             }
             check_styles(styles, document, span, StyleTarget::Container)?;
             infer_view(content, env, document, signatures, ids)?;
+        }
+        ViewNode::Overlay {
+            options,
+            content,
+            layer,
+            span,
+        } => {
+            require_type(
+                &expr_type(&options.visible, env, document, span)?,
+                &Type::Bool,
+                span,
+            )?;
+            require_type(
+                &expr_type(&options.padding, env, document, span)?,
+                &Type::F64,
+                span,
+            )?;
+            require_literal_range(&options.padding, 0.0, None, "overlay padding", span)?;
+            if !valid_theme_color(&options.backdrop, document) {
+                return Err(Error::new(
+                    "E185",
+                    span,
+                    format!("unknown overlay backdrop color `{}`", options.backdrop),
+                ));
+            }
+            if let Some(dismiss) = &options.dismiss {
+                infer_route(dismiss, None, env, document, signatures)?;
+            }
+            infer_view(content, env, document, signatures, ids)?;
+            infer_view(layer, env, document, signatures, ids)?;
         }
         ViewNode::Text {
             value,
@@ -1858,6 +1899,10 @@ fn check_lazy_subtree(
         ViewNode::Tooltip { content, tip, .. } => {
             check_lazy_subtree(content, document, components, supplied_slot)?;
             check_lazy_subtree(tip, document, components, supplied_slot)
+        }
+        ViewNode::Overlay { content, layer, .. } => {
+            check_lazy_subtree(content, document, components, supplied_slot)?;
+            check_lazy_subtree(layer, document, components, supplied_slot)
         }
         ViewNode::Table { columns, .. } => {
             for column in columns {
@@ -3939,6 +3984,48 @@ view
         let error = analyze(&unknown).unwrap_err();
         assert_eq!(error.code, "E184");
         assert!(error.message.contains("unknown container property"));
+    }
+
+    #[test]
+    fn checks_structured_overlays() {
+        let source = r#"app Dialog
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  shown = true
+on close
+  shown = false
+view
+  overlay when=shown dismiss=close backdrop=black/60 padding=24.0 align-x=center align-y=end
+    content
+      text "Page"
+    layer
+      container width=320.0 padding=16.0 @bg-background rounded-lg
+        text "Dialog"
+"#;
+        analyze(source).unwrap();
+
+        let wrong_condition = source.replace("when=shown", "when=1");
+        let error = analyze(&wrong_condition).unwrap_err();
+        assert_eq!(error.code, "E101");
+
+        let bad_padding = source.replace("padding=24.0", "padding=-1.0");
+        let error = analyze(&bad_padding).unwrap_err();
+        assert_eq!(error.code, "E128");
+        assert!(error.message.contains("overlay padding"));
+
+        let bad_color = source.replace("black/60", "missing/60");
+        let error = analyze(&bad_color).unwrap_err();
+        assert_eq!(error.code, "E185");
+        assert!(error.message.contains("backdrop color"));
+
+        let unnamed_section = source.replace("    content\n", "    page\n");
+        let error = analyze(&unnamed_section).unwrap_err();
+        assert_eq!(error.code, "E185");
+        assert!(error.message.contains("`content` then `layer`"));
     }
 
     #[test]

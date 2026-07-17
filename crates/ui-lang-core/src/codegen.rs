@@ -1330,6 +1330,12 @@ fn render_node(
         } => render_container(
             options, id, styles, content, document, message, env, scope, slot,
         ),
+        ViewNode::Overlay {
+            options,
+            content,
+            layer,
+            ..
+        } => render_overlay(options, content, layer, document, message, env, scope, slot),
         ViewNode::Text {
             value,
             options,
@@ -2651,6 +2657,42 @@ fn render_container(
 }
 
 #[allow(clippy::too_many_arguments)]
+fn render_overlay(
+    options: &OverlayOptions,
+    content: &ViewNode,
+    layer: &ViewNode,
+    document: &Document,
+    message: &str,
+    env: &HashMap<String, Binding>,
+    scope: &str,
+    slot: Option<&SlotContext>,
+) -> Result<String, Error> {
+    let content = render_node(content, document, message, env, scope, slot)?;
+    let layer = render_node(layer, document, message, env, scope, slot)?;
+    let visible = expr_code(&options.visible, env, document, ValueMode::Owned)?;
+    let padding = expr_code(&options.padding, env, document, ValueMode::Owned)?;
+    let backdrop = theme_color(document, &options.backdrop);
+    let dismiss = options.dismiss.as_ref().map_or_else(
+        || Ok(format!("{message}::__ExternNoop")),
+        |route| route_code(route, "", env, document, message),
+    )?;
+    let align_x = match options.align_x {
+        FlexAlignment::Start => "Left",
+        FlexAlignment::Center => "Center",
+        FlexAlignment::End => "Right",
+    };
+    let align_y = match options.align_y {
+        FlexAlignment::Start => "Top",
+        FlexAlignment::Center => "Center",
+        FlexAlignment::End => "Bottom",
+    };
+    let noop = format!("{message}::__ExternNoop");
+    Ok(format!(
+        "{{ let __overlay_base: ::iced::Element<'_, {message}> = {content}; if {visible} {{ let __overlay_layer: ::iced::Element<'_, {message}> = {layer}; let __overlay_backdrop = ::iced::widget::container(::iced::widget::space()).width(::iced::Fill).height(::iced::Fill).style(|_| ::iced::widget::container::Style {{ background: ::std::option::Option::Some(::iced::Background::Color({backdrop})), ..::iced::widget::container::Style::default() }}); let __overlay_backdrop: ::iced::Element<'_, {message}> = ::iced::widget::mouse_area(__overlay_backdrop).on_press({dismiss}).on_release({noop}).on_right_press({noop}).on_right_release({noop}).on_middle_press({noop}).on_middle_release({noop}).on_scroll(|_| {noop}).into(); let __overlay_panel = ::iced::widget::mouse_area(__overlay_layer).on_press({noop}).on_release({noop}).on_right_press({noop}).on_right_release({noop}).on_middle_press({noop}).on_middle_release({noop}).on_scroll(|_| {noop}); let __overlay_panel: ::iced::Element<'_, {message}> = ::iced::widget::container(__overlay_panel).width(::iced::Fill).height(::iced::Fill).padding({padding} as f32).align_x(::iced::alignment::Horizontal::{align_x}).align_y(::iced::alignment::Vertical::{align_y}).into(); let __overlay_surface: ::iced::Element<'_, {message}> = ::iced::widget::Stack::new().width(::iced::Fill).height(::iced::Fill).push(__overlay_backdrop).push(__overlay_panel).into(); ::iced::widget::Stack::new().width(::iced::Fill).height(::iced::Fill).push(__overlay_base).push(::iced::widget::float(__overlay_surface).translate(|_, _| ::iced::Vector::new(::core::f32::EPSILON, 0.0))).into() }} else {{ __overlay_base }} }}"
+    ))
+}
+
+#[allow(clippy::too_many_arguments)]
 fn render_table(
     item: &str,
     rows: &Expr,
@@ -3518,6 +3560,10 @@ fn state_bindings(root: &ViewNode, editors: bool) -> Vec<String> {
                 collect(content, editors, output);
                 collect(tip, editors, output);
             }
+            ViewNode::Overlay { content, layer, .. } => {
+                collect(content, editors, output);
+                collect(layer, editors, output);
+            }
             ViewNode::Table { columns, .. } => {
                 for column in columns {
                     collect(&column.header, editors, output);
@@ -3572,6 +3618,7 @@ fn needs_extern_noop(document: &Document) -> bool {
             | ViewNode::If { children, .. }
             | ViewNode::For { children, .. } => children.iter().any(contains),
             ViewNode::Tooltip { content, tip, .. } => contains(content) || contains(tip),
+            ViewNode::Overlay { .. } => true,
             ViewNode::Table { columns, .. } => columns
                 .iter()
                 .any(|column| contains(&column.header) || contains(&column.cell)),
@@ -5204,6 +5251,38 @@ view
         assert!(generated.contains(".align_y(::iced::alignment::Vertical::Bottom)"));
         assert!(generated.contains(".clip(true)"));
         assert!(generated.contains("::iced::widget::container::Style"));
+    }
+
+    #[test]
+    fn lowers_structured_overlays_to_native_overlay_widgets() {
+        let source = r#"app Dialog
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  shown = true
+on close
+  shown = false
+view
+  overlay when=shown dismiss=close backdrop=black/60 padding=24.0 align-x=center align-y=end
+    content
+      text "Page"
+    layer
+      container width=320.0 padding=16.0 @bg-background rounded-lg
+        text "Dialog"
+"#;
+        let generated = compile(source, "dialog.ice").unwrap();
+        assert!(generated.contains("if self.shown"));
+        assert!(generated.contains("::iced::widget::Stack::new()"));
+        assert!(generated.contains("::iced::widget::float(__overlay_surface)"));
+        assert!(generated.contains("::core::f32::EPSILON"));
+        assert!(generated.contains("::iced::Color::from_rgba8(0, 0, 0, 0.600000)"));
+        assert!(generated.contains(".on_press(__DialogMessage::Close)"));
+        assert!(generated.contains(".align_x(::iced::alignment::Horizontal::Center)"));
+        assert!(generated.contains(".align_y(::iced::alignment::Vertical::Bottom)"));
+        assert!(generated.contains("__DialogMessage::__ExternNoop"));
     }
 
     #[test]
