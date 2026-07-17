@@ -1,4 +1,4 @@
-# Ice Language Specification 0.34
+# Ice Language Specification 0.35
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.34 syntax.
+marked “planned” is a design constraint, not accepted 0.35 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.34.
+  block comments are not part of 0.35.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -165,6 +165,8 @@ statement      = name "=" expr
                | "run" call "->" route ("|" route)?
                | "task" call "->" route ("|" route)?
                | "task system" ("info" | "theme") "->" route
+               | "task clipboard" ("read" | "read-primary") "->" route
+               | "task clipboard" ("write" | "write-primary") expr
 
 subscribe_decl = "subscribe" INDENT subscription_use+
 subscription_use
@@ -628,7 +630,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.34 message payloads.
+`Clone` for 0.35 message payloads.
 
 Three typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
@@ -890,6 +892,19 @@ optional; core and byte counts use `i64` and saturate at `i64::MAX` instead of
 wrapping. `task system info` requires iced's `sysinfo` Cargo feature. Both
 system tasks are infallible and reject an error route.
 
+Clipboard effects cover both platform targets:
+
+```ice
+task clipboard read -> clipboard_read _
+task clipboard read-primary -> primary_read _
+task clipboard write draft
+task clipboard write-primary draft
+```
+
+Reads are infallible tasks with a `str?` payload because the target may not
+contain text. Writes require `str`, produce no message in iced, accept no route,
+and must be the handler's final statement.
+
 ### IDs
 
 IDs are identities, not CSS selectors. Static IDs must be unique in their local
@@ -988,7 +1003,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 0.34 does not claim that remapping.
+extern line; 0.35 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -1009,7 +1024,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 0.34 native backend is enough for CRUD/settings-style screens, selection,
+The 0.35 native backend is enough for CRUD/settings-style screens, selection,
 media, hover
 overlays, and common pointer events, not all of iced. It still lacks direct
 syntax for canvas, general overlays/modals, rich text, widget operations, multiple
@@ -1042,7 +1057,7 @@ compile-tested widget example is
 [`examples/iced-app/src/ui/showcase.ice`](examples/iced-app/src/ui/showcase.ice).
 Together they exercise
 state inference, typed extern structs/functions, mount and result handlers,
-direct input/editor binding, typed keyboard/system subscriptions and system tasks, `if`, `for`, native keyed columns and lazy subtrees, parsed Markdown, structured tables, pure components, structured slot composition,
+direct input/editor binding, typed keyboard/system subscriptions, system tasks, clipboard effects, `if`, `for`, native keyed columns and lazy subtrees, parsed Markdown, structured tables, pure components, structured slot composition,
 dynamic component IDs,
 theme utilities, disabled controls, fallible asynchronous tasks, complete
 wrapping row/column layouts, grids and fully sized underlay stacks, toggles,

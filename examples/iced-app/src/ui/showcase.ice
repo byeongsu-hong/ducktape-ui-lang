@@ -54,6 +54,8 @@ state
   key_repeat = false
   system_theme = "none"
   cpu_brand = "unknown"
+  clipboard_text:str? = none
+  primary_text:str? = none
 
 component TaskRow(task:Task, loading:bool)
   row #root @w-full items-center p-4 bg-surface border border-border rounded-lg
@@ -136,9 +138,24 @@ on panel_hidden
 
 on copy_draft
   return if empty(trim(draft))
-  task copy_text(draft) -> copied | failed _
+  task clipboard write draft
 
 on copied
+
+on copy_primary
+  task clipboard write-primary draft
+
+on read_clipboard
+  task clipboard read -> clipboard_read _
+
+on clipboard_read(value)
+  clipboard_text = value
+
+on read_primary
+  task clipboard read-primary -> primary_read _
+
+on primary_read(value)
+  primary_text = value
 
 on external_hover_changed(next)
   external_hover = next
@@ -214,6 +231,9 @@ view
       text cpu_brand @text-sm text-muted
       button "Inspect system" -> inspect_system
       button "Read theme" -> read_system_theme
+      button "Copy primary" -> copy_primary
+      button "Read clipboard" -> read_clipboard
+      button "Read primary" -> read_primary
 
     row @w-full items-center gap-3
       input "New task" #new-task <-> draft hint="What needs doing?" disabled=loading secure=false submit=submit paste=draft_pasted width=fill text-size=14.0 line-height=1.2 align=left font=default icon="+" icon-side=left icon-size=14.0 icon-spacing=6.0 @px-4 py-3 bg-surface border border-border rounded-lg focus:border-primary

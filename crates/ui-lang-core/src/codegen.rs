@@ -549,13 +549,20 @@ fn generate_statements(
                 if *kind == EffectKind::Task
                     && matches!(
                         function.as_str(),
-                        "__ice_system_info" | "__ice_system_theme"
+                        "__ice_system_info"
+                            | "__ice_system_theme"
+                            | "__ice_clipboard_read"
+                            | "__ice_clipboard_read_primary"
                     )
                 {
-                    let task = if function == "__ice_system_info" {
-                        "::iced::system::information().map(__ice_system_info)"
-                    } else {
-                        "::iced::system::theme().map(__ice_system_theme)"
+                    let task = match function.as_str() {
+                        "__ice_system_info" => {
+                            "::iced::system::information().map(__ice_system_info)"
+                        }
+                        "__ice_system_theme" => "::iced::system::theme().map(__ice_system_theme)",
+                        "__ice_clipboard_read" => "::iced::clipboard::read()",
+                        "__ice_clipboard_read_primary" => "::iced::clipboard::read_primary()",
+                        _ => unreachable!(),
                     };
                     let success_message = route_code(success, "value", env, document, message)?;
                     writeln!(
@@ -610,6 +617,18 @@ fn generate_statements(
                         .unwrap(),
                     }
                 }
+            }
+            Statement::ClipboardWrite { primary, value, .. } => {
+                has_task = true;
+                let value = expr_code(value, env, document, ValueMode::Owned)?;
+                let function = if *primary { "write_primary" } else { "write" };
+                writeln!(
+                    out,
+                    "{}::iced::clipboard::{function}::<{message}>({value}){}",
+                    if return_task { "return " } else { "" },
+                    if return_task { ";" } else { "" }
+                )
+                .unwrap();
             }
         }
     }
@@ -4662,6 +4681,36 @@ view
         assert!(generated.contains("::iced::system::theme().map(__ice_system_theme)"));
         assert!(generated.contains("::iced::system::theme_changes().map(__ice_system_theme)"));
         assert!(generated.contains("self.cpu = info.cpu_brand.clone()"));
+    }
+
+    #[test]
+    fn lowers_native_clipboard_tasks() {
+        let source = r#"app Clipboard
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  value:str? = none
+on read
+  task clipboard read -> read_done _
+on read_done(next)
+  value = next
+on read_primary
+  task clipboard read-primary -> read_done _
+on write
+  task clipboard write "copied"
+on write_primary
+  task clipboard write-primary "selected"
+view
+  text "Clipboard"
+"#;
+        let generated = compile(source, "clipboard.ice").unwrap();
+        assert!(generated.contains("::iced::clipboard::read().map"));
+        assert!(generated.contains("::iced::clipboard::read_primary().map"));
+        assert!(generated.contains("::iced::clipboard::write::<__ClipboardMessage>"));
+        assert!(generated.contains("::iced::clipboard::write_primary::<__ClipboardMessage>"));
     }
 
     #[test]
