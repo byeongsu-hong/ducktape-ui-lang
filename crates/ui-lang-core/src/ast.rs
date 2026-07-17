@@ -29,6 +29,7 @@ pub enum Type {
     KeyRelease,
     KeyModifiers,
     SystemInfo,
+    TaskHandle,
     Named(String),
     Unit,
     Unknown,
@@ -54,6 +55,7 @@ impl Type {
             Self::KeyRelease => "__IceKeyRelease".into(),
             Self::KeyModifiers => "__IceKeyModifiers".into(),
             Self::SystemInfo => "__IceSystemInfo".into(),
+            Self::TaskHandle => "::iced::task::Handle".into(),
             Self::Named(name) => structs
                 .iter()
                 .find(|item| item.name == *name)
@@ -80,6 +82,7 @@ impl Type {
             Self::KeyRelease => "key-release".into(),
             Self::KeyModifiers => "key-modifiers".into(),
             Self::SystemInfo => "system-info".into(),
+            Self::TaskHandle => "task-handle".into(),
             Self::Named(name) => name.clone(),
             Self::Unit => "unit".into(),
             Self::Unknown => "unknown".into(),
@@ -395,6 +398,16 @@ pub enum Statement {
     TaskGroup {
         kind: TaskGroupKind,
         statements: Vec<Statement>,
+        span: Span,
+    },
+    Abortable {
+        handle: String,
+        abort_on_drop: bool,
+        task: Box<Statement>,
+        span: Span,
+    },
+    Abort {
+        handle: String,
         span: Span,
     },
     ClipboardWrite {

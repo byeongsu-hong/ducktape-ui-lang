@@ -526,6 +526,9 @@ fn statements_use_system_task(statements: &[Statement], name: &str) -> bool {
             ..
         } => function == name,
         Statement::TaskGroup { statements, .. } => statements_use_system_task(statements, name),
+        Statement::Abortable { task, .. } => {
+            statements_use_system_task(::std::slice::from_ref(task), name)
+        }
         _ => false,
     })
 }
@@ -1275,6 +1278,46 @@ fn generate_statements(
                     }
                 }
                 writeln!(out, "{}", if return_task { ";" } else { "" }).unwrap();
+            }
+            Statement::Abortable {
+                handle,
+                abort_on_drop,
+                task,
+                ..
+            } => {
+                has_task = true;
+                let mut task_env = env.clone();
+                for binding in task_env.values_mut() {
+                    binding.local = false;
+                }
+                if return_task {
+                    write!(out, "return ").unwrap();
+                }
+                writeln!(out, "{{ let (__task, __handle) = ({{").unwrap();
+                generate_statements(
+                    out,
+                    ::std::slice::from_ref(task),
+                    document,
+                    message,
+                    &task_env,
+                    state,
+                    false,
+                )?;
+                writeln!(out, "}}).abortable();").unwrap();
+                writeln!(
+                    out,
+                    "{state}.{handle} = ::std::option::Option::Some(__handle{}); __task }}{}",
+                    if *abort_on_drop {
+                        ".abort_on_drop()"
+                    } else {
+                        ""
+                    },
+                    if return_task { ";" } else { "" }
+                )
+                .unwrap();
+            }
+            Statement::Abort { handle, .. } => {
+                writeln!(out, "if let ::std::option::Option::Some(__handle) = &{state}.{handle} {{ __handle.abort(); }}").unwrap();
             }
             Statement::ClipboardWrite { primary, value, .. } => {
                 has_task = true;
@@ -5822,6 +5865,10 @@ fn expr_code(
                 u32_code(&args[1], env, document)?,
                 expr_code(&args[2], env, document, ValueMode::Owned)?
             ),
+            "aborted" => format!(
+                "({}).as_ref().is_some_and(::iced::task::Handle::is_aborted)",
+                expr_code(&args[0], env, document, ValueMode::Borrowed)?
+            ),
             _ => unreachable!("checker rejects unknown calls"),
         },
         Expr::Unary { op, value } => format!(
@@ -8440,6 +8487,38 @@ view
         assert!(generated.contains("::iced::Task::none().chain({"));
         assert!(generated.contains(".chain({ ::iced::system::information()"));
         assert!(generated.contains("fn __ice_system_info"));
+    }
+
+    #[test]
+    fn lowers_native_task_cancellation() {
+        let source = r#"app Cancel
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  request:task-handle? = none
+on start
+  abortable request abort-on-drop
+    task system theme -> loaded _
+on loaded(next)
+on cancel
+  abort request
+view
+  col
+    if aborted(request)
+      text "Canceled"
+"#;
+        let generated = compile(source, "cancel.ice").unwrap();
+        assert!(
+            generated.contains("pub(crate) request: ::std::option::Option<::iced::task::Handle>")
+        );
+        assert!(generated.contains("let (__task, __handle) = ({"));
+        assert!(generated.contains("}).abortable()"));
+        assert!(generated.contains("Some(__handle.abort_on_drop())"));
+        assert!(generated.contains("__handle.abort()"));
+        assert!(generated.contains("is_some_and(::iced::task::Handle::is_aborted)"));
     }
 
     #[test]
