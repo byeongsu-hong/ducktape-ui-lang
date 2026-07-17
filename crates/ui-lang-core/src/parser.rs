@@ -2320,7 +2320,6 @@ fn parse_text_editor(
     styles: Vec<String>,
     line: &Line,
 ) -> Result<ViewNode, Error> {
-    ensure_leaf(line)?;
     if !styles.is_empty() {
         return Err(error("E099", line, "editor does not accept `@` utilities"));
     }
@@ -2393,6 +2392,29 @@ fn parse_text_editor(
     }
     if options.highlight.is_none() && options.highlight_theme.is_some() {
         return Err(error("E099", line, "highlight-theme requires highlight"));
+    }
+    for child in &line.children {
+        let parts = split_words(&child.text);
+        match parts.first().map(String::as_str) {
+            Some("active" | "hovered" | "focused" | "focused-hovered" | "disabled") => {
+                ensure_leaf(child)?;
+                parse_text_input_status(
+                    &parts,
+                    child,
+                    &mut options.style,
+                    "E099",
+                    "editor",
+                    false,
+                )?;
+            }
+            _ => {
+                return Err(error(
+                    "E099",
+                    child,
+                    "editor blocks use active, hovered, focused, focused-hovered, or disabled",
+                ));
+            }
+        }
     }
     Ok(ViewNode::TextEditor {
         binding: binding.ok_or_else(|| error("E099", line, "editor requires `<-> state`"))?,
@@ -3101,7 +3123,7 @@ fn parse_combo_box_child(line: &Line, options: &mut ComboBoxOptions) -> Result<(
     match parts.first().map(String::as_str) {
         Some("active" | "hovered" | "focused" | "focused-hovered" | "disabled") => {
             ensure_leaf(line)?;
-            parse_text_input_status(&parts, line, &mut options.style, "E088", "combo")
+            parse_text_input_status(&parts, line, &mut options.style, "E088", "combo", true)
         }
         Some("menu") => {
             ensure_leaf(line)?;
@@ -3133,6 +3155,7 @@ fn parse_text_input_status(
     styles: &mut TextInputStyleSet,
     code: &'static str,
     widget: &str,
+    supports_icon: bool,
 ) -> Result<(), Error> {
     let status = parts.first().expect("text input status line");
     let slot = match status.as_str() {
@@ -3155,7 +3178,7 @@ fn parse_text_input_status(
         ..TextInputStatusStyle::default()
     };
     for part in &parts[1..] {
-        if let Some(value) = part.strip_prefix("icon=") {
+        if supports_icon && let Some(value) = part.strip_prefix("icon=") {
             style.icon_color = Some(value.to_owned());
         } else if let Some(value) = part.strip_prefix("placeholder=") {
             style.placeholder_color = Some(value.to_owned());
@@ -4501,7 +4524,7 @@ fn parse_input(parts: &[String], styles: Vec<String>, line: &Line) -> Result<Vie
         match parts.first().map(String::as_str) {
             Some("active" | "hovered" | "focused" | "focused-hovered" | "disabled") => {
                 ensure_leaf(child)?;
-                parse_text_input_status(&parts, child, &mut options.style, "E065", "input")?;
+                parse_text_input_status(&parts, child, &mut options.style, "E065", "input", true)?;
             }
             Some("icon") => {
                 ensure_leaf(child)?;

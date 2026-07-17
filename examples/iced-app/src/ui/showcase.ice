@@ -480,6 +480,11 @@ view
         text "View mode" @text-lg font-bold text-foreground
         markdown help text-size=14.0 h1-size=28.0 h2-size=24.0 h3-size=20.0 h4-size=18.0 h5-size=16.0 h6-size=14.0 code-size=12.0 spacing=10.0 -> docs_link _
         editor #notes <-> notes placeholder="Write notes" width=640.0 height=120.0 min-height=80.0 max-height=240.0 size=14.0 line-height=1.3 padding=8.0 wrapping=word font=ui highlight="rs" highlight-theme=base16-ocean disabled=loading
+          active background=surface border=border border-width=1.0 radius=8.0 placeholder=muted value=foreground selection=primary
+          hovered background=surface border=foreground placeholder=muted value=foreground selection=primary
+          focused background=surface border=primary border-width=2.0 radius=8.0
+          focused-hovered background=surface border=primary border-width=2.0 radius=8.0
+          disabled background=background border=border placeholder=muted value=muted selection=primary
         pick display_modes display_mode placeholder="Choose a view" width=fill menu-height=160.0 padding=8.0 text-size=14.0 line-height=1.2 shaping=advanced font=ui open=picker_opened close=picker_closed -> display_mode_changed _
           active text=foreground placeholder=muted handle=primary background=surface border=border border-width=1.0 radius=6.0
           hovered text=foreground placeholder=muted handle=foreground background=background border=primary border-width=1.0 radius=6.0
