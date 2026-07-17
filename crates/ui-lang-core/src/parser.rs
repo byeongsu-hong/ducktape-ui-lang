@@ -4087,24 +4087,11 @@ fn parse_button(
     route: Option<&str>,
     line: &Line,
 ) -> Result<ViewNode, Error> {
-    if line.children.len() > 1 {
-        return Err(error("E066", line, "button accepts at most one child"));
-    }
     let label = parts
         .get(1)
         .filter(|part| part.starts_with('"'))
         .map(|part| string_literal(part, line))
         .transpose()?;
-    if label.is_some() && !line.children.is_empty() {
-        return Err(error(
-            "E066",
-            line,
-            "button uses either a string label or one child, not both",
-        ));
-    }
-    if label.is_none() && line.children.is_empty() {
-        return Err(error("E066", line, "button needs a label or one child"));
-    }
     let mut id = None;
     let mut disabled = None;
     let mut options = ButtonOptions::default();
@@ -4122,6 +4109,24 @@ fn parse_button(
             options.padding = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else if let Some(value) = part.strip_prefix("clip=") {
             options.clip = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("style=") {
+            options.style.preset = match value {
+                "primary" => ButtonStylePreset::Primary,
+                "secondary" => ButtonStylePreset::Secondary,
+                "success" => ButtonStylePreset::Success,
+                "warning" => ButtonStylePreset::Warning,
+                "danger" => ButtonStylePreset::Danger,
+                "text" => ButtonStylePreset::Text,
+                "background" => ButtonStylePreset::Background,
+                "subtle" => ButtonStylePreset::Subtle,
+                _ => {
+                    return Err(error(
+                        "E066",
+                        line,
+                        "button style must be primary, secondary, success, warning, danger, text, background, or subtle",
+                    ));
+                }
+            };
         } else {
             return Err(error(
                 "E066",
@@ -4130,14 +4135,33 @@ fn parse_button(
             ));
         }
     }
+    let mut content = None;
+    for child in &line.children {
+        let parts = split_words(&child.text);
+        if parts.first().is_some_and(|part| {
+            matches!(part.as_str(), "active" | "hovered" | "pressed" | "disabled")
+        }) {
+            parse_button_status_style(child, &mut options.style)?;
+        } else {
+            if content.is_some() {
+                return Err(error("E066", line, "button accepts at most one child"));
+            }
+            content = Some(parse_view(child)?);
+        }
+    }
+    if label.is_some() && content.is_some() {
+        return Err(error(
+            "E066",
+            line,
+            "button uses either a string label or one child, not both",
+        ));
+    }
+    if label.is_none() && content.is_none() {
+        return Err(error("E066", line, "button needs a label or one child"));
+    }
     Ok(ViewNode::Button {
         label,
-        content: line
-            .children
-            .first()
-            .map(parse_view)
-            .transpose()?
-            .map(Box::new),
+        content: content.map(Box::new),
         id,
         disabled,
         options,
@@ -4148,6 +4172,40 @@ fn parse_button(
         )?,
         span: Span::line(line.number),
     })
+}
+
+fn parse_button_status_style(line: &Line, styles: &mut ButtonStyleSet) -> Result<(), Error> {
+    ensure_leaf(line)?;
+    let parts = split_words(&line.text);
+    let (slot, status) = match parts.first().map(String::as_str) {
+        Some("active") => (&mut styles.active, "active"),
+        Some("hovered") => (&mut styles.hovered, "hovered"),
+        Some("pressed") => (&mut styles.pressed, "pressed"),
+        Some("disabled") => (&mut styles.disabled, "disabled"),
+        _ => unreachable!("button status was classified before parsing"),
+    };
+    if slot.is_some() {
+        return Err(error(
+            "E066",
+            line,
+            format!("duplicate button {status} style"),
+        ));
+    }
+    let mut options = ContainerStyleOptions::default();
+    for part in &parts[1..] {
+        if !parse_container_style_option(part, &mut options, line)? {
+            return Err(error(
+                "E066",
+                line,
+                format!("unknown button style property `{part}`"),
+            ));
+        }
+    }
+    *slot = Some(ButtonStatusStyle {
+        options,
+        span: Span::line(line.number),
+    });
+    Ok(())
 }
 
 fn parse_checkbox(
