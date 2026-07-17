@@ -646,6 +646,7 @@ fn parse_view(line: &Line) -> Result<ViewNode, Error> {
         "keyed" => parse_keyed_column(&parts, styles, line),
         "lazy" => parse_lazy(&parts, styles, line),
         "markdown" => parse_markdown(&parts, styles, route_source, line),
+        "table" => parse_table(&parts, styles, line),
         "float" => parse_float(&parts, styles, line),
         "pin" => parse_pin(&parts, styles, line),
         "sensor" => parse_sensor(&parts, styles, line),
@@ -692,6 +693,127 @@ fn parse_view(line: &Line) -> Result<ViewNode, Error> {
         }
         _ => Err(error("E064", line, format!("unknown view node `{kind}`"))),
     }
+}
+
+fn parse_table(parts: &[String], styles: Vec<String>, line: &Line) -> Result<ViewNode, Error> {
+    if !styles.is_empty() {
+        return Err(error("E098", line, "table does not accept `@` utilities"));
+    }
+    if parts.len() < 4 || parts.get(2).map(String::as_str) != Some("in") {
+        return Err(error("E098", line, "table uses `table item in rows`"));
+    }
+    if line.children.is_empty() {
+        return Err(error("E098", line, "table requires at least one column"));
+    }
+    let mut options = TableOptions::default();
+    for part in &parts[4..] {
+        if let Some(value) = part.strip_prefix("width=") {
+            options.width = Some(parse_length(value, line)?);
+        } else {
+            let (name, value) = part
+                .split_once('=')
+                .ok_or_else(|| error("E098", line, format!("unknown table property `{part}`")))?;
+            let value = parse_expr(strip_wrapping_parens(value), line)?;
+            match name {
+                "padding" => options.padding = Some(value),
+                "padding-x" => options.padding_x = Some(value),
+                "padding-y" => options.padding_y = Some(value),
+                "separator" => options.separator = Some(value),
+                "separator-x" => options.separator_x = Some(value),
+                "separator-y" => options.separator_y = Some(value),
+                _ => {
+                    return Err(error(
+                        "E098",
+                        line,
+                        format!("unknown table property `{name}`"),
+                    ));
+                }
+            }
+        }
+    }
+    Ok(ViewNode::Table {
+        item: identifier(&parts[1], line)?,
+        rows: parse_expr(strip_wrapping_parens(&parts[3]), line)?,
+        options,
+        columns: line
+            .children
+            .iter()
+            .map(parse_table_column)
+            .collect::<Result<_, _>>()?,
+        span: Span::line(line.number),
+    })
+}
+
+fn parse_table_column(line: &Line) -> Result<TableColumn, Error> {
+    let parts = split_words(&line.text);
+    if parts.first().map(String::as_str) != Some("column") {
+        return Err(error("E098", line, "table children must be columns"));
+    }
+    let mut width = None;
+    let mut align_x = None;
+    let mut align_y = None;
+    for part in &parts[1..] {
+        if let Some(value) = part.strip_prefix("width=") {
+            width = Some(parse_length(value, line)?);
+        } else if let Some(value) = part.strip_prefix("align-x=") {
+            align_x = Some(match value {
+                "left" => InputAlignment::Left,
+                "center" => InputAlignment::Center,
+                "right" => InputAlignment::Right,
+                _ => {
+                    return Err(error(
+                        "E098",
+                        line,
+                        "column align-x must be left, center, or right",
+                    ));
+                }
+            });
+        } else if let Some(value) = part.strip_prefix("align-y=") {
+            align_y = Some(match value {
+                "top" => VerticalAlignment::Top,
+                "center" => VerticalAlignment::Center,
+                "bottom" => VerticalAlignment::Bottom,
+                _ => {
+                    return Err(error(
+                        "E098",
+                        line,
+                        "column align-y must be top, center, or bottom",
+                    ));
+                }
+            });
+        } else {
+            return Err(error(
+                "E098",
+                line,
+                format!("unknown column property `{part}`"),
+            ));
+        }
+    }
+    if line.children.len() != 2 {
+        return Err(error(
+            "E098",
+            line,
+            "column requires one header and one cell",
+        ));
+    }
+    let parse_part = |part: &Line, expected: &str| {
+        if part.text != expected || part.children.len() != 1 {
+            return Err(error(
+                "E098",
+                part,
+                format!("column `{expected}` requires exactly one child"),
+            ));
+        }
+        parse_view(&part.children[0])
+    };
+    Ok(TableColumn {
+        width,
+        align_x,
+        align_y,
+        header: parse_part(&line.children[0], "header")?,
+        cell: parse_part(&line.children[1], "cell")?,
+        span: Span::line(line.number),
+    })
 }
 
 fn parse_markdown(

@@ -1556,12 +1556,122 @@ fn render_node(
                 "{{ {settings} ::iced::widget::markdown::view(self.{content}.items(), __markdown_settings).map(move |__uri| {route}) }}"
             ))
         }
+        ViewNode::Table {
+            item,
+            rows,
+            options,
+            columns,
+            span,
+        } => render_table(
+            item, rows, options, columns, span, document, message, env, scope, slot,
+        ),
         ViewNode::If { span, .. } | ViewNode::For { span, .. } => Err(Error::new(
             "E170",
             span,
             "if and for must be children of a layout node",
         )),
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_table(
+    item: &str,
+    rows: &Expr,
+    options: &TableOptions,
+    columns: &[TableColumn],
+    span: &Span,
+    document: &Document,
+    message: &str,
+    env: &HashMap<String, Binding>,
+    scope: &str,
+    slot: Option<&SlotContext>,
+) -> Result<String, Error> {
+    let Type::List(inner) = expr_type(
+        rows,
+        &env.iter()
+            .map(|(name, binding)| (name.clone(), binding.ty.clone()))
+            .collect(),
+        document,
+        span,
+    )?
+    else {
+        unreachable!("checker validates table rows")
+    };
+    let rows = expr_code(rows, env, document, ValueMode::Owned)?;
+    let row_type = *inner;
+    let row_rust = row_type.rust(&document.structs);
+    let mut cell_env = env.clone();
+    cell_env.insert(
+        item.into(),
+        Binding {
+            code: item.into(),
+            ty: row_type,
+            local: true,
+        },
+    );
+    let mut column_codes = Vec::with_capacity(columns.len());
+    for (index, column) in columns.iter().enumerate() {
+        let header_scope = format!("format!(\"{{}}/header({index})\", {scope})");
+        let cell_scope = format!("format!(\"{{}}/row({{}})/column({index})\", {scope}, __row)");
+        let header = render_node(&column.header, document, message, env, &header_scope, slot)?;
+        let cell = render_node(
+            &column.cell,
+            document,
+            message,
+            &cell_env,
+            &cell_scope,
+            slot,
+        )?;
+        let mut code = format!(
+            "{{ let __table_header: ::iced::Element<'_, {message}> = {header}; ::iced::widget::table::column(__table_header, move |(__row, {item}): (usize, {row_rust})| -> ::iced::Element<'_, {message}> {{ {cell} }})"
+        );
+        if let Some(width) = &column.width {
+            write!(code, ".width({})", length_code(width, env, document)?).unwrap();
+        }
+        if let Some(align) = column.align_x {
+            let align = match align {
+                InputAlignment::Left => "Left",
+                InputAlignment::Center => "Center",
+                InputAlignment::Right => "Right",
+            };
+            write!(code, ".align_x(::iced::alignment::Horizontal::{align})").unwrap();
+        }
+        if let Some(align) = column.align_y {
+            let align = match align {
+                VerticalAlignment::Top => "Top",
+                VerticalAlignment::Center => "Center",
+                VerticalAlignment::Bottom => "Bottom",
+            };
+            write!(code, ".align_y(::iced::alignment::Vertical::{align})").unwrap();
+        }
+        code.push_str(" }");
+        column_codes.push(code);
+    }
+    let mut code = format!(
+        "::iced::widget::table::table(::std::vec![{}], {rows}.into_iter().enumerate())",
+        column_codes.join(", ")
+    );
+    if let Some(width) = &options.width {
+        write!(code, ".width({})", length_code(width, env, document)?).unwrap();
+    }
+    for (value, method) in [
+        (&options.padding, "padding"),
+        (&options.padding_x, "padding_x"),
+        (&options.padding_y, "padding_y"),
+        (&options.separator, "separator"),
+        (&options.separator_x, "separator_x"),
+        (&options.separator_y, "separator_y"),
+    ] {
+        if let Some(value) = value {
+            write!(
+                code,
+                ".{method}({} as f32)",
+                expr_code(value, env, document, ValueMode::Owned)?
+            )
+            .unwrap();
+        }
+    }
+    Ok(format!("{code}.into()"))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2318,6 +2428,12 @@ fn input_bindings(root: &ViewNode) -> Vec<String> {
                 collect(content, output);
                 collect(tip, output);
             }
+            ViewNode::Table { columns, .. } => {
+                for column in columns {
+                    collect(&column.header, output);
+                    collect(&column.cell, output);
+                }
+            }
             ViewNode::MouseArea { content, .. } | ViewNode::Theme { content, .. } => {
                 collect(content, output)
             }
@@ -2358,6 +2474,9 @@ fn needs_extern_noop(document: &Document) -> bool {
             | ViewNode::If { children, .. }
             | ViewNode::For { children, .. } => children.iter().any(contains),
             ViewNode::Tooltip { content, tip, .. } => contains(content) || contains(tip),
+            ViewNode::Table { columns, .. } => columns
+                .iter()
+                .any(|column| contains(&column.header) || contains(&column.cell)),
             ViewNode::MouseArea { content, .. } | ViewNode::Theme { content, .. } => {
                 contains(content)
             }
@@ -3652,6 +3771,47 @@ view
         }
         assert!(generated.contains("::iced::widget::markdown::view(self.docs.items()"));
         assert!(generated.contains("map(move |__uri| __DocsMessage::Open(__uri))"));
+    }
+
+    #[test]
+    fn lowers_structured_tables_with_complete_native_options() {
+        let source = r#"app Rows
+extern crate::backend
+  Item(name:str, done:bool)
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  rows:[Item] = []
+view
+  table row in rows width=fill padding=4.0 padding-x=8.0 padding-y=6.0 separator=1.0 separator-x=2.0 separator-y=3.0
+    column width=fill(2) align-x=right align-y=bottom
+      header
+        text "Name"
+      cell
+        scroll #value
+          text row.name
+"#;
+        let generated = compile(source, "rows.ice").unwrap();
+        assert!(generated.contains("table::table(::std::vec!["));
+        assert!(generated.contains("self.rows.clone().into_iter().enumerate()"));
+        assert!(generated.contains("move |(__row, row): (usize, crate::backend::Item)|"));
+        assert!(generated.contains(".width(::iced::Length::FillPortion(2))"));
+        assert!(generated.contains(".align_x(::iced::alignment::Horizontal::Right)"));
+        assert!(generated.contains(".align_y(::iced::alignment::Vertical::Bottom)"));
+        for method in [
+            "padding(4.0 as f32)",
+            "padding_x(8.0 as f32)",
+            "padding_y(6.0 as f32)",
+            "separator(1.0 as f32)",
+            "separator_x(2.0 as f32)",
+            "separator_y(3.0 as f32)",
+        ] {
+            assert!(generated.contains(method));
+        }
+        assert!(generated.contains("format!(\"{}/row({})/column(0)\""));
     }
 
     #[test]

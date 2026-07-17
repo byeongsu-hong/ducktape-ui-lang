@@ -1,4 +1,4 @@
-# Ice Language Specification 0.30
+# Ice Language Specification 0.31
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.30 syntax.
+marked “planned” is a design constraint, not accepted 0.31 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.30.
+  block comments are not part of 0.31.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -176,7 +176,7 @@ node           = layout | text | input | button | checkbox | toggler
                | rule | qr_code | space | float | pin | sensor | responsive
                | media | tooltip | mouse_area | theme_boundary
                | component_call | slot | extern_component_call | if_node | for_node
-               | keyed_column | lazy_node | markdown_view
+               | keyed_column | lazy_node | markdown_view | table_view
 layout         = "col" id? column_property* styles? INDENT node+
                | "row" id? flex_property* styles? INDENT node+
                | "scroll" id? scroll_property* styles? INDENT node
@@ -195,6 +195,16 @@ markdown_view  = "markdown" name markdown_property* "->" route
 markdown_property = ("text-size=" | "h1-size=" | "h2-size="
                   | "h3-size=" | "h4-size=" | "h5-size=" | "h6-size="
                   | "code-size=" | "spacing=") expr
+table_view     = "table" name "in" expr table_property* INDENT table_column+
+table_property = "width=" length
+               | ("padding=" | "padding-x=" | "padding-y="
+                 | "separator=" | "separator-x=" | "separator-y=") expr
+table_column   = "column" table_column_property* INDENT
+                 "header" INDENT node
+                 "cell" INDENT node
+table_column_property = "width=" length
+                      | "align-x=" ("left" | "center" | "right")
+                      | "align-y=" ("top" | "center" | "bottom")
 column_property = flex_property | "max-width=" expr
 flex_property  = ("width=" | "height=") length | "spacing=" expr
                | ("padding=" | "padding-x=" | "padding-y="
@@ -520,6 +530,24 @@ The route receives the clicked URI as str. `text-size`, every h1-h6 size,
 be positive and spacing non-negative. The reference app enables iced's Markdown
 parser and syntax highlighter features.
 
+A table iterates a typed list and gives every cell its row binding. Headers and
+cells are arbitrary one-root Ice subtrees:
+
+```ice
+table task in tasks width=fill padding-x=8.0 separator=1.0
+  column width=fill align-x=left align-y=center
+    header
+      text "Task" @font-bold
+    cell
+      text task.title
+```
+
+Table width accepts every iced `Length`. Uniform/horizontal/vertical padding
+and separator thickness are non-negative pixels. Each column accepts every
+`Length` width plus all horizontal and vertical alignments. Row and column
+identity scopes are generated automatically, so IDs inside repeated cells do
+not collide. Rust row values must be `Clone`, matching iced's table contract.
+
 Spaces inside a compound expression should be wrapped in parentheses when the
 expression shares a line with widget properties:
 
@@ -564,7 +592,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.30 message payloads.
+`Clone` for 0.31 message payloads.
 
 Three typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
@@ -717,6 +745,7 @@ The implemented native nodes are:
 | `keyed` | repeats one child template with a bool/i64/f64 identity key and native column sizing/alignment |
 | `lazy` | caches one owned static child subtree by a checked hashable dependency |
 | `markdown` | renders owned parsed content with all text/heading/code sizes, spacing and str link events |
+| `table` | maps typed rows into arbitrary structured headers/cells with complete sizing, padding, separator and alignment options |
 
 `if` and `for` are child control-flow nodes inside a layout. There is no virtual
 DOM or runtime reconciliation layer; the iced backend constructs the current
@@ -888,7 +917,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 0.30 does not claim that remapping.
+extern line; 0.31 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -909,7 +938,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 0.30 native backend is enough for CRUD/settings-style screens, selection,
+The 0.31 native backend is enough for CRUD/settings-style screens, selection,
 media, hover
 overlays, and common pointer events, not all of iced. It still lacks direct
 syntax for canvas, general overlays/modals, rich text
@@ -943,7 +972,7 @@ compile-tested widget example is
 [`examples/iced-app/src/ui/showcase.ice`](examples/iced-app/src/ui/showcase.ice).
 Together they exercise
 state inference, typed extern structs/functions, mount and result handlers,
-direct input binding, `if`, `for`, native keyed columns and lazy subtrees, parsed Markdown, pure components, structured slot composition,
+direct input binding, `if`, `for`, native keyed columns and lazy subtrees, parsed Markdown, structured tables, pure components, structured slot composition,
 dynamic component IDs,
 theme utilities, disabled controls, fallible asynchronous tasks, complete
 wrapping row/column layouts, grids and fully sized underlay stacks, toggles,

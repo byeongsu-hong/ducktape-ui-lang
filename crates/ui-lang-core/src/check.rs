@@ -246,6 +246,12 @@ fn slots(node: &ViewNode) -> Vec<&Span> {
                 collect(content, output);
                 collect(tip, output);
             }
+            ViewNode::Table { columns, .. } => {
+                for column in columns {
+                    collect(&column.header, output);
+                    collect(&column.cell, output);
+                }
+            }
             ViewNode::Component {
                 content: Some(content),
                 ..
@@ -1078,6 +1084,50 @@ fn infer_view(
             }
             infer_route(route, Some(Type::Str), env, document, signatures)?;
         }
+        ViewNode::Table {
+            item,
+            rows,
+            options,
+            columns,
+            span,
+        } => {
+            let Type::List(inner) = expr_type(rows, env, document, span)? else {
+                return Err(Error::new("E139", span, "table expects a list of rows"));
+            };
+            if let Some(LengthValue::Fixed(value)) = &options.width {
+                require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+                require_literal_range(value, 0.0, None, "table width", span)?;
+            }
+            for (value, label) in [
+                (&options.padding, "table padding"),
+                (&options.padding_x, "table horizontal padding"),
+                (&options.padding_y, "table vertical padding"),
+                (&options.separator, "table separator"),
+                (&options.separator_x, "table horizontal separator"),
+                (&options.separator_y, "table vertical separator"),
+            ] {
+                if let Some(value) = value {
+                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+                    require_literal_range(value, 0.0, None, label, span)?;
+                }
+            }
+            let mut cell_env = env.clone();
+            cell_env.insert(item.clone(), *inner);
+            for column in columns {
+                if let Some(LengthValue::Fixed(value)) = &column.width {
+                    require_type(
+                        &expr_type(value, env, document, &column.span)?,
+                        &Type::F64,
+                        &column.span,
+                    )?;
+                    require_literal_range(value, 0.0, None, "table column width", &column.span)?;
+                }
+                let mut header_ids = HashSet::new();
+                infer_view(&column.header, env, document, signatures, &mut header_ids)?;
+                let mut cell_ids = HashSet::new();
+                infer_view(&column.cell, &cell_env, document, signatures, &mut cell_ids)?;
+            }
+        }
         ViewNode::Component {
             name,
             args,
@@ -1520,6 +1570,13 @@ fn check_lazy_subtree(
         ViewNode::Tooltip { content, tip, .. } => {
             check_lazy_subtree(content, document, components, supplied_slot)?;
             check_lazy_subtree(tip, document, components, supplied_slot)
+        }
+        ViewNode::Table { columns, .. } => {
+            for column in columns {
+                check_lazy_subtree(&column.header, document, components, supplied_slot)?;
+                check_lazy_subtree(&column.cell, document, components, supplied_slot)?;
+            }
+            Ok(())
         }
         ViewNode::Responsive { content, .. } => match content {
             ResponsiveContent::Breakpoint { narrow, wide, .. } => {
@@ -2709,6 +2766,36 @@ view
         let error = analyze(&source.replace("markdown docs", "markdown missing")).unwrap_err();
         assert_eq!(error.code, "E139");
         assert!(error.message.contains("unknown markdown state"));
+    }
+
+    #[test]
+    fn checks_structured_tables_and_metrics() {
+        let source = r#"app Rows
+extern crate::backend
+  Item(name:str, done:bool)
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  rows:[Item] = []
+view
+  table row in rows width=fill padding=4.0 padding-x=8.0 padding-y=6.0 separator=1.0 separator-x=2.0 separator-y=3.0
+    column width=fill(2) align-x=left align-y=center
+      header
+        text "Name"
+      cell
+        text row.name
+"#;
+        analyze(source).unwrap();
+
+        let error = analyze(&source.replace("padding=4.0", "padding=-1.0")).unwrap_err();
+        assert!(error.message.contains("outside its valid range"));
+
+        let error = analyze(&source.replace("table row in rows", "table row in true")).unwrap_err();
+        assert_eq!(error.code, "E139");
+        assert!(error.message.contains("list of rows"));
     }
 
     #[test]

@@ -15,7 +15,7 @@ container API, so container remains partial.
 
 ## Typed system reachability
 
-Ice 0.30 has three checked Rust boundaries:
+Ice 0.31 has three checked Rust boundaries:
 
 | Boundary | Rust ABI | Covers |
 | --- | --- | --- |
@@ -61,7 +61,7 @@ public behavior has direct documented Ice syntax and tests.
 | `space` | native | optional fixed/fill/fill-portion/shrink width and height cover the complete widget API |
 | `stack` | native | ordered children, all `Length` widths/heights, clipping and `push_under` base-layer behavior via `under=N` |
 | `svg` | partial | native path, all four iced length variants, fit, rotation and opacity; memory handles and status style missing |
-| `table` | missing | columns, headers, rows, sizing |
+| `table` | native | typed cloned rows, arbitrary header/cell subtrees, automatic row/column identity scopes, all table width/padding/separator setters and all column width/alignment setters |
 | `text` | partial | native string/numeric value, bounds, relative/absolute line height, alignment, shaping, wrapping, default/mono font, color and bold; arbitrary font attributes, rich spans and full style catalog missing |
 | `text_editor` | missing | content state, actions, highlight, key bindings |
 | `text_input` | partial | native binding, hint, disabled/secure, ID, submit/paste, typed width/padding/size/line-height, alignment, default/mono font, icon and basic style; arbitrary fonts and full style catalog missing |
