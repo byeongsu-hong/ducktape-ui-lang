@@ -1522,6 +1522,40 @@ fn render_node(
                 "::iced::widget::lazy(({dependency}, ({scope}).to_owned()), move |__dependency| {{ let {binding}: {dependency_rust} = __dependency.0.clone(); let __lazy_scope = __dependency.1.clone(); let __lazy_content: ::iced::Element<'static, {message}> = {child}; __lazy_content }}).into()"
             ))
         }
+        ViewNode::Markdown {
+            content,
+            options,
+            route,
+            ..
+        } => {
+            let mut settings = String::from(
+                "let mut __markdown_settings = ::iced::widget::markdown::Settings::from(self.__theme());",
+            );
+            for (value, field) in [
+                (&options.text_size, "text_size"),
+                (&options.h1_size, "h1_size"),
+                (&options.h2_size, "h2_size"),
+                (&options.h3_size, "h3_size"),
+                (&options.h4_size, "h4_size"),
+                (&options.h5_size, "h5_size"),
+                (&options.h6_size, "h6_size"),
+                (&options.code_size, "code_size"),
+                (&options.spacing, "spacing"),
+            ] {
+                if let Some(value) = value {
+                    write!(
+                        settings,
+                        " __markdown_settings.{field} = ({} as f32).into();",
+                        expr_code(value, env, document, ValueMode::Owned)?
+                    )
+                    .unwrap();
+                }
+            }
+            let route = route_code(route, "__uri", env, document, message)?;
+            Ok(format!(
+                "{{ {settings} ::iced::widget::markdown::view(self.{content}.items(), __markdown_settings).map(move |__uri| {route}) }}"
+            ))
+        }
         ViewNode::If { span, .. } | ViewNode::For { span, .. } => Err(Error::new(
             "E170",
             span,
@@ -2120,6 +2154,10 @@ fn expr_code(
                 "::std::option::Option::Some({})",
                 expr_code(&args[0], env, document, ValueMode::Owned)?
             ),
+            "markdown" => format!(
+                "::iced::widget::markdown::Content::parse(&{})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
             _ => unreachable!("checker rejects unknown calls"),
         },
         Expr::Unary { op, value } => format!(
@@ -2233,6 +2271,10 @@ fn ordered_route_code(
 fn initial_code(expr: &Expr, ty: &Type, document: &Document) -> String {
     match (expr, ty) {
         (Expr::Str(value), Type::Str) => format!("{}.to_owned()", rust_string(value)),
+        (Expr::Str(value), Type::Markdown) => format!(
+            "::iced::widget::markdown::Content::parse({})",
+            rust_string(value)
+        ),
         (Expr::EmptyList, Type::List(_)) => "::std::vec::Vec::new()".into(),
         (Expr::EmptyList, Type::Combo(_)) => {
             "::iced::widget::combo_box::State::new(::std::vec::Vec::new())".into()
@@ -3572,6 +3614,44 @@ view
         assert!(generated.contains("let cached: ::std::string::String = __dependency.0.clone()"));
         assert!(generated.contains("let __lazy_content: ::iced::Element<'static,"));
         assert!(generated.contains("let __lazy_scope = __dependency.1.clone()"));
+    }
+
+    #[test]
+    fn lowers_parsed_markdown_with_complete_sizes_and_link_route() {
+        let source = r##"app Docs
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  docs:markdown = "# Hello"
+on open(url)
+on reset
+  docs = markdown("# Reset")
+view
+  markdown docs text-size=16.0 h1-size=32.0 h2-size=28.0 h3-size=24.0 h4-size=20.0 h5-size=18.0 h6-size=16.0 code-size=13.0 spacing=12.0 -> open _
+"##;
+        let generated = compile(source, "docs.ice").unwrap();
+        assert!(generated.contains("docs: ::iced::widget::markdown::Content::parse(\"# Hello\")"));
+        assert!(generated.contains(
+            "self.docs = ::iced::widget::markdown::Content::parse(&\"# Reset\".to_owned())"
+        ));
+        for field in [
+            "text_size",
+            "h1_size",
+            "h2_size",
+            "h3_size",
+            "h4_size",
+            "h5_size",
+            "h6_size",
+            "code_size",
+            "spacing",
+        ] {
+            assert!(generated.contains(&format!("__markdown_settings.{field} =")));
+        }
+        assert!(generated.contains("::iced::widget::markdown::view(self.docs.items()"));
+        assert!(generated.contains("map(move |__uri| __DocsMessage::Open(__uri))"));
     }
 
     #[test]

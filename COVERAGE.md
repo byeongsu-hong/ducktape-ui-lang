@@ -15,7 +15,7 @@ container API, so container remains partial.
 
 ## Typed system reachability
 
-Ice 0.29 has three checked Rust boundaries:
+Ice 0.30 has three checked Rust boundaries:
 
 | Boundary | Rust ABI | Covers |
 | --- | --- | --- |
@@ -42,7 +42,7 @@ public behavior has direct documented Ice syntax and tests.
 | `image` | partial | native path, all four iced length variants, fit, filter, rotation, opacity, scale, expand and radius; memory handles and crop missing |
 | `keyed` | native | typed list template with bool/i64/f64 identity keys, automatic keyed child scopes, spacing/per-side padding/all `Length` bounds, max width and alignment |
 | `lazy` | native | hash-keyed rebuilds with bool/i64/str, `Hash + Clone` extern values, recursive list/optional dependencies, a dependency-only scope and statically enforced owned `Element<'static>` subtrees |
-| `markdown` | missing | parsing/settings/link events |
+| `markdown` | partial | owned parsed/replaced content, syntax highlighting, every `Settings` size/spacing field and str link events; incremental append, image URI access, full `Style` and custom `Viewer` remain |
 | `mouse_area` | native | all button/enter/move/scroll/exit events, scroll unit preservation, and all cursor interactions |
 | `overlay` | missing | modal/overlay positioning and dismissal |
 | `pane_grid` | missing | pane state, resizing, dragging, focus |
