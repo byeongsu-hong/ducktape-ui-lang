@@ -256,8 +256,16 @@ pub enum ExternKind {
 pub struct Subscription {
     pub source: SubscriptionSource,
     pub condition: Option<Expr>,
+    pub status: Option<EventStatus>,
     pub route: Route,
     pub span: Span,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EventStatus {
+    Any,
+    Captured,
+    Ignored,
 }
 
 #[derive(Clone, Debug)]

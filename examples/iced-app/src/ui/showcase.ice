@@ -381,7 +381,7 @@ on system_theme_changed(next)
 
 subscribe
   app_events() -> external_event _
-  keyboard press -> key_pressed _
+  keyboard press status=ignored -> key_pressed _
   keyboard release -> key_released _
   keyboard modifiers -> key_modifiers_changed _
   system theme -> system_theme_changed _

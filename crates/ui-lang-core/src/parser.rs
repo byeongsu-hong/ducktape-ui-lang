@@ -639,6 +639,22 @@ fn parse_subscription(line: &Line) -> Result<Subscription, Error> {
         .map_or((call, None), |(call, condition)| {
             (call.trim(), Some(condition.trim()))
         });
+    let (call, status) =
+        split_top_marker(call, " status=").map_or(Ok((call, None)), |(call, status)| {
+            let status = match status.trim() {
+                "any" => EventStatus::Any,
+                "captured" => EventStatus::Captured,
+                "ignored" => EventStatus::Ignored,
+                _ => {
+                    return Err(error(
+                        "E084",
+                        line,
+                        "subscription status must be any, captured, or ignored",
+                    ));
+                }
+            };
+            Ok((call.trim(), Some(status)))
+        })?;
     let source = if call == "system theme" {
         SubscriptionSource::SystemTheme
     } else if let Some(duration) = call.strip_prefix("every ") {
@@ -725,11 +741,40 @@ fn parse_subscription(line: &Line) -> Result<Subscription, Error> {
             args: parse_expr_list(&args, line)?,
         }
     };
+    if status.is_some()
+        && !matches!(
+            &source,
+            SubscriptionSource::InputMethod(_)
+                | SubscriptionSource::Keyboard(_)
+                | SubscriptionSource::Mouse(_)
+                | SubscriptionSource::Touch(_)
+                | SubscriptionSource::Window(
+                    WindowEvent::Opened
+                        | WindowEvent::Closed
+                        | WindowEvent::Moved
+                        | WindowEvent::Resized
+                        | WindowEvent::Rescaled
+                        | WindowEvent::CloseRequested
+                        | WindowEvent::Focused
+                        | WindowEvent::Unfocused
+                        | WindowEvent::FileHovered
+                        | WindowEvent::FileDropped
+                        | WindowEvent::FilesHoveredLeft
+                )
+        )
+    {
+        return Err(error(
+            "E084",
+            line,
+            "status filtering is only available on non-frame runtime events",
+        ));
+    }
     Ok(Subscription {
         source,
         condition: condition
             .map(|condition| parse_expr(condition, line))
             .transpose()?,
+        status,
         route: parse_route(route.trim(), line)?,
         span: Span::line(line.number),
     })

@@ -653,7 +653,8 @@ fn generate_subscription(
                         route_code(&subscription.route, "__value", &env, document, message)?
                     }
                 };
-                writeln!(out, "::iced::event::listen_with(|__event, _, _| {{ {filter} }}).map(move |__value| {message_code}),").unwrap();
+                let (filter, status) = event_status_filter(filter, subscription.status);
+                writeln!(out, "::iced::event::listen_with(|__event, {status}, _| {{ {filter} }}).map(move |__value| {message_code}),").unwrap();
             }
             SubscriptionSource::Keyboard(event) => {
                 let filter = match event {
@@ -667,7 +668,15 @@ fn generate_subscription(
                         "match __event { ::iced::keyboard::Event::ModifiersChanged(modifiers) => ::std::option::Option::Some(__ice_key_modifiers(modifiers)), _ => ::std::option::Option::None }"
                     }
                 };
-                writeln!(out, "::iced::keyboard::listen().filter_map(|__event| {{ {filter} }}).map(move |__value| {route}),").unwrap();
+                if subscription.status.is_some() {
+                    let filter = format!(
+                        "match __event {{ ::iced::Event::Keyboard(__event) => {{ {filter} }}, _ => ::std::option::Option::None }}"
+                    );
+                    let (filter, status) = event_status_filter(&filter, subscription.status);
+                    writeln!(out, "::iced::event::listen_with(|__event, {status}, _| {{ {filter} }}).map(move |__value| {route}),").unwrap();
+                } else {
+                    writeln!(out, "::iced::keyboard::listen().filter_map(|__event| {{ {filter} }}).map(move |__value| {route}),").unwrap();
+                }
             }
             SubscriptionSource::Mouse(event) => {
                 let filter = match event {
@@ -712,7 +721,8 @@ fn generate_subscription(
                         message,
                     )?,
                 };
-                writeln!(out, "::iced::event::listen_with(|__event, _, _| {{ {filter} }}).map(move |__value| {message_code}),").unwrap();
+                let (filter, status) = event_status_filter(filter, subscription.status);
+                writeln!(out, "::iced::event::listen_with(|__event, {status}, _| {{ {filter} }}).map(move |__value| {message_code}),").unwrap();
             }
             SubscriptionSource::SystemTheme => {
                 writeln!(out, "::iced::system::theme_changes().map(__ice_system_theme).map(move |__value| {route}),").unwrap();
@@ -734,7 +744,8 @@ fn generate_subscription(
                     document,
                     message,
                 )?;
-                writeln!(out, "::iced::event::listen_with(|__event, _, _| {{ {filter} }}).map(move |__value| {message_code}),").unwrap();
+                let (filter, status) = event_status_filter(&filter, subscription.status);
+                writeln!(out, "::iced::event::listen_with(|__event, {status}, _| {{ {filter} }}).map(move |__value| {message_code}),").unwrap();
             }
             SubscriptionSource::Window(event) => {
                 if *event == WindowEvent::Frame {
@@ -813,7 +824,15 @@ fn generate_subscription(
                     }
                     WindowEvent::Frame => unreachable!("handled above"),
                 };
-                writeln!(out, "::iced::window::events().filter_map(|(_, __event)| {{ {filter} }}).map(move |__value| {message_code}),").unwrap();
+                if subscription.status.is_some() {
+                    let filter = format!(
+                        "match __event {{ ::iced::Event::Window(__event) => {{ {filter} }}, _ => ::std::option::Option::None }}"
+                    );
+                    let (filter, status) = event_status_filter(&filter, subscription.status);
+                    writeln!(out, "::iced::event::listen_with(|__event, {status}, _| {{ {filter} }}).map(move |__value| {message_code}),").unwrap();
+                } else {
+                    writeln!(out, "::iced::window::events().filter_map(|(_, __event)| {{ {filter} }}).map(move |__value| {message_code}),").unwrap();
+                }
             }
         }
         if condition.is_some() {
@@ -822,6 +841,24 @@ fn generate_subscription(
     }
     writeln!(out, "])\n}}").unwrap();
     Ok(())
+}
+
+fn event_status_filter(filter: &str, status: Option<EventStatus>) -> (String, &'static str) {
+    match status {
+        None | Some(EventStatus::Any) => (filter.to_owned(), "_"),
+        Some(EventStatus::Captured) => (
+            format!(
+                "if matches!(__status, ::iced::event::Status::Captured) {{ {filter} }} else {{ ::std::option::Option::None }}"
+            ),
+            "__status",
+        ),
+        Some(EventStatus::Ignored) => (
+            format!(
+                "if matches!(__status, ::iced::event::Status::Ignored) {{ {filter} }} else {{ ::std::option::Option::None }}"
+            ),
+            "__status",
+        ),
+    }
 }
 
 fn generate_view(out: &mut String, document: &Document, message: &str) -> Result<(), Error> {
@@ -5399,7 +5436,7 @@ on released(event)
 on modifiers_changed(modifiers)
   command = modifiers.command
 subscribe
-  keyboard press -> pressed _
+  keyboard press status=ignored -> pressed _
   keyboard release -> released _
   keyboard modifiers -> modifiers_changed _
 view
@@ -5413,6 +5450,7 @@ view
         assert!(generated.contains("::iced::keyboard::Event::KeyPressed"));
         assert!(generated.contains("::iced::keyboard::Event::KeyReleased"));
         assert!(generated.contains("::iced::keyboard::Event::ModifiersChanged"));
+        assert!(generated.contains("::iced::event::Status::Ignored"));
         assert!(generated.contains("self.key = event.key.clone()"));
         assert!(generated.contains("self.command = event.modifiers.command.clone()"));
     }
@@ -5435,6 +5473,8 @@ view
             "if self.listen_frames { ::iced::Subscription::batch([::iced::window::frames()"
         ));
         assert!(generated.contains("]) } else { ::iced::Subscription::none() }"));
+        assert!(generated.contains("::iced::Event::Window(__event)"));
+        assert!(generated.contains("::iced::event::Status::Captured"));
     }
 
     #[test]
@@ -5446,6 +5486,7 @@ view
         assert!(generated.contains("::iced::advanced::input_method::Event::Commit"));
         assert!(generated.contains("::iced::advanced::input_method::Event::Closed"));
         assert!(generated.contains("i64::try_from(range.start)"));
+        assert!(generated.contains("|__event, _, _|"));
     }
 
     #[test]
@@ -5461,6 +5502,7 @@ view
         assert!(generated.contains("::iced::mouse::Event::ButtonReleased"));
         assert!(generated.contains("::iced::mouse::Event::WheelScrolled"));
         assert!(generated.contains("::iced::mouse::ScrollDelta::Pixels"));
+        assert!(generated.contains("::iced::event::Status::Captured"));
     }
 
     #[test]
@@ -5472,6 +5514,7 @@ view
         assert!(generated.contains("::iced::touch::Event::FingerLifted"));
         assert!(generated.contains("::iced::touch::Event::FingerLost"));
         assert!(generated.contains("id.0.to_string()"));
+        assert!(generated.contains("::iced::event::Status::Ignored"));
     }
 
     #[test]

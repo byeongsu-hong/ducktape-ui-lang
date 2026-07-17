@@ -21,7 +21,7 @@ on wheel(x, y, pixels)
 subscribe
   mouse entered -> entered
   mouse left -> left
-  mouse moved -> moved _ _
+  mouse moved status=captured -> moved _ _
   mouse pressed -> pressed _
   mouse released -> released _
   mouse wheel -> wheel _ _ _

@@ -37,7 +37,7 @@ subscribe
   window frame when listen_frames -> frame
   window opened -> opened _ _ _ _
   window closed -> closed
-  window moved -> moved _ _
+  window moved status=captured -> moved _ _
   window resized -> resized _ _
   window rescaled -> rescaled _
   window close-request -> close_requested
