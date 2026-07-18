@@ -1,5 +1,8 @@
 ui_lang::include_app!("src/ui/tasks.ice");
 
+#[cfg(test)]
+mod rotation;
+
 mod backend {
     use std::sync::{LazyLock, Mutex, MutexGuard};
 
@@ -98,6 +101,9 @@ mod backend {
     ) -> iced::Padding {
         padding
     }
+
+    #[cfg(test)]
+    pub use crate::rotation::rotation_round_trip;
 
     #[cfg(test)]
     pub fn elastic(value: f64) -> f64 {

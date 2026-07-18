@@ -8634,6 +8634,7 @@ fn parse_type(source: &str, line: &Line) -> Result<Type, Error> {
         "padding" => Type::Padding,
         "degrees" => Type::Degrees,
         "radians" => Type::Radians,
+        "rotation" => Type::Rotation,
         "point" => Type::Point,
         "point-u32" => Type::PointU32,
         "vector" => Type::Vector,
@@ -9244,6 +9245,20 @@ fn error(code: &'static str, line: &Line, message: impl Into<String>) -> Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_first_class_native_rotation() {
+        let source = include_str!("../../../examples/iced-app/src/ui/rotation.ice");
+        let document = parse(source).unwrap();
+        assert_eq!(document.functions[0].params[0].1, Type::Rotation);
+        assert_eq!(document.functions[0].output, Type::Rotation);
+        assert_eq!(document.states[1].ty, Type::Rotation);
+        assert!(matches!(
+            &document.handlers[0].statements[1],
+            Statement::Assign { value: Expr::Call { name, .. }, .. }
+                if name == "rotation.floating"
+        ));
+    }
 
     #[test]
     fn parses_native_debug_timing_state_and_statements() {

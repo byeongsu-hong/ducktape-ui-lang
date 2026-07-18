@@ -115,6 +115,8 @@ Key files:
   unsigned snapping;
 - [`padding_angles.ice`](examples/iced-app/src/ui/padding_angles.ice) preserves
   native pixels, padding, degrees, and radians through operations and externs;
+- [`rotation.ice`](examples/iced-app/src/ui/rotation.ice) preserves the native
+  rotation enum, mutation/query API, geometry application, and widget passage;
 - [`animation.ice`](examples/iced-app/src/ui/animation.ice) declares native
   boolean/numeric animation state with checked easing, timing, projection, and
   active-frame driving;
@@ -130,7 +132,9 @@ Key files:
   subtree using a different Rust Theme type;
 - [`native_overlay.ice`](examples/iced-app/src/ui/native_overlay.ice) proves the
   typed Element escape hatch with a custom indexed Overlay;
-- [`main.rs`](examples/iced-app/src/main.rs) owns the Rust backend;
+- [`main.rs`](examples/iced-app/src/main.rs) owns the Rust backend; new fixture
+  harnesses stay in dedicated modules such as
+  [`rotation.rs`](examples/iced-app/src/rotation.rs) instead of growing it;
 - [`SPEC.md`](SPEC.md) defines the implemented language.
 
 ## Tooling
@@ -157,7 +161,7 @@ cargo fmt --all
 
 ## Status
 
-This is an executable v1.39 language slice, not yet a complete iced replacement.
+This is an executable v1.40 language slice, not yet a complete iced replacement.
 It implements typed extern data/actions, state, handlers, async tasks, pure
 components with named props, default children, named structural slots, and
 React-like qualified compound children, scoped IDs, relative
