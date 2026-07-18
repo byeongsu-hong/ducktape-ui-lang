@@ -148,7 +148,7 @@ cargo fmt --all
 
 ## Status
 
-This is an executable v1.33 language slice, not yet a complete iced replacement.
+This is an executable v1.34 language slice, not yet a complete iced replacement.
 It implements typed extern data/actions, state, handlers, async tasks, pure
 components with named props, default children, named structural slots, and
 React-like qualified compound children, scoped IDs, relative
@@ -193,10 +193,11 @@ Native containers expose their complete concrete layout and surface style APIs,
 including linear backgrounds, per-corner borders, shadows, and pixel snapping.
 Tooltip, progress, and stateful slider surfaces accept checked linear backgrounds.
 Persistent pane grids support recursive initial layouts with named nested
-splits, declared dynamic panes, native title bars with responsive controls,
-linear backgrounds, every concrete pane-grid state style and pane surface
-style, typed native runtime style callbacks, and checked split, arrange,
-targeted resize, close, maximize, and adjacency queries.
+splits, closed panes and list-keyed runtime pane templates, native title bars
+with responsive controls, scoped maximized flags, linear backgrounds, every
+concrete pane-grid state style and pane surface style, typed native runtime
+style callbacks, and checked split, arrange, targeted resize, close, maximize,
+and adjacency queries.
 Typed `Element`, `Task`, and `Subscription` adapters expose advanced iced
 features without embedding Rust inside `.ice`. Unsupported syntax is rejected
 instead of silently ignored.

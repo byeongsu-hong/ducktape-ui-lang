@@ -15,7 +15,7 @@ counts toward the row below.
 
 ## Typed system reachability
 
-Ice 1.31 has thirty-one checked Rust boundaries:
+Ice 1.34 has thirty-two checked Rust boundaries:
 
 | Boundary | Rust ABI | Covers |
 | --- | --- | --- |
@@ -50,6 +50,7 @@ Ice 1.31 has thirty-one checked Rust boundaries:
 | `scroll-style name(args)` | `fn(&Theme, scrollable::Status, ...) -> scrollable::Style` | native theme/status-aware runtime scrollable style callbacks, equivalent to the default Theme's advanced class representation |
 | `pick-list-style name(args)` | `fn(&Theme, pick_list::Status, ...) -> pick_list::Style` | native theme/status-aware runtime pick-list style callbacks, equivalent to the default Theme's advanced class representation |
 | `menu-style name(args)` | `fn(&Theme, ...) -> menu::Style` | native theme-aware runtime pick-list/combo overlay menu callbacks, equivalent to the default Theme's advanced class representation |
+| `pane-grid-style name(args)` | `fn(&Theme, ...) -> pane_grid::Style` | native theme-aware runtime pane-grid callbacks, equivalent to the default Theme's advanced class representation |
 
 Generated probes verify the concrete Rust signatures. Reachability is not the
 same as native coverage: a row stays partial or missing until its complete
@@ -74,7 +75,7 @@ public behavior has direct documented Ice syntax and tests.
 | `markdown` | native | owned parsed/replaced/incrementally appended content, image URI access, syntax highlighting, every `Settings` and `Style` field, str link events, and a typed custom `Viewer` boundary covering every item renderer through native `view_with` |
 | `mouse_area` | native | all button/enter/move/scroll/exit events, scroll unit preservation, and all cursor interactions |
 | `overlay` | native | structured content/layer sections, conditional visibility, all three alignments on both axes, padding, checked backdrop color, modal button/scroll blocking and backdrop dismissal lower through native Stack/Float behavior; typed owned Element adapters cover the complete advanced `Overlay` trait including layout, draw, operate, update, mouse interaction, nested overlays, and `index()` ordering |
-| `pane_grid` | partial | recursive initial split trees with stable named nested-split resize, closed templates, declared dynamic splits, bounds, click, interactive resize/drag, maximize/query, adjacency, swap, close, move-to-edge, root resize and region drop; native Content/TitleBar, full and responsive compact Controls, per-side title padding and visibility; every concrete PaneGrid Style field including linear hovered backgrounds plus typed native runtime callbacks covering advanced classes; every concrete Content/TitleBar container Style field including linear background, per-corner border, shadow and pixel snap; runtime-generated pane templates remain |
+| `pane_grid` | native | recursive initial split trees with stable named nested-split resize, closed panes, list-keyed runtime pane templates with typed dynamic references, scoped per-pane maximized callback flags, bounds, click, interactive resize/drag, maximize/query, adjacency, swap, close, move-to-edge, root resize and region drop; native Content/TitleBar, full and responsive compact Controls, per-side title padding and visibility; every concrete PaneGrid Style field including linear hovered backgrounds plus typed native runtime callbacks covering advanced classes; every concrete Content/TitleBar container Style field including linear background, per-corner border, shadow and pixel snap |
 | `pick_list` | native | native typed choices/optional selection, every builder setter, all arrow/static/dynamic/none handles, every concrete Style field across active/hovered/opened/opened-hovered statuses, complete menu overlay Style fields, and typed native field/menu callbacks covering the default Theme's advanced classes |
 | `pin` | native | one child, all `Length` bounds and pixel x/y positioning; x/y is behaviorally identical to iced's `position(Point)` helper |
 | `progress_bar` | native | native range/value, all length/girth variants, horizontal/vertical, five presets, checked solid/linear track and bar backgrounds, border and per-corner radius, plus typed theme-aware runtime style callbacks covering the default Theme's advanced classes |

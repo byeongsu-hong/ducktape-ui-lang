@@ -1,4 +1,4 @@
-# Ice Language Specification 1.33
+# Ice Language Specification 1.34
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 1.33 syntax.
+marked “planned” is a design constraint, not accepted 1.34 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 1.33.
+  block comments are not part of 1.34.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -458,9 +458,9 @@ rich_span_property = ("size=" | "line-height=" | "line-height-px=") expr
                    | "strike" | "strike=" expr
 pane_grid      = "pane-grid" id
                  ("split=" pane_axis ("ratio=" number)? pane_grid_property*
-                   INDENT pane_grid_style? pane_view pane_view closed_pane*
+                   INDENT pane_grid_style? pane_view pane_view pane_declaration*
                  | pane_grid_property*
-                   INDENT pane_grid_style? pane_configuration closed_pane*)
+                   INDENT pane_grid_style? pane_configuration pane_declaration*)
 pane_grid_property = ("width=" | "height=") length
                    | ("spacing=" | "min-size=" | "resize=") expr
                    | "drag" | "click=" route | "style=" call
@@ -476,10 +476,14 @@ pane_line_style_property = "color=" name ("/" u8)? | "width=" expr
 pane_configuration = pane_view
                    | "split" name? pane_axis ("ratio=" number)?
                      INDENT pane_configuration pane_configuration
-pane_view      = "pane" name surface_style_property* styles?
+pane_view      = "pane" name pane_property* styles?
                  INDENT (node | pane_section+)
-closed_pane    = "pane" name "closed" surface_style_property* styles?
+closed_pane    = "pane" name "closed" pane_property* styles?
                  INDENT (node | pane_section+)
+pane_template  = "pane" name "in" name "by=" expr
+                 pane_property* styles? INDENT (node | pane_section+)
+pane_declaration = closed_pane | pane_template
+pane_property  = surface_style_property | "maximized=" name
 pane_section   = "title" pane_title_property* styles? INDENT node
                | "controls" INDENT node
                | "compact-controls" INDENT node
@@ -1006,7 +1010,7 @@ maximum size. `icon-rgba` embeds a relative raw RGBA file without an image
 codec; width and height are positive integers, and generated Rust rejects a
 byte length other than `width × height × 4`. `cargo ice check` reports a
 mismatch at the icon declaration, and generated Rust repeats the check at
-compile time. Encoded icon formats remain outside 1.33.
+compile time. Encoded icon formats remain outside 1.34.
 
 Application boot presets are structured top-level declarations:
 
@@ -1557,7 +1561,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 1.33 message payloads.
+`Clone` for 1.34 message payloads.
 
 Declared `sync` functions are checked, synchronous Rust calls available in
 Ice expressions. They are the small escape hatch for pure domain conversions
@@ -2029,7 +2033,7 @@ The implemented native nodes are:
 | `overlay` | named `content` and `layer` trees with checked visibility, alignment, padding, backdrop and optional dismissal |
 | `text` | one `str`, `i64`, or `f64` expression with bounds, size/line-height, font, alignment, shaping, wrapping and checked color/weight styles |
 | `rich-text` | zero or more structured spans with rich defaults, complete span highlights and optional string link events |
-| `pane-grid` | named pane trees backed by recursive persistent split state, structured title/full/compact controls, complete concrete state and surface styles with linear backgrounds, closed templates, dynamic opening, click, resize and drag/drop behavior |
+| `pane-grid` | named pane trees backed by recursive persistent split state, structured title/full/compact controls, complete concrete state and surface styles with linear backgrounds, closed panes, list-keyed runtime templates, typed dynamic references, click, resize and drag/drop behavior |
 | `input` | required `str` binding; ID, hint, disabled/secure, submit/paste, every concrete builder setter, complete icon, all concrete status style fields, and typed native runtime style callbacks |
 | `button` | string label or one child; optional ID/disabled, typed size/padding/clip, eight presets, complete status styles, typed native runtime style callbacks and required route |
 | `checkbox` | string label, bool value/route, disabled, sizing/typography/wrapping/font, custom icon, four presets and complete checked-aware status styles |
@@ -2140,8 +2144,9 @@ color; attach a string link; use a solid or linear highlight background with
 complete border/radius/padding; and toggle underline or strikethrough.
 
 A pane grid owns persistent iced layout state generated from its required static
-ID. Pane names are the only identity exposed to Ice; native pane/split IDs stay
-inside generated Rust. `resize=` is grab leeway and enables automatic ratio
+ID. Static names and checked `template(key)` references are the identities
+exposed to Ice; native pane/split IDs stay inside generated Rust. `resize=` is
+grab leeway and enables automatic ratio
 updates, while `drag` automatically applies successful drop targets. The old
 two-pane shorthand remains valid:
 
@@ -2169,6 +2174,45 @@ pane-grid #workspace width=fill height=fill
   pane preview closed
     Preview
 ```
+
+A runtime pane template repeats one checked pane body over list state. It is
+initially closed; handlers open and target any item through the template's
+bool, i64, f64, or str key:
+
+```ice
+state
+  documents:[Document] = []
+  selected_id = 42
+
+on open_document
+  pane #workspace split editor document(selected_id) horizontal ratio=0.4
+
+on close_document(id)
+  pane #workspace close document(id)
+
+view
+  pane-grid #workspace
+    pane editor
+      EditorHome
+    pane document in documents by=document.id maximized=is_maximized
+      title
+        text document.title
+      controls
+        button "Close" -> close_document document.id
+      content
+        col
+          if is_maximized
+            text "Focused editor"
+          DocumentEditor document=document
+```
+
+The list must be app state so the generated pane body can safely borrow its
+current item. If an open key is no longer present, the pane renders a readable
+missing-data placeholder until it is closed or the item returns. Opening the
+same `template(key)` twice is a no-op. Optional `maximized=name` binds iced's
+per-pane maximized callback flag as a checked bool inside that pane's title,
+controls, content, styles, and scoped IDs; it works on static, closed, and
+runtime panes.
 
 A pane may expose iced's native `Content`, `TitleBar`, and `Controls`
 structure directly. `compact-controls` is the fallback used when the full
@@ -2225,8 +2269,8 @@ pane-grid #workspace split=vertical style=workspace_panes(loading)
 ```
 
 Pane grids may only live in the app view because component/repeated instances
-need separately keyed persistent state. Click routes receive the stable pane
-name as `str`.
+need separately keyed persistent state. Click routes receive a stable `str`:
+the static name or `template(key)` for a runtime pane.
 
 Canvas is a checked declarative layer over iced's native `Canvas`, `Program`,
 `Frame`, `Path`, and `Cache`. Its body is drawing code, not a widget subtree:
@@ -3021,8 +3065,11 @@ pane #workspace maximized -> pane_observed _
 pane #workspace adjacent tasks right -> pane_observed _
 ```
 
-Grid and pane names are checked against the static app view. Effects mutate the
-compiler-owned `pane_grid::State` synchronously and do not accept routes.
+Grid names, static pane names, template names, and dynamic key types are checked
+against the app view. Effects mutate the compiler-owned `pane_grid::State`
+synchronously and do not accept routes. Any pane argument may use
+`template(key)`; `split` stores that key and the template resolves the current
+item from its declared list state.
 `maximized` and `adjacent` are final handler queries and emit `str?`, because
 there may be no maximized or adjacent pane. `resize ratio` targets the root
 split. A nested `split name axis` declaration gives that native split a stable
@@ -3283,7 +3330,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 1.33 does not claim that remapping.
+extern line; 1.34 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -3304,7 +3351,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 1.33 native backend is enough for CRUD/settings-style screens, selection,
+The 1.34 native backend is enough for CRUD/settings-style screens, selection,
 media, hover overlays, declarative canvas geometry, and common pointer events,
 not all of iced. It still lacks borrowed custom widgets and a custom renderer
 boundary. [`COVERAGE.md`](COVERAGE.md) is the exact versioned ledger.

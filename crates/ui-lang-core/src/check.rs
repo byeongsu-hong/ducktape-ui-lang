@@ -64,7 +64,7 @@ pub fn check(document: &mut Document) -> Result<(), Error> {
 
     let mut ids = HashSet::new();
     infer_view(&document.view, &states, document, &mut signatures, &mut ids)?;
-    let pane_grids = static_pane_grids(&document.view)?;
+    let pane_grids = static_pane_grids(&document.view, &states, document)?;
     for component in &document.components {
         if let Some(span) = pane_grid_span(&component.root) {
             return Err(Error::new(
@@ -362,12 +362,60 @@ fn widget_operation_ids(
                 collect(content, env, document, scope, slot, components, output)?;
                 collect(layer, env, document, scope, slot, components, output)?;
             }
-            ViewNode::PaneGrid { panes, .. } => {
+            ViewNode::PaneGrid {
+                panes, templates, ..
+            } => {
                 for pane in panes {
+                    let mut pane_env = env.clone();
+                    if let Some(binding) = &pane.maximized {
+                        pane_env.insert(binding.clone(), Type::Bool);
+                    }
                     let mut pane_scope = scope.clone();
                     pane_scope.push((pane.name.clone(), None));
                     for node in pane.nodes() {
-                        collect(node, env, document, &pane_scope, slot, components, output)?;
+                        collect(
+                            node,
+                            &pane_env,
+                            document,
+                            &pane_scope,
+                            slot,
+                            components,
+                            output,
+                        )?;
+                    }
+                }
+                for template in templates {
+                    let Type::List(item_type) = env
+                        .get(&template.items)
+                        .expect("checker validates dynamic pane state")
+                    else {
+                        unreachable!("checker validates dynamic pane lists")
+                    };
+                    let mut template_env = env.clone();
+                    template_env.insert(template.item.clone(), (**item_type).clone());
+                    if let Some(binding) = &template.pane.maximized {
+                        template_env.insert(binding.clone(), Type::Bool);
+                    }
+                    let mut pane_scope = scope.clone();
+                    pane_scope.push((
+                        template.item.clone(),
+                        Some(expr_type(
+                            &template.key,
+                            &template_env,
+                            document,
+                            &template.span,
+                        )?),
+                    ));
+                    for node in template.pane.nodes() {
+                        collect(
+                            node,
+                            &template_env,
+                            document,
+                            &pane_scope,
+                            slot,
+                            components,
+                            output,
+                        )?;
                     }
                 }
             }
@@ -672,6 +720,7 @@ fn check_widget_selector(
 
 struct PaneGridNames {
     panes: HashSet<String>,
+    templates: HashMap<String, Type>,
     splits: HashSet<String>,
 }
 
@@ -685,23 +734,53 @@ fn pane_split_names(configuration: &PaneConfiguration, output: &mut HashSet<Stri
     }
 }
 
-fn static_pane_grids(root: &ViewNode) -> Result<HashMap<String, PaneGridNames>, Error> {
-    fn collect(node: &ViewNode, output: &mut HashMap<String, PaneGridNames>) -> Result<(), Error> {
+fn static_pane_grids(
+    root: &ViewNode,
+    states: &HashMap<String, Type>,
+    document: &Document,
+) -> Result<HashMap<String, PaneGridNames>, Error> {
+    fn collect(
+        node: &ViewNode,
+        states: &HashMap<String, Type>,
+        document: &Document,
+        output: &mut HashMap<String, PaneGridNames>,
+    ) -> Result<(), Error> {
         match node {
             ViewNode::PaneGrid {
                 name,
                 configuration,
                 panes,
+                templates,
                 span,
                 ..
             } => {
                 let mut splits = HashSet::new();
                 pane_split_names(configuration, &mut splits);
+                let mut template_types = HashMap::new();
+                for template in templates {
+                    let Some(Type::List(item_type)) = states.get(&template.items) else {
+                        return Err(Error::new(
+                            "E187",
+                            &template.span,
+                            format!(
+                                "dynamic pane template `{}` requires list state `{}`",
+                                template.item, template.items
+                            ),
+                        ));
+                    };
+                    let mut env = states.clone();
+                    env.insert(template.item.clone(), (**item_type).clone());
+                    template_types.insert(
+                        template.item.clone(),
+                        expr_type(&template.key, &env, document, &template.span)?,
+                    );
+                }
                 if output
                     .insert(
                         name.clone(),
                         PaneGridNames {
                             panes: panes.iter().map(|pane| pane.name.clone()).collect(),
+                            templates: template_types,
                             splits,
                         },
                     )
@@ -715,7 +794,12 @@ fn static_pane_grids(root: &ViewNode) -> Result<HashMap<String, PaneGridNames>, 
                 }
                 for pane in panes {
                     for node in pane.nodes() {
-                        collect(node, output)?;
+                        collect(node, states, document, output)?;
+                    }
+                }
+                for template in templates {
+                    for node in template.pane.nodes() {
+                        collect(node, states, document, output)?;
                     }
                 }
             }
@@ -723,7 +807,7 @@ fn static_pane_grids(root: &ViewNode) -> Result<HashMap<String, PaneGridNames>, 
             | ViewNode::If { children, .. }
             | ViewNode::For { children, .. } => {
                 for child in children {
-                    collect(child, output)?;
+                    collect(child, states, document, output)?;
                 }
             }
             ViewNode::Tooltip { content, tip, .. }
@@ -732,13 +816,13 @@ fn static_pane_grids(root: &ViewNode) -> Result<HashMap<String, PaneGridNames>, 
                 layer: tip,
                 ..
             } => {
-                collect(content, output)?;
-                collect(tip, output)?;
+                collect(content, states, document, output)?;
+                collect(tip, states, document, output)?;
             }
             ViewNode::Table { columns, .. } => {
                 for column in columns {
-                    collect(&column.header, output)?;
-                    collect(&column.cell, output)?;
+                    collect(&column.header, states, document, output)?;
+                    collect(&column.cell, states, document, output)?;
                 }
             }
             ViewNode::MouseArea { content, .. }
@@ -752,25 +836,27 @@ fn static_pane_grids(root: &ViewNode) -> Result<HashMap<String, PaneGridNames>, 
             | ViewNode::Button {
                 content: Some(content),
                 ..
-            } => collect(content, output)?,
+            } => collect(content, states, document, output)?,
             ViewNode::Component { slots, .. } => {
                 for slot in slots {
-                    collect(&slot.content, output)?;
+                    collect(&slot.content, states, document, output)?;
                 }
             }
             ViewNode::Responsive { content, .. } => match content {
                 ResponsiveContent::Breakpoint { narrow, wide, .. } => {
-                    collect(narrow, output)?;
-                    collect(wide, output)?;
+                    collect(narrow, states, document, output)?;
+                    collect(wide, states, document, output)?;
                 }
-                ResponsiveContent::Size { content, .. } => collect(content, output)?,
+                ResponsiveContent::Size { content, .. } => {
+                    collect(content, states, document, output)?
+                }
             },
             _ => {}
         }
         Ok(())
     }
     let mut output = HashMap::new();
-    collect(root, &mut output)?;
+    collect(root, states, document, &mut output)?;
     Ok(output)
 }
 
@@ -1012,6 +1098,17 @@ fn slots(node: &ViewNode) -> Vec<(&str, &Span)> {
                 collect(content, output);
                 collect(layer, output);
             }
+            ViewNode::PaneGrid {
+                panes, templates, ..
+            } => {
+                for child in panes
+                    .iter()
+                    .flat_map(PaneView::nodes)
+                    .chain(templates.iter().flat_map(|template| template.pane.nodes()))
+                {
+                    collect(child, output);
+                }
+            }
             ViewNode::Table { columns, .. } => {
                 for column in columns {
                     collect(&column.header, output);
@@ -1115,9 +1212,27 @@ pub(crate) fn controlled_state_bindings(
                 collect(content, document, editors, env, components, output)?;
                 collect(layer, document, editors, env, components, output)?;
             }
-            ViewNode::PaneGrid { panes, .. } => {
-                for child in panes.iter().flat_map(PaneView::nodes) {
-                    collect(child, document, editors, env, components, output)?;
+            ViewNode::PaneGrid {
+                panes, templates, ..
+            } => {
+                for pane in panes {
+                    let mut child_env = env.clone();
+                    if let Some(binding) = &pane.maximized {
+                        child_env.remove(binding);
+                    }
+                    for child in pane.nodes() {
+                        collect(child, document, editors, &child_env, components, output)?;
+                    }
+                }
+                for template in templates {
+                    let mut child_env = env.clone();
+                    child_env.remove(&template.item);
+                    if let Some(binding) = &template.pane.maximized {
+                        child_env.remove(binding);
+                    }
+                    for child in template.pane.nodes() {
+                        collect(child, document, editors, &child_env, components, output)?;
+                    }
                 }
             }
             ViewNode::Table { item, columns, .. } => {
@@ -1288,9 +1403,12 @@ fn repeated_pane_grid_span(node: &ViewNode) -> Option<&Span> {
         ViewNode::Overlay { content, layer, .. } => {
             repeated_pane_grid_span(content).or_else(|| repeated_pane_grid_span(layer))
         }
-        ViewNode::PaneGrid { panes, .. } => panes
+        ViewNode::PaneGrid {
+            panes, templates, ..
+        } => panes
             .iter()
             .flat_map(PaneView::nodes)
+            .chain(templates.iter().flat_map(|template| template.pane.nodes()))
             .find_map(repeated_pane_grid_span),
         ViewNode::Component { slots, .. } => slots
             .iter()
@@ -1551,6 +1669,7 @@ fn infer_view(
             name,
             options,
             panes,
+            templates,
             span,
             ..
         } => {
@@ -1628,40 +1747,30 @@ fn infer_view(
                 infer_route(click, Some(Type::Str), env, document, signatures)?;
             }
             for pane in panes {
-                check_styles(&pane.styles, document, &pane.span, StyleTarget::PaneContent)?;
-                check_container_style_options(&pane.style, env, document, &pane.span, "E187")?;
-                if let Some(title) = &pane.title {
-                    for value in [
-                        &title.padding.all,
-                        &title.padding.x,
-                        &title.padding.y,
-                        &title.padding.top,
-                        &title.padding.right,
-                        &title.padding.bottom,
-                        &title.padding.left,
-                    ]
-                    .into_iter()
-                    .flatten()
-                    {
-                        require_type(
-                            &expr_type(value, env, document, &title.span)?,
-                            &Type::F64,
-                            &title.span,
-                        )?;
-                        require_literal_range(value, 0.0, None, "pane title padding", &title.span)?;
-                    }
-                    check_styles(&title.styles, document, &title.span, StyleTarget::PaneTitle)?;
-                    check_container_style_options(
-                        &title.style,
-                        env,
-                        document,
-                        &title.span,
+                infer_pane_view(pane, env, document, signatures, ids)?;
+            }
+            for template in templates {
+                let Some(Type::List(item_type)) = env.get(&template.items) else {
+                    return Err(Error::new(
                         "E187",
-                    )?;
+                        &template.span,
+                        format!(
+                            "dynamic pane template `{}` requires list state `{}`",
+                            template.item, template.items
+                        ),
+                    ));
+                };
+                let mut template_env = env.clone();
+                template_env.insert(template.item.clone(), (**item_type).clone());
+                let key_type = expr_type(&template.key, &template_env, document, &template.span)?;
+                if !matches!(key_type, Type::Bool | Type::I64 | Type::F64 | Type::Str) {
+                    return Err(Error::new(
+                        "E187",
+                        &template.span,
+                        "dynamic pane keys must be bool, i64, f64, or str values",
+                    ));
                 }
-                for node in pane.nodes() {
-                    infer_view(node, env, document, signatures, ids)?;
-                }
+                infer_pane_view(&template.pane, &template_env, document, signatures, ids)?;
             }
         }
         ViewNode::Text {
@@ -4272,6 +4381,49 @@ fn check_background_value(
     Ok(())
 }
 
+fn infer_pane_view(
+    pane: &PaneView,
+    env: &HashMap<String, Type>,
+    document: &Document,
+    signatures: &mut HashMap<String, Vec<Option<Type>>>,
+    ids: &mut HashSet<String>,
+) -> Result<(), Error> {
+    let mut pane_env = env.clone();
+    if let Some(binding) = &pane.maximized {
+        pane_env.insert(binding.clone(), Type::Bool);
+    }
+    let env = &pane_env;
+    check_styles(&pane.styles, document, &pane.span, StyleTarget::PaneContent)?;
+    check_container_style_options(&pane.style, env, document, &pane.span, "E187")?;
+    if let Some(title) = &pane.title {
+        for value in [
+            &title.padding.all,
+            &title.padding.x,
+            &title.padding.y,
+            &title.padding.top,
+            &title.padding.right,
+            &title.padding.bottom,
+            &title.padding.left,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            require_type(
+                &expr_type(value, env, document, &title.span)?,
+                &Type::F64,
+                &title.span,
+            )?;
+            require_literal_range(value, 0.0, None, "pane title padding", &title.span)?;
+        }
+        check_styles(&title.styles, document, &title.span, StyleTarget::PaneTitle)?;
+        check_container_style_options(&title.style, env, document, &title.span, "E187")?;
+    }
+    for node in pane.nodes() {
+        infer_view(node, env, document, signatures, ids)?;
+    }
+    Ok(())
+}
+
 fn check_container_style_options(
     style: &ContainerStyleOptions,
     env: &HashMap<String, Type>,
@@ -5982,12 +6134,28 @@ fn check_handler(
                     | PaneOperation::Resize { .. } => Vec::new(),
                 };
                 for pane in referenced {
-                    if !names.panes.contains(pane) {
-                        return Err(Error::new(
-                            "E188",
-                            span,
-                            format!("pane-grid `#{grid}` has no pane `{pane}`"),
-                        ));
+                    match pane {
+                        PaneReference::Static(pane) => {
+                            if !names.panes.contains(pane) {
+                                return Err(Error::new(
+                                    "E188",
+                                    span,
+                                    format!("pane-grid `#{grid}` has no pane `{pane}`"),
+                                ));
+                            }
+                        }
+                        PaneReference::Dynamic { template, key } => {
+                            let expected = names.templates.get(template).ok_or_else(|| {
+                                Error::new(
+                                    "E188",
+                                    span,
+                                    format!(
+                                        "pane-grid `#{grid}` has no dynamic pane template `{template}`"
+                                    ),
+                                )
+                            })?;
+                            require_type(&expr_type(key, &env, document, span)?, expected, span)?;
+                        }
                     }
                 }
                 if let PaneOperation::Resize {
@@ -6001,15 +6169,16 @@ fn check_handler(
                         format!("pane-grid `#{grid}` has no split `{split}`"),
                     ));
                 }
+                let same_static = |first: &PaneReference, second: &PaneReference| matches!((first, second), (PaneReference::Static(first), PaneReference::Static(second)) if first == second);
                 if matches!(
                     operation,
-                    PaneOperation::Swap { first, second } if first == second
+                    PaneOperation::Swap { first, second } if same_static(first, second)
                 ) || matches!(
                     operation,
-                    PaneOperation::Drop { pane, target, .. } if pane == target
+                    PaneOperation::Drop { pane, target, .. } if same_static(pane, target)
                 ) || matches!(
                     operation,
-                    PaneOperation::Split { target, pane, .. } if target == pane
+                    PaneOperation::Split { target, pane, .. } if same_static(target, pane)
                 ) {
                     return Err(Error::new(
                         "E188",
@@ -10258,6 +10427,65 @@ view
                 .message
                 .contains("duplicate pane split `workspace_root`")
         );
+    }
+
+    #[test]
+    fn checks_runtime_pane_templates_and_keys() {
+        let source = r#"app Workspace
+extern crate::backend
+  Task(id:i64, title:str)
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  tasks:[Task] = []
+  selected = 7
+on open_task
+  pane #work split files task(selected) horizontal
+on close_task
+  pane #work close task(selected)
+view
+  pane-grid #work
+    pane files maximized=files_maximized
+      col
+        if files_maximized
+          text "Maximized files"
+    pane task in tasks by=task.id maximized=task_maximized
+      col
+        if task_maximized
+          text "Maximized task"
+        text task.title
+"#;
+        let document = analyze(source).unwrap();
+        let ViewNode::PaneGrid { templates, .. } = &document.view else {
+            panic!("pane-grid view")
+        };
+        assert_eq!(templates.len(), 1);
+        assert_eq!(templates[0].item, "task");
+        assert_eq!(templates[0].items, "tasks");
+
+        let error = analyze(&source.replace("task(selected)", "task(\"wrong\")")).unwrap_err();
+        assert_eq!(error.code, "E101");
+
+        let error =
+            analyze(&source.replacen("task(selected)", "missing(selected)", 1)).unwrap_err();
+        assert_eq!(error.code, "E188");
+        assert!(error.message.contains("no dynamic pane template `missing`"));
+
+        let error = analyze(&source.replace("by=task.id", "by=task")).unwrap_err();
+        assert_eq!(error.code, "E187");
+        assert!(error.message.contains("dynamic pane keys"));
+
+        let error =
+            analyze(&source.replace("maximized=task_maximized", "maximized=task")).unwrap_err();
+        assert_eq!(error.code, "E187");
+        assert!(error.message.contains("must differ from its template item"));
+
+        let error = analyze(&source.replace("in tasks", "in selected")).unwrap_err();
+        assert_eq!(error.code, "E187");
+        assert!(error.message.contains("requires list state `selected`"));
     }
 
     #[test]

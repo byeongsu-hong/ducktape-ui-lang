@@ -1046,6 +1046,42 @@ mod showcase {
         let (app, _) = Showcase::__boot();
         let _ = app.__view();
     }
+
+    #[test]
+    fn opens_and_renders_a_runtime_pane_template() {
+        let (mut app, _) = Showcase::__boot();
+        app.tasks = vec![crate::backend::Task {
+            id: 1,
+            title: "Dynamic pane".into(),
+            done: false,
+        }];
+
+        let _ = app.__update(__ShowcaseMessage::OpenTaskPane);
+        assert!(
+            app.__pane_nested_workspace
+                .iter()
+                .any(|(_, pane)| { matches!(pane, __IcePaneNestedWorkspace::PaneTask(1)) })
+        );
+        let _ = app.__update(__ShowcaseMessage::MaximizeTaskPane);
+        assert!(app.__pane_nested_workspace.maximized().is_some());
+        let _ = app.__view();
+        app.tasks.clear();
+        let _ = app.__view();
+
+        let _ = app.__update(__ShowcaseMessage::CloseTaskPane(1));
+        assert!(
+            !app.__pane_nested_workspace
+                .iter()
+                .any(|(_, pane)| { matches!(pane, __IcePaneNestedWorkspace::PaneTask(1)) })
+        );
+
+        let _ = app.__update(__ShowcaseMessage::OpenModePane);
+        assert!(app.__pane_nested_workspace.iter().any(|(_, pane)| {
+            matches!(pane, __IcePaneNestedWorkspace::ModePane(name) if name == "List")
+        }));
+        let _ = app.__view();
+        let _ = app.__update(__ShowcaseMessage::CloseModePane("List".into()));
+    }
 }
 
 #[cfg(test)]
