@@ -9454,6 +9454,19 @@ mod tests {
     }
 
     #[test]
+    fn parses_first_class_native_window_id() {
+        let source = include_str!("../../../examples/iced-app/src/ui/window_id.ice");
+        let document = parse(source).unwrap();
+        assert_eq!(document.functions[0].params[0].1, Type::WindowId);
+        assert_eq!(document.functions[0].output, Type::WindowId);
+        assert_eq!(document.states[0].ty, Type::WindowId);
+        assert!(matches!(
+            &document.handlers[0].statements[0],
+            Statement::Assign { value: Expr::Call { name, .. }, .. } if name == "window_id.unique"
+        ));
+    }
+
+    #[test]
     fn parses_first_class_native_length() {
         let source = include_str!("../../../examples/iced-app/src/ui/length.ice");
         let document = parse(source).unwrap();

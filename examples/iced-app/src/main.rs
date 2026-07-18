@@ -27,6 +27,8 @@ mod scroll_delta;
 #[cfg(test)]
 mod shadow;
 #[cfg(test)]
+mod window_id;
+#[cfg(test)]
 mod window_position;
 #[cfg(test)]
 mod window_values;
@@ -172,6 +174,9 @@ mod backend {
 
     #[cfg(test)]
     pub use crate::shadow::shadow_round_trip;
+
+    #[cfg(test)]
+    pub use crate::window_id::window_id_round_trip;
 
     #[cfg(test)]
     pub use crate::window_values::{
