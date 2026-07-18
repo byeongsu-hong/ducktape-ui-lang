@@ -1455,6 +1455,11 @@ fn infer_view(
                     }
                 }
             }
+            if let Some(style) = &options.style.custom {
+                let function =
+                    extern_function(document, &style.function, ExternKind::SliderStyle, span)?;
+                check_call_args(function, &style.args, env, document, span)?;
+            }
             check_slider_styles(&options.style, env, document, span)?;
             infer_route(route, Some(Type::F64), env, document, signatures)?;
             if let Some(release) = release {
@@ -5606,6 +5611,7 @@ fn extern_function<'a>(
                 ExternKind::Window => "window callback",
                 ExternKind::MarkdownViewer => "markdown viewer",
                 ExternKind::TextStyle => "text style",
+                ExternKind::SliderStyle => "slider style",
                 ExternKind::ProgressStyle => "progress style",
                 ExternKind::ButtonStyle => "button style",
                 ExternKind::CheckboxStyle => "checkbox style",
@@ -8231,6 +8237,8 @@ view
     #[test]
     fn checks_slider_options_and_rejects_invalid_ranges() {
         let source = r#"app Controls
+extern crate::backend
+  slider-style dynamic_slider(active:bool)
 theme
   background #000000
   foreground #ffffff
@@ -8238,11 +8246,12 @@ theme
   danger #ff0000
 state
   amount = 50.0
+  active = true
 on changed(next)
   amount = next
 view
   col
-    slider amount min=0.0 max=100.0 step=5.0 default=50.0 shift-step=1.0 width=fill(2) height=20.0 -> changed _
+    slider amount min=0.0 max=100.0 step=5.0 default=50.0 shift-step=1.0 width=fill(2) height=20.0 style=dynamic_slider(active) -> changed _
       active rail-start=linear(0.0, primary@0.0, danger@1.0) rail-end=linear(1.57, background@0.0, primary/25@1.0) rail-width=4.0 rail-border=transparent rail-border-width=1.0 rail-radius=2.0 rail-radius-tl=1.0 handle=circle(7.0) handle-color=linear(0.785, primary@0.0, foreground@1.0) handle-border=foreground handle-border-width=1.0
       hovered rail-start=foreground rail-end=background rail-radius-tr=3.0 rail-radius-br=3.0 rail-radius-bl=2.0 handle=rect(12) handle-color=foreground handle-radius=3.0 handle-radius-tl=1.0 handle-radius-tr=2.0 handle-radius-br=3.0 handle-radius-bl=4.0
       dragged rail-start=danger handle=circle(8.0) handle-color=danger
@@ -8279,6 +8288,19 @@ view
         let error = analyze(&bad_handle).unwrap_err();
         assert_eq!(error.code, "E129");
         assert!(error.message.contains("requires `handle=rect"));
+
+        let error = analyze(&source.replace("dynamic_slider(active)", "missing_slider(active)"))
+            .unwrap_err();
+        assert_eq!(error.code, "E130");
+        assert!(error.message.contains("slider style"));
+
+        let error =
+            analyze(&source.replace("dynamic_slider(active)", "dynamic_slider(1.0)")).unwrap_err();
+        assert_eq!(error.code, "E101");
+
+        let error =
+            analyze(&source.replace("style=dynamic_slider(active)", "style=primary")).unwrap_err();
+        assert_eq!(error.code, "E076");
     }
 
     #[test]

@@ -93,6 +93,13 @@ pub fn parse(source: &str) -> Result<Document, Error> {
                         &path,
                         ExternKind::TextStyle,
                     )?);
+                } else if let Some(source) = item.text.strip_prefix("slider-style ") {
+                    functions.push(parse_extern_fn(
+                        &format!("{source} -> unit"),
+                        item,
+                        &path,
+                        ExternKind::SliderStyle,
+                    )?);
                 } else if let Some(source) = item.text.strip_prefix("progress-style ") {
                     functions.push(parse_extern_fn(
                         &format!("{source} -> unit"),
@@ -1095,6 +1102,7 @@ fn parse_extern_fn(
                 | ExternKind::Window
                 | ExternKind::MarkdownViewer
                 | ExternKind::TextStyle
+                | ExternKind::SliderStyle
                 | ExternKind::ProgressStyle
                 | ExternKind::ButtonStyle
                 | ExternKind::CheckboxStyle
@@ -7517,6 +7525,13 @@ fn parse_slider(
             options.width = Some(parse_length(value, line)?);
         } else if let Some(value) = part.strip_prefix("height=") {
             options.height = Some(parse_length(value, line)?);
+        } else if let Some(value) = part.strip_prefix("style=") {
+            let (function, args) = parse_signature(value, line)
+                .map_err(|_| error("E076", line, "slider style must be a declared style call"))?;
+            options.style.custom = Some(ExternCall {
+                function,
+                args: parse_expr_list(&args, line)?,
+            });
         } else if part == "vertical" {
             vertical = true;
         } else if let Some(value) = part.strip_prefix("release=") {
