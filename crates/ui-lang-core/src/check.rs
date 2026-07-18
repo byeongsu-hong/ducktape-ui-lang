@@ -3855,6 +3855,7 @@ fn lazy_hashable(ty: &Type) -> bool {
         | Type::Degrees
         | Type::Radians
         | Type::Rotation
+        | Type::Color
         | Type::Point
         | Type::PointU32
         | Type::Vector
@@ -7120,6 +7121,31 @@ fn check_u32_literal(name: &str, args: &[Expr], span: &Span) -> Result<u32, Erro
     })
 }
 
+fn check_u8_literals(name: &str, args: &[Expr], count: usize, span: &Span) -> Result<(), Error> {
+    if args.len() < count
+        || !args[..count]
+            .iter()
+            .all(|value| matches!(value, Expr::I64(_)))
+    {
+        return Err(Error::new(
+            "E152",
+            span,
+            format!("{name} expects {count} integer literal channel(s)"),
+        ));
+    }
+    if args[..count]
+        .iter()
+        .any(|value| matches!(value, Expr::I64(channel) if u8::try_from(*channel).is_err()))
+    {
+        return Err(Error::new(
+            "E152",
+            span,
+            format!("{name} channels must be in 0..={}", u8::MAX),
+        ));
+    }
+    Ok(())
+}
+
 fn require_pixel_value(
     value: &Expr,
     env: &HashMap<String, Type>,
@@ -7234,6 +7260,104 @@ pub(crate) fn expr_type(
             Ok(ty)
         }
         Expr::Call { name, args } => match name.as_str() {
+            "color.default" | "color.black" | "color.white" | "color.transparent" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::Color)
+            }
+            "color.rgb" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::F64, Type::F64, Type::F64],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::Color)
+            }
+            "color.rgba" | "color.linear_rgba" | "color.from4" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::F64, Type::F64, Type::F64, Type::F64],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::Color)
+            }
+            "color.from3" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::F64, Type::F64, Type::F64],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::Color)
+            }
+            "color.parse" => {
+                check_builtin_args(name, args, &[Type::Str], env, document, span)?;
+                Ok(Type::Option(Box::new(Type::Color)))
+            }
+            "color.rgb8" => {
+                if args.len() != 3 {
+                    return Err(Error::new("E152", span, "color.rgb8 expects 3 arguments"));
+                }
+                check_u8_literals(name, args, 3, span)?;
+                Ok(Type::Color)
+            }
+            "color.rgba8" => {
+                if args.len() != 4 {
+                    return Err(Error::new("E152", span, "color.rgba8 expects 4 arguments"));
+                }
+                check_u8_literals(name, args, 3, span)?;
+                require_type(&expr_type(&args[3], env, document, span)?, &Type::F64, span)?;
+                Ok(Type::Color)
+            }
+            "color.try_rgb8" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::I64, Type::I64, Type::I64],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::Option(Box::new(Type::Color)))
+            }
+            "color.try_rgba8" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::I64, Type::I64, Type::I64, Type::F64],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::Option(Box::new(Type::Color)))
+            }
+            "color.inverse" | "color.invert" => {
+                check_builtin_args(name, args, &[Type::Color], env, document, span)?;
+                Ok(Type::Color)
+            }
+            "color.scale_alpha" => {
+                check_builtin_args(name, args, &[Type::Color, Type::F64], env, document, span)?;
+                Ok(Type::Color)
+            }
+            "color.luminance" => {
+                check_builtin_args(name, args, &[Type::Color], env, document, span)?;
+                Ok(Type::F64)
+            }
+            "color.contrast" => {
+                check_builtin_args(name, args, &[Type::Color, Type::Color], env, document, span)?;
+                Ok(Type::F64)
+            }
+            "color.readable" => {
+                check_builtin_args(name, args, &[Type::Color, Type::Color], env, document, span)?;
+                Ok(Type::Bool)
+            }
             "fit.default" | "fit.contain" | "fit.cover" | "fit.fill" | "fit.none"
             | "fit.scale_down" => {
                 check_builtin_args(name, args, &[], env, document, span)?;
@@ -8483,6 +8607,13 @@ fn field_type(ty: &Type, field: &str, document: &Document, span: &Span) -> Resul
             "kind" | "display" => Some(Type::Str),
             _ => None,
         },
+        Type::Color => match field {
+            "r" | "g" | "b" | "a" | "luminance" => Some(Type::F64),
+            "rgba8" => Some(Type::List(Box::new(Type::I64))),
+            "linear" => Some(Type::List(Box::new(Type::F64))),
+            "display" => Some(Type::Str),
+            _ => None,
+        },
         Type::Point => match field {
             "x" | "y" => Some(Type::F64),
             "values" => Some(Type::List(Box::new(Type::F64))),
@@ -8860,6 +8991,28 @@ fn type_error(span: &Span, expected: &Type, actual: &Type) -> Error {
 #[cfg(test)]
 mod tests {
     use crate::{PaneConfiguration, Type, ViewNode, analyze};
+
+    #[test]
+    fn checks_native_color_values_and_boundaries() {
+        let source = include_str!("../../../examples/iced-app/src/ui/color.ice");
+        analyze(source).unwrap();
+
+        let error = analyze(&source.replace(
+            "rgb8 = color.rgb8(12, 34, 56)",
+            "rgb8 = color.rgb8(256, 34, 56)",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E152");
+        assert!(error.message.contains("channels must be in 0..=255"));
+
+        let error = analyze(&source.replace(
+            "contrast = color.contrast(black, white)",
+            "contrast = color.contrast(black, true)",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E101");
+        assert!(error.message.contains("expected `color`"));
+    }
 
     #[test]
     fn checks_native_content_fit_values_and_widgets() {

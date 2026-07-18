@@ -1,6 +1,8 @@
 ui_lang::include_app!("src/ui/tasks.ice");
 
 #[cfg(test)]
+mod color;
+#[cfg(test)]
 mod content_fit;
 #[cfg(test)]
 mod rotation;
@@ -103,6 +105,9 @@ mod backend {
     ) -> iced::Padding {
         padding
     }
+
+    #[cfg(test)]
+    pub use crate::color::color_round_trip;
 
     #[cfg(test)]
     pub use crate::content_fit::content_fit_round_trip;

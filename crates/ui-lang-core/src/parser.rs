@@ -8629,6 +8629,7 @@ fn parse_type(source: &str, line: &Line) -> Result<Type, Error> {
         "radians" => Type::Radians,
         "rotation" => Type::Rotation,
         "content-fit" => Type::ContentFit,
+        "color" => Type::Color,
         "point" => Type::Point,
         "point-u32" => Type::PointU32,
         "vector" => Type::Vector,
@@ -9239,6 +9240,28 @@ fn error(code: &'static str, line: &Line, message: impl Into<String>) -> Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_first_class_native_color() {
+        let source = include_str!("../../../examples/iced-app/src/ui/color.ice");
+        let document = parse(source).unwrap();
+        assert_eq!(document.functions[0].params[0].1, Type::Color);
+        assert_eq!(document.functions[0].output, Type::Color);
+        assert_eq!(document.states[0].ty, Type::Color);
+        assert_eq!(
+            document
+                .states
+                .iter()
+                .find(|state| state.name == "parsed3")
+                .unwrap()
+                .ty,
+            Type::Option(Box::new(Type::Color))
+        );
+        assert!(matches!(
+            &document.handlers[0].statements[4],
+            Statement::Assign { value: Expr::Call { name, .. }, .. } if name == "color.rgb"
+        ));
+    }
 
     #[test]
     fn parses_first_class_native_content_fit() {

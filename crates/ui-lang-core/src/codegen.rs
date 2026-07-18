@@ -7881,6 +7881,21 @@ fn native_field_projection(ty: &Type, field: &str, code: &str) -> Option<(String
             Type::Str,
         ),
         (Type::ContentFit, "display") => (format!("::std::format!(\"{{}}\", ({code}))"), Type::Str),
+        (Type::Color, "r" | "g" | "b" | "a") => (format!("({code}).{field} as f64"), Type::F64),
+        (Type::Color, "luminance") => (format!("({code}).relative_luminance() as f64"), Type::F64),
+        (Type::Color, "rgba8") => (
+            format!(
+                "({code}).into_rgba8().into_iter().map(i64::from).collect::<::std::vec::Vec<_>>()"
+            ),
+            Type::List(Box::new(Type::I64)),
+        ),
+        (Type::Color, "linear") => (
+            format!(
+                "({code}).into_linear().into_iter().map(f64::from).collect::<::std::vec::Vec<_>>()"
+            ),
+            Type::List(Box::new(Type::F64)),
+        ),
+        (Type::Color, "display") => (format!("::std::format!(\"{{}}\", ({code}))"), Type::Str),
         (Type::Point | Type::Vector | Type::Size, "values") => (
             format!(
                 "::std::convert::Into::<[f32; 2]>::into({code}).into_iter().map(f64::from).collect::<::std::vec::Vec<_>>()"
@@ -8031,6 +8046,7 @@ fn expr_code(
                     | Type::Radians
                     | Type::Rotation
                     | Type::ContentFit
+                    | Type::Color
                     | Type::Point
                     | Type::PointU32
                     | Type::Vector
@@ -8053,6 +8069,105 @@ fn expr_code(
             code
         }
         Expr::Call { name, args } => match name.as_str() {
+            "color.default" => "::iced::Color::default()".into(),
+            "color.black" => "::iced::Color::BLACK".into(),
+            "color.white" => "::iced::Color::WHITE".into(),
+            "color.transparent" => "::iced::Color::TRANSPARENT".into(),
+            "color.rgb" => format!(
+                "::iced::Color::from_rgb(({}) as f32, ({}) as f32, ({}) as f32)",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?,
+                expr_code(&args[2], env, document, ValueMode::Owned)?
+            ),
+            "color.rgba" => format!(
+                "::iced::Color::from_rgba(({}) as f32, ({}) as f32, ({}) as f32, ({}) as f32)",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?,
+                expr_code(&args[2], env, document, ValueMode::Owned)?,
+                expr_code(&args[3], env, document, ValueMode::Owned)?
+            ),
+            "color.rgb8" => {
+                let [Expr::I64(r), Expr::I64(g), Expr::I64(b)] = args.as_slice() else {
+                    unreachable!("checker requires literal u8 channels")
+                };
+                format!("::iced::Color::from_rgb8({r}u8, {g}u8, {b}u8)")
+            }
+            "color.rgba8" => {
+                let [Expr::I64(r), Expr::I64(g), Expr::I64(b), alpha] = args.as_slice() else {
+                    unreachable!("checker requires literal u8 channels")
+                };
+                format!(
+                    "::iced::Color::from_rgba8({r}u8, {g}u8, {b}u8, ({}) as f32)",
+                    expr_code(alpha, env, document, ValueMode::Owned)?
+                )
+            }
+            "color.try_rgb8" | "color.try_rgba8" => {
+                let red = expr_code(&args[0], env, document, ValueMode::Owned)?;
+                let green = expr_code(&args[1], env, document, ValueMode::Owned)?;
+                let blue = expr_code(&args[2], env, document, ValueMode::Owned)?;
+                let constructor = if name == "color.try_rgb8" {
+                    "::iced::Color::from_rgb8(__red, __green, __blue)".into()
+                } else {
+                    format!(
+                        "::iced::Color::from_rgba8(__red, __green, __blue, ({}) as f32)",
+                        expr_code(&args[3], env, document, ValueMode::Owned)?
+                    )
+                };
+                format!(
+                    "match (<u8>::try_from({red}), <u8>::try_from({green}), <u8>::try_from({blue})) {{ (::std::result::Result::Ok(__red), ::std::result::Result::Ok(__green), ::std::result::Result::Ok(__blue)) => ::std::option::Option::Some({constructor}), _ => ::std::option::Option::None }}"
+                )
+            }
+            "color.linear_rgba" => format!(
+                "::iced::Color::from_linear_rgba(({}) as f32, ({}) as f32, ({}) as f32, ({}) as f32)",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?,
+                expr_code(&args[2], env, document, ValueMode::Owned)?,
+                expr_code(&args[3], env, document, ValueMode::Owned)?
+            ),
+            "color.from3" => format!(
+                "::iced::Color::from([({}) as f32, ({}) as f32, ({}) as f32])",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?,
+                expr_code(&args[2], env, document, ValueMode::Owned)?
+            ),
+            "color.from4" => format!(
+                "::iced::Color::from([({}) as f32, ({}) as f32, ({}) as f32, ({}) as f32])",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?,
+                expr_code(&args[2], env, document, ValueMode::Owned)?,
+                expr_code(&args[3], env, document, ValueMode::Owned)?
+            ),
+            "color.parse" => format!(
+                "({}).parse::<::iced::Color>().ok()",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "color.inverse" => format!(
+                "({}).inverse()",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "color.invert" => format!(
+                "{{ let mut __color = {}; __color.invert(); __color }}",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "color.scale_alpha" => format!(
+                "({}).scale_alpha(({}) as f32)",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "color.luminance" => format!(
+                "({}).relative_luminance() as f64",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "color.contrast" => format!(
+                "({}).relative_contrast({}) as f64",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "color.readable" => format!(
+                "({}).is_readable_on({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
             "fit.default" => "::iced::ContentFit::default()".into(),
             "fit.contain" => "::iced::ContentFit::Contain".into(),
             "fit.cover" => "::iced::ContentFit::Cover".into(),
@@ -11952,6 +12067,39 @@ fn pascal(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use crate::compile;
+
+    #[test]
+    fn lowers_every_native_color_operation() {
+        let source = include_str!("../../../examples/iced-app/src/ui/color.ice");
+        let generated = compile(source, "color.ice").unwrap();
+        for expected in [
+            "::iced::Color::default()",
+            "::iced::Color::BLACK",
+            "::iced::Color::WHITE",
+            "::iced::Color::TRANSPARENT",
+            "::iced::Color::from_rgb(",
+            "::iced::Color::from_rgba(",
+            "::iced::Color::from_rgb8(12u8, 34u8, 56u8)",
+            "::iced::Color::from_rgba8(12u8, 34u8, 56u8,",
+            "<u8>::try_from(self.red8)",
+            "<u8>::try_from(self.green8)",
+            "<u8>::try_from(self.blue8)",
+            "::iced::Color::from_linear_rgba(",
+            "::iced::Color::from([",
+            ".parse::<::iced::Color>().ok()",
+            ".inverse()",
+            ".invert();",
+            ".scale_alpha(",
+            ".into_rgba8()",
+            ".into_linear()",
+            ".relative_luminance()",
+            ".relative_contrast(",
+            ".is_readable_on(",
+            "crate::backend::color_round_trip(self.rgba8)",
+        ] {
+            assert!(generated.contains(expected), "missing {expected}");
+        }
+    }
 
     #[test]
     fn lowers_every_native_content_fit_operation() {
