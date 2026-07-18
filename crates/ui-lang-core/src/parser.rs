@@ -1166,7 +1166,7 @@ fn parse_subscription(line: &Line) -> Result<Subscription, Error> {
         return Err(error(
             "E084",
             line,
-            "subscription uses `name(args)`, `every duration`, `repeat name() every duration`, `run name(args)`, `recipe name(args)`, `events id using=filter`, `input-method event`, `keyboard event`, `mouse event`, `touch event`, `window event`, or `system theme` before `-> handler _`",
+            "subscription uses `name(args)`, `every duration`, `repeat name() every duration`, `run name(args)`, `recipe name(args)`, `events id using=filter`, `event [raw] [with-id]`, `input-method event`, `keyboard event`, `mouse event`, `touch event`, `window event`, or `system theme` before `-> handler _`",
         ));
     };
     let call = call.trim();
@@ -1249,6 +1249,20 @@ fn parse_subscription(line: &Line) -> Result<Subscription, Error> {
             id: parse_expr(id.trim(), line)?,
             filter: identifier(filter.trim(), line)?,
         }
+    } else if matches!(
+        call,
+        "event" | "event with-id" | "event raw" | "event raw with-id"
+    ) {
+        window_id = call.ends_with("with-id");
+        SubscriptionSource::Event {
+            raw: call.starts_with("event raw"),
+        }
+    } else if call.starts_with("event ") {
+        return Err(error(
+            "E084",
+            line,
+            "generic event source uses `event [raw] [with-id]`",
+        ));
     } else if let Some(event) = call.strip_prefix("input-method ") {
         SubscriptionSource::InputMethod(match event.trim() {
             "opened" => InputMethodEvent::Opened,
@@ -1344,7 +1358,8 @@ fn parse_subscription(line: &Line) -> Result<Subscription, Error> {
     if status.is_some()
         && !matches!(
             &source,
-            SubscriptionSource::InputMethod(_)
+            SubscriptionSource::Event { .. }
+                | SubscriptionSource::InputMethod(_)
                 | SubscriptionSource::Keyboard(_)
                 | SubscriptionSource::Mouse(_)
                 | SubscriptionSource::Touch(_)
@@ -8146,6 +8161,7 @@ fn parse_type(source: &str, line: &Line) -> Result<Type, Error> {
         "image" => Type::Image,
         "markdown" => Type::Markdown,
         "editor" => Type::Editor,
+        "event" => Type::Event,
         "instant" => Type::Instant,
         "window-id" => Type::WindowId,
         "task-handle" => Type::TaskHandle,
@@ -8975,6 +8991,48 @@ view
             .unwrap_err();
         assert_eq!(error.code, "E050");
         assert!(error.message.contains("stream requires"));
+    }
+
+    #[test]
+    fn parses_generic_event_subscriptions() {
+        let source = r#"app Events
+extern crate::backend
+  sync event_name(value:event) -> str
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+on received(value)
+on identified(id, value)
+subscribe
+  event -> received _
+  event status=any -> received _
+  event with-id status=ignored -> identified _ _
+  event raw status=captured -> received _
+  event raw with-id -> identified _ _
+view
+  text "Events"
+"#;
+        let document = parse(source).unwrap();
+        assert_eq!(document.functions[0].params[0].1, Type::Event);
+        assert!(matches!(
+            document.subscriptions[0].source,
+            SubscriptionSource::Event { raw: false }
+        ));
+        assert!(!document.subscriptions[0].window_id);
+        assert_eq!(document.subscriptions[2].status, Some(EventStatus::Ignored));
+        assert!(document.subscriptions[2].window_id);
+        assert!(matches!(
+            document.subscriptions[3].source,
+            SubscriptionSource::Event { raw: true }
+        ));
+        assert!(document.subscriptions[4].window_id);
+
+        let error = parse(&source.replace("event -> received _", "event redraw -> received _"))
+            .unwrap_err();
+        assert_eq!(error.code, "E084");
+        assert!(error.message.contains("event [raw] [with-id]"));
     }
 
     #[test]

@@ -3117,6 +3117,7 @@ fn lazy_hashable(ty: &Type) -> bool {
         | Type::Combo(_)
         | Type::Markdown
         | Type::Editor
+        | Type::Event
         | Type::KeyPress
         | Type::KeyRelease
         | Type::KeyModifiers
@@ -4449,6 +4450,7 @@ fn check_text_options(
 fn native_subscription_payloads(source: &SubscriptionSource, window_id: bool) -> Option<Vec<Type>> {
     let mut payloads = match source {
         SubscriptionSource::Every { .. } => vec![Type::Instant],
+        SubscriptionSource::Event { .. } => vec![Type::Event],
         SubscriptionSource::InputMethod(event) => match event {
             InputMethodEvent::Opened | InputMethodEvent::Closed => Vec::new(),
             InputMethodEvent::Preedit => vec![
@@ -6660,6 +6662,49 @@ mod tests {
         let error = analyze(&source.replace("with=generation", "with=1.5")).unwrap_err();
         assert_eq!(error.code, "E129");
         assert!(error.message.contains("context must be hashable"));
+    }
+
+    #[test]
+    fn checks_generic_event_values_and_filters() {
+        let source = r#"app Events
+extern crate::backend
+  sync event_name(value:event) -> str
+  sync event_label(value:event) -> str?
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  last = "none"
+  last_window:window-id? = none
+on received(value)
+  last = event_name(value)
+on labeled(value)
+  last = value
+on identified(id, value)
+  last_window = some(id)
+  last = event_name(value)
+subscribe
+  event -> received _
+  event filter=event_label status=any -> labeled _
+  event raw with-id status=captured -> identified _ _
+view
+  text last
+"#;
+        let document = analyze(source).unwrap();
+        assert_eq!(document.handlers[0].params[0].ty, Type::Event);
+        assert_eq!(document.handlers[1].params[0].ty, Type::Str);
+        assert_eq!(document.handlers[2].params[0].ty, Type::WindowId);
+        assert_eq!(document.handlers[2].params[1].ty, Type::Event);
+
+        let error = analyze(&source.replace(
+            "sync event_label(value:event) -> str?",
+            "sync event_label(value:str) -> str?",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E101");
+        assert!(error.message.contains("expected `str`, got `event`"));
     }
 
     #[test]
