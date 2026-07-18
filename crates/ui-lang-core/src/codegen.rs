@@ -839,6 +839,7 @@ fn subscription_payload_arity(source: &SubscriptionSource) -> usize {
     match source {
         SubscriptionSource::Every { .. }
         | SubscriptionSource::Repeat { .. }
+        | SubscriptionSource::Run { .. }
         | SubscriptionSource::Extern { .. }
         | SubscriptionSource::Keyboard(_)
         | SubscriptionSource::SystemTheme => 1,
@@ -976,6 +977,50 @@ fn generate_subscription(
                         )
                     })?;
                 writeln!(out, "::iced::time::repeat({}, ::std::time::Duration::from_millis({milliseconds})){transforms}.map(move |__value| {route}),", source.rust_path).unwrap();
+            }
+            SubscriptionSource::Run { function, args } => {
+                let source = document
+                    .functions
+                    .iter()
+                    .find(|item| item.name == *function && item.kind == ExternKind::Stream)
+                    .ok_or_else(|| {
+                        Error::new(
+                            "E130",
+                            &subscription.span,
+                            format!("unknown subscription stream `{function}`"),
+                        )
+                    })?;
+                if args.is_empty() {
+                    writeln!(
+                        out,
+                        "::iced::Subscription::run({}){transforms}.map(move |__value| {route}),",
+                        source.rust_path
+                    )
+                    .unwrap();
+                } else {
+                    let data = args
+                        .iter()
+                        .map(|arg| expr_code(arg, &env, document, ValueMode::Owned))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    let types = source
+                        .params
+                        .iter()
+                        .map(|(_, ty)| ty.rust(&document.structs))
+                        .collect::<Vec<_>>();
+                    let (data, data_type, builder_args) = if args.len() == 1 {
+                        (data[0].clone(), types[0].clone(), "__data.clone()".into())
+                    } else {
+                        (
+                            format!("({},)", data.join(", ")),
+                            format!("({},)", types.join(", ")),
+                            (0..args.len())
+                                .map(|index| format!("__data.{index}.clone()"))
+                                .collect::<Vec<_>>()
+                                .join(", "),
+                        )
+                    };
+                    writeln!(out, "::iced::Subscription::run_with({data}, |__data: &{data_type}| {}({builder_args})){transforms}.map(move |__value| {route}),", source.rust_path).unwrap();
+                }
             }
             SubscriptionSource::Extern { function, args } => {
                 let source = document
@@ -8855,6 +8900,7 @@ view
 extern crate::backend
   AppError(message:str)
   stream numbers(limit:i64) -> i64
+  stream range(start:i64, limit:i64) -> i64
   stream fallible() -> str ! AppError
 theme
   background #000000
@@ -8868,6 +8914,11 @@ on start
 on number(value)
 on text(value)
 on failed(error)
+on observed(result)
+subscribe
+  run fallible() -> observed _
+  run numbers(3) -> number _
+  run range(1, 3) -> number _
 view
   text "Streams"
 "#;
@@ -8877,6 +8928,15 @@ view
         assert!(generated.contains("Task::run(crate::backend::numbers(3), |value|"));
         assert!(generated.contains("Task::run(crate::backend::fallible(), |result| match result"));
         assert!(generated.contains("Result::Err(error) => __StreamsMessage::Failed(error)"));
+        assert!(generated.contains(
+            "Subscription::run(crate::backend::fallible).map(move |__value| __StreamsMessage::Observed(__value))"
+        ));
+        assert!(generated.contains(
+            "Subscription::run_with(3, |__data: &i64| crate::backend::numbers(__data.clone()))"
+        ));
+        assert!(generated.contains(
+            "Subscription::run_with((1, 3,), |__data: &(i64, i64,)| crate::backend::range(__data.0.clone(), __data.1.clone()))"
+        ));
     }
 
     #[test]
