@@ -1,47 +1,11 @@
-#[derive(Clone, Debug, PartialEq)]
-pub struct EditorCommand {
-    pub save: bool,
+use super::*;
+
+#[cfg(test)]
+pub fn slider_number(value: f64) -> SliderNumber {
+    value as SliderNumber
 }
 
-#[derive(Debug)]
-pub struct DemoHighlighter {
-    token: String,
-    line: usize,
-}
-
-impl iced::advanced::text::Highlighter for DemoHighlighter {
-    type Settings = String;
-    type Highlight = ();
-    type Iterator<'a> = std::option::IntoIter<(std::ops::Range<usize>, ())>;
-
-    fn new(settings: &Self::Settings) -> Self {
-        Self {
-            token: settings.clone(),
-            line: 0,
-        }
-    }
-
-    fn update(&mut self, settings: &Self::Settings) {
-        self.token.clone_from(settings);
-        self.line = 0;
-    }
-
-    fn change_line(&mut self, line: usize) {
-        self.line = line;
-    }
-
-    fn highlight_line(&mut self, line: &str) -> Self::Iterator<'_> {
-        self.line += 1;
-        line.find(&self.token)
-            .map(|start| (start..start + self.token.len(), ()))
-            .into_iter()
-    }
-
-    fn current_line(&self) -> usize {
-        self.line
-    }
-}
-
+#[cfg(test)]
 pub fn editor_keys(
     event: iced::widget::text_editor::KeyPress,
     readonly: bool,
@@ -57,6 +21,7 @@ pub fn editor_keys(
     }
 }
 
+#[cfg(test)]
 pub fn editor_highlight<'a, Message: 'a>(
     editor: iced::widget::text_editor::TextEditor<
         'a,
@@ -75,6 +40,7 @@ pub fn editor_highlight<'a, Message: 'a>(
         .into()
 }
 
+#[cfg(test)]
 pub fn editor_surface(
     theme: &iced::Theme,
     status: iced::widget::text_editor::Status,

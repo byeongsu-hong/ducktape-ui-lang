@@ -13,3 +13,62 @@ fn appends_markdown_and_tracks_image_uris() {
     assert_eq!(app.__update(__ShowcaseMessage::ExtendMarkdown).units(), 0);
     assert_eq!(app.help_images, ["asset://ice"]);
 }
+
+#[test]
+fn resizes_a_named_nested_pane_split() {
+    let (mut app, _) = Showcase::__boot();
+    let split = app.__pane_nested_workspace_splits["editor_stack"];
+
+    let _ = app.__update(__ShowcaseMessage::ResizeNestedEditor);
+
+    let regions =
+        app.__pane_nested_workspace
+            .layout()
+            .split_regions(0.0, 0.0, iced::Size::new(100.0, 100.0));
+    assert_eq!(regions[&split].2, 0.45);
+}
+
+#[test]
+fn constructs_a_native_pane_grid_style() {
+    let style = crate::backend::workspace_panes(&iced::Theme::Dark, true);
+    assert_eq!(style.hovered_split.width, 5.0);
+
+    let (app, _) = Showcase::__boot();
+    let _ = app.__view();
+}
+
+#[test]
+fn opens_and_renders_a_runtime_pane_template() {
+    let (mut app, _) = Showcase::__boot();
+    app.tasks = vec![crate::backend::Task {
+        id: 1,
+        title: "Dynamic pane".into(),
+        done: false,
+    }];
+
+    let _ = app.__update(__ShowcaseMessage::OpenTaskPane);
+    assert!(
+        app.__pane_nested_workspace
+            .iter()
+            .any(|(_, pane)| { matches!(pane, __IcePaneNestedWorkspace::PaneTask(1)) })
+    );
+    let _ = app.__update(__ShowcaseMessage::MaximizeTaskPane);
+    assert!(app.__pane_nested_workspace.maximized().is_some());
+    let _ = app.__view();
+    app.tasks.clear();
+    let _ = app.__view();
+
+    let _ = app.__update(__ShowcaseMessage::CloseTaskPane(1));
+    assert!(
+        !app.__pane_nested_workspace
+            .iter()
+            .any(|(_, pane)| { matches!(pane, __IcePaneNestedWorkspace::PaneTask(1)) })
+    );
+
+    let _ = app.__update(__ShowcaseMessage::OpenModePane);
+    assert!(app.__pane_nested_workspace.iter().any(|(_, pane)| {
+        matches!(pane, __IcePaneNestedWorkspace::ModePane(name) if name == "List")
+    }));
+    let _ = app.__view();
+    let _ = app.__update(__ShowcaseMessage::CloseModePane("List".into()));
+}

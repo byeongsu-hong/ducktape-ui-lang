@@ -45,13 +45,26 @@ pub(in crate::check) fn infer_media_group(
                 });
             }
             for length in [&options.width, &options.height].into_iter().flatten() {
-                if let LengthValue::Fixed(value) = length {
-                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                    require_literal_range(value, 0.0, None, "media size", span)?;
+                check_length_value(length, env, document, span, "media size")?;
+            }
+            if let Some(rotation) = &options.rotation {
+                let actual = expr_type(rotation, env, document, span)?;
+                if !matches!(actual, Type::F64 | Type::Rotation) {
+                    return Err(Error::new(
+                        "E101",
+                        span,
+                        format!("expected `f64` or `rotation`, got `{}`", actual.display()),
+                    ));
                 }
             }
+            if let Some(fit) = &options.fit {
+                require_type(
+                    &expr_type(fit, env, document, span)?,
+                    &Type::ContentFit,
+                    span,
+                )?;
+            }
             for (value, label, min, max) in [
-                (&options.rotation, "rotation", None, None),
                 (&options.opacity, "opacity", Some(0.0), Some(1.0)),
                 (&options.scale, "scale", Some(f64::EPSILON), None),
                 (&options.radius, "radius", Some(0.0), None),
@@ -218,8 +231,17 @@ pub(in crate::check) fn infer_media_group(
             infer_view(tip, env, document, signatures, ids)?;
         }
         ViewNode::MouseArea {
-            options, content, ..
+            options,
+            content,
+            span,
         } => {
+            if let Some(interaction) = &options.interaction_expr {
+                require_type(
+                    &expr_type(interaction, env, document, span)?,
+                    &Type::MouseInteraction,
+                    span,
+                )?;
+            }
             for route in [
                 &options.press,
                 &options.release,
@@ -266,10 +288,7 @@ pub(in crate::check) fn infer_media_group(
             span,
         } => {
             for length in [&options.width, &options.height].into_iter().flatten() {
-                if let LengthValue::Fixed(value) = length {
-                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                    require_literal_range(value, 0.0, None, "canvas size", span)?;
-                }
+                check_length_value(length, env, document, span, "canvas size")?;
             }
             if let Some(dependency) = &options.cache {
                 let ty = expr_type(dependency, env, document, span)?;
@@ -367,6 +386,13 @@ pub(in crate::check) fn infer_media_group(
                         format!("duplicate canvas state `{}`", local.name),
                     ));
                 }
+                if matches!(local.ty, Type::Animation(_)) {
+                    return Err(Error::new(
+                        "E190",
+                        &local.span,
+                        "canvas-local animation is not supported; declare it in app state",
+                    ));
+                }
                 check_declared_type(&local.ty, &local.span, &known)?;
                 let actual = expr_type(&local.initial, &HashMap::new(), document, &local.span)?;
                 if let Type::Combo(expected) = &local.ty {
@@ -390,12 +416,19 @@ pub(in crate::check) fn infer_media_group(
             canvas_env.insert("canvas_width".into(), Type::F64);
             canvas_env.insert("canvas_height".into(), Type::F64);
             if let Some(interaction) = &options.interaction_expr {
-                require_type(
-                    &expr_type(interaction, &canvas_env, document, span)?,
-                    &Type::Str,
-                    span,
-                )?;
-                if let Expr::Str(value) = interaction
+                let actual = expr_type(interaction, &canvas_env, document, span)?;
+                if !matches!(actual, Type::Str | Type::MouseInteraction) {
+                    return Err(Error::new(
+                        "E101",
+                        span,
+                        format!(
+                            "expected `str` or `mouse-interaction`, got `{}`",
+                            actual.display()
+                        ),
+                    ));
+                }
+                if actual == Type::Str
+                    && let Expr::Str(value) = interaction
                     && !valid_canvas_cursor(value)
                 {
                     return Err(Error::new(

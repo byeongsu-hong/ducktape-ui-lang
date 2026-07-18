@@ -1,6 +1,6 @@
 use super::*;
 
-pub(super) fn parse_preset(name: &str, line: &Line) -> Result<Preset, Error> {
+pub(in crate::parser) fn parse_preset(name: &str, line: &Line) -> Result<Preset, Error> {
     let name = identifier(name, line)?;
     let mut statements = Vec::new();
     let mut state = false;
@@ -58,7 +58,7 @@ pub(super) fn parse_preset(name: &str, line: &Line) -> Result<Preset, Error> {
     })
 }
 
-pub(super) fn parse_app_settings(line: &Line) -> Result<AppSettings, Error> {
+pub(in crate::parser) fn parse_app_settings(line: &Line) -> Result<AppSettings, Error> {
     let mut settings = AppSettings::default();
     for item in &line.children {
         if item.text == "window" {
@@ -104,6 +104,7 @@ pub(super) fn parse_app_settings(line: &Line) -> Result<AppSettings, Error> {
             "text-color" => set!(text_color, app_expression(value, item)?),
             "id" => set!(id, string_literal(value, item)?),
             "executor" => set!(executor, rust_path(value, item)?),
+            "renderer" => set!(renderer, rust_path(value, item)?),
             "font" => {
                 let path = string_literal(value, item)?;
                 if path.is_empty()
@@ -136,14 +137,17 @@ pub(super) fn parse_app_settings(line: &Line) -> Result<AppSettings, Error> {
     Ok(settings)
 }
 
-pub(super) fn app_expression(source: &str, line: &Line) -> Result<AppExpression, Error> {
+pub(in crate::parser) fn app_expression(source: &str, line: &Line) -> Result<AppExpression, Error> {
     Ok(AppExpression {
         value: parse_expr(source, line)?,
         span: Span::line(line.number),
     })
 }
 
-pub(super) fn app_number_expression(source: &str, line: &Line) -> Result<AppExpression, Error> {
+pub(in crate::parser) fn app_number_expression(
+    source: &str,
+    line: &Line,
+) -> Result<AppExpression, Error> {
     let mut expression = app_expression(source, line)?;
     if let Expr::I64(value) = &expression.value {
         expression.value = Expr::F64(*value as f64);
@@ -151,7 +155,7 @@ pub(super) fn app_number_expression(source: &str, line: &Line) -> Result<AppExpr
     Ok(expression)
 }
 
-pub(super) fn parse_window_settings(line: &Line) -> Result<WindowSettings, Error> {
+pub(in crate::parser) fn parse_window_settings(line: &Line) -> Result<WindowSettings, Error> {
     let mut settings = WindowSettings::default();
     for item in &line.children {
         if let Some(platform) = item.text.strip_prefix("platform ") {
@@ -257,7 +261,9 @@ pub(super) fn parse_window_settings(line: &Line) -> Result<WindowSettings, Error
     Ok(settings)
 }
 
-pub(super) fn parse_linux_window_settings(line: &Line) -> Result<LinuxWindowSettings, Error> {
+pub(in crate::parser) fn parse_linux_window_settings(
+    line: &Line,
+) -> Result<LinuxWindowSettings, Error> {
     let mut settings = LinuxWindowSettings::default();
     for item in &line.children {
         ensure_leaf(item)?;
@@ -290,7 +296,9 @@ pub(super) fn parse_linux_window_settings(line: &Line) -> Result<LinuxWindowSett
     Ok(settings)
 }
 
-pub(super) fn parse_windows_window_settings(line: &Line) -> Result<WindowsWindowSettings, Error> {
+pub(in crate::parser) fn parse_windows_window_settings(
+    line: &Line,
+) -> Result<WindowsWindowSettings, Error> {
     let mut settings = WindowsWindowSettings::default();
     for item in &line.children {
         ensure_leaf(item)?;
@@ -351,7 +359,9 @@ pub(super) fn parse_windows_window_settings(line: &Line) -> Result<WindowsWindow
     Ok(settings)
 }
 
-pub(super) fn parse_macos_window_settings(line: &Line) -> Result<MacosWindowSettings, Error> {
+pub(in crate::parser) fn parse_macos_window_settings(
+    line: &Line,
+) -> Result<MacosWindowSettings, Error> {
     let mut settings = MacosWindowSettings::default();
     for item in &line.children {
         ensure_leaf(item)?;
@@ -376,7 +386,9 @@ pub(super) fn parse_macos_window_settings(line: &Line) -> Result<MacosWindowSett
     Ok(settings)
 }
 
-pub(super) fn parse_wasm_window_settings(line: &Line) -> Result<WasmWindowSettings, Error> {
+pub(in crate::parser) fn parse_wasm_window_settings(
+    line: &Line,
+) -> Result<WasmWindowSettings, Error> {
     let mut settings = WasmWindowSettings::default();
     for item in &line.children {
         ensure_leaf(item)?;
@@ -407,7 +419,10 @@ pub(super) fn parse_wasm_window_settings(line: &Line) -> Result<WasmWindowSettin
     Ok(settings)
 }
 
-pub(super) fn config_window_icon(source: &str, line: &Line) -> Result<WindowIcon, Error> {
+pub(in crate::parser) fn config_window_icon(
+    source: &str,
+    line: &Line,
+) -> Result<WindowIcon, Error> {
     let parts = split_words(source);
     if parts.len() != 3 {
         return Err(error(
@@ -457,7 +472,7 @@ pub(super) fn config_window_icon(source: &str, line: &Line) -> Result<WindowIcon
     })
 }
 
-pub(super) fn set_setting<T>(
+pub(in crate::parser) fn set_setting<T>(
     slot: &mut Option<T>,
     value: T,
     name: &str,
@@ -470,7 +485,7 @@ pub(super) fn set_setting<T>(
     }
 }
 
-pub(super) fn config_bool(source: &str, line: &Line) -> Result<bool, Error> {
+pub(in crate::parser) fn config_bool(source: &str, line: &Line) -> Result<bool, Error> {
     match source {
         "true" => Ok(true),
         "false" => Ok(false),
@@ -478,7 +493,7 @@ pub(super) fn config_bool(source: &str, line: &Line) -> Result<bool, Error> {
     }
 }
 
-pub(super) fn config_number(source: &str, line: &Line) -> Result<f64, Error> {
+pub(in crate::parser) fn config_number(source: &str, line: &Line) -> Result<f64, Error> {
     source
         .parse::<f64>()
         .ok()
@@ -486,7 +501,7 @@ pub(super) fn config_number(source: &str, line: &Line) -> Result<f64, Error> {
         .ok_or_else(|| error("E015", line, "setting expects a finite number"))
 }
 
-pub(super) fn config_positive_number(source: &str, line: &Line) -> Result<f64, Error> {
+pub(in crate::parser) fn config_positive_number(source: &str, line: &Line) -> Result<f64, Error> {
     let value = config_number(source, line)?;
     if value > 0.0 {
         Ok(value)
@@ -495,7 +510,7 @@ pub(super) fn config_positive_number(source: &str, line: &Line) -> Result<f64, E
     }
 }
 
-pub(super) fn config_pair(source: &str, line: &Line) -> Result<(f64, f64), Error> {
+pub(in crate::parser) fn config_pair(source: &str, line: &Line) -> Result<(f64, f64), Error> {
     let parts = split_words(source);
     if parts.len() != 2 {
         return Err(error("E015", line, "window size expects `width height`"));
@@ -506,7 +521,7 @@ pub(super) fn config_pair(source: &str, line: &Line) -> Result<(f64, f64), Error
     ))
 }
 
-pub(super) fn config_size(source: &str, line: &Line) -> Result<(f64, f64), Error> {
+pub(in crate::parser) fn config_size(source: &str, line: &Line) -> Result<(f64, f64), Error> {
     let (width, height) = config_pair(source, line)?;
     if width > 0.0 && height > 0.0 {
         Ok((width, height))
@@ -519,7 +534,10 @@ pub(super) fn config_size(source: &str, line: &Line) -> Result<(f64, f64), Error
     }
 }
 
-pub(super) fn config_position(source: &str, line: &Line) -> Result<WindowPosition, Error> {
+pub(in crate::parser) fn config_position(
+    source: &str,
+    line: &Line,
+) -> Result<WindowPosition, Error> {
     match source {
         "default" => Ok(WindowPosition::Default),
         "centered" => Ok(WindowPosition::Centered),
@@ -536,7 +554,7 @@ pub(super) fn config_position(source: &str, line: &Line) -> Result<WindowPositio
     }
 }
 
-pub(super) fn parse_font(source: &str, line: &Line) -> Result<FontDecl, Error> {
+pub(in crate::parser) fn parse_font(source: &str, line: &Line) -> Result<FontDecl, Error> {
     ensure_leaf(line)?;
     let parts = split_words(source);
     let name = identifier(
@@ -618,7 +636,7 @@ pub(super) fn parse_font(source: &str, line: &Line) -> Result<FontDecl, Error> {
     })
 }
 
-pub(super) fn parse_qr_data(source: &str, line: &Line) -> Result<QrData, Error> {
+pub(in crate::parser) fn parse_qr_data(source: &str, line: &Line) -> Result<QrData, Error> {
     ensure_leaf(line)?;
     let parts = split_words(source);
     let name = parts

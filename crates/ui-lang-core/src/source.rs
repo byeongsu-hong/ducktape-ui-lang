@@ -23,9 +23,10 @@ struct LoadedSource {
 }
 
 pub fn source_is_app(source: &str) -> bool {
-    source
-        .lines()
-        .any(|line| line.len() == line.trim_start().len() && line.starts_with("app "))
+    source.lines().any(|line| {
+        line.len() == line.trim_start().len()
+            && (line.starts_with("app ") || line.starts_with("daemon "))
+    })
 }
 
 pub fn analyze_file(path: impl AsRef<Path>) -> Result<Document, Error> {
@@ -427,6 +428,7 @@ mod tests {
     #[test]
     fn only_top_level_app_declarations_make_roots() {
         assert!(source_is_app("app Demo\nview\n  text \"Hi\"\n"));
+        assert!(source_is_app("daemon Agent\nview\n  text \"Hi\"\n"));
         assert!(!source_is_app("component Card()\n  text \"app Demo\"\n"));
     }
 

@@ -1,19 +1,26 @@
 use super::*;
 
-pub(super) fn check_app_settings(
+pub(in crate::check) fn check_app_settings(
     document: &Document,
     states: &HashMap<String, Type>,
 ) -> Result<(), Error> {
-    for setting in [
-        &document.settings.title,
-        &document.settings.background,
-        &document.settings.text_color,
-    ]
-    .into_iter()
-    .flatten()
+    let mut callback_states = states.clone();
+    if document.daemon {
+        callback_states.insert("window".into(), Type::WindowId);
+    }
+    for setting in [&document.settings.background, &document.settings.text_color]
+        .into_iter()
+        .flatten()
     {
         require_type(
             &expr_type(&setting.value, states, document, &setting.span)?,
+            &Type::Str,
+            &setting.span,
+        )?;
+    }
+    if let Some(setting) = &document.settings.title {
+        require_type(
+            &expr_type(&setting.value, &callback_states, document, &setting.span)?,
             &Type::Str,
             &setting.span,
         )?;
@@ -25,10 +32,10 @@ pub(super) fn check_app_settings(
                 .iter()
                 .find(|function| function.name == *name && function.kind == ExternKind::Theme)
         {
-            check_call_args(factory, args, states, document, &setting.span)?;
+            check_call_args(factory, args, &callback_states, document, &setting.span)?;
         } else {
             require_type(
-                &expr_type(&setting.value, states, document, &setting.span)?,
+                &expr_type(&setting.value, &callback_states, document, &setting.span)?,
                 &Type::Str,
                 &setting.span,
             )?;
@@ -36,7 +43,7 @@ pub(super) fn check_app_settings(
     }
     if let Some(setting) = &document.settings.scale_factor {
         require_type(
-            &expr_type(&setting.value, states, document, &setting.span)?,
+            &expr_type(&setting.value, &callback_states, document, &setting.span)?,
             &Type::F64,
             &setting.span,
         )?;
@@ -79,7 +86,7 @@ pub(super) fn check_app_settings(
     Ok(())
 }
 
-pub(super) fn valid_app_color(value: &str) -> bool {
+pub(in crate::check) fn valid_app_color(value: &str) -> bool {
     let hex = value.strip_prefix('#').unwrap_or(value);
     matches!(hex.len(), 3 | 4 | 6 | 8) && hex.chars().all(|value| value.is_ascii_hexdigit())
 }

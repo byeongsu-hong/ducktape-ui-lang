@@ -87,10 +87,7 @@ pub(in crate::check) fn infer_structure_group(
                 require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
             }
             for length in [width, height].into_iter().flatten() {
-                if let LengthValue::Fixed(value) = length {
-                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                    require_literal_range(value, 0.0, None, "pin size", span)?;
-                }
+                check_length_value(length, env, document, span, "pin size")?;
             }
             infer_view(content, env, document, signatures, ids)?;
         }
@@ -152,10 +149,7 @@ pub(in crate::check) fn infer_structure_group(
             span,
         } => {
             for length in [width, height].into_iter().flatten() {
-                if let LengthValue::Fixed(value) = length {
-                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                    require_literal_range(value, 0.0, None, "responsive size", span)?;
-                }
+                check_length_value(length, env, document, span, "responsive size")?;
             }
             match content {
                 ResponsiveContent::Breakpoint {

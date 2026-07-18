@@ -1,6 +1,28 @@
 use super::*;
 
 #[test]
+fn rejects_state_capture_in_subscription_routes() {
+    let source = r#"app Demo
+extern crate::backend
+  subscription events() -> bool
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  count = 1
+on event(count, next)
+subscribe
+  events() -> event(count, _)
+view
+  text count
+"#;
+    let error = analyze(source).unwrap_err();
+    assert_eq!(error.code, "E127");
+}
+
+#[test]
 fn checks_native_keyboard_payload_fields() {
     let source = r#"app Shortcuts
 theme
@@ -313,8 +335,7 @@ view
 
 #[test]
 fn checks_scoped_widget_operations() {
-    let source =
-        include_str!("../../../../../examples/iced-app/src/ui/scoped_widget_operations.ice");
+    let source = example!("scoped_widget_operations.ice");
     analyze(source).unwrap();
 
     let error = analyze(&source.replacen("/inner/field", "/inner/missing", 1)).unwrap_err();
@@ -341,7 +362,7 @@ fn checks_scoped_widget_operations() {
 
 #[test]
 fn checks_widget_selectors() {
-    let source = include_str!("../../../../../examples/iced-app/src/ui/widget_selectors.ice");
+    let source = example!("widget_selectors.ice");
     let document = analyze(source).unwrap();
     assert_eq!(
         document.handlers[6].params[0].ty,

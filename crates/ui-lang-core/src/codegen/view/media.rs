@@ -44,22 +44,23 @@ pub(in crate::codegen) fn render_media(
             if let Some(height) = &options.height {
                 write!(code, ".height({})", length_code(height, env, document)?).unwrap();
             }
-            if let Some(fit) = options.fit {
-                let fit = match fit {
-                    ContentFit::Contain => "Contain",
-                    ContentFit::Cover => "Cover",
-                    ContentFit::Fill => "Fill",
-                    ContentFit::None => "None",
-                    ContentFit::ScaleDown => "ScaleDown",
-                };
-                write!(code, ".content_fit(::iced::ContentFit::{fit})").unwrap();
+            if let Some(fit) = &options.fit {
+                write!(
+                    code,
+                    ".content_fit({})",
+                    expr_code(fit, env, document, ValueMode::Owned)?
+                )
+                .unwrap();
             }
             if let Some(rotation) = &options.rotation {
+                let rotation_type = expr_type(rotation, &env_types(env), document, span)?;
                 let rotation = expr_code(rotation, env, document, ValueMode::Owned)?;
                 write!(
                     code,
                     ".rotation({})",
-                    if options.rotation_solid {
+                    if rotation_type == Type::Rotation {
+                        rotation
+                    } else if options.rotation_solid {
                         format!("::iced::Rotation::Solid(::iced::Radians({rotation} as f32))")
                     } else {
                         format!("{rotation} as f32")
@@ -230,7 +231,7 @@ pub(in crate::codegen) fn render_media(
             let delay = expr_code(&options.delay_ms, env, document, ValueMode::Owned)?;
             let snap = expr_code(&options.snap, env, document, ValueMode::Owned)?;
             let mut code = format!(
-                "{{ let __tooltip_content: ::iced::Element<'_, {message}> = {content}; let __tooltip_tip: ::iced::Element<'_, {message}> = {tip}; ::iced::widget::tooltip(__tooltip_content, __tooltip_tip, ::iced::widget::tooltip::Position::{position}).gap({gap} as f32).padding({padding} as f32).delay(::std::time::Duration::from_millis({delay} as u64)).snap_within_viewport({snap})"
+                "{{ let __tooltip_content: __IceElement<'_, {message}> = {content}; let __tooltip_tip: __IceElement<'_, {message}> = {tip}; ::iced::widget::tooltip(__tooltip_content, __tooltip_tip, ::iced::widget::tooltip::Position::{position}).gap({gap} as f32).padding({padding} as f32).delay(::std::time::Duration::from_millis({delay} as u64)).snap_within_viewport({snap})"
             );
             append_tooltip_style(&mut code, options, env, document)?;
             code.push_str(".into() }");
@@ -241,7 +242,7 @@ pub(in crate::codegen) fn render_media(
         } => {
             let content = render_node(content, document, message, env, scope, slot)?;
             let mut code = format!(
-                "{{ let __mouse_content: ::iced::Element<'_, {message}> = {content}; ::iced::widget::mouse_area(__mouse_content)"
+                "{{ let __mouse_content: __IceElement<'_, {message}> = {content}; ::iced::widget::mouse_area(__mouse_content)"
             );
             for (route, method) in [
                 (&options.press, "on_press"),
@@ -303,6 +304,13 @@ pub(in crate::codegen) fn render_media(
                     code,
                     ".interaction(::iced::mouse::Interaction::{})",
                     mouse_interaction_code(interaction)
+                )
+                .unwrap();
+            } else if let Some(interaction) = &options.interaction_expr {
+                write!(
+                    code,
+                    ".interaction({})",
+                    expr_code(interaction, env, document, ValueMode::Owned)?
                 )
                 .unwrap();
             }

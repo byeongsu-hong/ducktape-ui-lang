@@ -1,11 +1,11 @@
 use super::*;
 
-pub(super) fn check_handler(
+pub(in crate::check) fn check_handler(
     handler: &Handler,
     states: &HashMap<String, Type>,
     document: &Document,
     operation_ids: &[WidgetIdPath],
-    pane_grids: &HashMap<String, HashSet<String>>,
+    pane_grids: &HashMap<String, PaneGridNames>,
 ) -> Result<(), Error> {
     let mut env = states.clone();
     env.extend(
@@ -19,16 +19,36 @@ pub(super) fn check_handler(
             Statement::Assign {
                 target,
                 value,
+                at,
                 span,
             } => {
                 let expected = states.get(target).ok_or_else(|| {
                     Error::new("E140", span, format!("`{target}` is not writable state"))
                 })?;
+                if contains_debug_span(expected) {
+                    return Err(Error::new(
+                        "E144",
+                        span,
+                        "debug span state is owned by `debug start` and `debug finish`",
+                    ));
+                }
                 let actual = expr_type(value, &env, document, span)?;
                 if let Type::Combo(inner) = expected {
                     require_type(&actual, &Type::List(inner.clone()), span)?;
+                } else if let Type::Animation(inner) = expected {
+                    require_type(&actual, inner, span)?;
                 } else {
                     require_type(&actual, expected, span)?;
+                }
+                if let Some(at) = at {
+                    if !matches!(expected, Type::Animation(_)) {
+                        return Err(Error::new(
+                            "E140",
+                            span,
+                            "`at` is only valid when assigning animation state",
+                        ));
+                    }
+                    require_type(&expr_type(at, &env, document, span)?, &Type::Instant, span)?;
                 }
             }
             Statement::MarkdownAppend {
@@ -66,6 +86,15 @@ pub(super) fn check_handler(
                     span,
                 )?;
             }
+            Statement::Exit { span } => {
+                if index + 1 != handler.statements.len() {
+                    return Err(Error::new(
+                        "E141",
+                        span,
+                        "exit must be the final statement in a handler",
+                    ));
+                }
+            }
             Statement::Run {
                 kind,
                 function,
@@ -85,11 +114,17 @@ pub(super) fn check_handler(
                         format!("{effect} must be the final statement in a handler"),
                     ));
                 }
-                if builtin_task_output(*kind, function, args, span)?.is_some() {
+                if builtin_task_type(*kind, function, args, span)?.is_some() {
                     if function == "__ice_font_load" {
                         require_type(
                             &expr_type(&args[0], &env, document, span)?,
                             &Type::Bytes,
+                            span,
+                        )?;
+                    } else if function == "__ice_image_allocate" {
+                        require_type(
+                            &expr_type(&args[0], &env, document, span)?,
+                            &Type::Image,
                             span,
                         )?;
                     }
@@ -160,6 +195,13 @@ pub(super) fn check_handler(
             }
             Statement::Abort { handle, span } => {
                 require_task_handle_state(handle, states, span)?;
+            }
+            Statement::DebugStart { name, target, span } => {
+                require_debug_span_state(target, states, span)?;
+                require_type(&expr_type(name, &env, document, span)?, &Type::Str, span)?;
+            }
+            Statement::DebugFinish { target, span } => {
+                require_debug_span_state(target, states, span)?;
             }
             Statement::ClipboardWrite { value, span, .. } => {
                 if index + 1 != handler.statements.len() {
@@ -284,7 +326,7 @@ pub(super) fn check_handler(
                 route,
                 span,
             } => {
-                let panes = pane_grids.get(grid).ok_or_else(|| {
+                let names = pane_grids.get(grid).ok_or_else(|| {
                     Error::new("E188", span, format!("unknown pane-grid `#{grid}`"))
                 })?;
                 let referenced = match operation {
@@ -300,23 +342,51 @@ pub(super) fn check_handler(
                     | PaneOperation::Resize { .. } => Vec::new(),
                 };
                 for pane in referenced {
-                    if !panes.contains(pane) {
-                        return Err(Error::new(
-                            "E188",
-                            span,
-                            format!("pane-grid `#{grid}` has no pane `{pane}`"),
-                        ));
+                    match pane {
+                        PaneReference::Static(pane) => {
+                            if !names.panes.contains(pane) {
+                                return Err(Error::new(
+                                    "E188",
+                                    span,
+                                    format!("pane-grid `#{grid}` has no pane `{pane}`"),
+                                ));
+                            }
+                        }
+                        PaneReference::Dynamic { template, key } => {
+                            let expected = names.templates.get(template).ok_or_else(|| {
+                                Error::new(
+                                    "E188",
+                                    span,
+                                    format!(
+                                        "pane-grid `#{grid}` has no dynamic pane template `{template}`"
+                                    ),
+                                )
+                            })?;
+                            require_type(&expr_type(key, &env, document, span)?, expected, span)?;
+                        }
                     }
                 }
+                if let PaneOperation::Resize {
+                    split: Some(split), ..
+                } = operation
+                    && !names.splits.contains(split)
+                {
+                    return Err(Error::new(
+                        "E188",
+                        span,
+                        format!("pane-grid `#{grid}` has no split `{split}`"),
+                    ));
+                }
+                let same_static = |first: &PaneReference, second: &PaneReference| matches!((first, second), (PaneReference::Static(first), PaneReference::Static(second)) if first == second);
                 if matches!(
                     operation,
-                    PaneOperation::Swap { first, second } if first == second
+                    PaneOperation::Swap { first, second } if same_static(first, second)
                 ) || matches!(
                     operation,
-                    PaneOperation::Drop { pane, target, .. } if pane == target
+                    PaneOperation::Drop { pane, target, .. } if same_static(pane, target)
                 ) || matches!(
                     operation,
-                    PaneOperation::Split { target, pane, .. } if target == pane
+                    PaneOperation::Split { target, pane, .. } if same_static(target, pane)
                 ) {
                     return Err(Error::new(
                         "E188",
@@ -348,7 +418,7 @@ pub(super) fn check_handler(
                     }
                     _ => {}
                 }
-                if let PaneOperation::Resize { ratio } | PaneOperation::Split { ratio, .. } =
+                if let PaneOperation::Resize { ratio, .. } | PaneOperation::Split { ratio, .. } =
                     operation
                 {
                     require_type(&expr_type(ratio, &env, document, span)?, &Type::F64, span)?;
@@ -509,7 +579,7 @@ pub(super) fn check_handler(
     Ok(())
 }
 
-pub(super) fn check_structured_tasks(handler: &Handler) -> Result<(), Error> {
+pub(in crate::check) fn check_structured_tasks(handler: &Handler) -> Result<(), Error> {
     for (index, statement) in handler.statements.iter().enumerate() {
         match statement {
             Statement::TaskGroup {
@@ -552,9 +622,10 @@ pub(super) fn check_structured_tasks(handler: &Handler) -> Result<(), Error> {
     Ok(())
 }
 
-pub(super) fn invalid_task_producer(statement: &Statement) -> Option<&Span> {
+pub(in crate::check) fn invalid_task_producer(statement: &Statement) -> Option<&Span> {
     match statement {
-        Statement::Run { .. }
+        Statement::Exit { .. }
+        | Statement::Run { .. }
         | Statement::Sip { .. }
         | Statement::TaskFlow { .. }
         | Statement::ClipboardWrite { .. }
@@ -573,11 +644,13 @@ pub(super) fn invalid_task_producer(statement: &Statement) -> Option<&Span> {
         | Statement::ComboPush { .. }
         | Statement::ReturnIf { .. }
         | Statement::Abort { .. }
+        | Statement::DebugStart { .. }
+        | Statement::DebugFinish { .. }
         | Statement::PaneOperation { .. } => Some(statement_span(statement)),
     }
 }
 
-pub(super) fn require_task_handle_state(
+pub(in crate::check) fn require_task_handle_state(
     handle: &str,
     states: &HashMap<String, Type>,
     span: &Span,
@@ -593,18 +666,35 @@ pub(super) fn require_task_handle_state(
     require_type(actual, &Type::Option(Box::new(Type::TaskHandle)), span)
 }
 
-pub(super) fn statement_span(statement: &Statement) -> &Span {
+pub(in crate::check) fn require_debug_span_state(
+    target: &str,
+    states: &HashMap<String, Type>,
+    span: &Span,
+) -> Result<(), Error> {
+    let Some(actual) = states.get(target) else {
+        return Err(
+            Error::new("E144", span, format!("unknown debug span state `{target}`"))
+                .hint(format!("declare `{target}:debug-span? = none` in state")),
+        );
+    };
+    require_type(actual, &Type::Option(Box::new(Type::DebugSpan)), span)
+}
+
+pub(in crate::check) fn statement_span(statement: &Statement) -> &Span {
     match statement {
         Statement::Assign { span, .. }
         | Statement::MarkdownAppend { span, .. }
         | Statement::ComboPush { span, .. }
         | Statement::ReturnIf { span, .. }
+        | Statement::Exit { span }
         | Statement::Run { span, .. }
         | Statement::Sip { span, .. }
         | Statement::TaskFlow { span, .. }
         | Statement::TaskGroup { span, .. }
         | Statement::Abortable { span, .. }
         | Statement::Abort { span, .. }
+        | Statement::DebugStart { span, .. }
+        | Statement::DebugFinish { span, .. }
         | Statement::ClipboardWrite { span, .. }
         | Statement::WidgetOperation { span, .. }
         | Statement::WindowOperation { span, .. }
@@ -622,7 +712,7 @@ impl From<EffectKind> for ExternKind {
     }
 }
 
-pub(super) fn extern_function<'a>(
+pub(in crate::check) fn extern_function<'a>(
     document: &'a Document,
     name: &str,
     kind: ExternKind,
@@ -665,12 +755,13 @@ pub(super) fn extern_function<'a>(
                 ExternKind::ScrollStyle => "scroll style",
                 ExternKind::PickListStyle => "pick-list style",
                 ExternKind::MenuStyle => "menu style",
+                ExternKind::PaneGridStyle => "pane-grid style",
             };
             Error::new("E130", span, format!("unknown extern {label} `{name}`"))
         })
 }
 
-pub(super) fn check_call_args(
+pub(in crate::check) fn check_call_args(
     function: &ExternFn,
     args: &[Expr],
     env: &HashMap<String, Type>,
@@ -696,26 +787,36 @@ pub(super) fn check_call_args(
     Ok(())
 }
 
-pub(super) fn builtin_task_output(
+pub(in crate::check) fn builtin_task_type(
     kind: EffectKind,
     function: &str,
     args: &[Expr],
     span: &Span,
-) -> Result<Option<Type>, Error> {
+) -> Result<Option<(Type, Option<Type>)>, Error> {
     let output = match (kind, function) {
-        (EffectKind::Task, "__ice_system_info") => Some(Type::SystemInfo),
-        (EffectKind::Task, "__ice_system_theme") => Some(Type::Str),
-        (EffectKind::Task, "__ice_time_now") => Some(Type::Instant),
+        (EffectKind::Task, "__ice_system_info") => Some((Type::SystemInfo, None)),
+        (EffectKind::Task, "__ice_system_theme") => Some((Type::Str, None)),
+        (EffectKind::Task, "__ice_time_now") => Some((Type::Instant, None)),
         (EffectKind::Task, "__ice_clipboard_read" | "__ice_clipboard_read_primary") => {
-            Some(Type::Option(Box::new(Type::Str)))
+            Some((Type::Option(Box::new(Type::Str)), None))
         }
-        (EffectKind::Task, "__ice_font_load") => Some(Type::Unit),
+        (EffectKind::Task, "__ice_font_load") => Some((Type::Unit, None)),
+        (EffectKind::Task, "__ice_image_allocate") => {
+            Some((Type::ImageAllocation, Some(Type::ImageError)))
+        }
         _ => None,
     };
-    if function == "__ice_font_load" && args.len() != 1 {
-        return Err(Error::new("E142", span, "font load expects one argument"));
+    if matches!(function, "__ice_font_load" | "__ice_image_allocate") && args.len() != 1 {
+        return Err(Error::new(
+            "E142",
+            span,
+            "this built-in task expects one argument",
+        ));
     }
-    if output.is_some() && function != "__ice_font_load" && !args.is_empty() {
+    if output.is_some()
+        && !matches!(function, "__ice_font_load" | "__ice_image_allocate")
+        && !args.is_empty()
+    {
         return Err(Error::new(
             "E142",
             span,
@@ -725,7 +826,7 @@ pub(super) fn builtin_task_output(
     Ok(output)
 }
 
-pub(super) fn task_source_type(
+pub(in crate::check) fn task_source_type(
     source: &TaskSource,
     document: &Document,
     env: &HashMap<String, Type>,
@@ -747,15 +848,21 @@ pub(super) fn task_source_type(
             args,
             span,
         } => {
-            if let Some(output) = builtin_task_output(*kind, function, args, span)? {
+            if let Some((output, error)) = builtin_task_type(*kind, function, args, span)? {
                 if function == "__ice_font_load" {
                     require_type(
                         &expr_type(&args[0], env, document, span)?,
                         &Type::Bytes,
                         span,
                     )?;
+                } else if function == "__ice_image_allocate" {
+                    require_type(
+                        &expr_type(&args[0], env, document, span)?,
+                        &Type::Image,
+                        span,
+                    )?;
                 }
-                return Ok((output, None));
+                return Ok((output, error));
             }
             let action = extern_function(document, function, (*kind).into(), span)?;
             check_call_args(action, args, env, document, span)?;

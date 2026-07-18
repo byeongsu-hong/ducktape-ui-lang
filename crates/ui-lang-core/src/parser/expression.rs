@@ -1,6 +1,6 @@
 use super::*;
 
-pub(super) fn parse_type(source: &str, line: &Line) -> Result<Type, Error> {
+pub(in crate::parser) fn parse_type(source: &str, line: &Line) -> Result<Type, Error> {
     let source = source.trim();
     if let Some(inner) = source.strip_suffix('?') {
         return Ok(Type::Option(Box::new(parse_type(inner, line)?)));
@@ -28,6 +28,12 @@ pub(super) fn parse_type(source: &str, line: &Line) -> Result<Type, Error> {
     {
         return Ok(Type::Combo(Box::new(parse_type(inner, line)?)));
     }
+    if let Some(inner) = source
+        .strip_prefix("animation[")
+        .and_then(|source| source.strip_suffix(']'))
+    {
+        return Ok(Type::Animation(Box::new(parse_type(inner, line)?)));
+    }
     if source.starts_with('[') && source.ends_with(']') {
         return Ok(Type::List(Box::new(parse_type(
             &source[1..source.len() - 1],
@@ -41,9 +47,14 @@ pub(super) fn parse_type(source: &str, line: &Line) -> Result<Type, Error> {
         "str" => Type::Str,
         "bytes" => Type::Bytes,
         "image" => Type::Image,
+        "image-allocation" => Type::ImageAllocation,
+        "image-memory" => Type::ImageMemory,
+        "image-error" => Type::ImageError,
+        "debug-span" => Type::DebugSpan,
         "markdown" => Type::Markdown,
         "editor" => Type::Editor,
         "event" => Type::Event,
+        "event-status" => Type::EventStatus,
         "key" => Type::Key,
         "physical-key" => Type::PhysicalKey,
         "key-location" => Type::KeyLocation,
@@ -52,19 +63,53 @@ pub(super) fn parse_type(source: &str, line: &Line) -> Result<Type, Error> {
         "padding" => Type::Padding,
         "degrees" => Type::Degrees,
         "radians" => Type::Radians,
+        "rotation" => Type::Rotation,
+        "content-fit" => Type::ContentFit,
+        "color" => Type::Color,
+        "background" => Type::Background,
+        "gradient" => Type::Gradient,
+        "linear-gradient" => Type::LinearGradient,
+        "color-stop" => Type::ColorStop,
+        "font" => Type::Font,
+        "font-family" => Type::FontFamily,
+        "font-weight" => Type::FontWeight,
+        "font-stretch" => Type::FontStretch,
+        "font-style" => Type::FontStyle,
+        "theme-mode" => Type::ThemeMode,
+        "text-alignment" => Type::TextAlignment,
+        "text-shaping" => Type::TextShaping,
+        "text-wrapping" => Type::TextWrapping,
+        "text-line-height" => Type::TextLineHeight,
+        "length" => Type::Length,
+        "alignment" => Type::Alignment,
+        "horizontal-alignment" => Type::HorizontalAlignment,
+        "vertical-alignment" => Type::VerticalAlignment,
+        "border" => Type::Border,
+        "radius" => Type::Radius,
+        "shadow" => Type::Shadow,
         "point" => Type::Point,
         "point-u32" => Type::PointU32,
         "vector" => Type::Vector,
         "size" => Type::Size,
+        "size-u32" => Type::SizeU32,
         "rectangle" => Type::Rectangle,
         "rectangle-u32" => Type::RectangleU32,
         "transformation" => Type::Transformation,
+        "mouse-interaction" => Type::MouseInteraction,
+        "scroll-delta" => Type::ScrollDelta,
         "mouse-button" => Type::MouseButton,
         "mouse-cursor" => Type::MouseCursor,
         "mouse-click" => Type::MouseClick,
         "touch-finger" => Type::TouchFinger,
         "instant" => Type::Instant,
         "window-id" => Type::WindowId,
+        "window-screenshot" => Type::WindowScreenshot,
+        "window-position" => Type::WindowPosition,
+        "redraw-request" => Type::RedrawRequest,
+        "window-direction" => Type::WindowDirection,
+        "window-level" => Type::WindowLevel,
+        "window-mode" => Type::WindowMode,
+        "window-attention" => Type::WindowAttention,
         "widget-id" => Type::WidgetId,
         "widget-target" => Type::WidgetTarget,
         "task-handle" => Type::TaskHandle,
@@ -76,11 +121,11 @@ pub(super) fn parse_type(source: &str, line: &Line) -> Result<Type, Error> {
     })
 }
 
-pub(super) fn parse_expr(source: &str, line: &Line) -> Result<Expr, Error> {
+pub(in crate::parser) fn parse_expr(source: &str, line: &Line) -> Result<Expr, Error> {
     ExprParser::new(source, line)?.parse()
 }
 
-pub(super) fn parse_hex_bytes(
+pub(in crate::parser) fn parse_hex_bytes(
     source: &str,
     line: &Line,
     code: &'static str,
@@ -96,7 +141,7 @@ pub(super) fn parse_hex_bytes(
         .collect()
 }
 
-pub(super) fn parse_expr_list(source: &str, line: &Line) -> Result<Vec<Expr>, Error> {
+pub(in crate::parser) fn parse_expr_list(source: &str, line: &Line) -> Result<Vec<Expr>, Error> {
     if source.trim().is_empty() {
         return Ok(Vec::new());
     }

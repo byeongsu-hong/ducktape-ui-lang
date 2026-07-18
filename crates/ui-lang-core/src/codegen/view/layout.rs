@@ -128,11 +128,11 @@ pub(in crate::codegen) fn render_layout(
             write!(code, ".height({})", length_code(height, env, document)?).unwrap();
         }
         return Ok(format!(
-            "{{ let __scroll_content: ::iced::Element<'_, {message}> = {child}; {code}.into() }}"
+            "{{ let __scroll_content: __IceElement<'_, {message}> = {child}; {code}.into() }}"
         ));
     }
 
-    let mut body = String::from("{ let mut __children: ::std::vec::Vec<::iced::Element<'_, ");
+    let mut body = String::from("{ let mut __children: ::std::vec::Vec<__IceElement<'_, ");
     write!(body, "{message}>> = ::std::vec::Vec::new();").unwrap();
     let child_scope = id.as_ref().map_or_else(
         || Ok(scope.to_owned()),

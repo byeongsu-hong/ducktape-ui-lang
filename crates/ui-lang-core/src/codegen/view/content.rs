@@ -175,7 +175,23 @@ pub(in crate::codegen) fn render_content(
                 })?;
             let args = args
                 .iter()
-                .map(|arg| expr_code(arg, env, document, ValueMode::Owned))
+                .enumerate()
+                .map(|(index, arg)| {
+                    if component.borrowed[index] {
+                        let arg = expr_code(arg, env, document, ValueMode::Borrowed)?;
+                        let borrow = if matches!(
+                            component.params[index].1,
+                            Type::Str | Type::Bytes | Type::List(_)
+                        ) {
+                            "::std::convert::AsRef::as_ref"
+                        } else {
+                            "::std::borrow::Borrow::borrow"
+                        };
+                        Ok(format!("{borrow}(&({arg}))"))
+                    } else {
+                        expr_code(arg, env, document, ValueMode::Owned)
+                    }
+                })
                 .collect::<Result<Vec<_>, _>>()?
                 .join(", ");
             let mapped = if let Some(route) = route {
@@ -212,7 +228,7 @@ pub(in crate::codegen) fn render_content(
                 format!("{message}::__ExternNoop")
             };
             Ok(format!(
-                "{{ let (__theme, __content, __text_color, __background) = {}({args}); let mut __themer = ::iced::widget::themer(__theme, __content); if let ::std::option::Option::Some(__text_color) = __text_color {{ __themer = __themer.text_color(__text_color); }} if let ::std::option::Option::Some(__background) = __background {{ __themer = __themer.background(__background); }} let __themed: ::iced::Element<'_, {}> = __themer.into(); __themed.map(move |__value| {mapped}).into() }}",
+                "{{ let (__theme, __content, __text_color, __background) = {}({args}); let mut __themer = ::iced::widget::themer(__theme, __content); if let ::std::option::Option::Some(__text_color) = __text_color {{ __themer = __themer.text_color(__text_color); }} if let ::std::option::Option::Some(__background) = __background {{ __themer = __themer.background(__background); }} let __themed: __IceElement<'_, {}> = __themer.into(); __themed.map(move |__value| {mapped}).into() }}",
                 themer.rust_path,
                 themer.output.rust(&document.structs)
             ))
@@ -249,7 +265,7 @@ pub(in crate::codegen) fn render_content(
                 format!("{message}::__ExternNoop")
             };
             Ok(format!(
-                "{{ let __shader: ::iced::Element<'_, {output}> = {code}.into(); __shader.map(move |__value| {mapped}).into() }}"
+                "{{ let __shader: __IceElement<'_, {output}> = {code}.into(); __shader.map(move |__value| {mapped}).into() }}"
             ))
         }
         _ => return Ok(None),

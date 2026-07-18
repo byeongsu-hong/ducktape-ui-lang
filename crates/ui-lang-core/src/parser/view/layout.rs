@@ -268,9 +268,14 @@ pub(in crate::parser) fn parse_pane_view(
     if !names.insert(name.clone()) {
         return Err(error("E187", line, format!("duplicate pane `{name}`")));
     }
+    let mut maximized = None;
     let mut style = ContainerStyleOptions::default();
     for part in style_parts {
-        if !parse_container_style_option(part, &mut style, line)? {
+        if let Some(value) = part.strip_prefix("maximized=") {
+            if maximized.replace(identifier(value, line)?).is_some() {
+                return Err(error("E187", line, "duplicate pane `maximized` binding"));
+            }
+        } else if !parse_container_style_option(part, &mut style, line)? {
             return Err(error(
                 "E187",
                 line,
@@ -301,6 +306,7 @@ pub(in crate::parser) fn parse_pane_view(
     };
     panes.push(PaneView {
         name: name.clone(),
+        maximized,
         content,
         title,
         styles,
@@ -458,6 +464,7 @@ pub(in crate::parser) fn parse_pane_title(
 pub(in crate::parser) fn parse_pane_configuration(
     line: &Line,
     names: &mut std::collections::HashSet<String>,
+    splits: &mut std::collections::HashSet<String>,
     panes: &mut Vec<PaneView>,
 ) -> Result<PaneConfiguration, Error> {
     let (core, styles) = split_style_utilities(&line.text);
@@ -471,22 +478,42 @@ pub(in crate::parser) fn parse_pane_configuration(
             names,
             panes,
         )?)),
-        Some("split") if (2..=3).contains(&parts.len()) => {
+        Some("split") if (2..=4).contains(&parts.len()) => {
             if !styles.is_empty() {
                 return Err(error("E187", line, "nested pane split does not accept `@`"));
             }
-            let axis = match parts[1].as_str() {
-                "horizontal" => PaneAxis::Horizontal,
-                "vertical" => PaneAxis::Vertical,
+            let (name, axis_index) = if matches!(parts[1].as_str(), "horizontal" | "vertical") {
+                (None, 1)
+            } else {
+                let name = identifier(&parts[1], line)?;
+                if !splits.insert(name.clone()) {
+                    return Err(error(
+                        "E187",
+                        line,
+                        format!("duplicate pane split `{name}`"),
+                    ));
+                }
+                (Some(name), 2)
+            };
+            let axis = match parts.get(axis_index).map(String::as_str) {
+                Some("horizontal") => PaneAxis::Horizontal,
+                Some("vertical") => PaneAxis::Vertical,
                 _ => {
                     return Err(error(
                         "E187",
                         line,
-                        "nested pane split must be horizontal or vertical",
+                        "nested pane split uses `split [name] horizontal|vertical ratio=value`",
                     ));
                 }
             };
-            let ratio = parts.get(2).map_or(Ok(0.5), |part| {
+            if parts.len() > axis_index + 2 {
+                return Err(error(
+                    "E187",
+                    line,
+                    "nested pane split uses `split [name] horizontal|vertical ratio=value`",
+                ));
+            }
+            let ratio = parts.get(axis_index + 1).map_or(Ok(0.5), |part| {
                 parse_pane_ratio(
                     part.strip_prefix("ratio=").ok_or_else(|| {
                         error("E187", line, "nested pane split ratio uses `ratio=value`")
@@ -502,16 +529,27 @@ pub(in crate::parser) fn parse_pane_configuration(
                 ));
             }
             Ok(PaneConfiguration::Split {
+                name,
                 axis,
                 ratio,
-                a: Box::new(parse_pane_configuration(&line.children[0], names, panes)?),
-                b: Box::new(parse_pane_configuration(&line.children[1], names, panes)?),
+                a: Box::new(parse_pane_configuration(
+                    &line.children[0],
+                    names,
+                    splits,
+                    panes,
+                )?),
+                b: Box::new(parse_pane_configuration(
+                    &line.children[1],
+                    names,
+                    splits,
+                    panes,
+                )?),
             })
         }
         _ => Err(error(
             "E187",
             line,
-            "pane configuration uses `pane name` or `split axis ratio=value`",
+            "pane configuration uses `pane name` or `split [name] axis ratio=value`",
         )),
     }
 }
@@ -532,6 +570,52 @@ pub(in crate::parser) fn parse_closed_pane(
     }
     parse_pane_view(&parts[1], &parts[3..], styles, line, names, panes)?;
     Ok(())
+}
+
+pub(in crate::parser) fn parse_pane_template(
+    line: &Line,
+    names: &mut std::collections::HashSet<String>,
+) -> Result<PaneTemplate, Error> {
+    let (core, styles) = split_style_utilities(&line.text);
+    let parts = split_words(core);
+    if parts.len() < 5 || parts[0] != "pane" || parts[2] != "in" {
+        return Err(error(
+            "E187",
+            line,
+            "dynamic pane templates use `pane item in state by=item.id`",
+        ));
+    }
+    let key = parts[4].strip_prefix("by=").ok_or_else(|| {
+        error(
+            "E187",
+            line,
+            "dynamic pane templates use `pane item in state by=item.id`",
+        )
+    })?;
+    let item = identifier(&parts[1], line)?;
+    let items = identifier(&parts[3], line)?;
+    let mut panes = Vec::new();
+    parse_pane_view(&item, &parts[5..], styles, line, names, &mut panes)?;
+    let pane = panes.pop().expect("pane template was parsed");
+    if pane.maximized.as_deref() == Some(item.as_str()) {
+        return Err(error(
+            "E187",
+            line,
+            "pane `maximized` binding must differ from its template item",
+        ));
+    }
+    Ok(PaneTemplate {
+        item,
+        items,
+        key: parse_expr(strip_wrapping_parens(key), line)?,
+        pane,
+        span: Span::line(line.number),
+    })
+}
+
+pub(in crate::parser) fn is_pane_template(line: &Line) -> bool {
+    let (core, _) = split_style_utilities(&line.text);
+    split_words(core).get(2).map(String::as_str) == Some("in")
 }
 
 pub(in crate::parser) fn parse_pane_grid(
@@ -585,6 +669,18 @@ pub(in crate::parser) fn parse_pane_grid(
             options.draggable = true;
         } else if let Some(value) = part.strip_prefix("click=") {
             options.click = Some(parse_route(value, line)?);
+        } else if let Some(value) = part.strip_prefix("style=") {
+            let (function, args) = parse_signature(value, line).map_err(|_| {
+                error(
+                    "E187",
+                    line,
+                    "pane-grid style must be a declared pane-grid style call",
+                )
+            })?;
+            options.custom_style = Some(ExternCall {
+                function,
+                args: parse_expr_list(&args, line)?,
+            });
         } else {
             return Err(error(
                 "E187",
@@ -616,7 +712,9 @@ pub(in crate::parser) fn parse_pane_grid(
         line.children.as_slice()
     };
     let mut names = std::collections::HashSet::new();
+    let mut splits = std::collections::HashSet::new();
     let mut panes = Vec::new();
+    let mut templates = Vec::new();
     let configuration = if let Some(axis) = legacy_axis {
         if children.len() < 2 {
             return Err(error(
@@ -626,8 +724,8 @@ pub(in crate::parser) fn parse_pane_grid(
             ));
         }
         let open = &children[..2];
-        let a = parse_pane_configuration(&open[0], &mut names, &mut panes)?;
-        let b = parse_pane_configuration(&open[1], &mut names, &mut panes)?;
+        let a = parse_pane_configuration(&open[0], &mut names, &mut splits, &mut panes)?;
+        let b = parse_pane_configuration(&open[1], &mut names, &mut splits, &mut panes)?;
         if !matches!(&a, PaneConfiguration::Pane(_)) || !matches!(&b, PaneConfiguration::Pane(_)) {
             return Err(error(
                 "E187",
@@ -636,9 +734,14 @@ pub(in crate::parser) fn parse_pane_grid(
             ));
         }
         for pane in &children[2..] {
-            parse_closed_pane(pane, &mut names, &mut panes)?;
+            if is_pane_template(pane) {
+                templates.push(parse_pane_template(pane, &mut names)?);
+            } else {
+                parse_closed_pane(pane, &mut names, &mut panes)?;
+            }
         }
         PaneConfiguration::Split {
+            name: None,
             axis,
             ratio: legacy_ratio,
             a: Box::new(a),
@@ -659,9 +762,14 @@ pub(in crate::parser) fn parse_pane_grid(
                 "pane-grid requires an initial pane or split configuration",
             )
         })?;
-        let configuration = parse_pane_configuration(configuration, &mut names, &mut panes)?;
+        let configuration =
+            parse_pane_configuration(configuration, &mut names, &mut splits, &mut panes)?;
         for pane in closed {
-            parse_closed_pane(pane, &mut names, &mut panes)?;
+            if is_pane_template(pane) {
+                templates.push(parse_pane_template(pane, &mut names)?);
+            } else {
+                parse_closed_pane(pane, &mut names, &mut panes)?;
+            }
         }
         configuration
     };
@@ -670,6 +778,7 @@ pub(in crate::parser) fn parse_pane_grid(
         configuration,
         options,
         panes,
+        templates,
         span: Span::line(line.number),
     })
 }

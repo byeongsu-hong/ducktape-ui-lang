@@ -173,12 +173,14 @@ theme
   danger #ff0000
 on open_preview
   pane #work split editor preview horizontal ratio=0.4
+on resize_editor_stack
+  pane #work resize editor_stack 0.55
 view
   pane-grid #work width=fill height=fill
-    split vertical ratio=0.7
+    split workspace_root vertical ratio=0.7
       pane files
         text "Files"
-      split horizontal ratio=0.6
+      split editor_stack horizontal ratio=0.6
         pane editor
           text "Editor"
         pane terminal
@@ -209,11 +211,83 @@ view
     let error = analyze(&source.replace("pane preview closed", "pane preview hidden")).unwrap_err();
     assert_eq!(error.code, "E187");
     assert!(error.message.contains("pane name closed"));
+
+    let error = analyze(&source.replace("resize editor_stack", "resize missing")).unwrap_err();
+    assert_eq!(error.code, "E188");
+    assert!(error.message.contains("has no split `missing`"));
+
+    let error = analyze(&source.replace("editor_stack horizontal", "workspace_root horizontal"))
+        .unwrap_err();
+    assert_eq!(error.code, "E187");
+    assert!(
+        error
+            .message
+            .contains("duplicate pane split `workspace_root`")
+    );
+}
+
+#[test]
+fn checks_runtime_pane_templates_and_keys() {
+    let source = r#"app Workspace
+extern crate::backend
+  Task(id:i64, title:str)
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  tasks:[Task] = []
+  selected = 7
+on open_task
+  pane #work split files task(selected) horizontal
+on close_task
+  pane #work close task(selected)
+view
+  pane-grid #work
+    pane files maximized=files_maximized
+      col
+        if files_maximized
+          text "Maximized files"
+    pane task in tasks by=task.id maximized=task_maximized
+      col
+        if task_maximized
+          text "Maximized task"
+        text task.title
+"#;
+    let document = analyze(source).unwrap();
+    let ViewNode::PaneGrid { templates, .. } = &document.view else {
+        panic!("pane-grid view")
+    };
+    assert_eq!(templates.len(), 1);
+    assert_eq!(templates[0].item, "task");
+    assert_eq!(templates[0].items, "tasks");
+
+    let error = analyze(&source.replace("task(selected)", "task(\"wrong\")")).unwrap_err();
+    assert_eq!(error.code, "E101");
+
+    let error = analyze(&source.replacen("task(selected)", "missing(selected)", 1)).unwrap_err();
+    assert_eq!(error.code, "E188");
+    assert!(error.message.contains("no dynamic pane template `missing`"));
+
+    let error = analyze(&source.replace("by=task.id", "by=task")).unwrap_err();
+    assert_eq!(error.code, "E187");
+    assert!(error.message.contains("dynamic pane keys"));
+
+    let error = analyze(&source.replace("maximized=task_maximized", "maximized=task")).unwrap_err();
+    assert_eq!(error.code, "E187");
+    assert!(error.message.contains("must differ from its template item"));
+
+    let error = analyze(&source.replace("in tasks", "in selected")).unwrap_err();
+    assert_eq!(error.code, "E187");
+    assert!(error.message.contains("requires list state `selected`"));
 }
 
 #[test]
 fn checks_structured_pane_titles_and_controls() {
     let source = r#"app Workspace
+extern crate::backend
+  pane-grid-style dynamic_panes(active:bool)
 theme
   background #000000
   foreground #ffffff
@@ -221,9 +295,10 @@ theme
   danger #ff0000
 state
   filter = ""
+  active = true
 on close
 view
-  pane-grid #work split=vertical
+  pane-grid #work split=vertical style=dynamic_panes(active)
     style
       hovered-region background=linear(0.785, primary/25@0.0, background@0.5, danger@1.0) border=foreground border-width=2.0 radius=4.0 radius-tl=1.0 radius-tr=2.0 radius-br=3.0 radius-bl=4.0
       hovered-split color=primary width=3.0
@@ -246,6 +321,12 @@ view
         text "Editor body"
 "#;
     analyze(source).unwrap();
+
+    let error =
+        analyze(&source.replace("style=dynamic_panes(active)", "style=missing_panes(active)"))
+            .unwrap_err();
+    assert_eq!(error.code, "E130");
+    assert!(error.message.contains("unknown extern pane-grid style"));
 
     let error = analyze(&source.replace("padding-top=6.0", "padding-top=-1.0")).unwrap_err();
     assert_eq!(error.code, "E128");
@@ -429,25 +510,4 @@ view
     let error = analyze(&zero_aspect).unwrap_err();
     assert_eq!(error.code, "E128");
     assert!(error.message.contains("grid aspect height"));
-}
-
-#[test]
-fn rejects_invalid_rule_style_values() {
-    let source = r#"app Structure
-theme
-  background #000000
-  foreground #ffffff
-  primary #333333
-  danger #ff0000
-view
-  rule horizontal fill=percent(101.0)
-"#;
-    let error = analyze(source).unwrap_err();
-    assert_eq!(error.code, "E128");
-    assert!(error.message.contains("rule percent"));
-
-    let unknown_color = source.replace("fill=percent(101.0)", "color=missing");
-    let error = analyze(&unknown_color).unwrap_err();
-    assert_eq!(error.code, "E129");
-    assert!(error.message.contains("unknown rule color"));
 }

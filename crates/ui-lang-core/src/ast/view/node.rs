@@ -28,6 +28,7 @@ pub enum ViewNode {
         configuration: PaneConfiguration,
         options: PaneGridOptions,
         panes: Vec<PaneView>,
+        templates: Vec<PaneTemplate>,
         span: Span,
     },
     Text {

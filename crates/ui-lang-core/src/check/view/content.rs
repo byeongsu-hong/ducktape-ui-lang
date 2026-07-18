@@ -182,11 +182,8 @@ pub(in crate::check) fn infer_content_group(
             if let Some(route) = &options.paste {
                 infer_route(route, Some(Type::Str), env, document, signatures)?;
             }
-            if let Some(length) = &options.width
-                && let LengthValue::Fixed(value) = length
-            {
-                require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                require_literal_range(value, 0.0, None, "input width", span)?;
+            if let Some(length) = &options.width {
+                check_length_value(length, env, document, span, "input width")?;
             }
             for (value, label, min) in [
                 (&options.padding, "input padding", 0.0),

@@ -1,6 +1,6 @@
 use super::*;
 
-pub(super) fn parse_statement(line: &Line) -> Result<Statement, Error> {
+pub(in crate::parser) fn parse_statement(line: &Line) -> Result<Statement, Error> {
     let group = match line.text.as_str() {
         "parallel" => Some(TaskGroupKind::Parallel),
         "sequential" => Some(TaskGroupKind::Sequential),
@@ -63,6 +63,11 @@ pub(super) fn parse_statement(line: &Line) -> Result<Statement, Error> {
         return Err(error("E050", line, "sip requires an extern call"));
     }
     ensure_leaf(line)?;
+    if line.text == "exit" {
+        return Ok(Statement::Exit {
+            span: Span::line(line.number),
+        });
+    }
     if let Some(source) = line.text.strip_prefix("combo ") {
         let Some((target, value)) = split_top_marker(source, " push ") else {
             return Err(error(
@@ -102,6 +107,33 @@ pub(super) fn parse_statement(line: &Line) -> Result<Statement, Error> {
             handle: identifier(handle.trim(), line)?,
             span: Span::line(line.number),
         });
+    }
+    if let Some(source) = line.text.strip_prefix("debug start ") {
+        let Some((name, target)) = split_top_marker(source, "->") else {
+            return Err(error(
+                "E050",
+                line,
+                "debug timing starts with `debug start name -> span_state`",
+            ));
+        };
+        return Ok(Statement::DebugStart {
+            name: parse_expr(name.trim(), line)?,
+            target: identifier(target.trim(), line)?,
+            span: Span::line(line.number),
+        });
+    }
+    if let Some(target) = line.text.strip_prefix("debug finish ") {
+        return Ok(Statement::DebugFinish {
+            target: identifier(target.trim(), line)?,
+            span: Span::line(line.number),
+        });
+    }
+    if line.text.starts_with("debug ") {
+        return Err(error(
+            "E050",
+            line,
+            "debug timing uses `debug start name -> span_state` or `debug finish span_state`",
+        ));
     }
     if let Some(source) = line.text.strip_prefix("pane ") {
         return parse_pane_operation(source, line);
@@ -169,9 +201,14 @@ pub(super) fn parse_statement(line: &Line) -> Result<Statement, Error> {
         });
     }
     if let Some((target, value)) = split_top_once(&line.text, '=') {
+        let (value, at) = match split_top_marker(value.trim(), " at ") {
+            Some((value, at)) => (value.trim(), Some(parse_expr(at.trim(), line)?)),
+            None => (value.trim(), None),
+        };
         return Ok(Statement::Assign {
             target: identifier(target.trim(), line)?,
-            value: parse_expr(value.trim(), line)?,
+            value: parse_expr(value, line)?,
+            at,
             span: Span::line(line.number),
         });
     }
@@ -182,7 +219,7 @@ pub(super) fn parse_statement(line: &Line) -> Result<Statement, Error> {
     ))
 }
 
-pub(super) fn parse_task_flow(line: &Line) -> Result<Statement, Error> {
+pub(in crate::parser) fn parse_task_flow(line: &Line) -> Result<Statement, Error> {
     let Some(first) = line.children.first() else {
         return Err(error(
             "E050",
@@ -315,7 +352,7 @@ pub(super) fn parse_task_flow(line: &Line) -> Result<Statement, Error> {
     })
 }
 
-pub(super) fn parse_task_source(source: &str, line: &Line) -> Result<TaskSource, Error> {
+pub(in crate::parser) fn parse_task_source(source: &str, line: &Line) -> Result<TaskSource, Error> {
     if let Some(value) = source.strip_prefix("done ") {
         return Ok(TaskSource::Done {
             value: parse_expr(value.trim(), line)?,
@@ -357,7 +394,7 @@ pub(super) fn parse_task_source(source: &str, line: &Line) -> Result<TaskSource,
     })
 }
 
-pub(super) fn parse_effect_call(
+pub(in crate::parser) fn parse_effect_call(
     kind: EffectKind,
     call: &str,
     line: &Line,
@@ -382,6 +419,16 @@ pub(super) fn parse_effect_call(
             "__ice_font_load".into(),
             vec![parse_expr(value.trim(), line)?],
         ))
+    } else if kind == EffectKind::Task
+        && let Some(value) = call.strip_prefix("image allocate ")
+    {
+        if value.trim().is_empty() {
+            return Err(error("E050", line, "image allocation requires a handle"));
+        }
+        Ok((
+            "__ice_image_allocate".into(),
+            vec![parse_expr(value.trim(), line)?],
+        ))
     } else if call.starts_with("system ") {
         Err(error(
             "E050",
@@ -400,6 +447,12 @@ pub(super) fn parse_effect_call(
             line,
             "font task must be `task font load bytes -> loaded`",
         ))
+    } else if call.starts_with("image ") {
+        Err(error(
+            "E050",
+            line,
+            "image task must be `task image allocate handle -> ready _ | failed _`",
+        ))
     } else if call.starts_with("time ") {
         Err(error("E050", line, "time task must be `task time now`"))
     } else {
@@ -408,7 +461,10 @@ pub(super) fn parse_effect_call(
     }
 }
 
-pub(super) fn parse_sip_statement(source: &str, line: &Line) -> Result<Statement, Error> {
+pub(in crate::parser) fn parse_sip_statement(
+    source: &str,
+    line: &Line,
+) -> Result<Statement, Error> {
     let (function, args) = parse_signature(source.trim(), line)?;
     let args = parse_expr_list(&args, line)?;
     let mut progress = None;
@@ -468,7 +524,10 @@ pub(super) fn parse_sip_statement(source: &str, line: &Line) -> Result<Statement
     })
 }
 
-pub(super) fn parse_pane_operation(source: &str, line: &Line) -> Result<Statement, Error> {
+pub(in crate::parser) fn parse_pane_operation(
+    source: &str,
+    line: &Line,
+) -> Result<Statement, Error> {
     let (source, route) = split_top_marker(source, "->")
         .map_or((source, None), |(source, route)| (source, Some(route)));
     let parts = split_words(source);
@@ -478,7 +537,7 @@ pub(super) fn parse_pane_operation(source: &str, line: &Line) -> Result<Statemen
         .ok_or_else(|| error("E188", line, "pane operation target must use `#grid`"))?;
     let grid = identifier(grid, line)?;
     let pane = |index: usize| {
-        identifier(
+        parse_pane_reference(
             parts
                 .get(index)
                 .ok_or_else(|| error("E188", line, "pane operation is missing a pane name"))?,
@@ -530,8 +589,14 @@ pub(super) fn parse_pane_operation(source: &str, line: &Line) -> Result<Statemen
             pane: pane(2)?,
             edge: edge(3)?,
         },
-        Some("resize") if parts.len() == 3 => PaneOperation::Resize {
-            ratio: parse_expr(strip_wrapping_parens(&parts[2]), line)?,
+        Some("resize") if (3..=4).contains(&parts.len()) => PaneOperation::Resize {
+            split: (parts.len() == 4)
+                .then(|| identifier(&parts[2], line))
+                .transpose()?,
+            ratio: parse_expr(
+                strip_wrapping_parens(&parts[if parts.len() == 4 { 3 } else { 2 }]),
+                line,
+            )?,
         },
         Some("drop") if parts.len() == 5 => PaneOperation::Drop {
             pane: pane(2)?,
@@ -570,7 +635,33 @@ pub(super) fn parse_pane_operation(source: &str, line: &Line) -> Result<Statemen
     })
 }
 
-pub(super) fn parse_widget_operation(source: &str, line: &Line) -> Result<Statement, Error> {
+pub(in crate::parser) fn parse_pane_reference(
+    source: &str,
+    line: &Line,
+) -> Result<PaneReference, Error> {
+    if !source.contains('(') {
+        return Ok(PaneReference::Static(identifier(source, line)?));
+    }
+    let (template, args) = parse_signature(source, line)
+        .map_err(|_| error("E188", line, "dynamic pane references use `template(key)`"))?;
+    let mut args = parse_expr_list(&args, line)?;
+    if args.len() != 1 {
+        return Err(error(
+            "E188",
+            line,
+            "dynamic pane references require exactly one key",
+        ));
+    }
+    Ok(PaneReference::Dynamic {
+        template,
+        key: args.remove(0),
+    })
+}
+
+pub(in crate::parser) fn parse_widget_operation(
+    source: &str,
+    line: &Line,
+) -> Result<Statement, Error> {
     let (source, route) = split_top_marker(source, "->")
         .map_or((source, None), |(source, route)| (source, Some(route)));
     let parts = split_words(source);
@@ -658,7 +749,10 @@ pub(super) fn parse_widget_operation(source: &str, line: &Line) -> Result<Statem
     })
 }
 
-pub(super) fn parse_widget_selector(source: &str, line: &Line) -> Result<WidgetSelector, Error> {
+pub(in crate::parser) fn parse_widget_selector(
+    source: &str,
+    line: &Line,
+) -> Result<WidgetSelector, Error> {
     if let Some(target) = source.strip_prefix("id ") {
         Ok(WidgetSelector::Id(parse_widget_target(
             target.trim(),
@@ -690,7 +784,10 @@ pub(super) fn parse_widget_selector(source: &str, line: &Line) -> Result<WidgetS
     }
 }
 
-pub(super) fn parse_widget_target(source: &str, line: &Line) -> Result<WidgetTarget, Error> {
+pub(in crate::parser) fn parse_widget_target(
+    source: &str,
+    line: &Line,
+) -> Result<WidgetTarget, Error> {
     let source = source.strip_prefix('#').ok_or_else(|| {
         error(
             "E052",
@@ -726,7 +823,10 @@ pub(super) fn parse_widget_target(source: &str, line: &Line) -> Result<WidgetTar
     Ok(WidgetTarget { segments })
 }
 
-pub(super) fn parse_window_operation(source: &str, line: &Line) -> Result<Statement, Error> {
+pub(in crate::parser) fn parse_window_operation(
+    source: &str,
+    line: &Line,
+) -> Result<Statement, Error> {
     let (source, route) = split_top_marker(source, "->")
         .map_or((source, None), |(source, route)| (source, Some(route)));
     let (source, target) = split_top_marker(source, " target=")

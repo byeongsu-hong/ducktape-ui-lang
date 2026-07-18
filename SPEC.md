@@ -1,4 +1,4 @@
-# Ice Language Specification 1.30
+# Ice Language Specification 1.58
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 1.30 syntax.
+marked “planned” is a design constraint, not accepted 1.58 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 1.30.
+  block comments are not part of 1.58.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -96,7 +96,7 @@ an extern declaration is not reached at runtime.
 Top-level declarations are order-independent, but canonical source uses:
 
 ```text
-app
+app | daemon
 use
 extern
 theme
@@ -109,8 +109,8 @@ subscribe
 view
 ```
 
-An app source graph has exactly one `app` and one `view`, with at most one
-`extern` namespace. The root file declares the app and normally the view;
+An Ice source graph has exactly one `app` or `daemon` root and one `view`, with
+at most one `extern` namespace. The root file declares it and normally the view;
 imported fragments may hold any other top-level declarations. The graph may
 have multiple components and handlers. The view and each component have exactly
 one root node.
@@ -122,20 +122,20 @@ defined in section 6.
 
 ```text
 source_graph   = root_file imported_file*
-root_file      = (app_decl | use_decl | declaration)*
+root_file      = (root_decl | use_decl | declaration)*
 imported_file  = (use_decl | declaration)*
 use_decl       = "use" string
 declaration    = extern_decl | theme_decl | font_decl | qr_decl | state_decl
                | preset_decl | component_decl | handler_decl | subscribe_decl
                | view_decl
-document       = app_decl extern_decl? theme_decl qr_decl* state_decl? preset_decl*
+document       = root_decl extern_decl? theme_decl qr_decl* state_decl? preset_decl*
                  component_decl* handler_decl* subscribe_decl? view_decl
 
-app_decl       = "app" PascalName (INDENT app_setting*)?
+root_decl      = ("app" | "daemon") PascalName (INDENT app_setting*)?
 app_setting    = "title" expr | "theme" expr
                | ("background" | "text-color") expr
                | "id" string | "font" string
-               | "executor" rust_path
+               | ("executor" | "renderer") rust_path
                | "default-text-size" number | "scale-factor" expr
                | ("antialiasing" | "vsync") bool
                | window_decl
@@ -174,27 +174,51 @@ extern_item    = struct_sig | function_sig | extern_component_sig
                | extern_svg_style_sig | extern_input_style_sig
                | extern_scroll_style_sig
                | extern_pick_list_style_sig | extern_menu_style_sig
+               | extern_pane_grid_style_sig
                | extern_editor_binding_sig
                | extern_editor_highlighter_sig | extern_editor_style_sig
 struct_sig     = PascalName "(" field_list? ")"
 field_list     = field ("," field)*
 field          = name ":" type
+extern_component_field_list
+               = extern_component_field ("," extern_component_field)*
+extern_component_field = name ":" "&"? type
 type           = "bool" | "i64" | "f64" | "str" | "bytes" | "image"
-               | "markdown" | "editor" | "event" | "instant" | "window-id"
+               | "image-allocation" | "image-memory" | "image-error"
+               | "debug-span"
+               | "markdown" | "editor" | "event" | "event-status"
+               | "instant" | "window-id" | "window-screenshot"
                | "key" | "physical-key" | "key-location" | "key-modifiers"
                | "pixels" | "padding" | "degrees" | "radians"
-               | "point" | "point-u32" | "vector" | "size"
+               | "rotation"
+               | "content-fit"
+               | "color"
+               | "background" | "gradient" | "linear-gradient" | "color-stop"
+               | "font" | "font-family" | "font-weight"
+               | "font-stretch" | "font-style" | "theme-mode"
+               | "text-alignment" | "text-shaping" | "text-wrapping"
+               | "text-line-height"
+               | "length"
+               | "alignment" | "horizontal-alignment" | "vertical-alignment"
+               | "border" | "radius"
+               | "shadow"
+               | "point" | "point-u32" | "vector" | "size" | "size-u32"
                | "rectangle" | "rectangle-u32"
-               | "transformation" | "mouse-button" | "mouse-cursor"
+               | "transformation" | "mouse-interaction"
+               | "scroll-delta" | "mouse-button" | "mouse-cursor"
                | "mouse-click" | "touch-finger"
+               | "window-position" | "redraw-request" | "window-direction"
+               | "window-level" | "window-mode"
+               | "window-attention"
                | "widget-id" | "widget-target"
                | "task-handle" | "unit"
                | PascalName
                | "[" type "]" | type "?" | "result[" type "," type "]"
                | "combo[" type "]"
+               | "animation[" ("bool" | "f64" | PascalName) "]"
 function_sig   = name "(" field_list? ")" "->" type ("!" type)?
 extern_component_sig
-               = "component" name "(" field_list? ")" "->" type
+               = "component" name "(" extern_component_field_list? ")" "->" type
 extern_selector_sig
                = "selector" name "(" field_list? ")" "->" type
 extern_shader_sig
@@ -245,6 +269,8 @@ extern_pick_list_style_sig
                = "pick-list-style" name "(" field_list? ")"
 extern_menu_style_sig
                = "menu-style" name "(" field_list? ")"
+extern_pane_grid_style_sig
+               = "pane-grid-style" name "(" field_list? ")"
 
 theme_decl     = "theme" INDENT color_entry+
 color_entry    = name color
@@ -266,7 +292,12 @@ qr_data_property = "correction=" ("low" | "medium" | "quartile" | "high")
                  | "version=" ("normal(" u8 ")" | "micro(" u8 ")")
 
 state_decl     = "state" INDENT state_entry+
-state_entry    = name (":" type)? "=" expr
+state_entry    = name (":" type)? "=" expr (INDENT animation_setting*)?
+animation_setting = "easing" name
+                  | "duration" (duration | "very-quick" | "quick" | "slow" | "very-slow")
+                  | "delay" duration
+                  | "repeat" (u32 | "forever")
+                  | "auto-reverse" bool
 
 preset_decl    = "preset" name (INDENT preset_section*)?
 preset_section = preset_state | preset_boot
@@ -279,13 +310,16 @@ component_decl = "component" component_name "(" field_list? ")"
 
 handler_decl   = "on" name ("(" name_list? ")")?
                  INDENT statement*
-statement      = name "=" expr
+statement      = name "=" expr ("at" expr)?
                | "markdown" name "append" expr
                | "combo" name "push" expr
                | "return if" expr
+               | "exit"
                | task_group
                | abortable_task
                | "abort" name
+               | "debug start" expr "->" name
+               | "debug finish" name
                | "run" call "->" route ("|" route)?
                | "task" call "->" route ("|" route)?
                | "stream" call "->" route ("|" route)?
@@ -296,6 +330,7 @@ statement      = name "=" expr
                | "task clipboard" ("read" | "read-primary") "->" route
                | "task clipboard" ("write" | "write-primary") expr
                | "task font load" expr "->" route
+               | "task image allocate" expr "->" route "|" route
                | "task widget" widget_operation ("->" route)?
                | "pane" "#" name pane_operation ("->" route)?
                | window_task
@@ -314,12 +349,14 @@ task_source    = ("run" | "task" | "stream") call
                | "task system" ("info" | "theme")
                | "task clipboard" ("read" | "read-primary")
                | "task font load" expr
+               | "task image allocate" expr
 flow_item      = "map" name "->" expr
                | ("then" | "and-then") name "->" task_source
                | "map-error" name "->" expr
                | "collect" | "discard"
                | ("done" | "error" | "units") "->" route
 task_member    = task_group | abortable_task
+               | "exit"
                | "run" call "->" route ("|" route)?
                | "task" call "->" route ("|" route)?
                | "stream" call "->" route ("|" route)?
@@ -331,6 +368,7 @@ native_task    = "task time now" "->" route
                | "task clipboard" ("read" | "read-primary") "->" route
                | "task clipboard" ("write" | "write-primary") expr
                | "task font load" expr "->" route
+               | "task image allocate" expr "->" route "|" route
                | "task widget" widget_operation ("->" route)?
                | "pane" "#" name pane_operation ("->" route)?
                | window_task
@@ -349,7 +387,7 @@ widget_target_segment = kebab_name | component_name | name "(" expr ")"
 pane_operation = "maximize" name | "restore" | "maximized"
                | "adjacent" name pane_edge
                | "swap" name name | "close" name
-               | "move" name pane_edge | "resize" expr
+               | "move" name pane_edge | "resize" (name expr | expr)
                | "drop" name name ("center" | pane_edge)
                | "split" name name ("horizontal" | "vertical")
                  ("ratio=" expr)?
@@ -455,12 +493,12 @@ rich_span_property = ("size=" | "line-height=" | "line-height-px=") expr
                    | "strike" | "strike=" expr
 pane_grid      = "pane-grid" id
                  ("split=" pane_axis ("ratio=" number)? pane_grid_property*
-                   INDENT pane_grid_style? pane_view pane_view closed_pane*
+                   INDENT pane_grid_style? pane_view pane_view pane_declaration*
                  | pane_grid_property*
-                   INDENT pane_grid_style? pane_configuration closed_pane*)
+                   INDENT pane_grid_style? pane_configuration pane_declaration*)
 pane_grid_property = ("width=" | "height=") length
                    | ("spacing=" | "min-size=" | "resize=") expr
-                   | "drag" | "click=" route
+                   | "drag" | "click=" route | "style=" call
 pane_grid_style = "style" INDENT pane_grid_style_status+
 pane_grid_style_status
                = "hovered-region" pane_region_style_property+
@@ -471,12 +509,16 @@ pane_region_style_property
                  | "radius-tr=" | "radius-br=" | "radius-bl=") expr
 pane_line_style_property = "color=" name ("/" u8)? | "width=" expr
 pane_configuration = pane_view
-                   | "split" pane_axis ("ratio=" number)?
+                   | "split" name? pane_axis ("ratio=" number)?
                      INDENT pane_configuration pane_configuration
-pane_view      = "pane" name surface_style_property* styles?
+pane_view      = "pane" name pane_property* styles?
                  INDENT (node | pane_section+)
-closed_pane    = "pane" name "closed" surface_style_property* styles?
+closed_pane    = "pane" name "closed" pane_property* styles?
                  INDENT (node | pane_section+)
+pane_template  = "pane" name "in" name "by=" expr
+                 pane_property* styles? INDENT (node | pane_section+)
+pane_declaration = closed_pane | pane_template
+pane_property  = surface_style_property | "maximized=" name
 pane_section   = "title" pane_title_property* styles? INDENT node
                | "controls" INDENT node
                | "compact-controls" INDENT node
@@ -930,6 +972,7 @@ app Tasks
   text-color app_text
   id "dev.ducktape.ice.tasks"
   executor iced::executor::Default
+  renderer crate::backend::AppRenderer
   font "assets/Inter-Regular.ttf"
   font "assets/Inter-Bold.ttf"
   default-text-size 16
@@ -983,6 +1026,10 @@ configuration.
 `executor` is a Rust type path passed to iced's typed `Application::executor`;
 rustc reports a local generated-code error when the type is missing or does not
 implement `iced::Executor`.
+`renderer` selects the app's concrete `iced::program::Renderer` type. It
+defaults to `iced::Renderer`; generated view and extern `Element` signatures
+use the selected type, so rustc checks its renderer, compositor, text, and
+headless contracts at the generated boundary.
 Each `font` path is relative to the root `.ice` file, must name an existing
 file during `cargo ice check`, and lowers to iced's startup
 `.font(include_bytes!(...))` builder. Repeating the same path is rejected;
@@ -1003,7 +1050,31 @@ maximum size. `icon-rgba` embeds a relative raw RGBA file without an image
 codec; width and height are positive integers, and generated Rust rejects a
 byte length other than `width × height × 4`. `cargo ice check` reports a
 mismatch at the icon declaration, and generated Rust repeats the check at
-compile time. Encoded icon formats remain outside 1.30.
+compile time. Encoded icon formats remain outside 1.58.
+
+Use `daemon Name` instead of `app Name` for an iced daemon that starts without
+an initial window and remains alive after all windows close. A daemon rejects
+the unnamed `window` block; declare named window templates and open them from
+`on mount` or another handler. The read-only `window:window-id` binding names
+the window currently being rendered and is available to the root view, title,
+theme, and scale-factor expressions. Pure components receive it explicitly as
+a typed prop. Standalone `exit` is a native `iced::exit()` task and must be the
+final statement in a handler (or a task-group member):
+
+```ice
+daemon BackgroundAgent
+  title daemon_title(window)
+  window dashboard
+
+on mount
+  task window open dashboard -> opened _
+
+on quit
+  exit
+
+view
+  AgentWindow id=window
+```
 
 Application boot presets are structured top-level declarations:
 
@@ -1025,10 +1096,12 @@ composition, and routes as a handler. With no task it returns `Task::none`.
 Generated code passes each strategy to iced `Preset::new`; an empty preset is a
 side-effect-free default-state fixture.
 
-Media fixed lengths, rotation, opacity, scale, and radius are `f64`; rotation
-is radians and defaults to floating layout behavior, while `solid(angle)` makes
-the layout fit the rotated bounds. Opacity is `0.0..=1.0`, scale is positive, and sizes/radius are
-non-negative. `filter`, `scale`, `expand`, `radius`, and `crop` are image-only.
+Media fixed lengths, opacity, scale, and radius are `f64`. `fit=` accepts its
+compact contain/cover/fill/none/scale-down names or a first-class `content-fit`
+expression. Rotation accepts
+legacy f64 radians (floating by default), `solid(angle)`, or a first-class
+`rotation` expression. Opacity is `0.0..=1.0`, scale is positive, and
+sizes/radius are non-negative. `filter`, `scale`, `expand`, `radius`, and `crop` are image-only.
 Crop is `(x, y, width, height)` in non-negative `i64` source-pixel coordinates.
 `memory`, `color`, and `hover` are SVG-only. `memory` accepts UTF-8 SVG text or
 raw `bytes`; `color` filters both statuses and `hover` overrides the
@@ -1043,7 +1116,10 @@ handler is needed:
 viewer memory_image width=fill height=240.0 fit=contain filter=nearest padding=8.0 min-scale=0.5 max-scale=8.0 scale-step=0.1
 ```
 Every `length` position accepts fixed `f64`, `fill`, `fill(N)` portions with a
-decimal `u16`, or `shrink`; out-of-range portions fail during parsing.
+decimal `u16`, `shrink`, or a checked first-class `length` expression;
+out-of-range compact portions fail during parsing. Grid width and the short
+axis of a horizontal/vertical slider remain fixed pixels because those iced
+builders accept `Pixels`, not `Length`.
 `rule` exposes all four iced fill modes. Percent is checked in `0.0..=100.0`;
 padding is `u16`. Its default/weak preset can be overridden by a checked theme
 color token (including `/0..100` opacity), uniform or per-corner non-negative
@@ -1523,11 +1599,54 @@ button "Add" disabled=(loading || empty(trim(draft))) -> submit
 | `T?` | `Option<T>` |
 | `result[T,E]` | `Result<T, E>` |
 | `combo[T]` | `iced::widget::combo_box::State<T>` |
+| `animation[bool]` | `iced::Animation<bool>` |
+| `animation[f64]` | `iced::Animation<f32>`; expressions convert at the Ice numeric boundary |
+| `animation[Name]` | `iced::Animation<crate::...::Name>`; rustc verifies `Copy + PartialEq + iced::animation::Float` |
+| `image` | `iced::widget::image::Handle` |
+| `image-allocation` | `iced::widget::image::Allocation` |
+| `image-memory` | `Weak<iced::advanced::image::Memory>` |
+| `image-error` | `iced::widget::image::Error` |
+| `size-u32` | `iced::Size<u32>` |
+| `debug-span` | `iced::debug::Span`; only valid as optional owned state |
+| `rotation` | `iced::Rotation` |
+| `content-fit` | `iced::ContentFit` |
+| `color` | `iced::Color` |
+| `background` | `iced::Background` |
+| `gradient` | `iced::Gradient` |
+| `linear-gradient` | `iced::gradient::Linear` |
+| `color-stop` | `iced::gradient::ColorStop` |
+| `font` | `iced::Font` |
+| `font-family` | `iced::font::Family` |
+| `font-weight` | `iced::font::Weight` |
+| `font-stretch` | `iced::font::Stretch` |
+| `font-style` | `iced::font::Style` |
+| `theme-mode` | `iced::theme::Mode` |
+| `text-alignment` | `iced::widget::text::Alignment` |
+| `text-shaping` | `iced::widget::text::Shaping` |
+| `text-wrapping` | `iced::widget::text::Wrapping` |
+| `text-line-height` | `iced::widget::text::LineHeight` |
+| `length` | `iced::Length` |
+| `alignment` | `iced::Alignment` |
+| `horizontal-alignment` | `iced::alignment::Horizontal` |
+| `vertical-alignment` | `iced::alignment::Vertical` |
+| `border` | `iced::Border` |
+| `radius` | `iced::border::Radius` |
+| `shadow` | `iced::Shadow` |
+| `mouse-interaction` | `iced::mouse::Interaction` |
+| `scroll-delta` | `iced::mouse::ScrollDelta` |
+| `window-position` | `iced::window::Position` |
+| `redraw-request` | `iced::window::RedrawRequest` |
+| `window-direction` | `iced::window::Direction` |
+| `window-level` | `iced::window::Level` |
+| `window-mode` | `iced::window::Mode` |
+| `window-attention` | `iced::window::UserAttention` |
 | `instant` | `iced::time::Instant` |
 | `window-id` | `iced::window::Id` |
+| `window-screenshot` | `iced::window::Screenshot` |
 | `markdown` | `iced::widget::markdown::Content` |
 | `editor` | `iced::widget::text_editor::Content` |
 | `event` | `iced::Event` |
+| `event-status` | `iced::event::Status` |
 | `task-handle` | `iced::task::Handle` |
 | `Name` | the named struct in the extern namespace |
 | `unit` | `()` |
@@ -1554,7 +1673,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 1.30 message payloads.
+`Clone` for 1.58 message payloads.
 
 Declared `sync` functions are checked, synchronous Rust calls available in
 Ice expressions. They are the small escape hatch for pure domain conversions
@@ -1572,12 +1691,13 @@ This declaration requires
 actual Rust signature. A sync function cannot declare `! Error` because it
 returns its value directly.
 
-Thirty-one typed iced adapters expose framework capabilities without embedding Rust
+Thirty-two typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
 
 ```ice
 extern crate::backend
   component native_help(active:bool) -> bool
+  component borrowed_help(label:&str, active:&bool) -> bool
   selector by_kind(kind:str) -> str
   shader status_shader(speed:f64) -> bool
   task copy_text(text:str) -> unit
@@ -1605,12 +1725,15 @@ extern crate::backend
   scroll-style task_scroll(active:bool)
   pick-list-style view_picker(active:bool)
   menu-style view_menu(active:bool)
+  pane-grid-style workspace_panes(active:bool)
 ```
 
 Their Rust signatures are:
 
 ```rust
 fn native_help(active: bool) -> iced::Element<'static, bool>;
+fn borrowed_help<'a>(label: &'a str, active: &'a bool)
+    -> iced::Element<'a, bool, iced::Theme, AppRenderer>;
 fn by_kind(kind: String) -> impl iced::widget::selector::Selector<Output = String>;
 fn status_shader(speed: f64) -> impl iced::widget::shader::Program<bool>;
 fn copy_text(text: String) -> iced::Task<()>;
@@ -1643,10 +1766,15 @@ fn form_input(theme: &iced::Theme, status: iced::widget::text_input::Status, dis
 fn task_scroll(theme: &iced::Theme, status: iced::widget::scrollable::Status, active: bool) -> iced::widget::scrollable::Style;
 fn view_picker(theme: &iced::Theme, status: iced::widget::pick_list::Status, active: bool) -> iced::widget::pick_list::Style;
 fn view_menu(theme: &iced::Theme, active: bool) -> iced::overlay::menu::Style;
+fn workspace_panes(theme: &iced::Theme, active: bool) -> iced::widget::pane_grid::Style;
 ```
 
-An extern component receives owned props and returns a default-renderer
-`Element<'static, Event>`. A shader factory returns any concrete
+An extern component parameter without `&` is owned. `&str`, `&bytes`, and
+`&[T]` lower to borrowed slices; any other `&T` parameter lowers to a shared
+Rust reference. A component may therefore return `Element<'a, Event, Theme,
+Renderer>` borrowing app state, while owned-only components may return
+`Element<'static, Event, Theme, Renderer>`. Both use the app's configured
+renderer. A shader factory returns any concrete
 `shader::Program<Event>`; Ice constructs the native `Shader`, exposes its full
 width/height builder API, and maps the program's published event through a
 checked route:
@@ -1714,7 +1842,9 @@ Theme and the idle/hovered SVG Status and returns the native SVG Style.
 native Style. `scroll-style` receives Theme and the complete scrollable Status
 and returns its native Style. `pick-list-style` does the same for pick-list
 Status. `menu-style` receives Theme without a Status and returns the shared
-pick-list/combo overlay menu Style.
+pick-list/combo overlay menu Style. `pane-grid-style` receives Theme without a
+Status and returns the native pane-grid Style; checked structured style fields
+remain available as explicit overrides.
 
 Generated probes type-check every declaration
 against the actual Rust item. Extern component, shader, recipe, event-filter,
@@ -1751,6 +1881,39 @@ selection:str? = none
 search_modes:combo[str] = ["List", "Board"]
 ```
 
+Native animation state keeps motion structured while iced remains in charge of
+time and interpolation:
+
+```ice
+extern crate::backend
+  sync elastic(value:f64) -> f64
+
+state
+  expanded:animation[bool] = false
+    easing ease-in-out
+    duration 400ms
+    delay 50ms
+    repeat 1
+    auto-reverse true
+  progress:animation[f64] = 0.0
+    easing elastic
+    duration quick
+
+on open
+  expanded = true
+  progress = 1.0
+```
+
+The built-in state types are `bool` and `f64`; a named extern type is also
+accepted when its Rust type implements iced's animation bounds. Every native
+easing variant is accepted in kebab case. A different easing name
+must resolve to `sync name(value:f64) -> f64`. Durations and delays accept whole
+`ms`/`s` values, including zero; duration presets are `very-quick`, `quick`,
+`slow`, and `very-slow`. `repeat N` preserves iced's meaning (one repetition
+plays twice), while `repeat forever` and `auto-reverse true` map directly to the
+native builders. Ice subscribes to native window frames only while at least one
+animation is active.
+
 The expression language contains:
 
 - literals: strings, booleans, `i64`, `f64`, `none`, list literals such as
@@ -1776,6 +1939,27 @@ The expression language contains:
   `transform.point(point, transformation)`;
 - native units such as `pixels(value)`, `padding.all(value)`, `degrees(value)`,
   and `radians(value)`;
+- native rotation values with `rotation.default`, `floating`, `solid`, `from`,
+  `with_radians`, and `apply`;
+- native content fitting with all `fit.*` variants and `fit.apply`;
+- native color values with `color.*` construction, conversion, parsing,
+  mutation, luminance, contrast, and readability operations;
+- native layout lengths with `length.*` variants, conversions, queries, and
+  composition;
+- native axis alignments with `alignment.*`, `horizontal.*`, and `vertical.*`;
+- image allocation retention with `image.downgrade(allocation) -> image-memory`
+  and `image.upgrade(memory) -> image-allocation?`;
+- debug timing with `debug.active(span_state) -> bool` and
+  `debug.time_with(name, value)`, preserving the value's checked type;
+- animation queries `animation.value(state)`,
+  `animation.animating(state[, at])`,
+  `animation.interpolate(bool_state, start, end[, at])` for matching `f64` or
+  `f64?` endpoints, and
+  `animation.remaining(bool_state[, at])`; remaining time is returned in
+  milliseconds;
+- checked projection
+  `animation.project(state, value, expression[, at])`, where the expression
+  sees the current inner value as `value` and returns `f64` or `f64?`;
 - `markdown(str) -> markdown` and `markdown_images(markdown) -> [str]`;
 - calls to declared typed `sync` extern functions.
 
@@ -1793,8 +1977,62 @@ view
   image pixel crop=(0, 0, 1, 1)
 ```
 
-There is no arbitrary Rust expression, method call, closure, allocation API, or
-implicit truthiness. New operations either belong in a small universal builtin
+Explicit allocation prevents the first-frame delay of lazily uploaded image
+handles. Hold the returned allocation for as long as the guarantee is needed:
+
+```ice
+state
+  handle:image = rgba(1, 1, bytes(ff 00 ff ff))
+  allocation:image-allocation? = none
+  failure:image-error? = none
+
+on prepare
+  task image allocate handle -> ready _ | failed _
+
+on ready(value)
+  allocation = some(value)
+
+on failed(error)
+  failure = some(error)
+```
+
+`image-allocation` exposes `.handle` and exact `.size:size-u32`; `size-u32`
+exposes integer `.width` and `.height`. `image-error` preserves the native
+value and exposes `.kind` (`invalid`, `inaccessible`, `unsupported`, `empty`,
+or `out-of-memory`) plus its display `.message`. Downgrade/upgrade expose the
+native weak-memory lifecycle. This task requires iced's `image` Cargo feature,
+not only `image-without-codecs`.
+
+Native debug spans have an explicit, ownership-safe state lifecycle:
+
+```ice
+state
+  timer:debug-span? = none
+  measured = 0
+
+on begin
+  debug start "interaction" -> timer
+
+on finish
+  debug finish timer
+
+on compute
+  measured = debug.time_with("compute", measured + 1)
+```
+
+`debug start` stores the exact `iced::debug::Span`; if the target already owns
+a span, it is finished before replacement. `debug finish` takes and finishes
+the span and is harmless when state is `none`. Because native spans are not
+cloneable, `debug-span` is accepted only as `debug-span?` state and cannot cross
+an extern, component, handler-message, collection, or ordinary assignment
+boundary. Use `debug.active(state)` to read whether a span is present.
+`debug.time_with` accepts a string name plus any non-span expression and returns
+the expression's exact type. These calls always compile; iced's `debug` Cargo
+feature activates reporting, while builds without it use iced's native no-op
+spans.
+
+There is no arbitrary Rust expression, method call, closure, general allocation
+API, or implicit truthiness. New operations either belong in a small universal builtin
 set or behind a typed extern function.
 
 ## 7. Handlers and effects
@@ -1812,6 +2050,9 @@ Rules:
 
 - assignment targets must be declared state;
 - assigned expressions must have the state type;
+- assigning the inner value of `animation[T]` starts its native transition at
+  the current monotonic instant; `state = value at instant` supplies an exact
+  `instant` instead;
 - `combo state push value` requires a `combo[T]` state and a `T` value;
 - `return if` requires `bool`;
 - `run`, `task`, `sip`, `flow`, or a task group must be the final statement because each
@@ -1936,7 +2177,7 @@ on start
 ```
 
 `from` accepts an extern `run`, `task`, or `stream` source and the built-in
-system, clipboard-read, and font-load tasks. It also accepts `done expr` and
+system, clipboard-read, font-load, and image-allocation tasks. It also accepts `done expr` and
 `none Type`, which lower directly to `Task::done` and `Task::none`:
 
 ```ice
@@ -2022,7 +2263,7 @@ The implemented native nodes are:
 | `overlay` | named `content` and `layer` trees with checked visibility, alignment, padding, backdrop and optional dismissal |
 | `text` | one `str`, `i64`, or `f64` expression with bounds, size/line-height, font, alignment, shaping, wrapping and checked color/weight styles |
 | `rich-text` | zero or more structured spans with rich defaults, complete span highlights and optional string link events |
-| `pane-grid` | named pane trees backed by recursive persistent split state, structured title/full/compact controls, complete concrete state and surface styles with linear backgrounds, closed templates, dynamic opening, click, resize and drag/drop behavior |
+| `pane-grid` | named pane trees backed by recursive persistent split state, structured title/full/compact controls, complete concrete state and surface styles with linear backgrounds, closed panes, list-keyed runtime templates, typed dynamic references, click, resize and drag/drop behavior |
 | `input` | required `str` binding; ID, hint, disabled/secure, submit/paste, every concrete builder setter, complete icon, all concrete status style fields, and typed native runtime style callbacks |
 | `button` | string label or one child; optional ID/disabled, typed size/padding/clip, eight presets, complete status styles, typed native runtime style callbacks and required route |
 | `checkbox` | string label, bool value/route, disabled, sizing/typography/wrapping/font, custom icon, four presets and complete checked-aware status styles |
@@ -2097,6 +2338,24 @@ overlay when=about_open dismiss=close_about backdrop=black/60 padding=24.0
     AboutDialog
 ```
 
+Advanced overlays stay behind the existing typed component boundary instead
+of duplicating the `Overlay` trait in Ice:
+
+```ice
+extern crate::backend
+  component native_overlay(index:f64) -> unit
+
+view
+  extern native_overlay(42.0)
+```
+
+The Rust `Element` may contain a custom `Widget::overlay` implementation. Rust
+therefore retains the complete native `Overlay` contract: layout, draw,
+operate, update, mouse interaction, nested overlays, and `index()` ordering.
+The generated component probe verifies the owned Element ABI; a non-unit
+overlay event uses the same checked `-> handler _` mapping as any extern
+component.
+
 Rich text uses structured `span` children with `str`, `i64`, `f64`, or bool
 expressions, so mixed formatting and links remain
 readable without embedding markup in a string. A route is required exactly when
@@ -2115,8 +2374,9 @@ color; attach a string link; use a solid or linear highlight background with
 complete border/radius/padding; and toggle underline or strikethrough.
 
 A pane grid owns persistent iced layout state generated from its required static
-ID. Pane names are the only identity exposed to Ice; native pane/split IDs stay
-inside generated Rust. `resize=` is grab leeway and enables automatic ratio
+ID. Static names and checked `template(key)` references are the identities
+exposed to Ice; native pane/split IDs stay inside generated Rust. `resize=` is
+grab leeway and enables automatic ratio
 updates, while `drag` automatically applies successful drop targets. The old
 two-pane shorthand remains valid:
 
@@ -2133,10 +2393,10 @@ For an arbitrary initial layout, nest binary split nodes. A root-level
 
 ```ice
 pane-grid #workspace width=fill height=fill
-  split vertical ratio=0.7
+  split workspace_root vertical ratio=0.7
     pane files
       FileList
-    split horizontal ratio=0.6
+    split editor_stack horizontal ratio=0.6
       pane editor
         Editor
       pane terminal
@@ -2144,6 +2404,45 @@ pane-grid #workspace width=fill height=fill
   pane preview closed
     Preview
 ```
+
+A runtime pane template repeats one checked pane body over list state. It is
+initially closed; handlers open and target any item through the template's
+bool, i64, f64, or str key:
+
+```ice
+state
+  documents:[Document] = []
+  selected_id = 42
+
+on open_document
+  pane #workspace split editor document(selected_id) horizontal ratio=0.4
+
+on close_document(id)
+  pane #workspace close document(id)
+
+view
+  pane-grid #workspace
+    pane editor
+      EditorHome
+    pane document in documents by=document.id maximized=is_maximized
+      title
+        text document.title
+      controls
+        button "Close" -> close_document document.id
+      content
+        col
+          if is_maximized
+            text "Focused editor"
+          DocumentEditor document=document
+```
+
+The list must be app state so the generated pane body can safely borrow its
+current item. If an open key is no longer present, the pane renders a readable
+missing-data placeholder until it is closed or the item returns. Opening the
+same `template(key)` twice is a no-op. Optional `maximized=name` binds iced's
+per-pane maximized callback flag as a checked bool inside that pane's title,
+controls, content, styles, and scoped IDs; it works on static, closed, and
+runtime panes.
 
 A pane may expose iced's native `Content`, `TitleBar`, and `Controls`
 structure directly. `compact-controls` is the fallback used when the full
@@ -2186,10 +2485,22 @@ The optional first `style` child maps directly to iced's complete concrete
 (including every corner radius), plus hovered and picked split line colors and
 widths. Omitted fields retain `pane_grid::default(theme)`. Background parsing
 is shared with pane surfaces instead of being a pane-grid-only special case.
+A declared `pane-grid-style` call can provide the native runtime base instead;
+the structured child still applies checked field overrides after that callback:
+
+```ice
+pane-grid #workspace split=vertical style=workspace_panes(loading)
+  style
+    picked-split width=4.0
+  pane files
+    FileList
+  pane editor
+    Editor
+```
 
 Pane grids may only live in the app view because component/repeated instances
-need separately keyed persistent state. Click routes receive the stable pane
-name as `str`.
+need separately keyed persistent state. Click routes receive a stable `str`:
+the static name or `template(key)` for a runtime pane.
 
 Canvas is a checked declarative layer over iced's native `Canvas`, `Program`,
 `Frame`, `Path`, and `Cache`. Its body is drawing code, not a widget subtree:
@@ -2412,10 +2723,12 @@ component instance scope.
 
 ### Extern components and subscriptions
 
-An extern component is an owned Rust `Element` adapter:
+An extern component is a typed Rust `Element` adapter with owned or borrowed
+parameters:
 
 ```ice
 extern native_help(external_hover) -> external_hover_changed _
+extern borrowed_help(draft, external_hover) -> external_hover_changed _
 ```
 
 Its arguments and emitted payload are checked against the declaration. A
@@ -2695,6 +3008,86 @@ construct all cursor variants. `mouse.cursor_position`, `cursor_over`,
 click. Point, vector, size, and rectangle coordinates are `f64` in Ice and
 lower to iced's `f32` geometry.
 
+`interaction.default/none/hidden/idle/context_menu/help/pointer/progress/wait/
+cell/crosshair/text/alias/copy/move/no_drop/not_allowed/grab/grabbing/
+resize_horizontal/resize_vertical/resize_diagonal_up/resize_diagonal_down/
+resize_column/resize_row/all_scroll/zoom_in/zoom_out()` construct the default
+and every `iced::mouse::Interaction` variant. A value exposes its kebab-case
+`.kind`, supports native equality and ordering, and crosses typed extern
+boundaries exactly. The native enum does not implement `Hash`, so it is
+deliberately rejected as a lazy dependency.
+
+Mouse areas and canvases accept first-class values with
+`cursor=(interaction_expression)`. Their existing compact cursor names remain
+equivalent human-readable sugar; canvases also retain runtime string cursor
+selection for mutable local state.
+
+`scroll.lines(x, y)` and `scroll.pixels(x, y)` construct both native
+`iced::mouse::ScrollDelta` variants. Each value exposes `.kind`, `.x`, and `.y`,
+supports equality and exact typed extern passage, and preserves negative and
+fractional native coordinates. It is rejected for ordering and lazy identity
+because the native floating-point enum implements neither `Ord` nor `Hash`.
+Existing mouse-area, canvas, and subscription scroll routes keep their readable
+`x, y, pixels` payloads as destructuring sugar for the same native variants.
+
+`event_status.ignored/captured()` construct both native
+`iced::event::Status` variants. `event_status.merge(left, right)` preserves the
+native rule that `Captured` takes precedence, and `.kind` exposes `ignored` or
+`captured`. Values support native equality and exact typed extern passage.
+Ordering and lazy identity are rejected because the native enum implements
+neither `Ord` nor `Hash`. Existing subscription status filters remain readable
+keyword sugar for the same two statuses.
+
+`window_direction.north/south/east/west/north_east/north_west/south_east/
+south_west()` construct every native resize direction.
+`window_level.default/normal/always_on_bottom/always_on_top()`,
+`window_mode.windowed/fullscreen/hidden()`, and
+`window_attention.critical/informational()` cover every variant of their native
+enums. Each value exposes a kebab-case `.kind` and crosses typed extern
+boundaries exactly.
+
+Level and mode values support native equality; ordering is rejected. Direction
+and user-attention values reject all comparisons because their native enums do
+not implement `PartialEq`. None is a lazy identity because the native types do
+not implement `Hash`. Existing window task keywords remain concise equivalent
+sugar.
+
+`window_position.default/centered/specific(point)` construct the native
+default, centered, and fixed-coordinate variants. A `window-position` exposes
+`.kind` and an optional `.point`; callback positions use `specific-with` and
+have no fixed point. The native enum does not implement `PartialEq` or `Hash`,
+so all comparisons and lazy identity are rejected.
+
+`Position::SpecificWith(fn(Size, Size) -> Point)` crosses the existing typed
+`sync` boundary exactly: a Rust sync extern returns `window-position`, and
+rustc checks the callback signature while Ice stores and passes the native
+function pointer unchanged. Existing initial-window `default`, `centered`, and
+`specific(x, y)` settings remain concise equivalent sugar.
+
+`redraw_request.next_frame/at(instant)/wait()` construct all three native
+`iced::window::RedrawRequest` variants. Values expose `.kind` and an optional
+`.instant`, preserve native equality and ordering, and cross typed extern
+boundaries exactly. They are rejected as lazy dependencies because the native
+enum does not implement `Hash`. Existing canvas/shader redraw commands and raw
+event routing remain concise behavior-level sugar.
+
+`window_id.unique()` calls native `iced::window::Id::unique`, while `.display`
+uses the native decimal `Display` implementation. IDs preserve native equality,
+ordering, hashable lazy identity, and exact typed extern passage. Window task,
+daemon, and subscription payloads use the same first-class type.
+
+`screenshot.new(bytes, size-u32, scale)` calls native `Screenshot::new`.
+Screenshots expose `.rgba:bytes`, `.size:size-u32`, `.scale_factor:f64`, and
+`.debug:str`. `screenshot.as_bytes` and `screenshot.into_bytes` preserve the
+borrowed and owned byte views at Ice's owned `bytes` boundary.
+
+`screenshot.crop(value, rectangle-u32)` returns the cropped screenshot or
+`none`. `screenshot.crop_error` returns `zero`, `out-of-bounds`, or `none`, and
+`screenshot.crop_error_message` preserves the native Display message. The
+native value is cloneable but implements neither equality nor hashing, so
+comparisons and lazy identity are rejected. Typed sync externs pass the exact
+`iced::window::Screenshot` value.
+
 Fields are checked: points and vectors expose `x/y` plus lossless two-value
 `values`; points also expose native `display`; sizes expose `width/height` plus
 `values`; rectangles expose `x/y/width/height`, `center`, `center_x`,
@@ -2752,6 +3145,164 @@ native `to_distance`. Size and rectangle rotation accept either the existing
 f64 radians or a first-class radians value; `rectangle.vertices_angle` keeps
 the exact native radians result alongside the compatible f64
 `vertices_rotation` projection.
+
+`rotation.default()` and `rotation.from(f64)` preserve iced's floating default
+and scalar conversion. `rotation.floating(radians)` and
+`rotation.solid(radians)` construct both native variants;
+`rotation.with_radians(value, radians)` updates the angle through the native
+`radians_mut` method and returns the value. A rotation exposes checked
+`.radians`, `.degrees`, and `.kind` (`floating` or `solid`) projections, supports
+native equality and typed extern passage, and `rotation.apply(value, size)`
+returns iced's exact minimum layout size. Image and SVG `rotation=` properties
+accept this first-class value directly alongside the compact numeric syntax.
+
+`fit.default()` and `fit.contain()` produce iced's default `Contain` strategy;
+`fit.cover`, `fit.fill`, `fit.none`, and `fit.scale_down` construct every other
+native variant. A content-fit value exposes `.kind` with the compact kebab name
+and `.display` through iced's native formatter, supports equality, lazy hashing,
+and typed extern passage, and `fit.apply(value, content_size, bounds_size)` calls
+the exact native sizing algorithm. Image, SVG, and Viewer `fit=` properties
+accept the first-class value directly; their existing compact names remain
+equivalent sugar.
+
+`color.default()`, `color.black()`, `color.white()`, and `color.transparent()`
+produce the native default and constants. `color.rgb`, `color.rgba`,
+`color.rgb8`, `color.rgba8`, and `color.linear_rgba` call the corresponding
+native constructors; the three 8-bit channels are checked integer literals in
+`0..=255`. `color.try_rgb8(i64, i64, i64)` and
+`color.try_rgba8(i64, i64, i64, f64)` accept dynamic channels and return `none`
+instead of wrapping an out-of-range value. `color.from3` and `color.from4`
+preserve iced's array conversions.
+`color.parse(str) -> color?` accepts every native 3/4/6/8-digit RGB hexadecimal
+form and maps its native parse error to `none`.
+
+A color exposes `.r`, `.g`, `.b`, `.a`, `.rgba8`, `.linear`, `.luminance`, and
+`.display`. `color.inverse`, `color.invert`, and `color.scale_alpha` preserve the
+native value and in-place APIs while returning the resulting color;
+`color.luminance`, `color.contrast`, and `color.readable(foreground, background)`
+call iced's exact WCAG calculations. Colors support equality and typed extern
+passage. They are deliberately rejected as lazy identities because native
+`Color` contains floating-point channels and does not implement `Hash`.
+
+`color_stop.default()` and `color_stop(offset, color)` construct exact native
+gradient stops. A stop exposes `.offset` and `.color`, supports equality and
+typed extern passage, and is not a lazy identity because it contains floating
+point values.
+
+`linear(angle)` constructs `iced::gradient::Linear` and accepts either `f64` or
+`radians`. `linear.add_stop` and `linear.add_stops` delegate to the native
+sorting, finite/range rejection, and eight-stop limit; `linear.scale_alpha`
+preserves the native stop-color operation. A linear gradient exposes `.angle`
+and its exact eight-entry `[color-stop?]` `.stops`, supports equality and typed
+extern passage, and is not a lazy identity.
+
+`gradient.linear` constructs the native enum variant while
+`gradient.from_linear` preserves its native conversion. A gradient exposes
+`.kind` and `.linear`; `gradient.scale_alpha` delegates to the native operation.
+`background.color` and `background.gradient` construct both native variants;
+`background.from_color`, `background.from_gradient`, and
+`background.from_linear` preserve every native conversion. A background
+exposes `.kind`, optional `.color`, and optional `.gradient`, and
+`background.scale_alpha` handles either variant. Both types support equality
+and typed extern passage but remain unavailable as floating-point lazy
+identities. Existing solid/linear style properties remain compact equivalent
+sugar.
+
+`font.default()`, `font.sans()`, and `font.monospace()` produce the native
+default, `Font::DEFAULT`, and `Font::MONOSPACE` values. `font.with_name("Inter")`
+maps to `Font::with_name`, while `font.new(family, weight, stretch, style)`
+constructs the complete public value. Names must be string literals because
+iced stores them as `&'static str`.
+
+`family.default/serif/sans_serif/cursive/fantasy/monospace()` cover the default
+and every non-named family variant; `family.named("Inter")` covers `Name` with
+the same static-literal rule. A family exposes `.kind` and optional owned
+`.name`. `weight.default/thin/extra_light/light/normal/medium/semibold/bold/
+extra_bold/black()` and `stretch.default/ultra_condensed/extra_condensed/
+condensed/semi_condensed/normal/semi_expanded/expanded/extra_expanded/
+ultra_expanded()` cover every native descriptor. `font_style.default/normal/
+italic/oblique()` covers every style. Each descriptor exposes a compact
+kebab-case `.kind`.
+
+A font exposes `.family`, `.weight`, `.stretch`, and `.style`. All five values
+support equality, hashable lazy identity, and exact typed extern passage;
+ordering is rejected. Existing `font name family=... weight=... stretch=...
+style=...` declarations and `font=default`/`font=mono` properties remain the
+human-readable widget sugar over the same native descriptors.
+
+`theme_mode.default/none/light/dark()` cover the default and every native
+`iced::theme::Mode` variant. Values expose `.kind`, support equality and exact
+typed extern passage, and reject ordering and lazy identity because the native
+enum implements neither `Ord` nor `Hash`. App theme names and native Theme
+factories remain the human-readable behavior-level layer.
+
+`text_alignment.default/left/center/right/justified()` cover every native text
+alignment variant. `text_alignment.from_horizontal`,
+`text_alignment.from_alignment`, and `horizontal.from_text_alignment` preserve
+all native conversions. `text_shaping.default/auto/basic/advanced()` covers
+every shaping strategy while leaving the default feature-aware, and
+`text_wrapping.default/none/word/glyph/word_or_glyph()` covers every wrapping
+strategy.
+
+`line_height.default/relative/absolute()` constructs both native line-height
+variants. `line_height.from_f64`, `line_height.from_pixels`, and
+`line_height.to_absolute` preserve both native conversions and absolute pixel
+resolution. Enum values expose `.kind`; line heights additionally expose
+optional `.relative` and `.absolute` payloads. All four values support equality,
+hashable lazy identity, and exact typed extern passage; ordering is rejected.
+Existing `align-x=`, `shaping=`, `wrapping=`, `line-height=`, and
+`line-height-px=` properties remain the concise widget sugar.
+
+`length.fill()`, `length.fill_portion(u16 literal)`, `length.shrink()`, and
+`length.fixed(f64)` construct every native variant. Dynamic `i64` portions use
+`length.try_fill_portion(value) -> length?`, which returns `none` outside the
+native `u16` range. `length.from_f64`, `length.from_pixels`, and
+`length.from_u32` call all three native conversions; dynamic unsigned units use
+`length.try_from_u32(value) -> length?` without wrapping.
+
+A length exposes `.fill_factor`, `.is_fill`, `.kind`, optional `.portion`, and
+optional `.fixed` projections. `length.fluid(value)` and
+`length.enclose(value, other)` call the exact native layout methods. Lengths
+support equality and typed extern passage, and may be used directly in every
+view property whose iced builder accepts `Length`; the compact `fill`,
+`fill(N)`, `shrink`, and numeric spellings remain equivalent sugar. Native
+floating fixed lengths do not implement `Hash`, so lengths are rejected as lazy
+identities.
+
+`alignment.start/center/end`, `horizontal.left/center/right`, and
+`vertical.top/center/bottom` construct every variant of iced's three alignment
+enums. `alignment.from_horizontal`, `alignment.from_vertical`,
+`horizontal.from_alignment`, and `vertical.from_alignment` preserve all native
+conversions. Each value exposes a compact `.kind`, supports equality, hashable
+lazy identity, and typed extern passage. Existing view properties keep their
+short `start/center/end`, `left/center/right`, and `top/center/bottom` sugar.
+
+`border.default()` and `border.new(color, width, radius)` construct complete
+native values. `border.color`, `border.width`, and `border.rounded` map the
+three native free constructors; `border.with_color`, `border.with_width`, and
+`border.with_radius` map the three consuming builders. Width accepts `f64` or
+`pixels`; radius accepts `f64` or `radius`. A border exposes `.color`, `.width`,
+and `.radius`, supports equality and typed extern passage, and is not a lazy
+identity because it contains floating-point values.
+
+`radius(value)`, `radius.new(value)`, and `radius.default()` map the native free
+uniform constructor, associated constructor, and default respectively.
+`radius.top_left/top_right/bottom_right/bottom_left/top/bottom/left/right`
+construct each native partial shape; the matching `radius.with_*` forms take an
+existing radius first and call every consuming builder. Pixel inputs accept
+`f64` or `pixels`. `radius.from_f64/from_u8/from_u32/from_i32` preserve all four
+native conversions, with checked literal integer ranges; `radius.try_from_u8`,
+`radius.try_from_u32`, and `radius.try_from_i32` safely handle dynamic `i64`
+inputs. A radius exposes all four corner fields and `.values` in native corner
+order, supports equality, `radius * f64`, and typed extern passage, and is not a
+lazy identity because its corners are floating-point values.
+
+`shadow.default()` constructs the native default. `shadow.new(color, offset,
+blur)` constructs an exact `iced::Shadow`; the checked arguments are `color`,
+`vector`, and `f64`, with narrowing to native `f32` only at code generation.
+A shadow exposes `.color`, `.offset`, and `.blur`, supports equality and typed
+extern passage, and is deliberately rejected as a lazy identity because its
+native color and blur fields contain floating-point values.
 
 The default iced `f32` geometry API has direct checked expressions:
 
@@ -2886,6 +3437,16 @@ on load_font
 The expression must be `bytes`, the success payload is `unit`, and the task is
 treated as infallible because iced's current `font::Error` has no variants.
 
+Image preallocation is a fallible native task:
+
+```ice
+task image allocate handle -> allocated _ | allocation_failed _
+```
+
+Success carries `image-allocation`; failure carries the exact `image-error`.
+Both routes are required, and the task composes inside task groups, abortable
+tasks, and typed task flows.
+
 Widget operation tasks target checked IDs in the app view:
 
 ```ice
@@ -2976,6 +3537,7 @@ pane #workspace restore
 pane #workspace swap tasks details
 pane #workspace move details left
 pane #workspace resize 0.6
+pane #workspace resize editor_stack 0.55
 pane #workspace drop details tasks center
 pane #workspace split details preview horizontal ratio=0.4
 pane #workspace close details
@@ -2983,13 +3545,19 @@ pane #workspace maximized -> pane_observed _
 pane #workspace adjacent tasks right -> pane_observed _
 ```
 
-Grid and pane names are checked against the static app view. Effects mutate the
-compiler-owned `pane_grid::State` synchronously and do not accept routes.
+Grid names, static pane names, template names, and dynamic key types are checked
+against the app view. Effects mutate the compiler-owned `pane_grid::State`
+synchronously and do not accept routes. Any pane argument may use
+`template(key)`; `split` stores that key and the template resolves the current
+item from its declared list state.
 `maximized` and `adjacent` are final handler queries and emit `str?`, because
-there may be no maximized or adjacent pane. `resize` targets the root split and
-accepts a checked `f64` in `0.0..=1.0`. `drop` accepts `center` or an edge
-region. `split` opens a declared closed pane beside an open target with the
-requested axis and ratio; asking to open an already-open pane is a no-op.
+there may be no maximized or adjacent pane. `resize ratio` targets the root
+split. A nested `split name axis` declaration gives that native split a stable
+checked identity, and `resize name ratio` keeps targeting that split while it
+remains in the layout. Ratios are checked `f64` values in `0.0..=1.0`. `drop`
+accepts `center` or an edge region. `split` opens a declared closed pane beside
+an open target with the requested axis and ratio; asking to open an already-open
+pane is a no-op.
 
 Window tasks can open named templates and retain iced's typed window ID in
 ordinary Ice state:
@@ -3020,6 +3588,12 @@ on capture_window
 on window_captured(pixels, width, height, scale)
   snapshot = rgba(width, height, pixels)
 
+on capture_native
+  task window screenshot -> native_captured _
+
+on native_captured(value)
+  last_capture = value
+
 on change_icon
   task window icon bytes(ff 00 00 ff 00 ff 00 ff) 2 1
 ```
@@ -3034,10 +3608,11 @@ Other effects have no route and queries require one. `size` emits two `f64`
 values; `maximized` emits `bool`; `minimized` emits `bool?`; `position` and
 `monitor-size` each emit two `f64?` values; `scale-factor` emits `f64`; and
 `mode` emits `str`. `raw-id` emits the opaque platform `u64` identifier as a
-lossless `str`. `screenshot` emits RGBA `bytes`, physical `i64` width and
-height, then its `f64` scale factor; the bytes can feed directly into
-`rgba(width, height, pixels)`. `icon` accepts RGBA `bytes` followed by positive
-`i64` width and height. Literal byte counts are checked as
+lossless `str`. A one-placeholder `screenshot` route emits one native
+`window-screenshot`; the existing four-placeholder form emits RGBA `bytes`,
+physical `i64` width and height, then its `f64` scale factor. Those bytes can
+feed directly into `rgba(width, height, pixels)`. `icon` accepts RGBA `bytes`
+followed by positive `i64` width and height. Literal byte counts are checked as
 `width × height × 4`; dynamic invalid data safely produces no task.
 
 Callback-only iced window behavior crosses one exact typed boundary:
@@ -3242,7 +3817,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 1.30 does not claim that remapping.
+extern line; 1.58 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -3258,17 +3833,19 @@ extern line; 1.30 does not claim that remapping.
 | `cargo ice expand FILE` | prints generated Rust for debugging |
 
 `cargo-ice` discovers `.ice` files recursively below the current directory,
-skips `.git` and `target`, analyzes files with a top-level `app` as roots, and
+skips `.git` and `target`, analyzes files with a top-level `app` or `daemon` as roots, and
 formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 1.30 native backend is enough for CRUD/settings-style screens, selection,
-media, hover overlays, declarative canvas geometry, and common pointer events,
-not all of iced. It still lacks direct syntax for arbitrary custom overlays,
-and custom widgets. [`COVERAGE.md`](COVERAGE.md) is the exact versioned ledger.
+The 1.58 native backend covers both windowed applications and windowless
+daemons alongside CRUD/settings-style screens, selection, media, hover
+overlays, declarative canvas geometry, and pointer events. Borrowed custom
+widgets and an application-wide renderer type remain the escape hatch for
+specialized native behavior. [`COVERAGE.md`](COVERAGE.md) is the exact
+versioned ledger.
 
-The language must not grow one ad-hoc syntax form for every iced API. Thirty-one
+The language must not grow one ad-hoc syntax form for every iced API. Thirty-three
 typed Rust boundaries cover domain work, native elements and programs, runtime
 tasks and subscriptions, Markdown viewers, and native style callbacks without
 admitting arbitrary Rust into expressions or duplicating iced in the core
@@ -3301,6 +3878,48 @@ compile-tested widget example is
 Native pointer constructors, subscription payloads, projections, and Rust
 extern round trips are exercised by
 [`examples/iced-app/src/ui/pointer_values.ice`](examples/iced-app/src/ui/pointer_values.ice).
+Every native mouse interaction variant, kind projection, ordering, typed extern
+passage, and direct mouse-area/canvas use are exercised by the split
+[`examples/iced-app/src/ui/mouse_interaction.ice`](examples/iced-app/src/ui/mouse_interaction.ice)
+and [`examples/iced-app/src/mouse_interaction.rs`](examples/iced-app/src/mouse_interaction.rs)
+fixture.
+Both native scroll delta variants, exact coordinates, projections, equality,
+and typed extern passage are exercised by the split
+[`examples/iced-app/src/ui/scroll_delta.ice`](examples/iced-app/src/ui/scroll_delta.ice)
+and [`examples/iced-app/src/scroll_delta.rs`](examples/iced-app/src/scroll_delta.rs)
+fixture.
+Both native event statuses, all merge combinations, kind projection, equality,
+and typed extern passage are exercised by the split
+[`examples/iced-app/src/ui/event_status.ice`](examples/iced-app/src/ui/event_status.ice)
+and [`examples/iced-app/src/event_status.rs`](examples/iced-app/src/event_status.rs)
+fixture.
+Every native redraw request, scheduled instant projection, equality, ordering,
+and typed extern passage are exercised by the split
+[`examples/iced-app/src/ui/redraw_request.ice`](examples/iced-app/src/ui/redraw_request.ice)
+and [`examples/iced-app/src/redraw_request.rs`](examples/iced-app/src/redraw_request.rs)
+fixture.
+Native unique window ID construction, display, equality, ordering, hashable
+lazy identity, and typed extern passage are exercised by the split
+[`examples/iced-app/src/ui/window_id.ice`](examples/iced-app/src/ui/window_id.ice)
+and [`examples/iced-app/src/window_id.rs`](examples/iced-app/src/window_id.rs)
+fixture.
+Native screenshot construction, capture delivery, fields, byte conversions,
+crop success and failures, exact trait boundaries, legacy payloads, and typed
+extern passage are exercised by the split
+[`examples/iced-app/src/ui/window_screenshot.ice`](examples/iced-app/src/ui/window_screenshot.ice)
+and [`examples/iced-app/src/window_screenshot.rs`](examples/iced-app/src/window_screenshot.rs)
+fixture.
+Every native window direction, level, mode, and user-attention variant, their
+kind projections and exact trait boundaries, and typed extern passage are
+exercised by the split
+[`examples/iced-app/src/ui/window_values.ice`](examples/iced-app/src/ui/window_values.ice)
+and [`examples/iced-app/src/window_values.rs`](examples/iced-app/src/window_values.rs)
+fixture.
+Every native window position variant, fixed-point projection, and exact
+`SpecificWith` callback preservation and invocation are exercised by the split
+[`examples/iced-app/src/ui/window_position.ice`](examples/iced-app/src/ui/window_position.ice)
+and [`examples/iced-app/src/window_position.rs`](examples/iced-app/src/window_position.rs)
+fixture.
 Complete native geometry construction, fields, constants, conversions,
 arithmetic, queries, exact unsigned snapping, and extern passage are exercised
 by
@@ -3309,6 +3928,37 @@ First-class pixels, padding, degrees, radians, range behavior, mixed native
 operators, distance conversion, geometry integration, and extern passage are
 exercised by
 [`examples/iced-app/src/ui/padding_angles.ice`](examples/iced-app/src/ui/padding_angles.ice).
+Complete native shadow construction, projections, equality, and extern passage
+are exercised by the split
+[`examples/iced-app/src/ui/shadow.ice`](examples/iced-app/src/ui/shadow.ice) and
+[`examples/iced-app/src/shadow.rs`](examples/iced-app/src/shadow.rs) fixture.
+Complete native border/radius construction, builders, conversions, fields, and
+extern passage are exercised by the split
+[`examples/iced-app/src/ui/border_radius.ice`](examples/iced-app/src/ui/border_radius.ice)
+and [`examples/iced-app/src/border_radius.rs`](examples/iced-app/src/border_radius.rs)
+fixture.
+Complete native background variants/conversions, gradient/linear operations,
+color stops, projections, and extern passage are exercised by the split
+[`examples/iced-app/src/ui/background_gradient.ice`](examples/iced-app/src/ui/background_gradient.ice)
+and [`examples/iced-app/src/background_gradient.rs`](examples/iced-app/src/background_gradient.rs)
+fixture.
+Complete native font construction, constants, every descriptor variant,
+projections, hashable lazy identity, and extern passage are exercised by the
+split
+[`examples/iced-app/src/ui/font_values.ice`](examples/iced-app/src/ui/font_values.ice)
+and [`examples/iced-app/src/font_values.rs`](examples/iced-app/src/font_values.rs)
+fixture.
+Every native theme mode, default behavior, kind projection, equality, exact
+trait boundaries, and typed extern passage are exercised by the split
+[`examples/iced-app/src/ui/theme_mode.ice`](examples/iced-app/src/ui/theme_mode.ice)
+and [`examples/iced-app/src/theme_mode.rs`](examples/iced-app/src/theme_mode.rs)
+fixture.
+Every native text alignment, shaping, wrapping, line-height variant, default,
+conversion, projection, hash boundary, and typed extern passage is exercised by
+the split
+[`examples/iced-app/src/ui/text_values.ice`](examples/iced-app/src/ui/text_values.ice)
+and [`examples/iced-app/src/text_values.rs`](examples/iced-app/src/text_values.rs)
+fixture.
 Native `Task::map` output/optional conversion and fallible error preservation
 are executed by
 [`examples/iced-app/src/ui/task_map.ice`](examples/iced-app/src/ui/task_map.ice).
@@ -3318,6 +3968,9 @@ executed by
 An alternate Rust Theme type, its Theme-dependent base callbacks, and the
 native Themer bridge are executed by
 [`examples/iced-app/src/ui/alternate_theme.ice`](examples/iced-app/src/ui/alternate_theme.ice).
+The typed Element escape hatch is compiled with a custom advanced Overlay and
+non-default `index()` by
+[`examples/iced-app/src/ui/native_overlay.ice`](examples/iced-app/src/ui/native_overlay.ice).
 Native transformation construction, matrix inspection, application, and extern
 passage are exercised by
 [`examples/iced-app/src/ui/transformation_values.ice`](examples/iced-app/src/ui/transformation_values.ice).

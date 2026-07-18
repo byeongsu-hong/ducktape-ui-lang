@@ -1,6 +1,644 @@
 use super::*;
 
 #[test]
+fn lowers_every_native_alignment_operation() {
+    let source = example!("alignment.ice");
+    let generated = compile(source, "alignment.ice").unwrap();
+    for expected in [
+        "::iced::Alignment::Start",
+        "::iced::Alignment::Center",
+        "::iced::Alignment::End",
+        "::iced::alignment::Horizontal::Left",
+        "::iced::alignment::Horizontal::Center",
+        "::iced::alignment::Horizontal::Right",
+        "::iced::alignment::Vertical::Top",
+        "::iced::alignment::Vertical::Center",
+        "::iced::alignment::Vertical::Bottom",
+        "::iced::Alignment::from(",
+        "::iced::alignment::Horizontal::from(",
+        "::iced::alignment::Vertical::from(",
+        "crate::backend::alignment_round_trip(self.center)",
+    ] {
+        assert!(generated.contains(expected), "missing {expected}");
+    }
+}
+#[test]
+fn lowers_every_native_shadow_operation() {
+    let source = example!("shadow.ice");
+    let generated = compile(source, "shadow.ice").unwrap();
+    for expected in [
+        "::iced::Shadow::default()",
+        "::iced::Shadow { color: ::iced::Color::from_rgba(",
+        "offset: ::iced::Vector::new((4.0) as f32, (8.0) as f32)",
+        "blur_radius: (12.0) as f32",
+        "crate::backend::shadow_round_trip(self.value)",
+        "(self.value).color",
+        "(self.value).offset",
+        "(self.value).blur_radius as f64",
+    ] {
+        assert!(generated.contains(expected), "missing {expected}");
+    }
+}
+
+#[test]
+fn lowers_every_native_border_and_radius_operation() {
+    let source = example!("border_radius.ice");
+    let generated = compile(source, "border_radius.ice").unwrap();
+    for expected in [
+        "::iced::Border::default()",
+        "::iced::Border { color: ::iced::Color::from_rgba(",
+        "width: (::iced::Pixels((2.0) as f32)).0",
+        "::iced::border::color(::iced::Color::BLACK)",
+        "::iced::border::width(::iced::Pixels((4.0) as f32))",
+        "::iced::border::rounded(::iced::border::Radius::from((5.0) as f32))",
+        ".color(::iced::Color::WHITE)",
+        ".width((6.0) as f32)",
+        ".rounded(::iced::border::radius((7.0) as f32))",
+        "crate::backend::border_round_trip(self.built_border)",
+        "(self.built_border).color",
+        "(self.built_border).width as f64",
+        "(self.built_border).radius",
+        "::iced::border::Radius::default()",
+        "::iced::border::radius(::iced::Pixels((2.0) as f32))",
+        "::iced::border::Radius::new((3.0) as f32)",
+        "::iced::border::top_left((1.0) as f32)",
+        "::iced::border::top_right(::iced::Pixels((2.0) as f32))",
+        "::iced::border::bottom_right((3.0) as f32)",
+        "::iced::border::bottom_left((4.0) as f32)",
+        "::iced::border::top((5.0) as f32)",
+        "::iced::border::bottom((6.0) as f32)",
+        "::iced::border::left((7.0) as f32)",
+        "::iced::border::right((8.0) as f32)",
+        ".top_left((1.0) as f32)",
+        ".top_right((2.0) as f32)",
+        ".bottom_right((3.0) as f32)",
+        ".bottom_left((4.0) as f32)",
+        ".top((5.0) as f32)",
+        ".bottom((6.0) as f32)",
+        ".left((7.0) as f32)",
+        ".right(::iced::Pixels((8.0) as f32))",
+        "::iced::border::Radius::from((9.0) as f32)",
+        "::iced::border::Radius::from(10u8)",
+        "::iced::border::Radius::from(11u32)",
+        "::iced::border::Radius::from(((-3)) as i32)",
+        "<u8>::try_from((self.unsigned_input) as i64)",
+        "<u32>::try_from((self.unsigned_input) as i64)",
+        "<i32>::try_from((self.signed_input) as i64)",
+        "crate::backend::radius_round_trip(self.built_radius)",
+        "self.uniform_radius * (2.0) as f32",
+        "::std::convert::Into::<[f32; 4]>::into(self.built_radius)",
+        "(self.built_radius).top_left as f64",
+        "(self.built_radius).top_right as f64",
+        "(self.built_radius).bottom_right as f64",
+        "(self.built_radius).bottom_left as f64",
+    ] {
+        assert!(generated.contains(expected), "missing {expected}");
+    }
+}
+
+#[test]
+fn lowers_every_native_background_and_gradient_operation() {
+    let source = example!("background_gradient.ice");
+    let generated = compile(source, "background_gradient.ice").unwrap();
+    for expected in [
+        "::iced::gradient::ColorStop::default()",
+        "::iced::gradient::ColorStop { offset: (0.25) as f32, color:",
+        "crate::backend::color_stop_round_trip(self.custom_stop)",
+        "(self.custom_stop).offset as f64",
+        "(self.custom_stop).color",
+        "::iced::gradient::Linear::new(::iced::Radians((0.5) as f32))",
+        "::iced::gradient::Linear::new(::iced::Radians((0.75) as f32))",
+        ".add_stop((0.75) as f32, ::iced::Color::WHITE)",
+        ".add_stops(::std::vec![",
+        ".scale_alpha((0.5) as f32)",
+        "crate::backend::linear_round_trip(self.multi_linear)",
+        "(self.numeric_linear).angle",
+        ".stops.into_iter().collect::<::std::vec::Vec<::std::option::Option<::iced::gradient::ColorStop>>>()",
+        "::iced::Gradient::Linear(self.added_linear)",
+        "::iced::Gradient::from(self.added_linear)",
+        "crate::backend::gradient_round_trip(self.converted_gradient)",
+        "match (self.direct_gradient) { ::iced::Gradient::Linear(__value) => __value }",
+        "::iced::Background::Color(",
+        "::iced::Background::Gradient(self.direct_gradient)",
+        "::iced::Background::from(::iced::Color::WHITE)",
+        "::iced::Background::from(self.converted_gradient)",
+        "::iced::Background::from(self.added_linear)",
+        "crate::backend::background_round_trip(self.from_linear_background)",
+        "::iced::Background::Color(__value) => ::std::option::Option::Some(__value)",
+        "::iced::Background::Gradient(__value) => ::std::option::Option::Some(__value)",
+    ] {
+        assert!(generated.contains(expected), "missing {expected}");
+    }
+}
+
+#[test]
+fn lowers_every_native_font_operation() {
+    let source = example!("font_values.ice");
+    let generated = compile(source, "font_values.ice").unwrap();
+    for expected in [
+        "::iced::Font::default()",
+        "::iced::Font::DEFAULT",
+        "::iced::Font::MONOSPACE",
+        "::iced::Font::with_name(\"Inter\")",
+        "::iced::Font { family: ::iced::font::Family::Name(\"Display\"), weight: ::iced::font::Weight::Bold, stretch: ::iced::font::Stretch::Expanded, style: ::iced::font::Style::Italic }",
+        "::iced::font::Family::default()",
+        "::iced::font::Family::Name(\"Inter\")",
+        "::iced::font::Family::Serif",
+        "::iced::font::Family::SansSerif",
+        "::iced::font::Family::Cursive",
+        "::iced::font::Family::Fantasy",
+        "::iced::font::Family::Monospace",
+        "::iced::font::Weight::default()",
+        "::iced::font::Weight::Thin",
+        "::iced::font::Weight::ExtraLight",
+        "::iced::font::Weight::Light",
+        "::iced::font::Weight::Normal",
+        "::iced::font::Weight::Medium",
+        "::iced::font::Weight::Semibold",
+        "::iced::font::Weight::Bold",
+        "::iced::font::Weight::ExtraBold",
+        "::iced::font::Weight::Black",
+        "::iced::font::Stretch::default()",
+        "::iced::font::Stretch::UltraCondensed",
+        "::iced::font::Stretch::ExtraCondensed",
+        "::iced::font::Stretch::Condensed",
+        "::iced::font::Stretch::SemiCondensed",
+        "::iced::font::Stretch::Normal",
+        "::iced::font::Stretch::SemiExpanded",
+        "::iced::font::Stretch::Expanded",
+        "::iced::font::Stretch::ExtraExpanded",
+        "::iced::font::Stretch::UltraExpanded",
+        "::iced::font::Style::default()",
+        "::iced::font::Style::Normal",
+        "::iced::font::Style::Italic",
+        "::iced::font::Style::Oblique",
+        "crate::backend::font_round_trip(self.custom_font)",
+        "crate::backend::family_round_trip(::iced::font::Family::Name(\"Inter\"))",
+        "crate::backend::weight_round_trip(::iced::font::Weight::Bold)",
+        "crate::backend::stretch_round_trip(::iced::font::Stretch::Expanded)",
+        "crate::backend::style_round_trip(::iced::font::Style::Italic)",
+        "(self.custom_font).family",
+        "(self.custom_font).weight",
+        "(self.custom_font).stretch",
+        "(self.custom_font).style",
+        "::iced::font::Family::Name(_) => \"named\"",
+        "::iced::font::Family::Name(__value) => ::std::option::Option::Some(__value.to_owned())",
+        "::iced::widget::lazy((self.returned_font,",
+    ] {
+        assert!(generated.contains(expected), "missing {expected}");
+    }
+}
+
+#[test]
+fn lowers_every_native_theme_mode_operation() {
+    let source = example!("theme_mode.ice");
+    let generated = compile(source, "theme_mode.ice").unwrap();
+    for expected in [
+        "::iced::theme::Mode::default()",
+        "::iced::theme::Mode::None",
+        "::iced::theme::Mode::Light",
+        "::iced::theme::Mode::Dark",
+        "crate::backend::theme_mode_round_trip(::iced::theme::Mode::Dark)",
+        "::iced::theme::Mode::Dark => \"dark\"",
+    ] {
+        assert!(generated.contains(expected), "missing {expected}");
+    }
+}
+
+#[test]
+fn lowers_every_native_text_value_operation() {
+    let source = example!("text_values.ice");
+    let generated = compile(source, "text_values.ice").unwrap();
+    for expected in [
+        "::iced::widget::text::Alignment::default()",
+        "::iced::widget::text::Alignment::Left",
+        "::iced::widget::text::Alignment::Center",
+        "::iced::widget::text::Alignment::Right",
+        "::iced::widget::text::Alignment::Justified",
+        "::iced::widget::text::Alignment::from(::iced::alignment::Horizontal::Center)",
+        "::iced::widget::text::Alignment::from(::iced::Alignment::End)",
+        "::iced::alignment::Horizontal::from(::iced::widget::text::Alignment::Justified)",
+        "::iced::widget::text::Shaping::default()",
+        "::iced::widget::text::Shaping::Auto",
+        "::iced::widget::text::Shaping::Basic",
+        "::iced::widget::text::Shaping::Advanced",
+        "::iced::widget::text::Wrapping::default()",
+        "::iced::widget::text::Wrapping::None",
+        "::iced::widget::text::Wrapping::Word",
+        "::iced::widget::text::Wrapping::Glyph",
+        "::iced::widget::text::Wrapping::WordOrGlyph",
+        "::iced::widget::text::LineHeight::default()",
+        "::iced::widget::text::LineHeight::Relative((1.5) as f32)",
+        "::iced::widget::text::LineHeight::Absolute(::iced::Pixels((24.0) as f32))",
+        "::iced::widget::text::LineHeight::from((1.25) as f32)",
+        "::iced::widget::text::LineHeight::from(::iced::Pixels((30.0) as f32))",
+        ").to_absolute(::iced::Pixels((20.0) as f32))",
+        "::iced::widget::text::Alignment::Justified => \"justified\"",
+        "::iced::widget::text::Shaping::Advanced => \"advanced\"",
+        "::iced::widget::text::Wrapping::WordOrGlyph => \"word-or-glyph\"",
+        "::iced::widget::text::LineHeight::Relative(__value)",
+        "::iced::widget::text::LineHeight::Absolute(__value)",
+        "crate::backend::text_alignment_round_trip",
+        "crate::backend::text_shaping_round_trip",
+        "crate::backend::text_wrapping_round_trip",
+        "crate::backend::text_line_height_round_trip",
+        "::iced::widget::lazy((self.returned_alignment",
+        "::iced::widget::lazy((self.returned_shaping",
+        "::iced::widget::lazy((self.returned_wrapping",
+        "::iced::widget::lazy((self.returned_line_height",
+    ] {
+        assert!(generated.contains(expected), "missing {expected}");
+    }
+}
+
+#[test]
+fn lowers_every_native_mouse_interaction() {
+    let source = example!("mouse_interaction.ice");
+    let generated = compile(source, "mouse_interaction.ice").unwrap();
+    for expected in [
+        "::iced::mouse::Interaction::default()",
+        "::iced::mouse::Interaction::None",
+        "::iced::mouse::Interaction::Hidden",
+        "::iced::mouse::Interaction::Idle",
+        "::iced::mouse::Interaction::ContextMenu",
+        "::iced::mouse::Interaction::Help",
+        "::iced::mouse::Interaction::Pointer",
+        "::iced::mouse::Interaction::Progress",
+        "::iced::mouse::Interaction::Wait",
+        "::iced::mouse::Interaction::Cell",
+        "::iced::mouse::Interaction::Crosshair",
+        "::iced::mouse::Interaction::Text",
+        "::iced::mouse::Interaction::Alias",
+        "::iced::mouse::Interaction::Copy",
+        "::iced::mouse::Interaction::Move",
+        "::iced::mouse::Interaction::NoDrop",
+        "::iced::mouse::Interaction::NotAllowed",
+        "::iced::mouse::Interaction::Grab",
+        "::iced::mouse::Interaction::Grabbing",
+        "::iced::mouse::Interaction::ResizingHorizontally",
+        "::iced::mouse::Interaction::ResizingVertically",
+        "::iced::mouse::Interaction::ResizingDiagonallyUp",
+        "::iced::mouse::Interaction::ResizingDiagonallyDown",
+        "::iced::mouse::Interaction::ResizingColumn",
+        "::iced::mouse::Interaction::ResizingRow",
+        "::iced::mouse::Interaction::AllScroll",
+        "::iced::mouse::Interaction::ZoomIn",
+        "::iced::mouse::Interaction::ZoomOut",
+        "crate::backend::interaction_round_trip(::iced::mouse::Interaction::Pointer)",
+        "::iced::mouse::Interaction::Pointer => \"pointer\"",
+        "::iced::widget::mouse_area(__mouse_content).interaction(self.returned)",
+        "if (false) || __cursor.is_over(__bounds) { self.returned }",
+    ] {
+        assert!(generated.contains(expected), "missing {expected}");
+    }
+}
+
+#[test]
+fn lowers_every_native_scroll_delta_operation() {
+    let source = example!("scroll_delta.ice");
+    let generated = compile(source, "scroll_delta.ice").unwrap();
+    for expected in [
+        "::iced::mouse::ScrollDelta::Lines { x: (1.5) as f32, y: ((-2.25)) as f32 }",
+        "::iced::mouse::ScrollDelta::Pixels { x: ((-3.75)) as f32, y: (4.5) as f32 }",
+        "crate::backend::scroll_delta_round_trip(self.pixels)",
+        "::iced::mouse::ScrollDelta::Lines { .. } => \"lines\"",
+        "::iced::mouse::ScrollDelta::Pixels { .. } => \"pixels\"",
+        "::iced::mouse::ScrollDelta::Lines { x, .. } | ::iced::mouse::ScrollDelta::Pixels { x, .. } => x as f64",
+        "::iced::mouse::ScrollDelta::Lines { y, .. } | ::iced::mouse::ScrollDelta::Pixels { y, .. } => y as f64",
+    ] {
+        assert!(generated.contains(expected), "missing {expected}");
+    }
+}
+
+#[test]
+fn lowers_every_native_window_value() {
+    let source = example!("window_values.ice");
+    let generated = compile(source, "window_values.ice").unwrap();
+    for expected in [
+        "::iced::window::Direction::North",
+        "::iced::window::Direction::South",
+        "::iced::window::Direction::East",
+        "::iced::window::Direction::West",
+        "::iced::window::Direction::NorthEast",
+        "::iced::window::Direction::NorthWest",
+        "::iced::window::Direction::SouthEast",
+        "::iced::window::Direction::SouthWest",
+        "::iced::window::Level::default()",
+        "::iced::window::Level::Normal",
+        "::iced::window::Level::AlwaysOnBottom",
+        "::iced::window::Level::AlwaysOnTop",
+        "::iced::window::Mode::Windowed",
+        "::iced::window::Mode::Fullscreen",
+        "::iced::window::Mode::Hidden",
+        "::iced::window::UserAttention::Critical",
+        "::iced::window::UserAttention::Informational",
+        "crate::backend::direction_round_trip(::iced::window::Direction::SouthWest)",
+        "crate::backend::level_round_trip(::iced::window::Level::AlwaysOnTop)",
+        "crate::backend::mode_round_trip(::iced::window::Mode::Fullscreen)",
+        "crate::backend::attention_round_trip(::iced::window::UserAttention::Informational)",
+        "::iced::window::Direction::SouthWest => \"south-west\"",
+        "::iced::window::Level::AlwaysOnTop => \"always-on-top\"",
+        "::iced::window::Mode::Fullscreen => \"fullscreen\"",
+        "::iced::window::UserAttention::Informational => \"informational\"",
+    ] {
+        assert!(generated.contains(expected), "missing {expected}");
+    }
+}
+
+#[test]
+fn lowers_every_native_window_position_operation() {
+    let source = example!("window_position.ice");
+    let generated = compile(source, "window_position.ice").unwrap();
+    for expected in [
+        "::iced::window::Position::default()",
+        "::iced::window::Position::Centered",
+        "::iced::window::Position::Specific(::iced::Point::new((24.0) as f32, ((-12.0)) as f32))",
+        "crate::backend::responsive_position()",
+        "crate::backend::position_round_trip(self.specific_position)",
+        "::iced::window::Position::Default => \"default\"",
+        "::iced::window::Position::Centered => \"centered\"",
+        "::iced::window::Position::Specific(_) => \"specific\"",
+        "::iced::window::Position::SpecificWith(_) => \"specific-with\"",
+        "::iced::window::Position::Specific(__value) => ::std::option::Option::Some(__value)",
+    ] {
+        assert!(generated.contains(expected), "missing {expected}");
+    }
+}
+
+#[test]
+fn lowers_every_native_event_status_operation() {
+    let source = example!("event_status.ice");
+    let generated = compile(source, "event_status.ice").unwrap();
+    for expected in [
+        "::iced::event::Status::Ignored",
+        "::iced::event::Status::Captured",
+        "crate::backend::status_round_trip(::iced::event::Status::Captured)",
+        "(self.ignored).merge(self.captured)",
+        "::iced::event::Status::Ignored => \"ignored\"",
+        "::iced::event::Status::Captured => \"captured\"",
+    ] {
+        assert!(generated.contains(expected), "missing {expected}");
+    }
+}
+
+#[test]
+fn lowers_every_native_redraw_request_operation() {
+    let source = example!("redraw_request.ice");
+    let generated = compile(source, "redraw_request.ice").unwrap();
+    for expected in [
+        "::iced::window::RedrawRequest::NextFrame",
+        "::iced::window::RedrawRequest::At(crate::backend::redraw_now())",
+        "::iced::window::RedrawRequest::Wait",
+        "crate::backend::redraw_round_trip(self.at)",
+        "::iced::window::RedrawRequest::At(_) => \"at\"",
+        "::iced::window::RedrawRequest::At(__value) => ::std::option::Option::Some(__value)",
+    ] {
+        assert!(generated.contains(expected), "missing {expected}");
+    }
+}
+
+#[test]
+fn lowers_every_native_window_id_operation() {
+    let source = example!("window_id.ice");
+    let generated = compile(source, "window_id.ice").unwrap();
+    for expected in [
+        "::iced::window::Id::unique()",
+        "crate::backend::window_id_round_trip(self.first)",
+        "(self.first).to_string()",
+        "::iced::widget::lazy((self.first,",
+    ] {
+        assert!(generated.contains(expected), "missing {expected}");
+    }
+}
+
+#[test]
+fn lowers_every_native_window_screenshot_operation() {
+    let source = example!("window_screenshot.ice");
+    let generated = compile(source, "window_screenshot.ice").unwrap();
+    for expected in [
+        "::iced::window::Screenshot::new(",
+        "crate::backend::screenshot_round_trip(self.sample.clone())",
+        "(&(self.sample)).crop(crate::backend::screenshot_crop_region()).ok()",
+        "::iced::window::screenshot(__window).map(move |value| __NativeWindowScreenshotMessage::NativeCaptured(value))",
+        "__NativeWindowScreenshotMessage::RgbaCaptured(value.rgba.to_vec(), value.size.width as i64, value.size.height as i64, value.scale_factor as f64)",
+        "::iced::window::screenshot::CropError::Zero",
+        "::iced::window::screenshot::CropError::OutOfBounds",
+        ".err().map(|error| error.to_string())",
+        "::std::convert::AsRef::<[u8]>::as_ref(&(self.returned)).to_vec()",
+        "(self.returned.clone()).rgba.to_vec()",
+        "(self.returned).rgba.to_vec()",
+        "(self.returned).size",
+        "(self.returned).scale_factor as f64",
+        "::std::format!(\"{:?}\", &(self.returned))",
+    ] {
+        assert!(generated.contains(expected), "missing {expected}");
+    }
+}
+
+#[test]
+fn lowers_every_native_length_operation() {
+    let source = example!("length.ice");
+    let generated = compile(source, "length.ice").unwrap();
+    for expected in [
+        "::iced::Length::Fill",
+        "::iced::Length::FillPortion(3u16)",
+        "::iced::Length::Shrink",
+        "::iced::Length::Fixed((48.0) as f32)",
+        "::iced::Length::from((64.0) as f32)",
+        "::iced::Length::from(::iced::Pixels((72.0) as f32))",
+        "::iced::Length::from(96u32)",
+        "<u16>::try_from(self.portion_input)",
+        "<u32>::try_from(self.units_input)",
+        ".fluid()",
+        ".enclose(",
+        ".fill_factor() as i64",
+        ".is_fill()",
+        ".width(self.fill_length)",
+        ".height(self.shrink_length)",
+        "crate::backend::length_round_trip(self.fixed_length)",
+    ] {
+        assert!(generated.contains(expected), "missing {expected}");
+    }
+}
+
+#[test]
+fn lowers_every_native_color_operation() {
+    let source = example!("color.ice");
+    let generated = compile(source, "color.ice").unwrap();
+    for expected in [
+        "::iced::Color::default()",
+        "::iced::Color::BLACK",
+        "::iced::Color::WHITE",
+        "::iced::Color::TRANSPARENT",
+        "::iced::Color::from_rgb(",
+        "::iced::Color::from_rgba(",
+        "::iced::Color::from_rgb8(12u8, 34u8, 56u8)",
+        "::iced::Color::from_rgba8(12u8, 34u8, 56u8,",
+        "<u8>::try_from(self.red8)",
+        "<u8>::try_from(self.green8)",
+        "<u8>::try_from(self.blue8)",
+        "::iced::Color::from_linear_rgba(",
+        "::iced::Color::from([",
+        ".parse::<::iced::Color>().ok()",
+        ".inverse()",
+        ".invert();",
+        ".scale_alpha(",
+        ".into_rgba8()",
+        ".into_linear()",
+        ".relative_luminance()",
+        ".relative_contrast(",
+        ".is_readable_on(",
+        "crate::backend::color_round_trip(self.rgba8)",
+    ] {
+        assert!(generated.contains(expected), "missing {expected}");
+    }
+}
+
+#[test]
+fn lowers_every_native_content_fit_operation() {
+    let source = example!("content_fit.ice");
+    let generated = compile(source, "content_fit.ice").unwrap();
+    for expected in [
+        "::iced::ContentFit::default()",
+        "::iced::ContentFit::Contain",
+        "::iced::ContentFit::Cover",
+        "::iced::ContentFit::Fill",
+        "::iced::ContentFit::None",
+        "::iced::ContentFit::ScaleDown",
+        ".fit(::iced::Size::new((100.0) as f32, (50.0) as f32), ::iced::Size::new((80.0) as f32, (80.0) as f32))",
+        ".content_fit(self.round_trip)",
+        ".content_fit(self.scale_down_fit)",
+        ".content_fit(self.fill_fit)",
+    ] {
+        assert!(generated.contains(expected), "missing {expected}");
+    }
+}
+
+#[test]
+fn lowers_every_native_rotation_operation() {
+    let source = example!("rotation.ice");
+    let generated = compile(source, "rotation.ice").unwrap();
+    for expected in [
+        "::iced::Rotation::default()",
+        "::iced::Rotation::Floating(::iced::Radians((0.25) as f32))",
+        "::iced::Rotation::Solid(::iced::Radians((0.5) as f32))",
+        "*__rotation.radians_mut() = ::iced::Radians((0.75) as f32)",
+        "::iced::Rotation::from(0.2 as f32)",
+        ".apply(::iced::Size::new((10.0) as f32, (20.0) as f32))",
+        ".radians()",
+        ".degrees()",
+        ".rotation(self.solid_rotation)",
+        ".rotation(self.adjusted_rotation)",
+    ] {
+        assert!(generated.contains(expected), "missing {expected}");
+    }
+}
+
+#[test]
+fn lowers_native_debug_spans_and_timed_values() {
+    let source = example!("debug_timing.ice");
+    let generated = compile(source, "debug_timing.ice").unwrap();
+    for expected in [
+        "::std::option::Option<::iced::debug::Span>",
+        "::iced::debug::time(self.label.clone())",
+        "__span.finish()",
+        "(self.timer).is_some()",
+        "::iced::debug::time_with(\"compute\".to_owned(), || (self.value + 1))",
+    ] {
+        assert!(generated.contains(expected), "missing {expected}");
+    }
+}
+
+#[test]
+fn lowers_native_image_allocation_and_retention() {
+    let source = example!("image_allocation.ice");
+    let generated = compile(source, "image_allocation.ice").unwrap();
+    for expected in [
+        "::iced::widget::image::allocate(self.handle.clone())",
+        "::iced::widget::image::Allocation",
+        "::std::sync::Weak<::iced::advanced::image::Memory>",
+        ".handle().clone()",
+        ".size()",
+        ".downgrade()",
+        "::iced::widget::image::Allocation::upgrade",
+        "::iced::widget::image::Error::OutOfMemory",
+    ] {
+        assert!(generated.contains(expected), "missing {expected}");
+    }
+}
+
+#[test]
+fn lowers_native_animation_without_a_custom_runtime() {
+    let source = example!("animation.ice");
+    let generated = compile(source, "animation.ice").unwrap();
+    for expected in [
+        "::iced::Animation::new(false)",
+        "::iced::animation::Easing::EaseInOut",
+        ".duration(::std::time::Duration::from_millis(400))",
+        ".repeat(1).auto_reverse()",
+        "::iced::Animation<crate::backend::Motion>",
+        ".very_quick()",
+        ".slow()",
+        ".very_slow().repeat_forever()",
+        "self.progress.go_mut",
+        ".interpolate_with(",
+        "::std::option::Option::<f32>::None",
+        "::iced::window::frames()",
+        "__AnimationFrame",
+    ] {
+        assert!(generated.contains(expected), "missing {expected}");
+    }
+}
+
+#[test]
+fn lowers_windowless_daemon_and_exit() {
+    let source = r#"daemon Agent
+  title label(window)
+  theme "dark"
+  scale-factor scale(window)
+  window dashboard
+    size 800 600
+extern crate::backend
+  sync label(id:window-id) -> str
+  sync scale(id:window-id) -> f64
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+on opened(id)
+on open
+  task window open dashboard -> opened _
+on quit
+  exit
+component AgentWindow(id:window-id)
+  col
+    text label(id)
+    button "Open" -> open
+    button "Quit" -> quit
+view
+  AgentWindow id=window
+"#;
+    let generated = compile(source, "agent.ice").unwrap();
+    assert!(generated.contains("::iced::daemon(Self::__boot, Self::__update, Self::__view)"));
+    assert!(generated.contains(".title(Self::__title)"));
+    assert!(generated.contains(".theme(Self::__theme)"));
+    assert!(generated.contains(".scale_factor(Self::__scale_factor)"));
+    assert!(
+        generated
+            .contains("fn __title(&self, window: ::iced::window::Id) -> ::std::string::String")
+    );
+    assert!(generated.contains("fn __theme(&self, window: ::iced::window::Id) -> ::iced::Theme"));
+    assert!(generated.contains("fn __scale_factor(&self, window: ::iced::window::Id) -> f32"));
+    assert!(generated.contains("fn __view(&self, window: ::iced::window::Id) -> __IceElement"));
+    assert!(generated.contains("crate::backend::label(window)"));
+    assert!(generated.contains("crate::backend::scale(window)"));
+    assert!(generated.contains("return ::iced::exit::<__AgentMessage>();"));
+    assert!(!generated.contains("::iced::application("));
+    assert!(!generated.contains(".window("));
+}
+
+#[test]
 fn lowers_complete_common_application_and_window_settings() {
     let source = r#"app Configured
   title "Configured app"
@@ -142,4 +780,34 @@ view
         let error = compile(&source.replace(from, to), "configured.ice").unwrap_err();
         assert!(error.message.contains(expected), "{error:?}");
     }
+}
+
+#[test]
+fn emits_a_probe_for_every_extern_function() {
+    let source = r#"app Demo
+extern crate::backend
+  Item(id:i64)
+  AppError(message:str)
+  load(id:i64) -> [Item] ! AppError
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  items:[Item] = []
+on mount
+  return if false
+  run load(1) -> loaded _ | failed _
+on loaded(next)
+  items = next
+on failed(error)
+  items = []
+view
+  text len(items)
+"#;
+    let generated = compile(source, "demo.ice").unwrap();
+    assert!(generated.contains("async fn __ui_lang_check_load"));
+    assert!(generated.contains("crate::backend::load(arg0).await"));
+    assert!(generated.contains("let task = (||"));
 }

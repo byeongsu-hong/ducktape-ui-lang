@@ -1,0 +1,69 @@
+app NativeWindowScreenshot
+
+extern crate::backend
+  sync screenshot_sample() -> window-screenshot
+  sync screenshot_round_trip(value:window-screenshot) -> window-screenshot
+  sync screenshot_size() -> size-u32
+  sync screenshot_crop_region() -> rectangle-u32
+  sync screenshot_zero_region() -> rectangle-u32
+  sync screenshot_outside_region() -> rectangle-u32
+
+theme
+  background #111827
+  foreground #f9fafb
+  primary #60a5fa
+  danger #f87171
+
+state
+  sample:window-screenshot = screenshot_sample()
+  returned:window-screenshot = screenshot_sample()
+  rebuilt:window-screenshot = screenshot_sample()
+  cropped:window-screenshot? = none
+  rgba:bytes = bytes(00)
+  size:size-u32 = screenshot_size()
+  scale_factor = 0.0
+  debug_text = ""
+  borrowed_bytes:bytes = bytes(00)
+  owned_bytes:bytes = bytes(00)
+  zero_error:str? = none
+  outside_error:str? = none
+  valid_error:str? = none
+  zero_message:str? = none
+  outside_message:str? = none
+
+on inspect
+  returned = screenshot_round_trip(sample)
+  rebuilt = screenshot.new(sample.rgba, sample.size, sample.scale_factor)
+  cropped = screenshot.crop(sample, screenshot_crop_region())
+  rgba = returned.rgba
+  size = returned.size
+  scale_factor = returned.scale_factor
+  debug_text = returned.debug
+  borrowed_bytes = screenshot.as_bytes(returned)
+  owned_bytes = screenshot.into_bytes(returned)
+  zero_error = screenshot.crop_error(sample, screenshot_zero_region())
+  outside_error = screenshot.crop_error(sample, screenshot_outside_region())
+  valid_error = screenshot.crop_error(sample, screenshot_crop_region())
+  zero_message = screenshot.crop_error_message(sample, screenshot_zero_region())
+  outside_message = screenshot.crop_error_message(sample, screenshot_outside_region())
+
+on capture_native
+  task window screenshot -> native_captured _
+
+on native_captured(value)
+  returned = value
+
+on capture_rgba
+  task window screenshot -> rgba_captured _ _ _ _
+
+on rgba_captured(pixels, width, height, scale)
+  rgba = pixels
+  scale_factor = scale
+
+view
+  col @p-4 gap-2
+    button "Inspect" -> inspect
+    button "Capture native" -> capture_native
+    button "Capture RGBA" -> capture_rgba
+    text debug_text
+    text scale_factor

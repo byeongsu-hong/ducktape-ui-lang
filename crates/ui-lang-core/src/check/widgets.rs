@@ -1,12 +1,12 @@
 use super::*;
 
 #[derive(Clone)]
-struct WidgetIdSlot {
+pub(in crate::check) struct WidgetIdSlot {
     entries: Vec<(String, ViewNode, HashMap<String, Type>)>,
     parent: Option<Box<Self>>,
 }
 
-pub(super) fn widget_operation_ids(
+pub(in crate::check) fn widget_operation_ids(
     root: &ViewNode,
     env: &HashMap<String, Type>,
     document: &Document,
@@ -171,12 +171,60 @@ pub(super) fn widget_operation_ids(
                 collect(content, env, document, scope, slot, components, output)?;
                 collect(layer, env, document, scope, slot, components, output)?;
             }
-            ViewNode::PaneGrid { panes, .. } => {
+            ViewNode::PaneGrid {
+                panes, templates, ..
+            } => {
                 for pane in panes {
+                    let mut pane_env = env.clone();
+                    if let Some(binding) = &pane.maximized {
+                        pane_env.insert(binding.clone(), Type::Bool);
+                    }
                     let mut pane_scope = scope.clone();
                     pane_scope.push((pane.name.clone(), None));
                     for node in pane.nodes() {
-                        collect(node, env, document, &pane_scope, slot, components, output)?;
+                        collect(
+                            node,
+                            &pane_env,
+                            document,
+                            &pane_scope,
+                            slot,
+                            components,
+                            output,
+                        )?;
+                    }
+                }
+                for template in templates {
+                    let Type::List(item_type) = env
+                        .get(&template.items)
+                        .expect("checker validates dynamic pane state")
+                    else {
+                        unreachable!("checker validates dynamic pane lists")
+                    };
+                    let mut template_env = env.clone();
+                    template_env.insert(template.item.clone(), (**item_type).clone());
+                    if let Some(binding) = &template.pane.maximized {
+                        template_env.insert(binding.clone(), Type::Bool);
+                    }
+                    let mut pane_scope = scope.clone();
+                    pane_scope.push((
+                        template.item.clone(),
+                        Some(expr_type(
+                            &template.key,
+                            &template_env,
+                            document,
+                            &template.span,
+                        )?),
+                    ));
+                    for node in template.pane.nodes() {
+                        collect(
+                            node,
+                            &template_env,
+                            document,
+                            &pane_scope,
+                            slot,
+                            components,
+                            output,
+                        )?;
                     }
                 }
             }
@@ -323,7 +371,7 @@ pub(super) fn widget_operation_ids(
     Ok(output)
 }
 
-pub(super) fn check_widget_target(
+pub(in crate::check) fn check_widget_target(
     target: &WidgetTarget,
     env: &HashMap<String, Type>,
     document: &Document,
@@ -431,7 +479,7 @@ pub(super) fn check_widget_target(
     )
 }
 
-pub(super) fn widget_selector_output(
+pub(in crate::check) fn widget_selector_output(
     selector: &WidgetSelector,
     document: &Document,
     span: &Span,
@@ -451,7 +499,7 @@ pub(super) fn widget_selector_output(
     }
 }
 
-pub(super) fn check_widget_selector(
+pub(in crate::check) fn check_widget_selector(
     selector: &WidgetSelector,
     env: &HashMap<String, Type>,
     document: &Document,
@@ -479,21 +527,74 @@ pub(super) fn check_widget_selector(
     widget_selector_output(selector, document, span)
 }
 
-pub(super) fn static_pane_grids(
+pub(in crate::check) struct PaneGridNames {
+    pub(in crate::check) panes: HashSet<String>,
+    pub(in crate::check) templates: HashMap<String, Type>,
+    pub(in crate::check) splits: HashSet<String>,
+}
+
+pub(in crate::check) fn pane_split_names(
+    configuration: &PaneConfiguration,
+    output: &mut HashSet<String>,
+) {
+    if let PaneConfiguration::Split { name, a, b, .. } = configuration {
+        if let Some(name) = name {
+            output.insert(name.clone());
+        }
+        pane_split_names(a, output);
+        pane_split_names(b, output);
+    }
+}
+
+pub(in crate::check) fn static_pane_grids(
     root: &ViewNode,
-) -> Result<HashMap<String, HashSet<String>>, Error> {
+    states: &HashMap<String, Type>,
+    document: &Document,
+) -> Result<HashMap<String, PaneGridNames>, Error> {
     fn collect(
         node: &ViewNode,
-        output: &mut HashMap<String, HashSet<String>>,
+        states: &HashMap<String, Type>,
+        document: &Document,
+        output: &mut HashMap<String, PaneGridNames>,
     ) -> Result<(), Error> {
         match node {
             ViewNode::PaneGrid {
-                name, panes, span, ..
+                name,
+                configuration,
+                panes,
+                templates,
+                span,
+                ..
             } => {
+                let mut splits = HashSet::new();
+                pane_split_names(configuration, &mut splits);
+                let mut template_types = HashMap::new();
+                for template in templates {
+                    let Some(Type::List(item_type)) = states.get(&template.items) else {
+                        return Err(Error::new(
+                            "E187",
+                            &template.span,
+                            format!(
+                                "dynamic pane template `{}` requires list state `{}`",
+                                template.item, template.items
+                            ),
+                        ));
+                    };
+                    let mut env = states.clone();
+                    env.insert(template.item.clone(), (**item_type).clone());
+                    template_types.insert(
+                        template.item.clone(),
+                        expr_type(&template.key, &env, document, &template.span)?,
+                    );
+                }
                 if output
                     .insert(
                         name.clone(),
-                        panes.iter().map(|pane| pane.name.clone()).collect(),
+                        PaneGridNames {
+                            panes: panes.iter().map(|pane| pane.name.clone()).collect(),
+                            templates: template_types,
+                            splits,
+                        },
                     )
                     .is_some()
                 {
@@ -505,7 +606,12 @@ pub(super) fn static_pane_grids(
                 }
                 for pane in panes {
                     for node in pane.nodes() {
-                        collect(node, output)?;
+                        collect(node, states, document, output)?;
+                    }
+                }
+                for template in templates {
+                    for node in template.pane.nodes() {
+                        collect(node, states, document, output)?;
                     }
                 }
             }
@@ -513,7 +619,7 @@ pub(super) fn static_pane_grids(
             | ViewNode::If { children, .. }
             | ViewNode::For { children, .. } => {
                 for child in children {
-                    collect(child, output)?;
+                    collect(child, states, document, output)?;
                 }
             }
             ViewNode::Tooltip { content, tip, .. }
@@ -522,13 +628,13 @@ pub(super) fn static_pane_grids(
                 layer: tip,
                 ..
             } => {
-                collect(content, output)?;
-                collect(tip, output)?;
+                collect(content, states, document, output)?;
+                collect(tip, states, document, output)?;
             }
             ViewNode::Table { columns, .. } => {
                 for column in columns {
-                    collect(&column.header, output)?;
-                    collect(&column.cell, output)?;
+                    collect(&column.header, states, document, output)?;
+                    collect(&column.cell, states, document, output)?;
                 }
             }
             ViewNode::MouseArea { content, .. }
@@ -542,24 +648,26 @@ pub(super) fn static_pane_grids(
             | ViewNode::Button {
                 content: Some(content),
                 ..
-            } => collect(content, output)?,
+            } => collect(content, states, document, output)?,
             ViewNode::Component { slots, .. } => {
                 for slot in slots {
-                    collect(&slot.content, output)?;
+                    collect(&slot.content, states, document, output)?;
                 }
             }
             ViewNode::Responsive { content, .. } => match content {
                 ResponsiveContent::Breakpoint { narrow, wide, .. } => {
-                    collect(narrow, output)?;
-                    collect(wide, output)?;
+                    collect(narrow, states, document, output)?;
+                    collect(wide, states, document, output)?;
                 }
-                ResponsiveContent::Size { content, .. } => collect(content, output)?,
+                ResponsiveContent::Size { content, .. } => {
+                    collect(content, states, document, output)?
+                }
             },
             _ => {}
         }
         Ok(())
     }
     let mut output = HashMap::new();
-    collect(root, &mut output)?;
+    collect(root, states, document, &mut output)?;
     Ok(output)
 }

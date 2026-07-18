@@ -1,6 +1,6 @@
 use super::*;
 
-pub(super) fn render_canvas(
+pub(in crate::codegen) fn render_canvas(
     options: &CanvasOptions,
     locals: &[State],
     commands: &[CanvasCommand],
@@ -16,13 +16,7 @@ pub(super) fn render_canvas(
         .join(" ");
     let state_initials = locals
         .iter()
-        .map(|local| {
-            format!(
-                "{}: {},",
-                local.name,
-                initial_code(&local.initial, &local.ty, document)
-            )
-        })
+        .map(|local| format!("{}: {},", local.name, initial_code(local, document)))
         .collect::<Vec<_>>()
         .join(" ");
     let mut canvas_env = env.clone();
@@ -71,11 +65,17 @@ pub(super) fn render_canvas(
         message,
         use_cache,
     )?;
-    let interaction = if let Some(interaction) = &options.interaction_expr {
-        let interaction = expr_code(interaction, &canvas_env, document, ValueMode::Owned)?;
-        format!(
-            "{{ let __interaction = {interaction}; __ice_canvas_interaction(__interaction.as_str()) }}"
-        )
+    let interaction = if let Some(value) = &options.interaction_expr {
+        let interaction = expr_code(value, &canvas_env, document, ValueMode::Owned)?;
+        if expr_type(value, &env_types(&canvas_env), document, &Span::line(1))?
+            == Type::MouseInteraction
+        {
+            interaction
+        } else {
+            format!(
+                "{{ let __interaction = {interaction}; __ice_canvas_interaction(__interaction.as_str()) }}"
+            )
+        }
     } else {
         format!(
             "::iced::mouse::Interaction::{}",

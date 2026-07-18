@@ -1,6 +1,6 @@
 use super::*;
 
-pub(super) fn render_node(
+pub(in crate::codegen) fn render_node(
     node: &ViewNode,
     document: &Document,
     message: &str,

@@ -1,6 +1,6 @@
 use super::*;
 
-pub(super) fn check_canvas_commands(
+pub(in crate::check) fn check_canvas_commands(
     commands: &[CanvasCommand],
     env: &HashMap<String, Type>,
     document: &Document,
@@ -249,7 +249,7 @@ pub(super) fn check_canvas_commands(
     Ok(())
 }
 
-pub(super) fn check_canvas_path(
+pub(in crate::check) fn check_canvas_path(
     segments: &[CanvasPathSegment],
     env: &HashMap<String, Type>,
     document: &Document,
@@ -384,7 +384,7 @@ pub(super) fn check_canvas_path(
     Ok(())
 }
 
-pub(super) fn check_canvas_paint(
+pub(in crate::check) fn check_canvas_paint(
     paint: &CanvasPaint,
     env: &HashMap<String, Type>,
     document: &Document,
@@ -399,7 +399,7 @@ pub(super) fn check_canvas_paint(
     Ok(())
 }
 
-pub(super) fn check_canvas_stroke(
+pub(in crate::check) fn check_canvas_stroke(
     stroke: &CanvasStroke,
     env: &HashMap<String, Type>,
     document: &Document,
@@ -426,7 +426,7 @@ pub(super) fn check_canvas_stroke(
     Ok(())
 }
 
-pub(super) fn check_canvas_radius(
+pub(in crate::check) fn check_canvas_radius(
     radius: &CanvasRadius,
     env: &HashMap<String, Type>,
     document: &Document,
@@ -447,7 +447,7 @@ pub(super) fn check_canvas_radius(
     Ok(())
 }
 
-pub(super) fn check_canvas_number(
+pub(in crate::check) fn check_canvas_number(
     value: &Expr,
     env: &HashMap<String, Type>,
     document: &Document,

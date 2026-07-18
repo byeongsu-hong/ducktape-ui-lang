@@ -1,6 +1,6 @@
 use super::*;
 
-pub(super) fn line_tree(source: &str) -> Result<Vec<Line>, Error> {
+pub(in crate::parser) fn line_tree(source: &str) -> Result<Vec<Line>, Error> {
     let mut flat = Vec::new();
     for (index, raw) in source.lines().enumerate() {
         if raw.contains('\t') {
@@ -36,7 +36,7 @@ pub(super) fn line_tree(source: &str) -> Result<Vec<Line>, Error> {
     parse_block(&flat, &mut index, 0)
 }
 
-pub(super) fn parse_block(
+pub(in crate::parser) fn parse_block(
     flat: &[Line],
     index: &mut usize,
     indent: usize,
@@ -60,12 +60,15 @@ pub(super) fn parse_block(
     Ok(output)
 }
 
-pub(super) fn parse_signature(source: &str, line: &Line) -> Result<(String, String), Error> {
+pub(in crate::parser) fn parse_signature(
+    source: &str,
+    line: &Line,
+) -> Result<(String, String), Error> {
     let (name, args) = signature_parts(source, line)?;
     Ok((identifier(name, line)?, args))
 }
 
-pub(super) fn parse_component_signature(
+pub(in crate::parser) fn parse_component_signature(
     source: &str,
     line: &Line,
 ) -> Result<(String, String), Error> {
@@ -73,7 +76,7 @@ pub(super) fn parse_component_signature(
     Ok((component_identifier(name, line)?, args))
 }
 
-pub(super) fn signature_parts<'a>(
+pub(in crate::parser) fn signature_parts<'a>(
     source: &'a str,
     line: &Line,
 ) -> Result<(&'a str, String), Error> {
@@ -87,7 +90,7 @@ pub(super) fn signature_parts<'a>(
     Ok((source[..open].trim(), source[open + 1..close].into()))
 }
 
-pub(super) fn matching_paren(source: &str, line: &Line) -> Result<usize, Error> {
+pub(in crate::parser) fn matching_paren(source: &str, line: &Line) -> Result<usize, Error> {
     let open = source
         .find('(')
         .ok_or_else(|| error("E024", line, "expected `(`"))?;
@@ -110,7 +113,7 @@ pub(super) fn matching_paren(source: &str, line: &Line) -> Result<usize, Error> 
     Err(error("E024", line, "missing closing `)`"))
 }
 
-pub(super) fn split_words(source: &str) -> Vec<String> {
+pub(in crate::parser) fn split_words(source: &str) -> Vec<String> {
     let mut output = Vec::new();
     let mut start = 0;
     let mut depth = 0;
@@ -136,7 +139,7 @@ pub(super) fn split_words(source: &str) -> Vec<String> {
     output
 }
 
-pub(super) fn split_top(source: &str, delimiter: char) -> Vec<&str> {
+pub(in crate::parser) fn split_top(source: &str, delimiter: char) -> Vec<&str> {
     let mut output = Vec::new();
     let mut start = 0;
     let mut depth = 0;
@@ -157,7 +160,7 @@ pub(super) fn split_top(source: &str, delimiter: char) -> Vec<&str> {
     output
 }
 
-pub(super) fn split_top_once(source: &str, delimiter: char) -> Option<(&str, &str)> {
+pub(in crate::parser) fn split_top_once(source: &str, delimiter: char) -> Option<(&str, &str)> {
     let mut depth = 0;
     let mut string = false;
     for (index, ch) in source.char_indices() {
@@ -174,7 +177,10 @@ pub(super) fn split_top_once(source: &str, delimiter: char) -> Option<(&str, &st
     None
 }
 
-pub(super) fn split_top_marker<'a>(source: &'a str, marker: &str) -> Option<(&'a str, &'a str)> {
+pub(in crate::parser) fn split_top_marker<'a>(
+    source: &'a str,
+    marker: &str,
+) -> Option<(&'a str, &'a str)> {
     let mut depth = 0;
     let mut string = false;
     let bytes = source.as_bytes();
@@ -196,7 +202,7 @@ pub(super) fn split_top_marker<'a>(source: &'a str, marker: &str) -> Option<(&'a
     None
 }
 
-pub(super) fn strip_wrapping_parens(source: &str) -> &str {
+pub(in crate::parser) fn strip_wrapping_parens(source: &str) -> &str {
     let source = source.trim();
     if source.starts_with('(') && source.ends_with(')') {
         &source[1..source.len() - 1]
@@ -205,14 +211,14 @@ pub(super) fn strip_wrapping_parens(source: &str) -> &str {
     }
 }
 
-pub(super) fn string_literal(source: &str, line: &Line) -> Result<String, Error> {
+pub(in crate::parser) fn string_literal(source: &str, line: &Line) -> Result<String, Error> {
     match parse_expr(source, line)? {
         Expr::Str(value) => Ok(value),
         _ => Err(error("E071", line, "expected string literal")),
     }
 }
 
-pub(super) fn literal_type(expr: &Expr) -> Option<Type> {
+pub(in crate::parser) fn literal_type(expr: &Expr) -> Option<Type> {
     Some(match expr {
         Expr::Bool(_) => Type::Bool,
         Expr::I64(_) => Type::I64,
@@ -238,13 +244,13 @@ pub(super) fn literal_type(expr: &Expr) -> Option<Type> {
     })
 }
 
-pub(super) fn valid_color(value: &str) -> bool {
+pub(in crate::parser) fn valid_color(value: &str) -> bool {
     matches!(value.len(), 7 | 9)
         && value.starts_with('#')
         && value[1..].chars().all(|ch| ch.is_ascii_hexdigit())
 }
 
-pub(super) fn identifier(source: &str, line: &Line) -> Result<String, Error> {
+pub(in crate::parser) fn identifier(source: &str, line: &Line) -> Result<String, Error> {
     if !source.is_empty()
         && source.chars().enumerate().all(|(index, ch)| {
             ch == '_' || ch.is_ascii_alphanumeric() && (index > 0 || !ch.is_ascii_digit())
@@ -260,7 +266,7 @@ pub(super) fn identifier(source: &str, line: &Line) -> Result<String, Error> {
     }
 }
 
-pub(super) fn component_identifier(source: &str, line: &Line) -> Result<String, Error> {
+pub(in crate::parser) fn component_identifier(source: &str, line: &Line) -> Result<String, Error> {
     if source.split('.').all(|part| identifier(part, line).is_ok()) {
         Ok(source.into())
     } else {
@@ -272,7 +278,7 @@ pub(super) fn component_identifier(source: &str, line: &Line) -> Result<String, 
     }
 }
 
-pub(super) fn kebab_identifier(source: &str, line: &Line) -> Result<String, Error> {
+pub(in crate::parser) fn kebab_identifier(source: &str, line: &Line) -> Result<String, Error> {
     if !source.is_empty()
         && source
             .chars()
@@ -284,7 +290,7 @@ pub(super) fn kebab_identifier(source: &str, line: &Line) -> Result<String, Erro
     }
 }
 
-pub(super) fn rust_path(source: &str, line: &Line) -> Result<String, Error> {
+pub(in crate::parser) fn rust_path(source: &str, line: &Line) -> Result<String, Error> {
     if source
         .split("::")
         .all(|part| part == "crate" || identifier(part, line).is_ok())
@@ -295,7 +301,7 @@ pub(super) fn rust_path(source: &str, line: &Line) -> Result<String, Error> {
     }
 }
 
-pub(super) fn ensure_leaf(line: &Line) -> Result<(), Error> {
+pub(in crate::parser) fn ensure_leaf(line: &Line) -> Result<(), Error> {
     if line.children.is_empty() {
         Ok(())
     } else {
@@ -307,6 +313,10 @@ pub(super) fn ensure_leaf(line: &Line) -> Result<(), Error> {
     }
 }
 
-pub(super) fn error(code: &'static str, line: &Line, message: impl Into<String>) -> Error {
+pub(in crate::parser) fn error(
+    code: &'static str,
+    line: &Line,
+    message: impl Into<String>,
+) -> Error {
     Error::new(code, &Span::line(line.number), message)
 }

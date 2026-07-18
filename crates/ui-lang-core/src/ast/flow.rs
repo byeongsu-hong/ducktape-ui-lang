@@ -5,7 +5,27 @@ pub struct State {
     pub name: String,
     pub ty: Type,
     pub initial: Expr,
+    pub animation: Option<AnimationOptions>,
     pub span: Span,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct AnimationOptions {
+    pub easing: Option<String>,
+    pub duration: Option<AnimationDuration>,
+    pub delay_ms: Option<u64>,
+    pub repeat: Option<u32>,
+    pub repeat_forever: bool,
+    pub auto_reverse: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AnimationDuration {
+    VeryQuick,
+    Quick,
+    Slow,
+    VerySlow,
+    Milliseconds(u64),
 }
 
 #[derive(Clone, Debug)]
@@ -35,6 +55,7 @@ pub enum Statement {
     Assign {
         target: String,
         value: Expr,
+        at: Option<Expr>,
         span: Span,
     },
     MarkdownAppend {
@@ -49,6 +70,9 @@ pub enum Statement {
     },
     ReturnIf {
         condition: Expr,
+        span: Span,
+    },
+    Exit {
         span: Span,
     },
     Run {
@@ -88,6 +112,15 @@ pub enum Statement {
     },
     Abort {
         handle: String,
+        span: Span,
+    },
+    DebugStart {
+        name: Expr,
+        target: String,
+        span: Span,
+    },
+    DebugFinish {
+        target: String,
         span: Span,
     },
     ClipboardWrite {
@@ -165,39 +198,46 @@ pub enum TaskTransform {
 #[derive(Clone, Debug)]
 pub enum PaneOperation {
     Maximize {
-        pane: String,
+        pane: PaneReference,
     },
     Restore,
     Maximized,
     Adjacent {
-        pane: String,
+        pane: PaneReference,
         edge: PaneEdge,
     },
     Swap {
-        first: String,
-        second: String,
+        first: PaneReference,
+        second: PaneReference,
     },
     Close {
-        pane: String,
+        pane: PaneReference,
     },
     Move {
-        pane: String,
+        pane: PaneReference,
         edge: PaneEdge,
     },
     Resize {
+        split: Option<String>,
         ratio: Expr,
     },
     Drop {
-        pane: String,
-        target: String,
+        pane: PaneReference,
+        target: PaneReference,
         edge: Option<PaneEdge>,
     },
     Split {
-        target: String,
-        pane: String,
+        target: PaneReference,
+        pane: PaneReference,
         axis: PaneAxis,
         ratio: Expr,
     },
+}
+
+#[derive(Clone, Debug)]
+pub enum PaneReference {
+    Static(String),
+    Dynamic { template: String, key: Expr },
 }
 
 #[derive(Clone, Copy, Debug)]

@@ -1,4 +1,5 @@
-use crate::{compile, test_support::example};
+use crate::compile;
+use crate::test_support::example;
 
 #[path = "tests/application.rs"]
 mod application;

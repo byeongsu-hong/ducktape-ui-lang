@@ -1,6 +1,6 @@
 use super::*;
 
-pub(super) fn infer_view(
+pub(in crate::check) fn infer_view(
     node: &ViewNode,
     env: &HashMap<String, Type>,
     document: &Document,
@@ -31,7 +31,7 @@ pub(super) fn infer_view(
     unreachable!("every view node belongs to an inference group")
 }
 
-pub(super) fn lazy_hashable(ty: &Type) -> bool {
+pub(in crate::check) fn lazy_hashable(ty: &Type) -> bool {
     match ty {
         Type::Bool
         | Type::I64
@@ -45,14 +45,30 @@ pub(super) fn lazy_hashable(ty: &Type) -> bool {
         | Type::KeyModifiers
         | Type::MouseButton
         | Type::TouchFinger
+        | Type::ContentFit
+        | Type::Font
+        | Type::FontFamily
+        | Type::FontWeight
+        | Type::FontStretch
+        | Type::FontStyle
+        | Type::TextAlignment
+        | Type::TextShaping
+        | Type::TextWrapping
+        | Type::TextLineHeight
+        | Type::Alignment
+        | Type::HorizontalAlignment
+        | Type::VerticalAlignment
         | Type::Named(_) => true,
         Type::List(inner) | Type::Option(inner) => lazy_hashable(inner),
         Type::Result(output, error) => lazy_hashable(output) && lazy_hashable(error),
         Type::F64
         | Type::Combo(_)
+        | Type::Animation(_)
         | Type::Markdown
         | Type::Editor
         | Type::Event
+        | Type::EventStatus
+        | Type::ThemeMode
         | Type::KeyLocation
         | Type::KeyPress
         | Type::KeyRelease
@@ -60,6 +76,16 @@ pub(super) fn lazy_hashable(ty: &Type) -> bool {
         | Type::Padding
         | Type::Degrees
         | Type::Radians
+        | Type::Rotation
+        | Type::Color
+        | Type::Background
+        | Type::Gradient
+        | Type::LinearGradient
+        | Type::ColorStop
+        | Type::Length
+        | Type::Border
+        | Type::Radius
+        | Type::Shadow
         | Type::Point
         | Type::PointU32
         | Type::Vector
@@ -67,12 +93,26 @@ pub(super) fn lazy_hashable(ty: &Type) -> bool {
         | Type::Rectangle
         | Type::RectangleU32
         | Type::Transformation
+        | Type::MouseInteraction
+        | Type::ScrollDelta
         | Type::MouseCursor
         | Type::MouseClick
         | Type::SystemInfo
+        | Type::WindowScreenshot
+        | Type::WindowPosition
+        | Type::RedrawRequest
+        | Type::WindowDirection
+        | Type::WindowLevel
+        | Type::WindowMode
+        | Type::WindowAttention
         | Type::WidgetTarget
         | Type::TaskHandle
         | Type::Image
+        | Type::ImageAllocation
+        | Type::ImageMemory
+        | Type::ImageError
+        | Type::DebugSpan
+        | Type::SizeU32
         | Type::Unit
         | Type::Unknown => false,
     }

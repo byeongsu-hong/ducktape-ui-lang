@@ -5,27 +5,96 @@ pub(in crate::codegen) fn render_pane_grid(
     name: &str,
     options: &PaneGridOptions,
     panes: &[PaneView],
+    templates: &[PaneTemplate],
     document: &Document,
     message: &str,
     env: &HashMap<String, Binding>,
     scope: &str,
     slot: Option<&SlotContext>,
 ) -> Result<String, Error> {
-    let arms = panes
+    let pane_type = (!templates.is_empty()).then(|| pane_type(name));
+    let mut arms = panes
         .iter()
         .map(|pane| {
+            let mut pane_env = env.clone();
+            if let Some(binding) = &pane.maximized {
+                pane_env.insert(
+                    binding.clone(),
+                    Binding {
+                        code: "__pane_maximized".into(),
+                        ty: Type::Bool,
+                        local: true,
+                    },
+                );
+            }
             let pane_scope = format!("format!(\"{{}}/{}\", {scope})", pane.name);
+            let pattern = pane_type.as_ref().map_or_else(
+                || rust_string(&pane.name),
+                |pane_type| format!("{pane_type}::__Static({})", rust_string(&pane.name)),
+            );
             Ok(format!(
                 "{} => {}",
-                rust_string(&pane.name),
-                render_pane_content(pane, document, message, env, &pane_scope, slot)?
+                pattern,
+                render_pane_content(pane, document, message, &pane_env, &pane_scope, slot)?
             ))
         })
-        .collect::<Result<Vec<_>, Error>>()?
-        .join(", ");
+        .collect::<Result<Vec<_>, Error>>()?;
+    for template in templates {
+        let (item_type, _) = pane_template_types(template, document)?;
+        let mut template_env = env.clone();
+        template_env.insert(
+            template.item.clone(),
+            Binding {
+                code: format!("(*{})", template.item),
+                ty: item_type,
+                local: false,
+            },
+        );
+        if let Some(binding) = &template.pane.maximized {
+            template_env.insert(
+                binding.clone(),
+                Binding {
+                    code: "__pane_maximized".into(),
+                    ty: Type::Bool,
+                    local: true,
+                },
+            );
+        }
+        let key = expr_code(&template.key, &template_env, document, ValueMode::Owned)?;
+        let pane_scope = format!(
+            "format!(\"{{}}/{}({{}})\", {scope}, __pane_key)",
+            template.item
+        );
+        let content = render_pane_content(
+            &template.pane,
+            document,
+            message,
+            &template_env,
+            &pane_scope,
+            slot,
+        )?;
+        let items = &env
+            .get(&template.items)
+            .expect("checker validates dynamic pane state")
+            .code;
+        arms.push(format!(
+            "{}::{}(__pane_key) => match {items}.iter().find(|{}| {key} == (*__pane_key).clone()) {{ ::std::option::Option::Some({}) => {content}, ::std::option::Option::None => ::iced::widget::pane_grid::Content::new(::iced::widget::text(::std::format!({}, __pane_key))), }}",
+            pane_type.as_deref().expect("dynamic pane type"),
+            pascal(&template.item),
+            template.item,
+            template.item,
+            rust_string(&format!("Missing pane `{}({{}})`", template.item)),
+        ));
+    }
+    let arms = arms.join(", ");
     let field = pane_field(name);
+    let pane_value = if pane_type.is_some() {
+        "__pane_name"
+    } else {
+        "*__pane_name"
+    };
     let mut code = format!(
-        "::iced::widget::pane_grid(&self.{field}, move |_, __pane_name, _| match *__pane_name {{ {arms}, _ => ::core::unreachable!() }})"
+        "::iced::widget::pane_grid(&self.{field}, move |_, __pane_name, __pane_maximized| match {pane_value} {{ {arms}, _ => ::core::unreachable!() }})"
     );
     for (length, method) in [(&options.width, "width"), (&options.height, "height")] {
         if let Some(length) = length {
@@ -58,20 +127,36 @@ pub(in crate::codegen) fn render_pane_grid(
         write!(code, ".on_drag({message}::{})", pane_drag_variant(name)).unwrap();
     }
     if let Some(route) = &options.click {
-        let route = route_code(route, "__pane_name.to_owned()", env, document, message)?;
-        write!(
-            code,
-            ".on_click(move |__pane| {{ let __pane_name = self.{field}.get(__pane).copied().unwrap_or(\"\"); {route} }})"
-        )
-        .unwrap();
+        if pane_type.is_some() {
+            let route = route_code(route, "__pane_name", env, document, message)?;
+            write!(
+                code,
+                ".on_click(move |__pane| {{ let __pane_name = self.{field}.get(__pane).map(|__pane| __pane.__name()).unwrap_or_default(); {route} }})"
+            )
+            .unwrap();
+        } else {
+            let route = route_code(route, "__pane_name.to_owned()", env, document, message)?;
+            write!(
+                code,
+                ".on_click(move |__pane| {{ let __pane_name = self.{field}.get(__pane).copied().unwrap_or(\"\"); {route} }})"
+            )
+            .unwrap();
+        }
     }
-    append_pane_grid_style(&mut code, &options.style, env, document)?;
+    append_pane_grid_style(
+        &mut code,
+        &options.style,
+        options.custom_style.as_ref(),
+        env,
+        document,
+    )?;
     Ok(format!("{code}.into()"))
 }
 
 pub(in crate::codegen) fn append_pane_grid_style(
     code: &mut String,
     style: &PaneGridStyle,
+    custom: Option<&ExternCall>,
     env: &HashMap<String, Binding>,
     document: &Document,
 ) -> Result<(), Error> {
@@ -80,20 +165,51 @@ pub(in crate::codegen) fn append_pane_grid_style(
         || style.region_radius_top_right.is_some()
         || style.region_radius_bottom_right.is_some()
         || style.region_radius_bottom_left.is_some();
-    if style.region_background.is_none()
-        && style.region_border.is_none()
-        && style.region_border_width.is_none()
-        && !has_radius
-        && style.hovered_split.is_none()
-        && style.hovered_split_width.is_none()
-        && style.picked_split.is_none()
-        && style.picked_split_width.is_none()
-    {
+    let has_typed = style.region_background.is_some()
+        || style.region_border.is_some()
+        || style.region_border_width.is_some()
+        || has_radius
+        || style.hovered_split.is_some()
+        || style.hovered_split_width.is_some()
+        || style.picked_split.is_some()
+        || style.picked_split_width.is_some();
+    let custom = custom
+        .map(|style| {
+            let function = document
+                .functions
+                .iter()
+                .find(|item| item.name == style.function && item.kind == ExternKind::PaneGridStyle)
+                .expect("checker validates pane-grid style");
+            let args = style
+                .args
+                .iter()
+                .map(|arg| expr_code(arg, env, document, ValueMode::Owned))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok::<_, Error>(format!(
+                "{}(__theme{})",
+                function.rust_path,
+                args.iter()
+                    .map(|arg| format!(", {arg}"))
+                    .collect::<String>()
+            ))
+        })
+        .transpose()?;
+    if !has_typed && custom.is_none() {
         return Ok(());
     }
-    code.push_str(
-        ".style(move |__theme| { let mut __style = ::iced::widget::pane_grid::default(__theme);",
-    );
+    if !has_typed {
+        write!(
+            code,
+            ".style(move |__theme| {})",
+            custom.expect("custom style is present")
+        )
+        .unwrap();
+        return Ok(());
+    }
+    let base = custom.unwrap_or_else(|| "::iced::widget::pane_grid::default(__theme)".into());
+    code.push_str(".style(move |__theme| { let mut __style = ");
+    code.push_str(&base);
+    code.push(';');
     if let Some(background) = &style.region_background {
         write!(
             code,
@@ -175,7 +291,7 @@ pub(in crate::codegen) fn render_pane_content(
     slot: Option<&SlotContext>,
 ) -> Result<String, Error> {
     let body = render_node(&pane.content, document, message, env, scope, slot)?;
-    let mut declarations = format!("let __pane_content: ::iced::Element<'_, {message}> = {body};");
+    let mut declarations = format!("let __pane_content: __IceElement<'_, {message}> = {body};");
     let mut content = String::from("::iced::widget::pane_grid::Content::new(__pane_content)");
     if let Some(style) = container_surface_style_value(
         &Style::parse(&pane.styles, document),
@@ -190,7 +306,7 @@ pub(in crate::codegen) fn render_pane_content(
         let title_content = render_node(&title.content, document, message, env, scope, slot)?;
         write!(
             declarations,
-            " let __pane_title: ::iced::Element<'_, {message}> = {title_content};"
+            " let __pane_title: __IceElement<'_, {message}> = {title_content};"
         )
         .unwrap();
         let mut title_bar = String::from("::iced::widget::pane_grid::TitleBar::new(__pane_title)");
@@ -201,14 +317,14 @@ pub(in crate::codegen) fn render_pane_content(
             let controls = render_node(controls, document, message, env, scope, slot)?;
             write!(
                 declarations,
-                " let __pane_controls: ::iced::Element<'_, {message}> = {controls};"
+                " let __pane_controls: __IceElement<'_, {message}> = {controls};"
             )
             .unwrap();
             if let Some(compact) = &title.compact_controls {
                 let compact = render_node(compact, document, message, env, scope, slot)?;
                 write!(
                     declarations,
-                    " let __pane_compact_controls: ::iced::Element<'_, {message}> = {compact};"
+                    " let __pane_compact_controls: __IceElement<'_, {message}> = {compact};"
                 )
                 .unwrap();
                 title_bar.push_str(".controls(::iced::widget::pane_grid::Controls::dynamic(__pane_controls, __pane_compact_controls))");

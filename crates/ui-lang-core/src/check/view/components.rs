@@ -192,10 +192,7 @@ pub(in crate::check) fn infer_components_group(
             let shader = extern_function(document, function, ExternKind::Shader, span)?;
             check_call_args(shader, args, env, document, span)?;
             for length in [width, height].into_iter().flatten() {
-                if let LengthValue::Fixed(value) = length {
-                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                    require_literal_range(value, 0.0, None, "shader size", span)?;
-                }
+                check_length_value(length, env, document, span, "shader size")?;
             }
             match (&shader.output, route) {
                 (Type::Unit, None) => {}

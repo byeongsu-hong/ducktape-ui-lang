@@ -30,7 +30,6 @@ view
     ));
     assert!(generated.contains("qr_code::Style { cell: ::iced::Color"));
 }
-
 #[test]
 fn lowers_nested_iced_themes() {
     let source = r#"app Themes
@@ -110,7 +109,7 @@ view
 "#;
     let generated = compile(source, "themer.ice").unwrap();
     assert!(generated.contains(
-            "fn __ui_lang_check_themer_alternate_panel(arg0: bool) { let (__theme, __content, __text_color, __background) = crate::backend::alternate_panel(arg0); fn __accept<T: ::iced::theme::Base>(_: &::std::option::Option<T>, _: &::iced::Element<'static, bool, T>"
+            "fn __ui_lang_check_themer_alternate_panel(arg0: bool) { let (__theme, __content, __text_color, __background) = crate::backend::alternate_panel(arg0); fn __accept<T: ::iced::theme::Base>(_: &::std::option::Option<T>, _: &__IceElement<'static, bool, T>"
         ));
     assert!(generated.contains("let mut __themer = ::iced::widget::themer(__theme, __content)"));
     assert!(generated.contains("__themer = __themer.text_color(__text_color)"));
@@ -270,7 +269,7 @@ view
         generated.contains("::iced::widget::lazy((self.title.clone(), (\"LazyDemo\").to_owned())")
     );
     assert!(generated.contains("let cached: ::std::string::String = __dependency.0.clone()"));
-    assert!(generated.contains("let __lazy_content: ::iced::Element<'static,"));
+    assert!(generated.contains("let __lazy_content: __IceElement<'static,"));
     assert!(generated.contains("let __lazy_scope = __dependency.1.clone()"));
 }
 

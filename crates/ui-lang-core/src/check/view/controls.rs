@@ -24,10 +24,7 @@ pub(in crate::check) fn infer_controls_group(
                 require_type(&ty, &Type::Bool, span)?;
             }
             for length in [&options.width, &options.height].into_iter().flatten() {
-                if let LengthValue::Fixed(value) = length {
-                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                    require_literal_range(value, 0.0, None, "button size", span)?;
-                }
+                check_length_value(length, env, document, span, "button size")?;
             }
             if let Some(padding) = &options.padding {
                 require_type(&expr_type(padding, env, document, span)?, &Type::F64, span)?;
@@ -187,13 +184,16 @@ pub(in crate::check) fn infer_controls_group(
             ] {
                 if let Some(length) = length {
                     match length {
-                        LengthValue::Fixed(value) => {
+                        LengthValue::Fixed(value) if !fluid => {
                             require_type(
                                 &expr_type(value, env, document, span)?,
                                 &Type::F64,
                                 span,
                             )?;
                             require_literal_range(value, 0.0, None, label, span)?;
+                        }
+                        LengthValue::Fixed(_) => {
+                            check_length_value(length, env, document, span, label)?;
                         }
                         _ if !fluid => {
                             return Err(Error::new(
@@ -236,10 +236,7 @@ pub(in crate::check) fn infer_controls_group(
                 return Err(Error::new("E128", span, "progress min cannot exceed max"));
             }
             for length in [&options.length, &options.girth].into_iter().flatten() {
-                if let LengthValue::Fixed(value) = length {
-                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                    require_literal_range(value, 0.0, None, "progress size", span)?;
-                }
+                check_length_value(length, env, document, span, "progress size")?;
             }
             if let Some(style) = &options.custom_style {
                 let function =
@@ -354,10 +351,7 @@ pub(in crate::check) fn infer_controls_group(
                 .into_iter()
                 .flatten()
             {
-                if let LengthValue::Fixed(value) = length {
-                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                    require_literal_range(value, 0.0, None, "pick size", span)?;
-                }
+                check_length_value(length, env, document, span, "pick size")?;
             }
             for (value, label) in [
                 (&options_config.padding, "pick padding"),
@@ -424,10 +418,7 @@ pub(in crate::check) fn infer_controls_group(
                 ));
             }
             for length in [&options.width, &options.menu_height].into_iter().flatten() {
-                if let LengthValue::Fixed(value) = length {
-                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                    require_literal_range(value, 0.0, None, "combo size", span)?;
-                }
+                check_length_value(length, env, document, span, "combo size")?;
             }
             for (value, label) in [
                 (&options.padding, "combo padding"),
@@ -567,10 +558,7 @@ pub(in crate::check) fn infer_controls_group(
             span,
         } => {
             for length in [width, height].into_iter().flatten() {
-                if let LengthValue::Fixed(value) = length {
-                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                    require_literal_range(value, 0.0, None, "space length", span)?;
-                }
+                check_length_value(length, env, document, span, "space length")?;
             }
             check_styles(styles, document, span, StyleTarget::Space)?;
         }

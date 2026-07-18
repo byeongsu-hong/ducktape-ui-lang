@@ -50,7 +50,7 @@ pub(in crate::codegen) fn render_table(
             slot,
         )?;
         let mut code = format!(
-            "{{ let __table_header: ::iced::Element<'_, {message}> = {header}; ::iced::widget::table::column(__table_header, move |(__row, {item}): (usize, {row_rust})| -> ::iced::Element<'_, {message}> {{ {cell} }})"
+            "{{ let __table_header: __IceElement<'_, {message}> = {header}; ::iced::widget::table::column(__table_header, move |(__row, {item}): (usize, {row_rust})| -> __IceElement<'_, {message}> {{ {cell} }})"
         );
         if let Some(width) = &column.width {
             write!(code, ".width({})", length_code(width, env, document)?).unwrap();
@@ -140,7 +140,7 @@ pub(in crate::codegen) fn render_keyed_column(
     let child_scope = format!("format!(\"{{}}/key({{}})\", {scope}, __key)");
     let child = render_node(child, document, message, &child_env, &child_scope, slot)?;
     let mut code = format!(
-        "{{ let mut __children: ::std::vec::Vec<_> = ::std::vec::Vec::new(); for {item} in {items}.iter() {{ let __key = {key}; let __child: ::iced::Element<'_, {message}> = {child}; __children.push((__key, __child)); }} let __layout = ::iced::widget::keyed_column(__children)"
+        "{{ let mut __children: ::std::vec::Vec<_> = ::std::vec::Vec::new(); for {item} in {items}.iter() {{ let __key = {key}; let __child: __IceElement<'_, {message}> = {child}; __children.push((__key, __child)); }} let __layout = ::iced::widget::keyed_column(__children)"
     );
     if let Some(spacing) = &options.spacing {
         write!(

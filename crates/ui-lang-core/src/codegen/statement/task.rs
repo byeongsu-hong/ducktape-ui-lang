@@ -39,6 +39,10 @@ pub(in crate::codegen) fn task_source_code(
                             "::iced::font::load({bytes}).map(|result| match result {{ ::std::result::Result::Ok(value) => value, ::std::result::Result::Err(error) => match error {{}} }})"
                         ));
                     }
+                    "__ice_image_allocate" => {
+                        let handle = expr_code(&args[0], env, document, ValueMode::Owned)?;
+                        return Ok(format!("::iced::widget::image::allocate({handle})"));
+                    }
                     _ => {}
                 }
             }

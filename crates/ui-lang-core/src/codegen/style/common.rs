@@ -11,10 +11,14 @@ pub(in crate::codegen) fn length_code(
             format!("::iced::Length::FillPortion({portion})")
         }
         LengthValue::Shrink => "::iced::Shrink".into(),
-        LengthValue::Fixed(value) => format!(
-            "{} as f32",
-            expr_code(value, env, document, ValueMode::Owned)?
-        ),
+        LengthValue::Fixed(value) => {
+            let code = expr_code(value, env, document, ValueMode::Owned)?;
+            if expr_type(value, &env_types(env), document, &Span::line(1))? == Type::Length {
+                code
+            } else {
+                format!("{code} as f32")
+            }
+        }
     })
 }
 

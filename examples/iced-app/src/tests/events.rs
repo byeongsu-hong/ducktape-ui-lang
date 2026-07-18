@@ -10,6 +10,22 @@ mod window_events {
     }
 }
 
+#[cfg(test)]
+mod mouse_events {
+    ui_lang::include_app!("src/ui/mouse_events.ice");
+}
+
+#[cfg(test)]
+mod touch_events {
+    ui_lang::include_app!("src/ui/touch_events.ice");
+}
+
+#[cfg(test)]
+mod input_method_events {
+    ui_lang::include_app!("src/ui/input_method_events.ice");
+}
+
+#[cfg(test)]
 mod generic_events {
     ui_lang::include_app!("src/ui/generic_events.ice");
 

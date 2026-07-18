@@ -32,6 +32,52 @@ pub(in crate::check) fn keyboard_variant<'a>(
     Ok(value)
 }
 
+pub(in crate::check) fn animation_inner(
+    expr: &Expr,
+    env: &HashMap<String, Type>,
+    document: &Document,
+    span: &Span,
+) -> Result<Type, Error> {
+    let Type::Animation(inner) = expr_type(expr, env, document, span)? else {
+        return Err(Error::new("E152", span, "expected animation state"));
+    };
+    Ok(*inner)
+}
+
+pub(in crate::check) fn check_animation_instant(
+    name: &str,
+    args: &[Expr],
+    required: usize,
+    optional_instant: bool,
+    env: &HashMap<String, Type>,
+    document: &Document,
+    span: &Span,
+) -> Result<(), Error> {
+    let valid = args.len() == required || optional_instant && args.len() == required + 1;
+    if !valid {
+        return Err(Error::new(
+            "E152",
+            span,
+            format!(
+                "{name} expects {required}{} argument(s)",
+                if optional_instant {
+                    " or one more instant"
+                } else {
+                    ""
+                }
+            ),
+        ));
+    }
+    if args.len() > required {
+        require_type(
+            &expr_type(&args[required], env, document, span)?,
+            &Type::Instant,
+            span,
+        )?;
+    }
+    Ok(())
+}
+
 pub(in crate::check) fn check_builtin_args(
     name: &str,
     args: &[Expr],
@@ -96,6 +142,119 @@ pub(in crate::check) fn check_u32_literal(
     })
 }
 
+pub(in crate::check) fn check_u8_literal(
+    name: &str,
+    args: &[Expr],
+    span: &Span,
+) -> Result<u8, Error> {
+    let [Expr::I64(value)] = args else {
+        return Err(Error::new(
+            "E152",
+            span,
+            format!("{name} expects one integer literal"),
+        ));
+    };
+    u8::try_from(*value).map_err(|_| {
+        Error::new(
+            "E152",
+            span,
+            format!("{name} value must be in 0..={}", u8::MAX),
+        )
+    })
+}
+
+pub(in crate::check) fn check_i32_literal(
+    name: &str,
+    args: &[Expr],
+    span: &Span,
+) -> Result<i32, Error> {
+    let value = match args {
+        [Expr::I64(value)] => *value,
+        [
+            Expr::Unary {
+                op: UnaryOp::Neg,
+                value,
+            },
+        ] => match value.as_ref() {
+            Expr::I64(value) => value.checked_neg().ok_or_else(|| {
+                Error::new("E152", span, format!("{name} integer literal is too small"))
+            })?,
+            _ => {
+                return Err(Error::new(
+                    "E152",
+                    span,
+                    format!("{name} expects one integer literal"),
+                ));
+            }
+        },
+        _ => {
+            return Err(Error::new(
+                "E152",
+                span,
+                format!("{name} expects one integer literal"),
+            ));
+        }
+    };
+    i32::try_from(value).map_err(|_| {
+        Error::new(
+            "E152",
+            span,
+            format!("{name} value must be in {}..={}", i32::MIN, i32::MAX),
+        )
+    })
+}
+
+pub(in crate::check) fn check_u16_literal(
+    name: &str,
+    args: &[Expr],
+    span: &Span,
+) -> Result<u16, Error> {
+    let [Expr::I64(value)] = args else {
+        return Err(Error::new(
+            "E152",
+            span,
+            format!("{name} expects one integer literal"),
+        ));
+    };
+    u16::try_from(*value).map_err(|_| {
+        Error::new(
+            "E152",
+            span,
+            format!("{name} value must be in 0..={}", u16::MAX),
+        )
+    })
+}
+
+pub(in crate::check) fn check_u8_literals(
+    name: &str,
+    args: &[Expr],
+    count: usize,
+    span: &Span,
+) -> Result<(), Error> {
+    if args.len() < count
+        || !args[..count]
+            .iter()
+            .all(|value| matches!(value, Expr::I64(_)))
+    {
+        return Err(Error::new(
+            "E152",
+            span,
+            format!("{name} expects {count} integer literal channel(s)"),
+        ));
+    }
+    if args[..count]
+        .iter()
+        .any(|value| matches!(value, Expr::I64(channel) if u8::try_from(*channel).is_err()))
+    {
+        return Err(Error::new(
+            "E152",
+            span,
+            format!("{name} channels must be in 0..={}", u8::MAX),
+        ));
+    }
+    Ok(())
+}
+
 pub(in crate::check) fn require_pixel_value(
     value: &Expr,
     env: &HashMap<String, Type>,
@@ -112,6 +271,51 @@ pub(in crate::check) fn require_pixel_value(
             format!("expected `f64` or `pixels`, got `{}`", actual.display()),
         ))
     }
+}
+
+pub(in crate::check) fn require_radius_value(
+    value: &Expr,
+    env: &HashMap<String, Type>,
+    document: &Document,
+    span: &Span,
+) -> Result<Type, Error> {
+    let actual = expr_type(value, env, document, span)?;
+    if matches!(actual, Type::F64 | Type::Radius) {
+        Ok(actual)
+    } else {
+        Err(Error::new(
+            "E101",
+            span,
+            format!("expected `f64` or `radius`, got `{}`", actual.display()),
+        ))
+    }
+}
+
+pub(in crate::check) fn check_length_value(
+    length: &LengthValue,
+    env: &HashMap<String, Type>,
+    document: &Document,
+    span: &Span,
+    label: &str,
+) -> Result<(), Error> {
+    let LengthValue::Fixed(value) = length else {
+        return Ok(());
+    };
+    let actual = expr_type(value, env, document, span)?;
+    if actual == Type::Length {
+        return Ok(());
+    }
+    if actual != Type::F64 {
+        return Err(Error::new(
+            "E101",
+            span,
+            format!(
+                "expected `f64` or `length`, got `{}` for {label}",
+                actual.display()
+            ),
+        ));
+    }
+    require_literal_range(value, 0.0, None, label, span)
 }
 
 pub(in crate::check) fn require_radians_value(
@@ -150,6 +354,7 @@ pub(in crate::check) fn arithmetic_type(left: &Type, op: BinaryOp, right: &Type)
         )
         | (Type::Radians, BinaryOp::Mul | BinaryOp::Div, Type::F64)
         | (Type::F64, BinaryOp::Mul, Type::Radians) => Some(Type::Radians),
+        (Type::Radius, BinaryOp::Mul, Type::F64) => Some(Type::Radius),
         (Type::Point, BinaryOp::Add | BinaryOp::Sub, Type::Vector) => Some(Type::Point),
         (Type::Point, BinaryOp::Sub, Type::Point) => Some(Type::Vector),
         (Type::Vector, BinaryOp::Add | BinaryOp::Sub, Type::Vector) => Some(Type::Vector),

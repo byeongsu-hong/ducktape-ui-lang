@@ -62,6 +62,7 @@ pub enum PaneAxis {
 pub enum PaneConfiguration {
     Pane(String),
     Split {
+        name: Option<String>,
         axis: PaneAxis,
         ratio: f32,
         a: Box<PaneConfiguration>,
@@ -72,10 +73,20 @@ pub enum PaneConfiguration {
 #[derive(Clone, Debug)]
 pub struct PaneView {
     pub name: String,
+    pub maximized: Option<String>,
     pub content: Box<ViewNode>,
     pub title: Option<PaneTitle>,
     pub styles: Vec<String>,
     pub style: ContainerStyleOptions,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug)]
+pub struct PaneTemplate {
+    pub item: String,
+    pub items: String,
+    pub key: Expr,
+    pub pane: PaneView,
     pub span: Span,
 }
 
@@ -117,6 +128,7 @@ pub struct PaneGridOptions {
     pub resize_leeway: Option<Expr>,
     pub draggable: bool,
     pub click: Option<Route>,
+    pub custom_style: Option<ExternCall>,
     pub style: PaneGridStyle,
 }
 

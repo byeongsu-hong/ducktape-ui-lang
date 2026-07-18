@@ -1,6 +1,13 @@
 use super::*;
 
-pub(super) fn font_assets_code(settings: &AppSettings, source_path: &str) -> String {
+pub(in crate::codegen) fn has_animations(document: &Document) -> bool {
+    document
+        .states
+        .iter()
+        .any(|state| matches!(state.ty, Type::Animation(_)))
+}
+
+pub(in crate::codegen) fn font_assets_code(settings: &AppSettings, source_path: &str) -> String {
     let parent = Path::new(source_path)
         .parent()
         .unwrap_or_else(|| Path::new("."));
@@ -16,7 +23,7 @@ pub(super) fn font_assets_code(settings: &AppSettings, source_path: &str) -> Str
         .collect()
 }
 
-pub(super) fn app_settings_code(settings: &AppSettings) -> String {
+pub(in crate::codegen) fn app_settings_code(settings: &AppSettings) -> String {
     let mut fields = String::new();
     if let Some(id) = &settings.id {
         write!(
@@ -42,7 +49,10 @@ pub(super) fn app_settings_code(settings: &AppSettings) -> String {
     }
 }
 
-pub(super) fn window_settings_code(settings: Option<&WindowSettings>, source_path: &str) -> String {
+pub(in crate::codegen) fn window_settings_code(
+    settings: Option<&WindowSettings>,
+    source_path: &str,
+) -> String {
     let Some(settings) = settings else {
         return String::new();
     };
@@ -52,7 +62,11 @@ pub(super) fn window_settings_code(settings: Option<&WindowSettings>, source_pat
     )
 }
 
-pub(super) fn generate_named_windows(out: &mut String, document: &Document, source_path: &str) {
+pub(in crate::codegen) fn generate_named_windows(
+    out: &mut String,
+    document: &Document,
+    source_path: &str,
+) {
     for (index, window) in document.settings.windows.iter().enumerate() {
         writeln!(
             out,
@@ -63,7 +77,10 @@ pub(super) fn generate_named_windows(out: &mut String, document: &Document, sour
     }
 }
 
-pub(super) fn window_settings_value_code(settings: &WindowSettings, source_path: &str) -> String {
+pub(in crate::codegen) fn window_settings_value_code(
+    settings: &WindowSettings,
+    source_path: &str,
+) -> String {
     let mut fields = String::new();
     let size =
         |(width, height): (f64, f64)| format!("::iced::Size::new({width} as f32, {height} as f32)");
@@ -150,7 +167,7 @@ pub(super) fn window_settings_value_code(settings: &WindowSettings, source_path:
     format!("::iced::window::Settings {{ {fields} ..::std::default::Default::default() }}")
 }
 
-pub(super) fn window_platform_code(settings: &WindowSettings) -> String {
+pub(in crate::codegen) fn window_platform_code(settings: &WindowSettings) -> String {
     let mut linux = String::new();
     if let Some(settings) = &settings.linux {
         if let Some(value) = &settings.application_id {

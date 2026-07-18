@@ -4,6 +4,7 @@ use super::*;
 fn parses_compact_app() {
     let document = parse(SOURCE).unwrap();
     assert_eq!(document.app, "Demo");
+    assert!(!document.daemon);
     assert_eq!(document.structs.len(), 1);
     assert_eq!(document.handlers.len(), 3);
     assert_eq!(document.qr_codes.len(), 1);
@@ -11,6 +12,62 @@ fn parses_compact_app() {
         document.qr_codes[0].data,
         QrPayload::Text("https://example.com/ice docs".into())
     );
+}
+
+#[test]
+fn parses_daemon_root_and_exit() {
+    let source = r#"daemon Agent
+  window dashboard
+on quit
+  exit
+view
+  button "Quit" -> quit
+"#;
+    let document = parse(source).unwrap();
+    assert_eq!(document.app, "Agent");
+    assert!(document.daemon);
+    assert_eq!(document.settings.windows[0].name, "dashboard");
+    assert!(matches!(
+        document.handlers[0].statements[0],
+        Statement::Exit { .. }
+    ));
+
+    let error = parse(&source.replace("window dashboard", "window")).unwrap_err();
+    assert_eq!(error.code, "E014");
+    assert!(error.message.contains("no initial window"));
+    assert!(error.hint.unwrap().contains("window name"));
+}
+
+#[test]
+fn parses_borrowed_component_parameters() {
+    let source = r#"app Borrowed
+extern crate::backend
+  Item(label:str)
+  component native_row(label:&str, items:&[Item], active:&bool) -> bool
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  label = "Borrowed"
+  items:[Item] = []
+  active = false
+on changed(next)
+view
+  extern native_row(label, items, active) -> changed _
+"#;
+    let document = parse(source).unwrap();
+    assert_eq!(document.functions[0].borrowed, vec![true, true, true]);
+    assert_eq!(document.functions[0].params[0].1, Type::Str);
+    assert_eq!(
+        document.functions[0].params[1].1,
+        Type::List(Box::new(Type::Named("Item".into())))
+    );
+
+    let error = parse(&source.replace("component native_row", "sync native_row")).unwrap_err();
+    assert_eq!(error.code, "E021");
+    assert!(error.message.contains("only extern component parameters"));
 }
 
 #[test]

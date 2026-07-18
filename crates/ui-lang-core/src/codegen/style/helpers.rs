@@ -116,6 +116,21 @@ pub(in crate::codegen) fn mouse_interaction_code(interaction: MouseInteraction) 
     }
 }
 
+pub(in crate::codegen) fn first_class_mouse_interaction_code(name: &str) -> String {
+    let name = name
+        .strip_prefix("interaction.")
+        .expect("checked interaction builtin");
+    match name {
+        "resize_horizontal" => "ResizingHorizontally".into(),
+        "resize_vertical" => "ResizingVertically".into(),
+        "resize_diagonal_up" => "ResizingDiagonallyUp".into(),
+        "resize_diagonal_down" => "ResizingDiagonallyDown".into(),
+        "resize_column" => "ResizingColumn".into(),
+        "resize_row" => "ResizingRow".into(),
+        _ => pascal(name),
+    }
+}
+
 pub(in crate::codegen) fn binding_variant(binding: &str) -> String {
     format!("__Bind{}", pascal(binding))
 }

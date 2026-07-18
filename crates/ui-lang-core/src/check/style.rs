@@ -1,6 +1,6 @@
 use super::*;
 
-pub(super) fn check_id(
+pub(in crate::check) fn check_id(
     id: &Option<Id>,
     env: &HashMap<String, Type>,
     document: &Document,
@@ -30,7 +30,7 @@ pub(super) fn check_id(
 }
 
 #[derive(Clone, Copy)]
-pub(super) enum StyleTarget {
+pub(in crate::check) enum StyleTarget {
     Layout(Layout),
     Container,
     PaneContent,
@@ -47,7 +47,7 @@ pub(super) enum StyleTarget {
     Space,
 }
 
-pub(super) fn valid_theme_color(value: &str, document: &Document) -> bool {
+pub(in crate::check) fn valid_theme_color(value: &str, document: &Document) -> bool {
     let (name, opacity) = value
         .split_once('/')
         .map_or((value, None), |(name, opacity)| (name, Some(opacity)));
@@ -55,7 +55,7 @@ pub(super) fn valid_theme_color(value: &str, document: &Document) -> bool {
         && opacity.is_none_or(|opacity| opacity.parse::<u8>().is_ok_and(|opacity| opacity <= 100))
 }
 
-pub(super) fn check_styles(
+pub(in crate::check) fn check_styles(
     styles: &[String],
     document: &Document,
     span: &Span,
@@ -235,11 +235,15 @@ pub(super) fn check_styles(
     Ok(())
 }
 
-pub(super) fn base_utility(style: &str) -> &str {
+pub(in crate::check) fn base_utility(style: &str) -> &str {
     style.split_once(':').map_or(style, |(_, utility)| utility)
 }
 
-pub(super) fn require_type(actual: &Type, expected: &Type, span: &Span) -> Result<(), Error> {
+pub(in crate::check) fn require_type(
+    actual: &Type,
+    expected: &Type,
+    span: &Span,
+) -> Result<(), Error> {
     if compatible(actual, expected) {
         Ok(())
     } else {
@@ -247,7 +251,7 @@ pub(super) fn require_type(actual: &Type, expected: &Type, span: &Span) -> Resul
     }
 }
 
-pub(super) fn compatible(left: &Type, right: &Type) -> bool {
+pub(in crate::check) fn compatible(left: &Type, right: &Type) -> bool {
     left == right
         || *left == Type::Unknown
         || *right == Type::Unknown
@@ -262,7 +266,7 @@ pub(super) fn compatible(left: &Type, right: &Type) -> bool {
         }
 }
 
-pub(super) fn type_error(span: &Span, expected: &Type, actual: &Type) -> Error {
+pub(in crate::check) fn type_error(span: &Span, expected: &Type, actual: &Type) -> Error {
     Error::new(
         "E101",
         span,

@@ -76,9 +76,27 @@ pub(crate) fn controlled_state_bindings(
                 collect(content, document, editors, env, components, output)?;
                 collect(layer, document, editors, env, components, output)?;
             }
-            ViewNode::PaneGrid { panes, .. } => {
-                for child in panes.iter().flat_map(PaneView::nodes) {
-                    collect(child, document, editors, env, components, output)?;
+            ViewNode::PaneGrid {
+                panes, templates, ..
+            } => {
+                for pane in panes {
+                    let mut child_env = env.clone();
+                    if let Some(binding) = &pane.maximized {
+                        child_env.remove(binding);
+                    }
+                    for child in pane.nodes() {
+                        collect(child, document, editors, &child_env, components, output)?;
+                    }
+                }
+                for template in templates {
+                    let mut child_env = env.clone();
+                    child_env.remove(&template.item);
+                    if let Some(binding) = &template.pane.maximized {
+                        child_env.remove(binding);
+                    }
+                    for child in template.pane.nodes() {
+                        collect(child, document, editors, &child_env, components, output)?;
+                    }
                 }
             }
             ViewNode::Table { item, columns, .. } => {
@@ -183,7 +201,7 @@ pub(crate) fn controlled_state_bindings(
     Ok(output)
 }
 
-pub(super) fn pane_grid_span(node: &ViewNode) -> Option<&Span> {
+pub(in crate::check) fn pane_grid_span(node: &ViewNode) -> Option<&Span> {
     match node {
         ViewNode::PaneGrid { span, .. } => Some(span),
         ViewNode::Layout { children, .. }
@@ -223,7 +241,7 @@ pub(super) fn pane_grid_span(node: &ViewNode) -> Option<&Span> {
     }
 }
 
-pub(super) fn repeated_pane_grid_span(node: &ViewNode) -> Option<&Span> {
+pub(in crate::check) fn repeated_pane_grid_span(node: &ViewNode) -> Option<&Span> {
     match node {
         ViewNode::For { children, .. } => children.iter().find_map(pane_grid_span),
         ViewNode::KeyedColumn { child, .. } | ViewNode::Lazy { child, .. } => pane_grid_span(child),
@@ -249,9 +267,12 @@ pub(super) fn repeated_pane_grid_span(node: &ViewNode) -> Option<&Span> {
         ViewNode::Overlay { content, layer, .. } => {
             repeated_pane_grid_span(content).or_else(|| repeated_pane_grid_span(layer))
         }
-        ViewNode::PaneGrid { panes, .. } => panes
+        ViewNode::PaneGrid {
+            panes, templates, ..
+        } => panes
             .iter()
             .flat_map(PaneView::nodes)
+            .chain(templates.iter().flat_map(|template| template.pane.nodes()))
             .find_map(repeated_pane_grid_span),
         ViewNode::Component { slots, .. } => slots
             .iter()
@@ -266,7 +287,7 @@ pub(super) fn repeated_pane_grid_span(node: &ViewNode) -> Option<&Span> {
     }
 }
 
-pub(super) fn check_qr_data(document: &Document) -> Result<(), Error> {
+pub(in crate::check) fn check_qr_data(document: &Document) -> Result<(), Error> {
     for qr in &document.qr_codes {
         let valid = match qr.version {
             None | Some(QrVersion::Normal(1..=40)) | Some(QrVersion::Micro(1..=4)) => true,
@@ -283,7 +304,7 @@ pub(super) fn check_qr_data(document: &Document) -> Result<(), Error> {
     Ok(())
 }
 
-pub(super) fn check_theme(document: &Document) -> Result<(), Error> {
+pub(in crate::check) fn check_theme(document: &Document) -> Result<(), Error> {
     for required in ["background", "foreground", "primary", "danger"] {
         if !document.theme.contains_key(required) {
             return Err(Error::new(

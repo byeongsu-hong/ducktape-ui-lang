@@ -1,16 +1,5 @@
+use super::*;
 use std::sync::{LazyLock, Mutex, MutexGuard};
-
-#[derive(Clone, Debug, Hash, PartialEq)]
-pub struct Task {
-    pub id: i64,
-    pub title: String,
-    pub done: bool,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct AppError {
-    pub message: String,
-}
 
 // ponytail: a process-wide lock is enough for the sample; replace it when
 // persistence or concurrent write throughput becomes a real requirement.

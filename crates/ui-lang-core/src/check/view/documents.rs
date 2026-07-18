@@ -59,10 +59,7 @@ pub(in crate::check) fn infer_documents_group(
                 ));
             }
             for length in [&options.width, &options.height].into_iter().flatten() {
-                if let LengthValue::Fixed(value) = length {
-                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                    require_literal_range(value, 0.0, None, "keyed size", span)?;
-                }
+                check_length_value(length, env, document, span, "keyed size")?;
             }
             for value in [
                 &options.spacing,
@@ -174,9 +171,8 @@ pub(in crate::check) fn infer_documents_group(
                     require_literal_range(value, min, None, label, span)?;
                 }
             }
-            if let Some(LengthValue::Fixed(value)) = &options.height {
-                require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                require_literal_range(value, 0.0, None, "editor height", span)?;
+            if let Some(length) = &options.height {
+                check_length_value(length, env, document, span, "editor height")?;
             }
             if let Some(line_height) = &options.line_height {
                 let value = match line_height {
@@ -237,9 +233,8 @@ pub(in crate::check) fn infer_documents_group(
             let Type::List(inner) = expr_type(rows, env, document, span)? else {
                 return Err(Error::new("E139", span, "table expects a list of rows"));
             };
-            if let Some(LengthValue::Fixed(value)) = &options.width {
-                require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                require_literal_range(value, 0.0, None, "table width", span)?;
+            if let Some(length) = &options.width {
+                check_length_value(length, env, document, span, "table width")?;
             }
             for (value, label) in [
                 (&options.padding, "table padding"),
@@ -257,13 +252,8 @@ pub(in crate::check) fn infer_documents_group(
             let mut cell_env = env.clone();
             cell_env.insert(item.clone(), *inner);
             for column in columns {
-                if let Some(LengthValue::Fixed(value)) = &column.width {
-                    require_type(
-                        &expr_type(value, env, document, &column.span)?,
-                        &Type::F64,
-                        &column.span,
-                    )?;
-                    require_literal_range(value, 0.0, None, "table column width", &column.span)?;
+                if let Some(length) = &column.width {
+                    check_length_value(length, env, document, &column.span, "table column width")?;
                 }
                 let mut header_ids = HashSet::new();
                 infer_view(&column.header, env, document, signatures, &mut header_ids)?;

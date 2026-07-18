@@ -1,6 +1,6 @@
 use super::*;
 
-pub(super) fn native_subscription_payloads(
+pub(in crate::check) fn native_subscription_payloads(
     source: &SubscriptionSource,
     window_id: bool,
 ) -> Option<Vec<Type>> {
@@ -56,7 +56,7 @@ pub(super) fn native_subscription_payloads(
     Some(payloads)
 }
 
-pub(super) fn canvas_event_name(source: &SubscriptionSource) -> Option<&'static str> {
+pub(in crate::check) fn canvas_event_name(source: &SubscriptionSource) -> Option<&'static str> {
     Some(match source {
         SubscriptionSource::InputMethod(InputMethodEvent::Opened) => "input-method opened",
         SubscriptionSource::InputMethod(InputMethodEvent::Preedit) => "input-method preedit",
@@ -91,7 +91,7 @@ pub(super) fn canvas_event_name(source: &SubscriptionSource) -> Option<&'static 
     })
 }
 
-pub(super) fn valid_canvas_cursor(value: &str) -> bool {
+pub(in crate::check) fn valid_canvas_cursor(value: &str) -> bool {
     matches!(
         value,
         "none"
@@ -124,7 +124,7 @@ pub(super) fn valid_canvas_cursor(value: &str) -> bool {
     )
 }
 
-pub(super) fn infer_subscriptions(
+pub(in crate::check) fn infer_subscriptions(
     document: &Document,
     states: &HashMap<String, Type>,
     signatures: &mut HashMap<String, Vec<Option<Type>>>,
@@ -275,7 +275,7 @@ pub(super) fn infer_subscriptions(
     Ok(())
 }
 
-pub(super) fn infer_runs(
+pub(in crate::check) fn infer_runs(
     handler: &Handler,
     document: &Document,
     signatures: &mut HashMap<String, Vec<Option<Type>>>,
@@ -368,14 +368,44 @@ pub(super) fn infer_runs(
                 WindowOperation::RawId => {
                     infer_route(route, Some(Type::Str), &unknown_env, document, signatures)?
                 }
-                WindowOperation::Screenshot => infer_ordered_payload_route(
-                    route,
-                    &[Type::Bytes, Type::I64, Type::I64, Type::F64],
-                    &unknown_env,
-                    document,
-                    signatures,
-                    "window screenshot",
-                )?,
+                WindowOperation::Screenshot
+                    if route
+                        .args
+                        .iter()
+                        .filter(|arg| matches!(arg, RouteArg::Payload))
+                        .count()
+                        == 1 =>
+                {
+                    infer_route(
+                        route,
+                        Some(Type::WindowScreenshot),
+                        &unknown_env,
+                        document,
+                        signatures,
+                    )?
+                }
+                WindowOperation::Screenshot => {
+                    if route.args.len() != 4
+                        || route
+                            .args
+                            .iter()
+                            .any(|arg| !matches!(arg, RouteArg::Payload))
+                    {
+                        return Err(Error::new(
+                            "E129",
+                            &route.span,
+                            "window screenshot route expects one native placeholder or four RGBA placeholders",
+                        ));
+                    }
+                    infer_ordered_payload_route(
+                        route,
+                        &[Type::Bytes, Type::I64, Type::I64, Type::F64],
+                        &unknown_env,
+                        document,
+                        signatures,
+                        "window screenshot",
+                    )?
+                }
                 WindowOperation::Size => infer_ordered_payload_route(
                     route,
                     &[Type::F64, Type::F64],
@@ -450,14 +480,27 @@ pub(super) fn infer_runs(
                     "stream routes accept at most one `_`; read other state in the handler",
                 ));
             }
-            if let Some(output) = builtin_task_output(*kind, function, args, span)? {
+            if let Some((output, builtin_error)) = builtin_task_type(*kind, function, args, span)? {
                 infer_route(success, Some(output), &unknown_env, document, signatures)?;
-                if error.is_some() {
-                    return Err(Error::new(
-                        "E131",
-                        span,
-                        "built-in tasks are infallible and cannot have an error route",
-                    ));
+                match (builtin_error, error) {
+                    (Some(error_ty), Some(route)) => {
+                        infer_route(route, Some(error_ty), &unknown_env, document, signatures)?
+                    }
+                    (Some(_), None) => {
+                        return Err(Error::new(
+                            "E131",
+                            span,
+                            "fallible built-in task requires an error route",
+                        ));
+                    }
+                    (None, Some(_)) => {
+                        return Err(Error::new(
+                            "E131",
+                            span,
+                            "infallible built-in task cannot have an error route",
+                        ));
+                    }
+                    (None, None) => {}
                 }
                 continue;
             }
@@ -642,7 +685,7 @@ pub(super) fn infer_runs(
     Ok(())
 }
 
-pub(super) fn infer_route(
+pub(in crate::check) fn infer_route(
     route: &Route,
     payload: Option<Type>,
     env: &HashMap<String, Type>,
@@ -682,6 +725,13 @@ pub(super) fn infer_route(
                 .ok_or_else(|| Error::new("E134", &route.span, "this route has no `_` payload"))?,
             RouteArg::Expr(expr) => expr_type(expr, env, document, &route.span)?,
         };
+        if contains_debug_span(&ty) {
+            return Err(Error::new(
+                "E135",
+                &route.span,
+                "debug spans cannot cross a handler route; use `debug.active(state)` for status",
+            ));
+        }
         if ty == Type::Unknown {
             continue;
         }
@@ -696,7 +746,7 @@ pub(super) fn infer_route(
     Ok(())
 }
 
-pub(super) fn infer_ordered_payload_route(
+pub(in crate::check) fn infer_ordered_payload_route(
     route: &Route,
     payloads: &[Type],
     env: &HashMap<String, Type>,

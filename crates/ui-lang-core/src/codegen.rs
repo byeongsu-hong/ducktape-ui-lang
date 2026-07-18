@@ -5,18 +5,6 @@ use std::collections::HashMap;
 use std::fmt::Write;
 use std::path::Path;
 
-mod canvas;
-mod expr;
-mod statement;
-mod style;
-mod view;
-
-use canvas::*;
-use expr::*;
-use statement::*;
-use style::*;
-use view::*;
-
 pub fn generate(document: &Document, source_path: &str) -> Result<String, Error> {
     let message = format!("__{}Message", document.app);
     let mut out = String::new();
@@ -26,10 +14,21 @@ pub fn generate(document: &Document, source_path: &str) -> Result<String, Error>
         rust_string(source_path)
     )
     .unwrap();
+    writeln!(
+        out,
+        "type __IceRenderer = {}; type __IceElement<'a, Message, Theme = ::iced::Theme> = ::iced::Element<'a, Message, Theme, __IceRenderer>;",
+        document
+            .settings
+            .renderer
+            .as_deref()
+            .unwrap_or("::iced::Renderer")
+    )
+    .unwrap();
     generate_keyboard_types(&mut out, document);
     generate_system_types(&mut out, document);
     generate_widget_selector_types(&mut out, document);
     generate_canvas_types(&mut out, document);
+    generate_pane_types(&mut out, document)?;
 
     writeln!(out, "#[derive(Debug)]\npub struct {} {{", document.app).unwrap();
     for qr in &document.qr_codes {
@@ -41,15 +40,34 @@ pub fn generate(document: &Document, source_path: &str) -> Result<String, Error>
         .unwrap();
     }
     for node in pane_grids(&document.view) {
-        let ViewNode::PaneGrid { name, .. } = node else {
+        let ViewNode::PaneGrid {
+            name,
+            configuration,
+            templates,
+            ..
+        } = node
+        else {
             unreachable!()
+        };
+        let pane_state = if templates.is_empty() {
+            "&'static str".into()
+        } else {
+            pane_type(name)
         };
         writeln!(
             out,
-            "pub(crate) {}: ::iced::widget::pane_grid::State<&'static str>,",
+            "pub(crate) {}: ::iced::widget::pane_grid::State<{pane_state}>,",
             pane_field(name)
         )
         .unwrap();
+        if pane_split_slots(configuration).iter().any(Option::is_some) {
+            writeln!(
+                out,
+                "pub(crate) {}: ::std::collections::BTreeMap<&'static str, ::iced::widget::pane_grid::Split>,",
+                pane_splits_field(name)
+            )
+            .unwrap();
+        }
     }
     for state in &document.states {
         writeln!(
@@ -98,6 +116,9 @@ pub fn generate(document: &Document, source_path: &str) -> Result<String, Error>
     if needs_extern_noop(document) {
         writeln!(out, "__ExternNoop,").unwrap();
     }
+    if has_animations(document) {
+        writeln!(out, "__AnimationFrame,").unwrap();
+    }
     for node in pane_grids(&document.view) {
         let ViewNode::PaneGrid { name, options, .. } = node else {
             unreachable!()
@@ -126,7 +147,7 @@ pub fn generate(document: &Document, source_path: &str) -> Result<String, Error>
     writeln!(out, "impl {} {{", document.app).unwrap();
     generate_named_windows(&mut out, document, source_path);
     writeln!(out, "pub fn run() -> ::iced::Result {{").unwrap();
-    let subscription = if document.subscriptions.is_empty() {
+    let subscription = if document.subscriptions.is_empty() && !has_animations(document) {
         ""
     } else {
         ".subscription(Self::__subscription)"
@@ -145,7 +166,11 @@ pub fn generate(document: &Document, source_path: &str) -> Result<String, Error>
         .map_or("", |_| ".title(Self::__title)");
     let settings = app_settings_code(&document.settings);
     let fonts = font_assets_code(&document.settings, source_path);
-    let window = window_settings_code(document.settings.window.as_ref(), source_path);
+    let window = if document.daemon {
+        String::new()
+    } else {
+        window_settings_code(document.settings.window.as_ref(), source_path)
+    };
     let executor = document
         .settings
         .executor
@@ -179,7 +204,12 @@ pub fn generate(document: &Document, source_path: &str) -> Result<String, Error>
     } else {
         ""
     };
-    writeln!(out, "::iced::application(Self::__boot, Self::__update, Self::__view){title}{subscription}.theme(Self::__theme){style}{settings}{default_font}{fonts}{window}{scale_factor}{executor}{presets}.run()").unwrap();
+    let root = if document.daemon {
+        "::iced::daemon(Self::__boot, Self::__update, Self::__view)"
+    } else {
+        "::iced::application(Self::__boot, Self::__update, Self::__view)"
+    };
+    writeln!(out, "{root}{title}{subscription}.theme(Self::__theme){style}{settings}{default_font}{fonts}{window}{scale_factor}{executor}{presets}.run()").unwrap();
     writeln!(out, "}}").unwrap();
 
     generate_theme(&mut out, document)?;
@@ -193,16 +223,26 @@ pub fn generate(document: &Document, source_path: &str) -> Result<String, Error>
 }
 
 mod application;
+mod canvas;
+mod expr;
 mod probes;
 mod runtime;
 mod settings;
+mod statement;
+mod style;
 mod subscription;
+mod view;
 
 use application::*;
+use canvas::*;
+use expr::*;
 use probes::*;
 use runtime::*;
 use settings::*;
+use statement::*;
+use style::*;
 use subscription::*;
+use view::*;
 
 #[cfg(test)]
 #[path = "codegen/tests.rs"]

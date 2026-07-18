@@ -1,6 +1,9 @@
 use super::*;
 
-pub(super) fn parse_extern_struct(line: &Line, namespace: &str) -> Result<ExternStruct, Error> {
+pub(in crate::parser) fn parse_extern_struct(
+    line: &Line,
+    namespace: &str,
+) -> Result<ExternStruct, Error> {
     ensure_leaf(line)?;
     let (name, fields) = parse_signature(&line.text, line)?;
     let mut parsed_fields = Vec::new();
@@ -20,7 +23,7 @@ pub(super) fn parse_extern_struct(line: &Line, namespace: &str) -> Result<Extern
     })
 }
 
-pub(super) fn parse_extern_fn(
+pub(in crate::parser) fn parse_extern_fn(
     source: &str,
     line: &Line,
     namespace: &str,
@@ -31,12 +34,25 @@ pub(super) fn parse_extern_fn(
     let name = identifier(source[..source.find('(').unwrap_or(0)].trim(), line)?;
     let params_source = &source[source.find('(').unwrap_or(0) + 1..close];
     let mut params = Vec::new();
+    let mut borrowed = Vec::new();
     if !params_source.trim().is_empty() {
         for param in split_top(params_source, ',') {
             let Some((name, ty)) = param.split_once(':') else {
                 return Err(error("E021", line, "function parameters use `name:type`"));
             };
-            params.push((identifier(name.trim(), line)?, parse_type(ty.trim(), line)?));
+            let ty = ty.trim();
+            let (is_borrowed, ty) = ty
+                .strip_prefix('&')
+                .map_or((false, ty), |ty| (true, ty.trim_start()));
+            if is_borrowed && kind != ExternKind::Component {
+                return Err(error(
+                    "E021",
+                    line,
+                    "only extern component parameters may borrow with `&type`",
+                ));
+            }
+            params.push((identifier(name.trim(), line)?, parse_type(ty, line)?));
+            borrowed.push(is_borrowed);
         }
     }
     let rest = source[close + 1..].trim();
@@ -102,6 +118,7 @@ pub(super) fn parse_extern_fn(
                 | ExternKind::ScrollStyle
                 | ExternKind::PickListStyle
                 | ExternKind::MenuStyle
+                | ExternKind::PaneGridStyle
         )
     {
         return Err(error(
@@ -115,6 +132,7 @@ pub(super) fn parse_extern_fn(
         rust_path: format!("{namespace}::{name}"),
         name,
         params,
+        borrowed,
         progress,
         output,
         error: error_ty,
@@ -122,7 +140,7 @@ pub(super) fn parse_extern_fn(
     })
 }
 
-pub(super) fn parse_subscription(line: &Line) -> Result<Subscription, Error> {
+pub(in crate::parser) fn parse_subscription(line: &Line) -> Result<Subscription, Error> {
     ensure_leaf(line)?;
     let Some((call, route)) = split_top_marker(&line.text, "->") else {
         return Err(error(
@@ -362,7 +380,7 @@ pub(super) fn parse_subscription(line: &Line) -> Result<Subscription, Error> {
     })
 }
 
-pub(super) fn parse_duration(source: &str, line: &Line) -> Result<u64, Error> {
+pub(in crate::parser) fn parse_duration(source: &str, line: &Line) -> Result<u64, Error> {
     let (number, multiplier) = source
         .strip_suffix("ms")
         .map(|number| (number, 1))
@@ -383,8 +401,7 @@ pub(super) fn parse_duration(source: &str, line: &Line) -> Result<u64, Error> {
     Ok(value)
 }
 
-pub(super) fn parse_state(line: &Line) -> Result<State, Error> {
-    ensure_leaf(line)?;
+pub(in crate::parser) fn parse_state(line: &Line) -> Result<State, Error> {
     let Some((left, right)) = split_top_once(&line.text, '=') else {
         return Err(error(
             "E030",
@@ -405,15 +422,95 @@ pub(super) fn parse_state(line: &Line) -> Result<State, Error> {
         error("E031", line, "state type cannot be inferred")
             .hint("write an explicit type, for example `items:[Item] = []`")
     })?;
+    let animation = if matches!(ty, Type::Animation(_)) {
+        Some(parse_animation_options(&line.children)?)
+    } else {
+        ensure_leaf(line)?;
+        None
+    };
     Ok(State {
         name,
         ty,
         initial,
+        animation,
         span: Span::line(line.number),
     })
 }
 
-pub(super) fn parse_component(header: &str, line: &Line) -> Result<Component, Error> {
+pub(in crate::parser) fn parse_animation_options(
+    lines: &[Line],
+) -> Result<AnimationOptions, Error> {
+    let mut options = AnimationOptions::default();
+    let mut seen = BTreeMap::new();
+    for line in lines {
+        ensure_leaf(line)?;
+        let Some((name, value)) = line.text.split_once(char::is_whitespace) else {
+            return Err(error("E030", line, "animation settings use `name value`"));
+        };
+        if seen.insert(name, line.number).is_some() {
+            return Err(error(
+                "E030",
+                line,
+                format!("duplicate animation setting `{name}`"),
+            ));
+        }
+        let value = value.trim();
+        match name {
+            "easing" if !value.is_empty() && !value.contains(char::is_whitespace) => {
+                options.easing = Some(value.into());
+            }
+            "duration" => {
+                options.duration = Some(match value {
+                    "very-quick" => AnimationDuration::VeryQuick,
+                    "quick" => AnimationDuration::Quick,
+                    "slow" => AnimationDuration::Slow,
+                    "very-slow" => AnimationDuration::VerySlow,
+                    value => {
+                        AnimationDuration::Milliseconds(parse_animation_duration(value, line)?)
+                    }
+                });
+            }
+            "delay" => options.delay_ms = Some(parse_animation_duration(value, line)?),
+            "repeat" if value == "forever" => options.repeat_forever = true,
+            "repeat" => {
+                options.repeat = Some(value.parse::<u32>().map_err(|_| {
+                    error(
+                        "E030",
+                        line,
+                        "animation repeat expects a whole number or `forever`",
+                    )
+                })?);
+            }
+            "auto-reverse" => options.auto_reverse = config_bool(value, line)?,
+            "easing" => {
+                return Err(error("E030", line, "animation easing expects one name"));
+            }
+            _ => {
+                return Err(error(
+                    "E030",
+                    line,
+                    format!("unknown animation setting `{name}`"),
+                ));
+            }
+        }
+    }
+    Ok(options)
+}
+
+pub(in crate::parser) fn parse_animation_duration(source: &str, line: &Line) -> Result<u64, Error> {
+    let (number, multiplier) = source
+        .strip_suffix("ms")
+        .map(|number| (number, 1))
+        .or_else(|| source.strip_suffix('s').map(|number| (number, 1_000)))
+        .ok_or_else(|| error("E030", line, "animation time uses `ms` or `s`"))?;
+    number
+        .parse::<u64>()
+        .ok()
+        .and_then(|number| number.checked_mul(multiplier))
+        .ok_or_else(|| error("E030", line, "animation time must be a whole number"))
+}
+
+pub(in crate::parser) fn parse_component(header: &str, line: &Line) -> Result<Component, Error> {
     if line.children.len() != 1 {
         return Err(error(
             "E040",
@@ -443,7 +540,7 @@ pub(super) fn parse_component(header: &str, line: &Line) -> Result<Component, Er
     })
 }
 
-pub(super) fn parse_handler(header: &str, line: &Line) -> Result<Handler, Error> {
+pub(in crate::parser) fn parse_handler(header: &str, line: &Line) -> Result<Handler, Error> {
     let header = header.trim();
     let (name, params) = if header.contains('(') {
         let (name, params) = parse_signature(header, line)?;
@@ -474,7 +571,7 @@ pub(super) fn parse_handler(header: &str, line: &Line) -> Result<Handler, Error>
     })
 }
 
-pub(super) fn parse_route(source: &str, line: &Line) -> Result<Route, Error> {
+pub(in crate::parser) fn parse_route(source: &str, line: &Line) -> Result<Route, Error> {
     let source = source.trim();
     if let Some(open) = source.find('(') {
         let close = matching_paren(source, line)?;
@@ -519,7 +616,7 @@ pub(super) fn parse_route(source: &str, line: &Line) -> Result<Route, Error> {
     })
 }
 
-pub(super) fn parse_id(source: &str, line: &Line) -> Result<Id, Error> {
+pub(in crate::parser) fn parse_id(source: &str, line: &Line) -> Result<Id, Error> {
     let source = source.strip_prefix('#').unwrap_or(source);
     if let Some(open) = source.find('(') {
         let close = matching_paren(source, line)?;

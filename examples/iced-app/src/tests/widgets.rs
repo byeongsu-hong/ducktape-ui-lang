@@ -1,3 +1,4 @@
+#[cfg(test)]
 mod dynamic_widget_operations {
     ui_lang::include_app!("src/ui/dynamic_widget_operations.ice");
 
@@ -23,6 +24,7 @@ mod dynamic_widget_operations {
     }
 }
 
+#[cfg(test)]
 mod scoped_widget_operations {
     ui_lang::include_app!("src/ui/scoped_widget_operations.ice");
 
@@ -43,6 +45,7 @@ mod scoped_widget_operations {
     }
 }
 
+#[cfg(test)]
 mod widget_selectors {
     ui_lang::include_app!("src/ui/widget_selectors.ice");
 

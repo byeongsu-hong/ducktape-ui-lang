@@ -31,18 +31,11 @@ pub(in crate::parser) fn parse_media(
             options.height = Some(parse_length(value, line)?);
         } else if let Some(value) = part.strip_prefix("fit=") {
             options.fit = Some(match value {
-                "contain" => ContentFit::Contain,
-                "cover" => ContentFit::Cover,
-                "fill" => ContentFit::Fill,
-                "none" => ContentFit::None,
-                "scale-down" => ContentFit::ScaleDown,
-                _ => {
-                    return Err(error(
-                        "E085",
-                        line,
-                        "fit must be contain, cover, fill, none, or scale-down",
-                    ));
-                }
+                "contain" | "cover" | "fill" | "none" | "scale-down" => Expr::Call {
+                    name: format!("fit.{}", value.replace('-', "_")),
+                    args: Vec::new(),
+                },
+                value => parse_expr(strip_wrapping_parens(value), line)?,
             });
         } else if let Some(value) = part.strip_prefix("rotation=") {
             if media_kind == MediaKind::Viewer {
@@ -369,7 +362,14 @@ pub(in crate::parser) fn parse_mouse_area(
         } else if let Some(value) = part.strip_prefix("exit=") {
             options.exit = Some(route(value)?);
         } else if let Some(value) = part.strip_prefix("cursor=") {
-            options.interaction = Some(parse_mouse_interaction(value, line)?);
+            if options.interaction.is_some() || options.interaction_expr.is_some() {
+                return Err(error("E087", line, "duplicate mouse cursor property"));
+            }
+            if value.starts_with('(') {
+                options.interaction_expr = Some(parse_expr(strip_wrapping_parens(value), line)?);
+            } else {
+                options.interaction = Some(parse_mouse_interaction(value, line)?);
+            }
         } else {
             return Err(error(
                 "E087",

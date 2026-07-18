@@ -1,6 +1,6 @@
 use super::*;
 
-pub(super) fn expr_code(
+pub(in crate::codegen) fn expr_code(
     expr: &Expr,
     env: &HashMap<String, Binding>,
     document: &Document,
@@ -89,10 +89,38 @@ pub(super) fn expr_code(
                     | Type::Padding
                     | Type::Degrees
                     | Type::Radians
+                    | Type::Rotation
+                    | Type::ContentFit
+                    | Type::Color
+                    | Type::Background
+                    | Type::Gradient
+                    | Type::LinearGradient
+                    | Type::ColorStop
+                    | Type::Font
+                    | Type::FontFamily
+                    | Type::FontWeight
+                    | Type::FontStretch
+                    | Type::FontStyle
+                    | Type::ThemeMode
+                    | Type::TextAlignment
+                    | Type::TextShaping
+                    | Type::TextWrapping
+                    | Type::TextLineHeight
+                    | Type::MouseInteraction
+                    | Type::ScrollDelta
+                    | Type::EventStatus
+                    | Type::Length
+                    | Type::Alignment
+                    | Type::HorizontalAlignment
+                    | Type::VerticalAlignment
+                    | Type::Border
+                    | Type::Radius
+                    | Type::Shadow
                     | Type::Point
                     | Type::PointU32
                     | Type::Vector
                     | Type::Size
+                    | Type::SizeU32
                     | Type::Rectangle
                     | Type::RectangleU32
                     | Type::Transformation
@@ -100,6 +128,13 @@ pub(super) fn expr_code(
                     | Type::MouseCursor
                     | Type::MouseClick
                     | Type::TouchFinger
+                    | Type::WindowId
+                    | Type::WindowPosition
+                    | Type::RedrawRequest
+                    | Type::WindowDirection
+                    | Type::WindowLevel
+                    | Type::WindowMode
+                    | Type::WindowAttention
                     | Type::Unit
             )
                 || (binding.local && path.len() == 1)
@@ -110,6 +145,730 @@ pub(super) fn expr_code(
             code
         }
         Expr::Call { name, args } => match name.as_str() {
+            "color.default" => "::iced::Color::default()".into(),
+            "color.black" => "::iced::Color::BLACK".into(),
+            "color.white" => "::iced::Color::WHITE".into(),
+            "color.transparent" => "::iced::Color::TRANSPARENT".into(),
+            "color.rgb" => format!(
+                "::iced::Color::from_rgb(({}) as f32, ({}) as f32, ({}) as f32)",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?,
+                expr_code(&args[2], env, document, ValueMode::Owned)?
+            ),
+            "color.rgba" => format!(
+                "::iced::Color::from_rgba(({}) as f32, ({}) as f32, ({}) as f32, ({}) as f32)",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?,
+                expr_code(&args[2], env, document, ValueMode::Owned)?,
+                expr_code(&args[3], env, document, ValueMode::Owned)?
+            ),
+            "color.rgb8" => {
+                let [Expr::I64(r), Expr::I64(g), Expr::I64(b)] = args.as_slice() else {
+                    unreachable!("checker requires literal u8 channels")
+                };
+                format!("::iced::Color::from_rgb8({r}u8, {g}u8, {b}u8)")
+            }
+            "color.rgba8" => {
+                let [Expr::I64(r), Expr::I64(g), Expr::I64(b), alpha] = args.as_slice() else {
+                    unreachable!("checker requires literal u8 channels")
+                };
+                format!(
+                    "::iced::Color::from_rgba8({r}u8, {g}u8, {b}u8, ({}) as f32)",
+                    expr_code(alpha, env, document, ValueMode::Owned)?
+                )
+            }
+            "color.try_rgb8" | "color.try_rgba8" => {
+                let red = expr_code(&args[0], env, document, ValueMode::Owned)?;
+                let green = expr_code(&args[1], env, document, ValueMode::Owned)?;
+                let blue = expr_code(&args[2], env, document, ValueMode::Owned)?;
+                let constructor = if name == "color.try_rgb8" {
+                    "::iced::Color::from_rgb8(__red, __green, __blue)".into()
+                } else {
+                    format!(
+                        "::iced::Color::from_rgba8(__red, __green, __blue, ({}) as f32)",
+                        expr_code(&args[3], env, document, ValueMode::Owned)?
+                    )
+                };
+                format!(
+                    "match (<u8>::try_from({red}), <u8>::try_from({green}), <u8>::try_from({blue})) {{ (::std::result::Result::Ok(__red), ::std::result::Result::Ok(__green), ::std::result::Result::Ok(__blue)) => ::std::option::Option::Some({constructor}), _ => ::std::option::Option::None }}"
+                )
+            }
+            "color.linear_rgba" => format!(
+                "::iced::Color::from_linear_rgba(({}) as f32, ({}) as f32, ({}) as f32, ({}) as f32)",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?,
+                expr_code(&args[2], env, document, ValueMode::Owned)?,
+                expr_code(&args[3], env, document, ValueMode::Owned)?
+            ),
+            "color.from3" => format!(
+                "::iced::Color::from([({}) as f32, ({}) as f32, ({}) as f32])",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?,
+                expr_code(&args[2], env, document, ValueMode::Owned)?
+            ),
+            "color.from4" => format!(
+                "::iced::Color::from([({}) as f32, ({}) as f32, ({}) as f32, ({}) as f32])",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?,
+                expr_code(&args[2], env, document, ValueMode::Owned)?,
+                expr_code(&args[3], env, document, ValueMode::Owned)?
+            ),
+            "color.parse" => format!(
+                "({}).parse::<::iced::Color>().ok()",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "color.inverse" => format!(
+                "({}).inverse()",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "color.invert" => format!(
+                "{{ let mut __color = {}; __color.invert(); __color }}",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "color.scale_alpha" => format!(
+                "({}).scale_alpha(({}) as f32)",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "color.luminance" => format!(
+                "({}).relative_luminance() as f64",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "color.contrast" => format!(
+                "({}).relative_contrast({}) as f64",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "color.readable" => format!(
+                "({}).is_readable_on({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "color_stop.default" => "::iced::gradient::ColorStop::default()".into(),
+            "color_stop" => format!(
+                "::iced::gradient::ColorStop {{ offset: ({}) as f32, color: {} }}",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "linear" => format!(
+                "::iced::gradient::Linear::new({})",
+                radians_value_code(&args[0], env, document)?
+            ),
+            "linear.add_stop" => format!(
+                "({}).add_stop(({}) as f32, {})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?,
+                expr_code(&args[2], env, document, ValueMode::Owned)?
+            ),
+            "linear.add_stops" => format!(
+                "({}).add_stops({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "linear.scale_alpha" => format!(
+                "({}).scale_alpha(({}) as f32)",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "gradient.linear" => format!(
+                "::iced::Gradient::Linear({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "gradient.from_linear" => format!(
+                "::iced::Gradient::from({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "gradient.scale_alpha" => format!(
+                "({}).scale_alpha(({}) as f32)",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "background.color" => format!(
+                "::iced::Background::Color({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "background.gradient" => format!(
+                "::iced::Background::Gradient({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "background.from_color" => format!(
+                "::iced::Background::from({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "background.from_gradient" => format!(
+                "::iced::Background::from({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "background.from_linear" => format!(
+                "::iced::Background::from({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "background.scale_alpha" => format!(
+                "({}).scale_alpha(({}) as f32)",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "font.default" => "::iced::Font::default()".into(),
+            "font.sans" => "::iced::Font::DEFAULT".into(),
+            "font.monospace" => "::iced::Font::MONOSPACE".into(),
+            "font.with_name" => {
+                let Expr::Str(name) = &args[0] else {
+                    unreachable!("checker requires a font name literal")
+                };
+                format!("::iced::Font::with_name({})", rust_string(name))
+            }
+            "font.new" => format!(
+                "::iced::Font {{ family: {}, weight: {}, stretch: {}, style: {} }}",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?,
+                expr_code(&args[2], env, document, ValueMode::Owned)?,
+                expr_code(&args[3], env, document, ValueMode::Owned)?
+            ),
+            "family.default" => "::iced::font::Family::default()".into(),
+            "family.named" => {
+                let Expr::Str(name) = &args[0] else {
+                    unreachable!("checker requires a family name literal")
+                };
+                format!("::iced::font::Family::Name({})", rust_string(name))
+            }
+            "family.serif"
+            | "family.sans_serif"
+            | "family.cursive"
+            | "family.fantasy"
+            | "family.monospace" => format!(
+                "::iced::font::Family::{}",
+                pascal(name.strip_prefix("family.").expect("checked prefix"))
+            ),
+            "weight.default" => "::iced::font::Weight::default()".into(),
+            "weight.thin"
+            | "weight.extra_light"
+            | "weight.light"
+            | "weight.normal"
+            | "weight.medium"
+            | "weight.semibold"
+            | "weight.bold"
+            | "weight.extra_bold"
+            | "weight.black" => format!(
+                "::iced::font::Weight::{}",
+                pascal(name.strip_prefix("weight.").expect("checked prefix"))
+            ),
+            "stretch.default" => "::iced::font::Stretch::default()".into(),
+            "stretch.ultra_condensed"
+            | "stretch.extra_condensed"
+            | "stretch.condensed"
+            | "stretch.semi_condensed"
+            | "stretch.normal"
+            | "stretch.semi_expanded"
+            | "stretch.expanded"
+            | "stretch.extra_expanded"
+            | "stretch.ultra_expanded" => format!(
+                "::iced::font::Stretch::{}",
+                pascal(name.strip_prefix("stretch.").expect("checked prefix"))
+            ),
+            "font_style.default" => "::iced::font::Style::default()".into(),
+            "font_style.normal" | "font_style.italic" | "font_style.oblique" => format!(
+                "::iced::font::Style::{}",
+                pascal(name.strip_prefix("font_style.").expect("checked prefix"))
+            ),
+            "theme_mode.default" => "::iced::theme::Mode::default()".into(),
+            "theme_mode.none" => "::iced::theme::Mode::None".into(),
+            "theme_mode.light" => "::iced::theme::Mode::Light".into(),
+            "theme_mode.dark" => "::iced::theme::Mode::Dark".into(),
+            "text_alignment.default" => "::iced::widget::text::Alignment::default()".into(),
+            "text_alignment.left"
+            | "text_alignment.center"
+            | "text_alignment.right"
+            | "text_alignment.justified" => format!(
+                "::iced::widget::text::Alignment::{}",
+                pascal(
+                    name.strip_prefix("text_alignment.")
+                        .expect("checked prefix")
+                )
+            ),
+            "text_alignment.from_horizontal" | "text_alignment.from_alignment" => format!(
+                "::iced::widget::text::Alignment::from({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "horizontal.from_text_alignment" => format!(
+                "::iced::alignment::Horizontal::from({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "text_shaping.default" => "::iced::widget::text::Shaping::default()".into(),
+            "text_shaping.auto" | "text_shaping.basic" | "text_shaping.advanced" => format!(
+                "::iced::widget::text::Shaping::{}",
+                pascal(
+                    name.strip_prefix("text_shaping.")
+                        .expect("checked prefix")
+                )
+            ),
+            "text_wrapping.default" => "::iced::widget::text::Wrapping::default()".into(),
+            "text_wrapping.none"
+            | "text_wrapping.word"
+            | "text_wrapping.glyph"
+            | "text_wrapping.word_or_glyph" => format!(
+                "::iced::widget::text::Wrapping::{}",
+                pascal(
+                    name.strip_prefix("text_wrapping.")
+                        .expect("checked prefix")
+                )
+            ),
+            "line_height.default" => "::iced::widget::text::LineHeight::default()".into(),
+            "line_height.relative" => format!(
+                "::iced::widget::text::LineHeight::Relative(({}) as f32)",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "line_height.absolute" => format!(
+                "::iced::widget::text::LineHeight::Absolute({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "line_height.from_f64" => format!(
+                "::iced::widget::text::LineHeight::from(({}) as f32)",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "line_height.from_pixels" => format!(
+                "::iced::widget::text::LineHeight::from({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "line_height.to_absolute" => format!(
+                "({}).to_absolute({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "screenshot.new" => format!(
+                "::iced::window::Screenshot::new({}, {}, ({}) as f32)",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?,
+                expr_code(&args[2], env, document, ValueMode::Owned)?
+            ),
+            "screenshot.crop" => format!(
+                "(&({})).crop({}).ok()",
+                expr_code(&args[0], env, document, ValueMode::Borrowed)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "screenshot.crop_error" => format!(
+                "match (&({})).crop({}) {{ ::std::result::Result::Ok(_) => ::std::option::Option::None, ::std::result::Result::Err(::iced::window::screenshot::CropError::Zero) => ::std::option::Option::Some(\"zero\".to_owned()), ::std::result::Result::Err(::iced::window::screenshot::CropError::OutOfBounds) => ::std::option::Option::Some(\"out-of-bounds\".to_owned()) }}",
+                expr_code(&args[0], env, document, ValueMode::Borrowed)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "screenshot.crop_error_message" => format!(
+                "(&({})).crop({}).err().map(|error| error.to_string())",
+                expr_code(&args[0], env, document, ValueMode::Borrowed)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "screenshot.as_bytes" => format!(
+                "::std::convert::AsRef::<[u8]>::as_ref(&({})).to_vec()",
+                expr_code(&args[0], env, document, ValueMode::Borrowed)?
+            ),
+            "screenshot.into_bytes" => format!(
+                "({}).rgba.to_vec()",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "interaction.default" => "::iced::mouse::Interaction::default()".into(),
+            "interaction.none"
+            | "interaction.hidden"
+            | "interaction.idle"
+            | "interaction.context_menu"
+            | "interaction.help"
+            | "interaction.pointer"
+            | "interaction.progress"
+            | "interaction.wait"
+            | "interaction.cell"
+            | "interaction.crosshair"
+            | "interaction.text"
+            | "interaction.alias"
+            | "interaction.copy"
+            | "interaction.move"
+            | "interaction.no_drop"
+            | "interaction.not_allowed"
+            | "interaction.grab"
+            | "interaction.grabbing"
+            | "interaction.resize_horizontal"
+            | "interaction.resize_vertical"
+            | "interaction.resize_diagonal_up"
+            | "interaction.resize_diagonal_down"
+            | "interaction.resize_column"
+            | "interaction.resize_row"
+            | "interaction.all_scroll"
+            | "interaction.zoom_in"
+            | "interaction.zoom_out" => format!(
+                "::iced::mouse::Interaction::{}",
+                first_class_mouse_interaction_code(name)
+            ),
+            "scroll.lines" | "scroll.pixels" => format!(
+                "::iced::mouse::ScrollDelta::{} {{ x: ({}) as f32, y: ({}) as f32 }}",
+                if name == "scroll.lines" {
+                    "Lines"
+                } else {
+                    "Pixels"
+                },
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "event_status.ignored" => "::iced::event::Status::Ignored".into(),
+            "event_status.captured" => "::iced::event::Status::Captured".into(),
+            "event_status.merge" => format!(
+                "({}).merge({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "redraw_request.next_frame" => "::iced::window::RedrawRequest::NextFrame".into(),
+            "redraw_request.wait" => "::iced::window::RedrawRequest::Wait".into(),
+            "redraw_request.at" => format!(
+                "::iced::window::RedrawRequest::At({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "window_id.unique" => "::iced::window::Id::unique()".into(),
+            "window_direction.north"
+            | "window_direction.south"
+            | "window_direction.east"
+            | "window_direction.west"
+            | "window_direction.north_east"
+            | "window_direction.north_west"
+            | "window_direction.south_east"
+            | "window_direction.south_west" => format!(
+                "::iced::window::Direction::{}",
+                pascal(
+                    name.strip_prefix("window_direction.")
+                        .expect("checked prefix")
+                )
+            ),
+            "window_level.default" => "::iced::window::Level::default()".into(),
+            "window_level.normal"
+            | "window_level.always_on_bottom"
+            | "window_level.always_on_top" => format!(
+                "::iced::window::Level::{}",
+                pascal(
+                    name.strip_prefix("window_level.")
+                        .expect("checked prefix")
+                )
+            ),
+            "window_mode.windowed" | "window_mode.fullscreen" | "window_mode.hidden" => {
+                format!(
+                    "::iced::window::Mode::{}",
+                    pascal(
+                        name.strip_prefix("window_mode.")
+                            .expect("checked prefix")
+                    )
+                )
+            }
+            "window_attention.critical" | "window_attention.informational" => format!(
+                "::iced::window::UserAttention::{}",
+                pascal(
+                    name.strip_prefix("window_attention.")
+                        .expect("checked prefix")
+                )
+            ),
+            "window_position.default" => "::iced::window::Position::default()".into(),
+            "window_position.centered" => "::iced::window::Position::Centered".into(),
+            "window_position.specific" => format!(
+                "::iced::window::Position::Specific({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "length.fill" => "::iced::Length::Fill".into(),
+            "length.shrink" => "::iced::Length::Shrink".into(),
+            "length.fill_portion" => {
+                let Expr::I64(value) = &args[0] else {
+                    unreachable!("checker requires a u16 literal")
+                };
+                format!("::iced::Length::FillPortion({value}u16)")
+            }
+            "length.try_fill_portion" => format!(
+                "<u16>::try_from({}).ok().map(::iced::Length::FillPortion)",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "length.fixed" => format!(
+                "::iced::Length::Fixed(({}) as f32)",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "length.from_f64" => format!(
+                "::iced::Length::from(({}) as f32)",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "length.from_pixels" => format!(
+                "::iced::Length::from({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "length.from_u32" => {
+                let Expr::I64(value) = &args[0] else {
+                    unreachable!("checker requires a u32 literal")
+                };
+                format!("::iced::Length::from({value}u32)")
+            }
+            "length.try_from_u32" => format!(
+                "<u32>::try_from({}).ok().map(::iced::Length::from)",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "length.fluid" => format!(
+                "({}).fluid()",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "length.enclose" => format!(
+                "({}).enclose({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "alignment.start" => "::iced::Alignment::Start".into(),
+            "alignment.center" => "::iced::Alignment::Center".into(),
+            "alignment.end" => "::iced::Alignment::End".into(),
+            "horizontal.left" => "::iced::alignment::Horizontal::Left".into(),
+            "horizontal.center" => "::iced::alignment::Horizontal::Center".into(),
+            "horizontal.right" => "::iced::alignment::Horizontal::Right".into(),
+            "vertical.top" => "::iced::alignment::Vertical::Top".into(),
+            "vertical.center" => "::iced::alignment::Vertical::Center".into(),
+            "vertical.bottom" => "::iced::alignment::Vertical::Bottom".into(),
+            "alignment.from_horizontal" | "alignment.from_vertical" => format!(
+                "::iced::Alignment::from({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "horizontal.from_alignment" => format!(
+                "::iced::alignment::Horizontal::from({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "vertical.from_alignment" => format!(
+                "::iced::alignment::Vertical::from({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "border.default" => "::iced::Border::default()".into(),
+            "border.new" => format!(
+                "::iced::Border {{ color: {}, width: {}, radius: {} }}",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                pixel_scalar_code(&args[1], env, document)?,
+                radius_value_code(&args[2], env, document)?
+            ),
+            "border.color" => format!(
+                "::iced::border::color({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "border.width" => format!(
+                "::iced::border::width({})",
+                pixel_value_code(&args[0], env, document)?
+            ),
+            "border.rounded" => format!(
+                "::iced::border::rounded({})",
+                radius_value_code(&args[0], env, document)?
+            ),
+            "border.with_color" => format!(
+                "({}).color({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "border.with_width" => format!(
+                "({}).width({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                pixel_value_code(&args[1], env, document)?
+            ),
+            "border.with_radius" => format!(
+                "({}).rounded({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                radius_value_code(&args[1], env, document)?
+            ),
+            "radius" => format!(
+                "::iced::border::radius({})",
+                pixel_value_code(&args[0], env, document)?
+            ),
+            "radius.new" => format!(
+                "::iced::border::Radius::new({})",
+                pixel_value_code(&args[0], env, document)?
+            ),
+            "radius.default" => "::iced::border::Radius::default()".into(),
+            "radius.top_left"
+            | "radius.top_right"
+            | "radius.bottom_right"
+            | "radius.bottom_left"
+            | "radius.top"
+            | "radius.bottom"
+            | "radius.left"
+            | "radius.right" => {
+                let function = name.strip_prefix("radius.").expect("checked prefix");
+                format!(
+                    "::iced::border::{function}({})",
+                    pixel_value_code(&args[0], env, document)?
+                )
+            }
+            "radius.with_top_left"
+            | "radius.with_top_right"
+            | "radius.with_bottom_right"
+            | "radius.with_bottom_left"
+            | "radius.with_top"
+            | "radius.with_bottom"
+            | "radius.with_left"
+            | "radius.with_right" => {
+                let method = name.strip_prefix("radius.with_").expect("checked prefix");
+                format!(
+                    "({}).{method}({})",
+                    expr_code(&args[0], env, document, ValueMode::Owned)?,
+                    pixel_value_code(&args[1], env, document)?
+                )
+            }
+            "radius.from_f64" => format!(
+                "::iced::border::Radius::from(({}) as f32)",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "radius.from_u8" | "radius.from_u32" => {
+                let Expr::I64(value) = &args[0] else {
+                    unreachable!("checker requires a radius integer literal")
+                };
+                let ty = name.strip_prefix("radius.from_").expect("checked prefix");
+                format!("::iced::border::Radius::from({value}{ty})")
+            }
+            "radius.from_i32" => format!(
+                "::iced::border::Radius::from(({}) as i32)",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "radius.try_from_u8" | "radius.try_from_u32" | "radius.try_from_i32" => {
+                let ty = name
+                    .strip_prefix("radius.try_from_")
+                    .expect("checked prefix");
+                format!(
+                    "<{ty}>::try_from(({}) as i64).ok().map(::iced::border::Radius::from)",
+                    expr_code(&args[0], env, document, ValueMode::Owned)?
+                )
+            }
+            "shadow.default" => "::iced::Shadow::default()".into(),
+            "shadow.new" => format!(
+                "::iced::Shadow {{ color: {}, offset: {}, blur_radius: ({}) as f32 }}",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?,
+                expr_code(&args[2], env, document, ValueMode::Owned)?
+            ),
+            "fit.default" => "::iced::ContentFit::default()".into(),
+            "fit.contain" => "::iced::ContentFit::Contain".into(),
+            "fit.cover" => "::iced::ContentFit::Cover".into(),
+            "fit.fill" => "::iced::ContentFit::Fill".into(),
+            "fit.none" => "::iced::ContentFit::None".into(),
+            "fit.scale_down" => "::iced::ContentFit::ScaleDown".into(),
+            "fit.apply" => format!(
+                "({}).fit({}, {})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?,
+                expr_code(&args[2], env, document, ValueMode::Owned)?
+            ),
+            "rotation.default" => "::iced::Rotation::default()".into(),
+            "rotation.floating" => format!(
+                "::iced::Rotation::Floating({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "rotation.solid" => format!(
+                "::iced::Rotation::Solid({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "rotation.from" => format!(
+                "::iced::Rotation::from({} as f32)",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "rotation.with_radians" => format!(
+                "{{ let mut __rotation = {}; *__rotation.radians_mut() = {}; __rotation }}",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "rotation.apply" => format!(
+                "({}).apply({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "debug.active" => format!(
+                "({}).is_some()",
+                expr_code(&args[0], env, document, ValueMode::Borrowed)?
+            ),
+            "debug.time_with" => format!(
+                "::iced::debug::time_with({}, || {})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, mode)?
+            ),
+            "image.downgrade" => format!(
+                "({}).downgrade()",
+                expr_code(&args[0], env, document, ValueMode::Borrowed)?
+            ),
+            "image.upgrade" => format!(
+                "::iced::widget::image::Allocation::upgrade(&({}))",
+                expr_code(&args[0], env, document, ValueMode::Borrowed)?
+            ),
+            "animation.value" => {
+                let animation = expr_code(&args[0], env, document, ValueMode::Borrowed)?;
+                if expr_type(&args[0], &env_types(env), document, &Span::line(1))?
+                    == Type::Animation(Box::new(Type::F64))
+                {
+                    format!("({animation}).value() as f64")
+                } else {
+                    format!("({animation}).value()")
+                }
+            }
+            "animation.animating" => format!(
+                "({}).is_animating({})",
+                expr_code(&args[0], env, document, ValueMode::Borrowed)?,
+                animation_at_code(args, 1, env, document)?
+            ),
+            "animation.interpolate" => {
+                let animation = expr_code(&args[0], env, document, ValueMode::Borrowed)?;
+                let start = expr_code(&args[1], env, document, ValueMode::Owned)?;
+                let end = expr_code(&args[2], env, document, ValueMode::Owned)?;
+                let at = animation_at_code(args, 3, env, document)?;
+                if expr_type(&args[1], &env_types(env), document, &Span::line(1))? == Type::F64 {
+                    format!(
+                        "({animation}).interpolate(({start}) as f32, ({end}) as f32, {at}) as f64"
+                    )
+                } else {
+                    let start = if matches!(args[1], Expr::None) {
+                        "::std::option::Option::<f32>::None".into()
+                    } else {
+                        format!("({start}).map(|__value| __value as f32)")
+                    };
+                    let end = if matches!(args[2], Expr::None) {
+                        "::std::option::Option::<f32>::None".into()
+                    } else {
+                        format!("({end}).map(|__value| __value as f32)")
+                    };
+                    format!(
+                        "({animation}).interpolate({start}, {end}, {at}).map(|__value| __value as f64)"
+                    )
+                }
+            }
+            "animation.remaining" => format!(
+                "({}).remaining({}).as_secs_f64() * 1000.0",
+                expr_code(&args[0], env, document, ValueMode::Borrowed)?,
+                animation_at_code(args, 1, env, document)?
+            ),
+            "animation.project" => {
+                let animation = expr_code(&args[0], env, document, ValueMode::Borrowed)?;
+                let Type::Animation(inner) =
+                    expr_type(&args[0], &env_types(env), document, &Span::line(1))?
+                else {
+                    unreachable!("checker requires animation")
+                };
+                let Expr::Path(binding) = &args[1] else {
+                    unreachable!("checker requires projection binding")
+                };
+                let mut projection_env = env.clone();
+                projection_env.insert(
+                    binding[0].clone(),
+                    Binding {
+                        code: if *inner == Type::F64 {
+                            "(__value as f64)".into()
+                        } else {
+                            "__value".into()
+                        },
+                        ty: *inner,
+                        local: true,
+                    },
+                );
+                let projection = expr_code(&args[2], &projection_env, document, ValueMode::Owned)?;
+                let output = expr_type(
+                    &args[2],
+                    &env_types(&projection_env),
+                    document,
+                    &Span::line(1),
+                )?;
+                let at = animation_at_code(args, 3, env, document)?;
+                if output == Type::F64 {
+                    format!(
+                        "({animation}).interpolate_with(|__value| ({projection}) as f32, {at}) as f64"
+                    )
+                } else {
+                    format!(
+                        "({animation}).interpolate_with(|__value| ({projection}).map(|__value| __value as f32), {at}).map(|__value| __value as f64)"
+                    )
+                }
+            }
             "pixels" => format!(
                 "::iced::Pixels(({}) as f32)",
                 expr_code(&args[0], env, document, ValueMode::Owned)?
@@ -731,6 +1490,7 @@ pub(super) fn expr_code(
                     Type::Pixels
                         | Type::Degrees
                         | Type::Radians
+                        | Type::Radius
                         | Type::Vector
                         | Type::Size
                         | Type::Rectangle
@@ -773,3 +1533,15 @@ pub(super) use binding::*;
 pub(super) use children::*;
 pub(super) use discovery::*;
 pub(super) use routes::*;
+
+pub(in crate::codegen) fn animation_at_code(
+    args: &[Expr],
+    index: usize,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<String, Error> {
+    args.get(index).map_or_else(
+        || Ok("::iced::time::Instant::now()".into()),
+        |at| expr_code(at, env, document, ValueMode::Owned),
+    )
+}

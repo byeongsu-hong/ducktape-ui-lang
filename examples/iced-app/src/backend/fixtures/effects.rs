@@ -1,18 +1,16 @@
-use crate::backend::AppError;
+use super::*;
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct NetworkError {
-    pub message: String,
-}
-
+#[cfg(test)]
 pub fn copy_text(text: String) -> iced::Task<Result<(), AppError>> {
     iced::Task::batch([iced::clipboard::write::<()>(text), iced::Task::done(())]).map(Ok)
 }
 
+#[cfg(test)]
 pub fn count_stream(limit: i64) -> impl iced::futures::Stream<Item = i64> + Send + 'static {
     iced::futures::stream::iter(0..limit.max(0))
 }
 
+#[cfg(test)]
 pub fn range_stream(
     start: i64,
     limit: i64,
@@ -20,6 +18,7 @@ pub fn range_stream(
     iced::futures::stream::iter(start..start.saturating_add(limit.max(0)))
 }
 
+#[cfg(test)]
 pub fn fallible_stream() -> impl iced::futures::Stream<Item = Result<i64, AppError>> + Send + 'static
 {
     iced::futures::stream::iter([
@@ -30,10 +29,12 @@ pub fn fallible_stream() -> impl iced::futures::Stream<Item = Result<i64, AppErr
     ])
 }
 
+#[cfg(test)]
 pub struct CounterRecipe {
     id: i64,
 }
 
+#[cfg(test)]
 impl iced::advanced::subscription::Recipe for CounterRecipe {
     type Output = i64;
 
@@ -49,10 +50,12 @@ impl iced::advanced::subscription::Recipe for CounterRecipe {
     }
 }
 
+#[cfg(test)]
 pub fn counter_recipe(id: i64) -> CounterRecipe {
     CounterRecipe { id }
 }
 
+#[cfg(test)]
 pub fn raw_event(event: iced::advanced::subscription::Event) -> Option<String> {
     Some(match event {
         iced::advanced::subscription::Event::Interaction { status, .. } => {
@@ -64,6 +67,7 @@ pub fn raw_event(event: iced::advanced::subscription::Event) -> Option<String> {
     })
 }
 
+#[cfg(test)]
 pub fn by_kind(kind: String) -> impl iced::widget::selector::Selector<Output = String> {
     move |candidate: iced::widget::selector::Candidate<'_>| {
         let candidate_kind = match candidate {
@@ -78,6 +82,7 @@ pub fn by_kind(kind: String) -> impl iced::widget::selector::Selector<Output = S
     }
 }
 
+#[cfg(test)]
 pub fn count_sip(limit: i64) -> impl iced::task::Sipper<i64, i64> + Send + 'static {
     iced::task::sipper(move |mut sender| async move {
         let limit = limit.max(0);
@@ -88,6 +93,7 @@ pub fn count_sip(limit: i64) -> impl iced::task::Sipper<i64, i64> + Send + 'stat
     })
 }
 
+#[cfg(test)]
 pub fn fallible_sip(limit: i64) -> impl iced::task::Straw<i64, i64, AppError> + Send + 'static {
     iced::task::sipper(move |mut sender| async move {
         sender.send(1).await;
@@ -101,14 +107,17 @@ pub fn fallible_sip(limit: i64) -> impl iced::task::Straw<i64, i64, AppError> + 
     })
 }
 
+#[cfg(test)]
 pub fn double_task(value: i64) -> iced::Task<i64> {
     iced::Task::done(value * 2)
 }
 
+#[cfg(test)]
 pub fn optional_task(value: i64) -> iced::Task<Option<i64>> {
     iced::Task::done((value > 0).then_some(value))
 }
 
+#[cfg(test)]
 pub fn fallible_task(value: i64) -> iced::Task<Result<i64, AppError>> {
     iced::Task::done(if value >= 0 {
         Ok(value)
@@ -119,22 +128,27 @@ pub fn fallible_task(value: i64) -> iced::Task<Result<i64, AppError>> {
     })
 }
 
+#[cfg(test)]
 pub async fn refresh_time() -> i64 {
     1
 }
 
+#[cfg(test)]
 pub fn even_refresh(value: i64) -> Option<i64> {
     (value % 2 == 0).then_some(value)
 }
 
+#[cfg(test)]
 pub fn visible_pointer(x: f64, y: f64) -> Option<String> {
     (x >= 0.0 && y >= 0.0).then(|| format!("{x},{y}"))
 }
 
+#[cfg(test)]
 pub fn allow_frame() -> Option<bool> {
     Some(true)
 }
 
+#[cfg(test)]
 pub fn network_task(value: i64) -> iced::Task<Result<i64, NetworkError>> {
     iced::Task::done(if value >= 0 {
         Ok(value)
@@ -145,12 +159,14 @@ pub fn network_task(value: i64) -> iced::Task<Result<i64, NetworkError>> {
     })
 }
 
+#[cfg(test)]
 pub fn normalize_error(error: NetworkError) -> AppError {
     AppError {
         message: error.message,
     }
 }
 
+#[cfg(test)]
 pub fn event_name(event: iced::Event) -> String {
     match event {
         iced::Event::Keyboard(_) => "keyboard",
@@ -162,18 +178,22 @@ pub fn event_name(event: iced::Event) -> String {
     .into()
 }
 
+#[cfg(test)]
 pub fn event_label(event: iced::Event) -> Option<String> {
     Some(event_name(event))
 }
 
+#[cfg(test)]
 pub fn app_events() -> iced::Subscription<bool> {
     iced::event::listen_with(|event, _status, _window| focus_event(event))
 }
 
+#[cfg(test)]
 fn focus_event(event: iced::Event) -> Option<bool> {
     matches!(event, iced::Event::Window(iced::window::Event::Focused)).then_some(true)
 }
 
+#[cfg(test)]
 mod tests {
     use super::focus_event;
 

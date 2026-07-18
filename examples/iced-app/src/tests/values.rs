@@ -1,3 +1,4 @@
+#[cfg(test)]
 mod keyboard_values {
     ui_lang::include_app!("src/ui/keyboard_values.ice");
 
@@ -32,6 +33,7 @@ mod keyboard_values {
     }
 }
 
+#[cfg(test)]
 mod pointer_values {
     ui_lang::include_app!("src/ui/pointer_values.ice");
 
@@ -64,6 +66,7 @@ mod pointer_values {
     }
 }
 
+#[cfg(test)]
 mod transformation_values {
     ui_lang::include_app!("src/ui/transformation_values.ice");
 
@@ -96,6 +99,7 @@ mod transformation_values {
     }
 }
 
+#[cfg(test)]
 mod geometry_values {
     ui_lang::include_app!("src/ui/geometry_values.ice");
 
@@ -238,6 +242,7 @@ mod geometry_values {
     }
 }
 
+#[cfg(test)]
 mod padding_angles {
     ui_lang::include_app!("src/ui/padding_angles.ice");
 

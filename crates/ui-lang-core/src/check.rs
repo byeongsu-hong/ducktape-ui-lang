@@ -2,26 +2,6 @@ use crate::Error;
 use crate::ast::*;
 use std::collections::{HashMap, HashSet};
 
-mod canvas;
-mod expr;
-mod handler;
-mod options;
-mod style;
-mod subscription;
-mod view;
-
-use canvas::*;
-use handler::*;
-use options::*;
-use style::*;
-use subscription::*;
-use view::*;
-
-pub(crate) use expr::expr_type;
-pub(crate) use handler::task_flow_type;
-
-type WidgetIdPath = Vec<(String, Option<Type>)>;
-
 pub fn check(document: &mut Document) -> Result<(), Error> {
     check_unique(document)?;
     check_fonts(document)?;
@@ -54,7 +34,15 @@ pub fn check(document: &mut Document) -> Result<(), Error> {
         .collect::<Vec<_>>();
     for state in &document.states {
         let actual = expr_type(&state.initial, &HashMap::new(), document, &state.span)?;
-        if let Type::Combo(expected) = &state.ty {
+        if state.ty == Type::Option(Box::new(Type::DebugSpan))
+            && !matches!(state.initial, Expr::None)
+        {
+            return Err(Error::new(
+                "E103",
+                &state.span,
+                "debug span state must start as `none`",
+            ));
+        } else if let Type::Combo(expected) = &state.ty {
             let Type::List(actual) = actual else {
                 return Err(Error::new(
                     "E104",
@@ -63,6 +51,29 @@ pub fn check(document: &mut Document) -> Result<(), Error> {
                 ));
             };
             require_type(&actual, expected, &state.span)?;
+        } else if let Type::Animation(expected) = &state.ty {
+            require_type(&actual, expected, &state.span)?;
+            if let Some(easing) = state
+                .animation
+                .as_ref()
+                .and_then(|options| options.easing.as_deref())
+                && !ANIMATION_EASINGS.contains(&easing)
+            {
+                let function = extern_function(document, easing, ExternKind::Sync, &state.span)?;
+                if function.params.len() != 1
+                    || function.params[0].1 != Type::F64
+                    || function.output != Type::F64
+                    || function.error.is_some()
+                {
+                    return Err(Error::new(
+                        "E103",
+                        &state.span,
+                        format!(
+                            "animation easing `{easing}` must be `sync {easing}(value:f64) -> f64`"
+                        ),
+                    ));
+                }
+            }
         } else {
             let text_initial =
                 matches!(state.ty, Type::Markdown | Type::Editor) && actual == Type::Str;
@@ -83,8 +94,18 @@ pub fn check(document: &mut Document) -> Result<(), Error> {
         .collect();
 
     let mut ids = HashSet::new();
-    infer_view(&document.view, &states, document, &mut signatures, &mut ids)?;
-    let pane_grids = static_pane_grids(&document.view)?;
+    let mut view_states = states.clone();
+    if document.daemon {
+        view_states.insert("window".into(), Type::WindowId);
+    }
+    infer_view(
+        &document.view,
+        &view_states,
+        document,
+        &mut signatures,
+        &mut ids,
+    )?;
+    let pane_grids = static_pane_grids(&document.view, &view_states, document)?;
     for component in &document.components {
         if let Some(span) = pane_grid_span(&component.root) {
             return Err(Error::new(
@@ -97,7 +118,7 @@ pub fn check(document: &mut Document) -> Result<(), Error> {
         let mut ids = HashSet::new();
         infer_view(&component.root, &env, document, &mut signatures, &mut ids)?;
     }
-    let operation_ids = widget_operation_ids(&document.view, &states, document)?;
+    let operation_ids = widget_operation_ids(&document.view, &view_states, document)?;
     controlled_state_bindings(document, false)?;
     controlled_state_bindings(document, true)?;
     infer_subscriptions(document, &states, &mut signatures)?;
@@ -129,15 +150,34 @@ pub fn check(document: &mut Document) -> Result<(), Error> {
 }
 
 mod application;
+mod canvas;
 mod declarations;
+mod expr;
+mod handler;
+mod options;
 mod state;
+mod style;
+mod subscription;
+mod view;
 mod widgets;
 
 use application::*;
+use canvas::*;
 use declarations::*;
+use handler::*;
+use options::*;
 pub(crate) use state::controlled_state_bindings;
 use state::{check_qr_data, check_theme, pane_grid_span, repeated_pane_grid_span};
+use style::*;
+use subscription::*;
+use view::*;
 use widgets::*;
+
+use expr::check_length_value;
+pub(crate) use expr::expr_type;
+pub(crate) use handler::task_flow_type;
+
+pub(in crate::check) type WidgetIdPath = Vec<(String, Option<Type>)>;
 
 #[cfg(test)]
 #[path = "check/tests.rs"]

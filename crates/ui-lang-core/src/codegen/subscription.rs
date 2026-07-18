@@ -1,11 +1,64 @@
 use super::*;
 
-pub(super) fn generate_subscription(
+pub(in crate::codegen) fn subscription_payload_arity(
+    source: &SubscriptionSource,
+    window_id: bool,
+) -> usize {
+    let arity = match source {
+        SubscriptionSource::Every { .. }
+        | SubscriptionSource::Repeat { .. }
+        | SubscriptionSource::Run { .. }
+        | SubscriptionSource::Recipe { .. }
+        | SubscriptionSource::Events { .. }
+        | SubscriptionSource::Extern { .. }
+        | SubscriptionSource::Event { .. }
+        | SubscriptionSource::Keyboard(_)
+        | SubscriptionSource::SystemTheme => 1,
+        SubscriptionSource::InputMethod(InputMethodEvent::Opened | InputMethodEvent::Closed)
+        | SubscriptionSource::Mouse(MouseEvent::Entered | MouseEvent::Left)
+        | SubscriptionSource::Window(
+            WindowEvent::Frame
+            | WindowEvent::Closed
+            | WindowEvent::CloseRequested
+            | WindowEvent::Focused
+            | WindowEvent::Unfocused
+            | WindowEvent::FilesHoveredLeft,
+        ) => 0,
+        SubscriptionSource::InputMethod(InputMethodEvent::Commit)
+        | SubscriptionSource::Mouse(MouseEvent::Pressed | MouseEvent::Released)
+        | SubscriptionSource::Window(
+            WindowEvent::Rescaled | WindowEvent::FileHovered | WindowEvent::FileDropped,
+        ) => 1,
+        SubscriptionSource::Mouse(MouseEvent::Moved)
+        | SubscriptionSource::Window(WindowEvent::Moved | WindowEvent::Resized) => 2,
+        SubscriptionSource::InputMethod(InputMethodEvent::Preedit)
+        | SubscriptionSource::Mouse(MouseEvent::Wheel)
+        | SubscriptionSource::Touch(_) => 3,
+        SubscriptionSource::Window(WindowEvent::Opened) => 4,
+    };
+    arity + usize::from(window_id)
+}
+
+pub(in crate::codegen) fn identified_window_filter(filter: &str, arity: usize) -> String {
+    match arity {
+        0 => format!("({filter}).map(|_| __id)"),
+        1 => format!("({filter}).map(|__value| (__id, __value))"),
+        count => format!(
+            "({filter}).map(|__value| (__id, {}))",
+            (0..count)
+                .map(|index| format!("__value.{index}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+    }
+}
+
+pub(in crate::codegen) fn generate_subscription(
     out: &mut String,
     document: &Document,
     message: &str,
 ) -> Result<(), Error> {
-    if document.subscriptions.is_empty() {
+    if document.subscriptions.is_empty() && !has_animations(document) {
         return Ok(());
     }
     let env = state_env(document, "self");
@@ -388,11 +441,33 @@ pub(super) fn generate_subscription(
             writeln!(out, "]) }} else {{ ::iced::Subscription::none() }},").unwrap();
         }
     }
+    if has_animations(document) {
+        let active = document
+            .states
+            .iter()
+            .filter(|state| matches!(state.ty, Type::Animation(_)))
+            .map(|state| {
+                format!(
+                    "self.{}.is_animating(::iced::time::Instant::now())",
+                    state.name
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(" || ");
+        writeln!(
+            out,
+            "if {active} {{ ::iced::window::frames().map(|_| {message}::__AnimationFrame) }} else {{ ::iced::Subscription::none() }},"
+        )
+        .unwrap();
+    }
     writeln!(out, "])\n}}").unwrap();
     Ok(())
 }
 
-fn event_status_filter(filter: &str, status: Option<EventStatus>) -> (String, &'static str) {
+pub(in crate::codegen) fn event_status_filter(
+    filter: &str,
+    status: Option<EventStatus>,
+) -> (String, &'static str) {
     match status {
         None | Some(EventStatus::Any) => (filter.to_owned(), "_"),
         Some(EventStatus::Captured) => (

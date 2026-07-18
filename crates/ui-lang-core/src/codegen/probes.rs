@@ -1,6 +1,6 @@
 use super::*;
 
-pub(super) fn generate_extern_probes(out: &mut String, document: &Document) {
+pub(in crate::codegen) fn generate_extern_probes(out: &mut String, document: &Document) {
     if document
         .functions
         .iter()
@@ -27,11 +27,20 @@ pub(super) fn generate_extern_probes(out: &mut String, document: &Document) {
         writeln!(out, "}}").unwrap();
     }
     for item in &document.functions {
+        let borrowed_component = item.kind == ExternKind::Component
+            && item.borrowed.iter().copied().any(|borrowed| borrowed);
         let params = item
             .params
             .iter()
             .enumerate()
-            .map(|(index, (_, ty))| format!("arg{index}: {}", ty.rust(&document.structs)))
+            .map(|(index, (_, ty))| {
+                let ty = if item.borrowed[index] {
+                    borrowed_type(ty, document)
+                } else {
+                    ty.rust(&document.structs)
+                };
+                format!("arg{index}: {ty}")
+            })
             .collect::<Vec<_>>()
             .join(", ");
         let args = (0..item.params.len())
@@ -57,13 +66,16 @@ pub(super) fn generate_extern_probes(out: &mut String, document: &Document) {
             .unwrap(),
             ExternKind::Component => writeln!(
                 out,
-                "#[allow(dead_code)] fn __ui_lang_check_component_{}({params}) {{ let _: ::iced::Element<'static, {output}> = {}({args}); }}",
-                item.name, item.rust_path
+                "#[allow(dead_code)] fn __ui_lang_check_component_{}{}({params}) {{ let _: __IceElement<'{}, {output}> = {}({args}); }}",
+                item.name,
+                if borrowed_component { "<'a>" } else { "" },
+                if borrowed_component { "a" } else { "static" },
+                item.rust_path
             )
             .unwrap(),
             ExternKind::Shader => writeln!(
                 out,
-                "#[allow(dead_code)] fn __ui_lang_check_shader_{}({params}) {{ let __program = {}({args}); fn __accept<P: ::iced::widget::shader::Program<{output}>>(_: &P) {{}} __accept(&__program); let _: ::iced::Element<'static, {output}> = ::iced::widget::Shader::new(__program).into(); }}",
+                "#[allow(dead_code)] fn __ui_lang_check_shader_{}({params}) {{ let __program = {}({args}); fn __accept<P: ::iced::widget::shader::Program<{output}>>(_: &P) {{}} __accept(&__program); let _: __IceElement<'static, {output}> = ::iced::widget::Shader::new(__program).into(); }}",
                 item.name, item.rust_path
             )
             .unwrap(),
@@ -137,7 +149,7 @@ pub(super) fn generate_extern_probes(out: &mut String, document: &Document) {
             .unwrap(),
             ExternKind::Themer => writeln!(
                 out,
-                "#[allow(dead_code)] fn __ui_lang_check_themer_{}({params}) {{ let (__theme, __content, __text_color, __background) = {}({args}); fn __accept<T: ::iced::theme::Base>(_: &::std::option::Option<T>, _: &::iced::Element<'static, {output}, T>, _: &::std::option::Option<fn(&T) -> ::iced::Color>, _: &::std::option::Option<fn(&T) -> ::iced::Background>) {{}} __accept(&__theme, &__content, &__text_color, &__background); }}",
+                "#[allow(dead_code)] fn __ui_lang_check_themer_{}({params}) {{ let (__theme, __content, __text_color, __background) = {}({args}); fn __accept<T: ::iced::theme::Base>(_: &::std::option::Option<T>, _: &__IceElement<'static, {output}, T>, _: &::std::option::Option<fn(&T) -> ::iced::Color>, _: &::std::option::Option<fn(&T) -> ::iced::Background>) {{}} __accept(&__theme, &__content, &__text_color, &__background); }}",
                 item.name, item.rust_path
             )
             .unwrap(),
@@ -185,7 +197,7 @@ pub(super) fn generate_extern_probes(out: &mut String, document: &Document) {
             }
             ExternKind::EditorHighlighter => writeln!(
                 out,
-                "#[allow(dead_code)] fn __ui_lang_check_editor_highlighter_{}({params}) {{ let __content = ::iced::widget::text_editor::Content::new(); let __editor = ::iced::widget::text_editor(&__content).on_action(|_| ()); let _: ::iced::Element<'_, ()> = {}(__editor{}).into(); }}",
+                "#[allow(dead_code)] fn __ui_lang_check_editor_highlighter_{}({params}) {{ let __content = ::iced::widget::text_editor::Content::new(); let __editor = ::iced::widget::text_editor(&__content).on_action(|_| ()); let _: __IceElement<'_, ()> = {}(__editor{}).into(); }}",
                 item.name,
                 item.rust_path,
                 if args.is_empty() {
@@ -467,11 +479,29 @@ pub(super) fn generate_extern_probes(out: &mut String, document: &Document) {
                 )
                 .unwrap();
             }
+            ExternKind::PaneGridStyle => {
+                let params = if params.is_empty() {
+                    "theme: &::iced::Theme".into()
+                } else {
+                    format!("theme: &::iced::Theme, {params}")
+                };
+                let args = if args.is_empty() {
+                    "theme".into()
+                } else {
+                    format!("theme, {args}")
+                };
+                writeln!(
+                    out,
+                    "#[allow(dead_code)] fn __ui_lang_check_pane_grid_style_{}({params}) {{ let _: ::iced::widget::pane_grid::Style = {}({args}); }}",
+                    item.name, item.rust_path
+                )
+                .unwrap();
+            }
         }
     }
 }
 
-pub(super) fn generate_editor_binding_mapper(out: &mut String, document: &Document) {
+pub(in crate::codegen) fn generate_editor_binding_mapper(out: &mut String, document: &Document) {
     if !document
         .functions
         .iter()

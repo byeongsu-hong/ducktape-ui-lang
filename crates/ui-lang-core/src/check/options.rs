@@ -1,6 +1,6 @@
 use super::*;
 
-pub(super) fn check_lazy_subtree(
+pub(in crate::check) fn check_lazy_subtree(
     node: &ViewNode,
     document: &Document,
     components: &mut HashSet<String>,
@@ -115,7 +115,7 @@ pub(super) fn check_lazy_subtree(
     }
 }
 
-pub(super) fn require_literal_range(
+pub(in crate::check) fn require_literal_range(
     expr: &Expr,
     min: f64,
     max: Option<f64>,
@@ -133,7 +133,7 @@ pub(super) fn require_literal_range(
     Ok(())
 }
 
-pub(super) fn check_background_value(
+pub(in crate::check) fn check_background_value(
     background: &BackgroundValue,
     env: &HashMap<String, Type>,
     document: &Document,
@@ -173,7 +173,50 @@ pub(super) fn check_background_value(
     Ok(())
 }
 
-pub(super) fn check_container_style_options(
+pub(in crate::check) fn infer_pane_view(
+    pane: &PaneView,
+    env: &HashMap<String, Type>,
+    document: &Document,
+    signatures: &mut HashMap<String, Vec<Option<Type>>>,
+    ids: &mut HashSet<String>,
+) -> Result<(), Error> {
+    let mut pane_env = env.clone();
+    if let Some(binding) = &pane.maximized {
+        pane_env.insert(binding.clone(), Type::Bool);
+    }
+    let env = &pane_env;
+    check_styles(&pane.styles, document, &pane.span, StyleTarget::PaneContent)?;
+    check_container_style_options(&pane.style, env, document, &pane.span, "E187")?;
+    if let Some(title) = &pane.title {
+        for value in [
+            &title.padding.all,
+            &title.padding.x,
+            &title.padding.y,
+            &title.padding.top,
+            &title.padding.right,
+            &title.padding.bottom,
+            &title.padding.left,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            require_type(
+                &expr_type(value, env, document, &title.span)?,
+                &Type::F64,
+                &title.span,
+            )?;
+            require_literal_range(value, 0.0, None, "pane title padding", &title.span)?;
+        }
+        check_styles(&title.styles, document, &title.span, StyleTarget::PaneTitle)?;
+        check_container_style_options(&title.style, env, document, &title.span, "E187")?;
+    }
+    for node in pane.nodes() {
+        infer_view(node, env, document, signatures, ids)?;
+    }
+    Ok(())
+}
+
+pub(in crate::check) fn check_container_style_options(
     style: &ContainerStyleOptions,
     env: &HashMap<String, Type>,
     document: &Document,
@@ -222,7 +265,7 @@ pub(super) fn check_container_style_options(
     Ok(())
 }
 
-pub(super) fn check_markdown_style(
+pub(in crate::check) fn check_markdown_style(
     style: &MarkdownStyleOptions,
     env: &HashMap<String, Type>,
     document: &Document,
@@ -287,7 +330,7 @@ pub(super) fn check_markdown_style(
     Ok(())
 }
 
-pub(super) fn check_float_style_options(
+pub(in crate::check) fn check_float_style_options(
     style: &FloatStyleOptions,
     env: &HashMap<String, Type>,
     document: &Document,
@@ -322,7 +365,7 @@ pub(super) fn check_float_style_options(
     Ok(())
 }
 
-pub(super) fn f64_literal(expr: &Expr) -> Option<f64> {
+pub(in crate::check) fn f64_literal(expr: &Expr) -> Option<f64> {
     match expr {
         Expr::F64(value) => Some(*value),
         Expr::I64(value) => Some(*value as f64),
@@ -334,18 +377,15 @@ pub(super) fn f64_literal(expr: &Expr) -> Option<f64> {
     }
 }
 
-pub(super) fn check_bool_control_options(
+pub(in crate::check) fn check_bool_control_options(
     options: &BoolControlOptions,
     env: &HashMap<String, Type>,
     document: &Document,
     span: &Span,
 ) -> Result<(), Error> {
     check_font(options.font.as_ref(), document, span)?;
-    if let Some(length) = &options.width
-        && let LengthValue::Fixed(value) = length
-    {
-        require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-        require_literal_range(value, 0.0, None, "control width", span)?;
+    if let Some(length) = &options.width {
+        check_length_value(length, env, document, span, "control width")?;
     }
     for (value, label, min) in [
         (&options.size, "control size", f64::EPSILON),
@@ -378,7 +418,7 @@ pub(super) fn check_bool_control_options(
     Ok(())
 }
 
-pub(super) fn check_checkbox_styles(
+pub(in crate::check) fn check_checkbox_styles(
     styles: &CheckboxStyleSet,
     env: &HashMap<String, Type>,
     document: &Document,
@@ -439,7 +479,7 @@ pub(super) fn check_checkbox_styles(
     Ok(())
 }
 
-pub(super) fn check_toggler_styles(
+pub(in crate::check) fn check_toggler_styles(
     styles: &TogglerStyleSet,
     env: &HashMap<String, Type>,
     document: &Document,
@@ -503,7 +543,7 @@ pub(super) fn check_toggler_styles(
     Ok(())
 }
 
-pub(super) fn check_radio_styles(
+pub(in crate::check) fn check_radio_styles(
     styles: &RadioStyleSet,
     env: &HashMap<String, Type>,
     document: &Document,
@@ -545,7 +585,7 @@ pub(super) fn check_radio_styles(
     Ok(())
 }
 
-pub(super) fn check_pick_list_handle(
+pub(in crate::check) fn check_pick_list_handle(
     handle: Option<&PickListHandle>,
     env: &HashMap<String, Type>,
     document: &Document,
@@ -583,7 +623,7 @@ pub(super) fn check_pick_list_handle(
     Ok(())
 }
 
-pub(super) fn check_pick_list_styles(
+pub(in crate::check) fn check_pick_list_styles(
     options: &PickListOptions,
     env: &HashMap<String, Type>,
     document: &Document,
@@ -619,7 +659,7 @@ pub(super) fn check_pick_list_styles(
     Ok(())
 }
 
-pub(super) fn check_menu_style(
+pub(in crate::check) fn check_menu_style(
     style: Option<&MenuStyleOptions>,
     env: &HashMap<String, Type>,
     document: &Document,
@@ -650,7 +690,7 @@ pub(super) fn check_menu_style(
     Ok(())
 }
 
-pub(super) fn check_text_input_icon(
+pub(in crate::check) fn check_text_input_icon(
     icon: Option<&TextInputIcon>,
     env: &HashMap<String, Type>,
     document: &Document,
@@ -674,7 +714,7 @@ pub(super) fn check_text_input_icon(
     Ok(())
 }
 
-pub(super) fn check_text_input_styles(
+pub(in crate::check) fn check_text_input_styles(
     styles: &TextInputStyleSet,
     env: &HashMap<String, Type>,
     document: &Document,
@@ -713,7 +753,7 @@ pub(super) fn check_text_input_styles(
     Ok(())
 }
 
-pub(super) fn check_scroll_styles(
+pub(in crate::check) fn check_scroll_styles(
     styles: &[ScrollStatusStyle],
     env: &HashMap<String, Type>,
     document: &Document,
@@ -745,7 +785,7 @@ pub(super) fn check_scroll_styles(
     Ok(())
 }
 
-pub(super) fn check_slider_styles(
+pub(in crate::check) fn check_slider_styles(
     styles: &SliderStyleSet,
     env: &HashMap<String, Type>,
     document: &Document,
@@ -822,7 +862,7 @@ pub(super) fn check_slider_styles(
     Ok(())
 }
 
-pub(super) fn check_text_options(
+pub(in crate::check) fn check_text_options(
     options: &TextOptions,
     env: &HashMap<String, Type>,
     document: &Document,
@@ -834,10 +874,7 @@ pub(super) fn check_text_options(
         check_call_args(function, &style.args, env, document, span)?;
     }
     for length in [&options.width, &options.height].into_iter().flatten() {
-        if let LengthValue::Fixed(value) = length {
-            require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-            require_literal_range(value, 0.0, None, "text bounds", span)?;
-        }
+        check_length_value(length, env, document, span, "text bounds")?;
     }
     for (value, label) in [
         (options.size.as_ref(), "text size"),

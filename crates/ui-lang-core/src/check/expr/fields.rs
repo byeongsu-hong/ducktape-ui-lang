@@ -18,6 +18,19 @@ pub(in crate::check) fn contains_mouse_click(ty: &Type) -> bool {
     }
 }
 
+pub(in crate::check) fn contains_window_screenshot(ty: &Type) -> bool {
+    match ty {
+        Type::WindowScreenshot => true,
+        Type::List(inner) | Type::Option(inner) | Type::Combo(inner) => {
+            contains_window_screenshot(inner)
+        }
+        Type::Result(output, error) => {
+            contains_window_screenshot(output) || contains_window_screenshot(error)
+        }
+        _ => false,
+    }
+}
+
 pub(in crate::check) fn field_type(
     ty: &Type,
     field: &str,
@@ -107,6 +120,145 @@ pub(in crate::check) fn field_type(
             "display" => Some(Type::Str),
             _ => None,
         },
+        Type::Rotation => match field {
+            "radians" => Some(Type::Radians),
+            "degrees" => Some(Type::Degrees),
+            "kind" => Some(Type::Str),
+            _ => None,
+        },
+        Type::ContentFit => match field {
+            "kind" | "display" => Some(Type::Str),
+            _ => None,
+        },
+        Type::Color => match field {
+            "r" | "g" | "b" | "a" | "luminance" => Some(Type::F64),
+            "rgba8" => Some(Type::List(Box::new(Type::I64))),
+            "linear" => Some(Type::List(Box::new(Type::F64))),
+            "display" => Some(Type::Str),
+            _ => None,
+        },
+        Type::Background => match field {
+            "kind" => Some(Type::Str),
+            "color" => Some(Type::Option(Box::new(Type::Color))),
+            "gradient" => Some(Type::Option(Box::new(Type::Gradient))),
+            _ => None,
+        },
+        Type::Gradient => match field {
+            "kind" => Some(Type::Str),
+            "linear" => Some(Type::LinearGradient),
+            _ => None,
+        },
+        Type::LinearGradient => match field {
+            "angle" => Some(Type::Radians),
+            "stops" => Some(Type::List(Box::new(Type::Option(Box::new(
+                Type::ColorStop,
+            ))))),
+            _ => None,
+        },
+        Type::ColorStop => match field {
+            "offset" => Some(Type::F64),
+            "color" => Some(Type::Color),
+            _ => None,
+        },
+        Type::Font => match field {
+            "family" => Some(Type::FontFamily),
+            "weight" => Some(Type::FontWeight),
+            "stretch" => Some(Type::FontStretch),
+            "style" => Some(Type::FontStyle),
+            _ => None,
+        },
+        Type::FontFamily => match field {
+            "kind" => Some(Type::Str),
+            "name" => Some(Type::Option(Box::new(Type::Str))),
+            _ => None,
+        },
+        Type::FontWeight | Type::FontStretch | Type::FontStyle => match field {
+            "kind" => Some(Type::Str),
+            _ => None,
+        },
+        Type::ThemeMode => match field {
+            "kind" => Some(Type::Str),
+            _ => None,
+        },
+        Type::TextAlignment | Type::TextShaping | Type::TextWrapping => match field {
+            "kind" => Some(Type::Str),
+            _ => None,
+        },
+        Type::TextLineHeight => match field {
+            "kind" => Some(Type::Str),
+            "relative" => Some(Type::Option(Box::new(Type::F64))),
+            "absolute" => Some(Type::Option(Box::new(Type::Pixels))),
+            _ => None,
+        },
+        Type::MouseInteraction => match field {
+            "kind" => Some(Type::Str),
+            _ => None,
+        },
+        Type::ScrollDelta => match field {
+            "kind" => Some(Type::Str),
+            "x" | "y" => Some(Type::F64),
+            _ => None,
+        },
+        Type::EventStatus => match field {
+            "kind" => Some(Type::Str),
+            _ => None,
+        },
+        Type::RedrawRequest => match field {
+            "kind" => Some(Type::Str),
+            "instant" => Some(Type::Option(Box::new(Type::Instant))),
+            _ => None,
+        },
+        Type::WindowId => match field {
+            "display" => Some(Type::Str),
+            _ => None,
+        },
+        Type::WindowScreenshot => match field {
+            "rgba" => Some(Type::Bytes),
+            "size" => Some(Type::SizeU32),
+            "scale_factor" => Some(Type::F64),
+            "debug" => Some(Type::Str),
+            _ => None,
+        },
+        Type::WindowPosition => match field {
+            "kind" => Some(Type::Str),
+            "point" => Some(Type::Option(Box::new(Type::Point))),
+            _ => None,
+        },
+        Type::WindowDirection | Type::WindowLevel | Type::WindowMode | Type::WindowAttention => {
+            match field {
+                "kind" => Some(Type::Str),
+                _ => None,
+            }
+        }
+        Type::Length => match field {
+            "fill_factor" => Some(Type::I64),
+            "is_fill" => Some(Type::Bool),
+            "kind" => Some(Type::Str),
+            "portion" => Some(Type::Option(Box::new(Type::I64))),
+            "fixed" => Some(Type::Option(Box::new(Type::F64))),
+            _ => None,
+        },
+        Type::Alignment | Type::HorizontalAlignment | Type::VerticalAlignment => match field {
+            "kind" => Some(Type::Str),
+            _ => None,
+        },
+        Type::Border => match field {
+            "color" => Some(Type::Color),
+            "width" => Some(Type::F64),
+            "radius" => Some(Type::Radius),
+            _ => None,
+        },
+        Type::Radius => match field {
+            "top_left" | "top_right" | "bottom_right" | "bottom_left" => Some(Type::F64),
+            "values" => Some(Type::List(Box::new(Type::F64))),
+            _ => None,
+        },
+        Type::Shadow => match field {
+            "color" => Some(Type::Color),
+            "offset" => Some(Type::Vector),
+            "blur" => Some(Type::F64),
+            _ => None,
+        },
         Type::Point => match field {
             "x" | "y" => Some(Type::F64),
             "values" => Some(Type::List(Box::new(Type::F64))),
@@ -125,6 +277,10 @@ pub(in crate::check) fn field_type(
         Type::Size => match field {
             "width" | "height" => Some(Type::F64),
             "values" => Some(Type::List(Box::new(Type::F64))),
+            _ => None,
+        },
+        Type::SizeU32 => match field {
+            "width" | "height" => Some(Type::I64),
             _ => None,
         },
         Type::Rectangle => match field {
@@ -171,6 +327,15 @@ pub(in crate::check) fn field_type(
             "cpu_brand" | "graphics_backend" | "graphics_adapter" => Some(Type::Str),
             "cpu_cores" | "memory_used" => Some(Type::Option(Box::new(Type::I64))),
             "memory_total" => Some(Type::I64),
+            _ => None,
+        },
+        Type::ImageAllocation => match field {
+            "handle" => Some(Type::Image),
+            "size" => Some(Type::SizeU32),
+            _ => None,
+        },
+        Type::ImageError => match field {
+            "kind" | "message" => Some(Type::Str),
             _ => None,
         },
         Type::WidgetTarget => match field {

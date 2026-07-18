@@ -1,6 +1,6 @@
 use super::*;
 
-pub(super) fn generate_keyboard_types(out: &mut String, document: &Document) {
+pub(in crate::codegen) fn generate_keyboard_types(out: &mut String, document: &Document) {
     if !document
         .subscriptions
         .iter()
@@ -34,7 +34,7 @@ struct __IceKeyRelease {
     );
 }
 
-pub(super) fn generate_system_types(out: &mut String, document: &Document) {
+pub(in crate::codegen) fn generate_system_types(out: &mut String, document: &Document) {
     let information = uses_system_task(document, "__ice_system_info");
     let theme = uses_system_task(document, "__ice_system_theme")
         || document
@@ -88,7 +88,7 @@ fn __ice_system_info(value: ::iced::system::Information) -> __IceSystemInfo {
     }
 }
 
-pub(super) fn generate_widget_selector_types(out: &mut String, document: &Document) {
+pub(in crate::codegen) fn generate_widget_selector_types(out: &mut String, document: &Document) {
     let uses_builtin = |statements: &[Statement]| {
         statements_use_widget_selector(statements, |selector| {
             !matches!(selector, WidgetSelector::Extern { .. })
@@ -177,7 +177,7 @@ fn __ice_widget_target_from_text(value: ::iced::widget::selector::Text) -> __Ice
     );
 }
 
-fn statements_use_widget_selector(
+pub(in crate::codegen) fn statements_use_widget_selector(
     statements: &[Statement],
     predicate: impl Copy + Fn(&WidgetSelector) -> bool,
 ) -> bool {
@@ -196,7 +196,7 @@ fn statements_use_widget_selector(
     })
 }
 
-pub(super) fn generate_canvas_types(out: &mut String, document: &Document) {
+pub(in crate::codegen) fn generate_canvas_types(out: &mut String, document: &Document) {
     if !uses_canvas(document) {
         return;
     }
@@ -305,14 +305,14 @@ fn __ice_canvas_interaction(value: &str) -> ::iced::mouse::Interaction {
     }
 }
 
-fn uses_system_task(document: &Document, name: &str) -> bool {
+pub(in crate::codegen) fn uses_system_task(document: &Document, name: &str) -> bool {
     document
         .handlers
         .iter()
         .any(|handler| statements_use_system_task(&handler.statements, name))
 }
 
-fn statements_use_system_task(statements: &[Statement], name: &str) -> bool {
+pub(in crate::codegen) fn statements_use_system_task(statements: &[Statement], name: &str) -> bool {
     statements.iter().any(|statement| match statement {
         Statement::Run {
             kind: EffectKind::Task,
@@ -341,6 +341,15 @@ fn statements_use_system_task(statements: &[Statement], name: &str) -> bool {
     })
 }
 
-fn task_source_uses_system(source: &TaskSource, name: &str) -> bool {
+pub(in crate::codegen) fn task_source_uses_system(source: &TaskSource, name: &str) -> bool {
     matches!(source, TaskSource::Effect { function, .. } if function == name)
+}
+
+pub(in crate::codegen) fn borrowed_type(ty: &Type, document: &Document) -> String {
+    match ty {
+        Type::Str => "&'a str".into(),
+        Type::Bytes => "&'a [u8]".into(),
+        Type::List(inner) => format!("&'a [{}]", inner.rust(&document.structs)),
+        _ => format!("&'a {}", ty.rust(&document.structs)),
+    }
 }

@@ -2,16 +2,6 @@ use crate::Error;
 use crate::ast::*;
 use std::collections::BTreeMap;
 
-mod canvas;
-mod controls;
-mod statement;
-mod view;
-
-use canvas::*;
-use controls::*;
-use statement::*;
-use view::*;
-
 #[derive(Clone, Debug)]
 struct Line {
     number: usize,
@@ -23,6 +13,7 @@ struct Line {
 pub fn parse(source: &str) -> Result<Document, Error> {
     let lines = line_tree(source)?;
     let mut app = None;
+    let mut daemon = false;
     let mut settings = AppSettings::default();
     let mut presets = Vec::new();
     let mut extern_path = None;
@@ -38,11 +29,31 @@ pub fn parse(source: &str) -> Result<Document, Error> {
     let mut view = None;
 
     for line in &lines {
-        if let Some(name) = line.text.strip_prefix("app ") {
+        let root = line
+            .text
+            .strip_prefix("app ")
+            .map(|name| (name, false))
+            .or_else(|| line.text.strip_prefix("daemon ").map(|name| (name, true)));
+        if let Some((name, is_daemon)) = root {
             if app.replace(identifier(name.trim(), line)?).is_some() {
-                return Err(error("E002", line, "an app may only be declared once"));
+                return Err(error(
+                    "E002",
+                    line,
+                    "an app or daemon may only be declared once",
+                ));
             }
             settings = parse_app_settings(line)?;
+            if is_daemon
+                && let Some(window) = line.children.iter().find(|item| item.text == "window")
+            {
+                return Err(error(
+                    "E014",
+                    window,
+                    "a daemon has no initial window",
+                )
+                .hint("declare a named `window name` and open it with `task window open name -> handler _`"));
+            }
+            daemon = is_daemon;
         } else if let Some(name) = line.text.strip_prefix("preset ") {
             presets.push(parse_preset(name.trim(), line)?);
         } else if let Some(path) = line.text.strip_prefix("extern ") {
@@ -219,6 +230,13 @@ pub fn parse(source: &str) -> Result<Document, Error> {
                         &path,
                         ExternKind::MenuStyle,
                     )?);
+                } else if let Some(source) = item.text.strip_prefix("pane-grid-style ") {
+                    functions.push(parse_extern_fn(
+                        &format!("{source} -> unit"),
+                        item,
+                        &path,
+                        ExternKind::PaneGridStyle,
+                    )?);
                 } else if item.text.chars().next().is_some_and(char::is_uppercase) {
                     structs.push(parse_extern_struct(item, &path)?);
                 } else {
@@ -294,7 +312,14 @@ pub fn parse(source: &str) -> Result<Document, Error> {
 
     let span = Span::line(1);
     Ok(Document {
-        app: app.ok_or_else(|| Error::new("E006", &span, "missing `app Name` declaration"))?,
+        app: app.ok_or_else(|| {
+            Error::new(
+                "E006",
+                &span,
+                "missing `app Name` or `daemon Name` declaration",
+            )
+        })?,
+        daemon,
         settings,
         presets,
         extern_path,
@@ -311,15 +336,23 @@ pub fn parse(source: &str) -> Result<Document, Error> {
     })
 }
 
+mod canvas;
+mod controls;
 mod declarations;
 mod expression;
 mod settings;
+mod statement;
 mod syntax;
+mod view;
 
+use canvas::*;
+use controls::*;
 use declarations::*;
 use expression::*;
 use settings::*;
+use statement::*;
 use syntax::*;
+use view::*;
 
 #[cfg(test)]
 #[path = "parser/tests.rs"]

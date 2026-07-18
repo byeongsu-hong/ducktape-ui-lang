@@ -1,5 +1,25 @@
+#[cfg(test)]
 pub type SliderNumber = f32;
 
+#[cfg(test)]
+pub type AppRenderer = iced::Renderer;
+
+#[cfg(test)]
+pub fn daemon_title(_: iced::window::Id) -> String {
+    "Background agent".into()
+}
+
+#[cfg(test)]
+pub fn daemon_theme(_: iced::window::Id) -> iced::Theme {
+    iced::Theme::Dark
+}
+
+#[cfg(test)]
+pub fn daemon_scale(_: iced::window::Id) -> f64 {
+    1.0
+}
+
+#[cfg(test)]
 pub fn keyboard_value(
     key: iced::keyboard::Key,
     _: iced::keyboard::key::Physical,
@@ -9,6 +29,7 @@ pub fn keyboard_value(
     key
 }
 
+#[cfg(test)]
 pub fn pointer_click(
     click: iced::advanced::mouse::Click,
     _: iced::mouse::Cursor,
@@ -20,6 +41,7 @@ pub fn pointer_click(
     click
 }
 
+#[cfg(test)]
 pub fn transformation_round_trip(
     value: iced::Transformation,
     _: iced::Vector,
@@ -28,6 +50,7 @@ pub fn transformation_round_trip(
     value
 }
 
+#[cfg(test)]
 pub fn exact_rectangle() -> iced::Rectangle<u32> {
     iced::Rectangle {
         x: 1,
@@ -37,6 +60,7 @@ pub fn exact_rectangle() -> iced::Rectangle<u32> {
     }
 }
 
+#[cfg(test)]
 pub fn geometry_round_trip(
     _: iced::Point,
     _: iced::Point<u32>,
@@ -48,6 +72,7 @@ pub fn geometry_round_trip(
     bounds
 }
 
+#[cfg(test)]
 pub fn unit_round_trip(
     _: iced::Pixels,
     padding: iced::Padding,
@@ -57,6 +82,99 @@ pub fn unit_round_trip(
     padding
 }
 
+#[cfg(test)]
+pub use crate::alignment::{alignment_round_trip, horizontal_round_trip, vertical_round_trip};
+
+#[cfg(test)]
+pub use crate::background_gradient::{
+    background_round_trip, color_stop_round_trip, gradient_round_trip, linear_round_trip,
+};
+
+#[cfg(test)]
+pub use crate::border_radius::{border_round_trip, radius_round_trip};
+
+#[cfg(test)]
+pub use crate::color::color_round_trip;
+
+#[cfg(test)]
+pub use crate::content_fit::content_fit_round_trip;
+
+#[cfg(test)]
+pub use crate::event_status::status_round_trip;
+
+#[cfg(test)]
+pub use crate::font_values::{
+    family_round_trip, font_round_trip, stretch_round_trip, style_round_trip, weight_round_trip,
+};
+
+#[cfg(test)]
+pub use crate::length::length_round_trip;
+
+#[cfg(test)]
+pub use crate::mouse_interaction::interaction_round_trip;
+
+#[cfg(test)]
+pub use crate::redraw_request::{redraw_now, redraw_round_trip};
+
+#[cfg(test)]
+pub use crate::rotation::rotation_round_trip;
+
+#[cfg(test)]
+pub use crate::scroll_delta::scroll_delta_round_trip;
+
+#[cfg(test)]
+pub use crate::shadow::shadow_round_trip;
+
+#[cfg(test)]
+pub use crate::theme_mode::theme_mode_round_trip;
+
+#[cfg(test)]
+pub use crate::text_values::{
+    text_alignment_round_trip, text_line_height_round_trip, text_shaping_round_trip,
+    text_wrapping_round_trip,
+};
+
+#[cfg(test)]
+pub use crate::window_id::window_id_round_trip;
+
+#[cfg(test)]
+pub use crate::window_screenshot::{
+    screenshot_crop_region, screenshot_outside_region, screenshot_round_trip, screenshot_sample,
+    screenshot_size, screenshot_zero_region,
+};
+
+#[cfg(test)]
+pub use crate::window_values::{
+    attention_round_trip, direction_round_trip, level_round_trip, mode_round_trip,
+};
+
+#[cfg(test)]
+pub use crate::window_position::{position_round_trip, responsive_position};
+
+#[cfg(test)]
+pub fn elastic(value: f64) -> f64 {
+    value
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Motion {
+    pub value: f64,
+}
+
+#[cfg(test)]
+impl iced::animation::Float for Motion {
+    fn float_value(&self) -> f32 {
+        self.value as f32
+    }
+}
+
+#[cfg(test)]
+pub fn motion(value: f64) -> Motion {
+    Motion { value }
+}
+
+#[cfg(test)]
 pub fn native_theme(dark: bool) -> iced::Theme {
     let palette = if dark {
         iced::theme::Palette::DARK
@@ -78,11 +196,13 @@ pub fn native_theme(dark: bool) -> iced::Theme {
     )
 }
 
+#[cfg(test)]
 #[derive(Clone)]
 pub struct AlternateTheme {
     active: bool,
 }
 
+#[cfg(test)]
 impl iced::theme::Base for AlternateTheme {
     fn default(preference: iced::theme::Mode) -> Self {
         Self {
@@ -126,6 +246,7 @@ impl iced::theme::Base for AlternateTheme {
     }
 }
 
+#[cfg(test)]
 #[allow(clippy::type_complexity)]
 pub fn alternate_panel(
     active: bool,
@@ -150,6 +271,55 @@ pub fn alternate_panel(
     )
 }
 
-pub fn slider_number(value: f64) -> SliderNumber {
-    value as SliderNumber
+#[cfg(test)]
+#[derive(Clone, Debug, PartialEq)]
+pub struct NetworkError {
+    pub message: String,
+}
+
+#[cfg(test)]
+#[derive(Clone, Debug, PartialEq)]
+pub struct EditorCommand {
+    pub save: bool,
+}
+
+#[cfg(test)]
+#[derive(Debug)]
+pub struct DemoHighlighter {
+    token: String,
+    line: usize,
+}
+
+#[cfg(test)]
+impl iced::advanced::text::Highlighter for DemoHighlighter {
+    type Settings = String;
+    type Highlight = ();
+    type Iterator<'a> = std::option::IntoIter<(std::ops::Range<usize>, ())>;
+
+    fn new(settings: &Self::Settings) -> Self {
+        Self {
+            token: settings.clone(),
+            line: 0,
+        }
+    }
+
+    fn update(&mut self, settings: &Self::Settings) {
+        self.token.clone_from(settings);
+        self.line = 0;
+    }
+
+    fn change_line(&mut self, line: usize) {
+        self.line = line;
+    }
+
+    fn highlight_line(&mut self, line: &str) -> Self::Iterator<'_> {
+        self.line += 1;
+        line.find(&self.token)
+            .map(|start| (start..start + self.token.len(), ()))
+            .into_iter()
+    }
+
+    fn current_line(&self) -> usize {
+        self.line
+    }
 }

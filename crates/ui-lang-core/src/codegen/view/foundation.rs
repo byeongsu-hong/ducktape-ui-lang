@@ -38,8 +38,11 @@ pub(in crate::codegen) fn render_foundation(
             name,
             options,
             panes,
+            templates,
             ..
-        } => render_pane_grid(name, options, panes, document, message, env, scope, slot),
+        } => render_pane_grid(
+            name, options, panes, templates, document, message, env, scope, slot,
+        ),
         ViewNode::Text {
             value,
             options,

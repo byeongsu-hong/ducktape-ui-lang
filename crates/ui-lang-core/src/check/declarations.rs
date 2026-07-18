@@ -1,42 +1,77 @@
 use super::*;
 
-pub(super) fn check_declared_types(document: &Document) -> Result<(), Error> {
+pub(in crate::check) fn check_declared_types(document: &Document) -> Result<(), Error> {
     let known = document
         .structs
         .iter()
         .map(|item| item.name.as_str())
         .collect::<HashSet<_>>();
     let check = |ty: &Type, span: &Span| check_declared_type(ty, span, &known);
+    let reject_debug_span = |ty: &Type, span: &Span| {
+        if contains_debug_span(ty) {
+            Err(Error::new(
+                "E103",
+                span,
+                "debug-span is non-clone state and must be declared as `debug-span?` state",
+            ))
+        } else {
+            Ok(())
+        }
+    };
 
     for item in &document.structs {
         for (_, ty) in &item.fields {
+            reject_debug_span(ty, &item.span)?;
             check(ty, &item.span)?;
         }
     }
     for item in &document.functions {
         for (_, ty) in &item.params {
+            reject_debug_span(ty, &item.span)?;
             check(ty, &item.span)?;
         }
         if let Some(progress) = &item.progress {
+            reject_debug_span(progress, &item.span)?;
             check(progress, &item.span)?;
         }
+        reject_debug_span(&item.output, &item.span)?;
         check(&item.output, &item.span)?;
         if let Some(error) = &item.error {
+            reject_debug_span(error, &item.span)?;
             check(error, &item.span)?;
         }
     }
     for state in &document.states {
+        if contains_debug_span(&state.ty) && state.ty != Type::Option(Box::new(Type::DebugSpan)) {
+            return Err(Error::new(
+                "E103",
+                &state.span,
+                "debug span state must have type `debug-span?`",
+            ));
+        }
         check(&state.ty, &state.span)?;
     }
     for component in &document.components {
         for (_, ty) in &component.params {
+            reject_debug_span(ty, &component.span)?;
             check(ty, &component.span)?;
         }
     }
     Ok(())
 }
 
-pub(super) fn check_declared_type(
+pub(in crate::check) fn contains_debug_span(ty: &Type) -> bool {
+    match ty {
+        Type::DebugSpan => true,
+        Type::List(inner) | Type::Option(inner) | Type::Combo(inner) | Type::Animation(inner) => {
+            contains_debug_span(inner)
+        }
+        Type::Result(output, error) => contains_debug_span(output) || contains_debug_span(error),
+        _ => false,
+    }
+}
+
+pub(in crate::check) fn check_declared_type(
     ty: &Type,
     span: &Span,
     known: &HashSet<&str>,
@@ -49,6 +84,18 @@ pub(super) fn check_declared_type(
             check_declared_type(output, span, known)?;
             check_declared_type(error, span, known)
         }
+        Type::Animation(inner) if matches!(inner.as_ref(), Type::Bool | Type::F64) => Ok(()),
+        Type::Animation(inner) if matches!(inner.as_ref(), Type::Named(_)) => {
+            check_declared_type(inner, span, known)
+        }
+        Type::Animation(inner) => Err(Error::new(
+            "E103",
+            span,
+            format!(
+                "animation state supports `bool`, `f64`, or a named extern type, not `{}`",
+                inner.display()
+            ),
+        )),
         Type::Named(name) if !known.contains(name.as_str()) => {
             Err(
                 Error::new("E103", span, format!("unknown extern type `{name}`")).hint(format!(
@@ -60,7 +107,7 @@ pub(super) fn check_declared_type(
     }
 }
 
-pub(super) fn check_unique(document: &Document) -> Result<(), Error> {
+pub(in crate::check) fn check_unique(document: &Document) -> Result<(), Error> {
     let mut names = HashSet::new();
     for item in &document.structs {
         if !names.insert(("struct", item.name.as_str())) {
@@ -111,6 +158,12 @@ pub(super) fn check_unique(document: &Document) -> Result<(), Error> {
         }
     }
     for state in &document.states {
+        if document.daemon && state.name == "window" {
+            return Err(
+                Error::new("E100", &state.span, "daemon state cannot be named `window`")
+                    .hint("`window` is the current window-id inside daemon views and callbacks"),
+            );
+        }
         if !fields.insert(&state.name) {
             return Err(Error::new(
                 "E100",
@@ -152,7 +205,7 @@ pub(super) fn check_unique(document: &Document) -> Result<(), Error> {
     Ok(())
 }
 
-pub(super) fn check_fonts(document: &Document) -> Result<(), Error> {
+pub(in crate::check) fn check_fonts(document: &Document) -> Result<(), Error> {
     let mut names = HashSet::new();
     let mut default = None;
     for font in &document.fonts {
@@ -174,7 +227,7 @@ pub(super) fn check_fonts(document: &Document) -> Result<(), Error> {
     Ok(())
 }
 
-pub(super) fn check_font(
+pub(in crate::check) fn check_font(
     font: Option<&FontPreset>,
     document: &Document,
     span: &Span,
@@ -188,7 +241,7 @@ pub(super) fn check_font(
     Ok(())
 }
 
-pub(super) fn check_slots(document: &Document) -> Result<(), Error> {
+pub(in crate::check) fn check_slots(document: &Document) -> Result<(), Error> {
     let view_slots = slots(&document.view);
     if let Some((_, span)) = view_slots.first() {
         return Err(Error::new(
@@ -215,7 +268,7 @@ pub(super) fn check_slots(document: &Document) -> Result<(), Error> {
     Ok(())
 }
 
-pub(super) fn slots(node: &ViewNode) -> Vec<(&str, &Span)> {
+pub(in crate::check) fn slots(node: &ViewNode) -> Vec<(&str, &Span)> {
     fn collect<'a>(node: &'a ViewNode, output: &mut Vec<(&'a str, &'a Span)>) {
         match node {
             ViewNode::Slot { name, span } => output.push((name, span)),
@@ -245,6 +298,17 @@ pub(super) fn slots(node: &ViewNode) -> Vec<(&str, &Span)> {
             ViewNode::Overlay { content, layer, .. } => {
                 collect(content, output);
                 collect(layer, output);
+            }
+            ViewNode::PaneGrid {
+                panes, templates, ..
+            } => {
+                for child in panes
+                    .iter()
+                    .flat_map(PaneView::nodes)
+                    .chain(templates.iter().flat_map(|template| template.pane.nodes()))
+                {
+                    collect(child, output);
+                }
             }
             ViewNode::Table { columns, .. } => {
                 for column in columns {

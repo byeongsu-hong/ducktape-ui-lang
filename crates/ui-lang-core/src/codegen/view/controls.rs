@@ -34,7 +34,7 @@ pub(in crate::codegen) fn render_controls(
                 )
             };
             let mut code = format!(
-                "{{ let __button_content: ::iced::Element<'_, {message}> = {content}; ::iced::widget::button(__button_content)"
+                "{{ let __button_content: __IceElement<'_, {message}> = {content}; ::iced::widget::button(__button_content)"
             );
             if let Some(padding) = style.padding_code() {
                 write!(code, ".padding({padding})").unwrap();

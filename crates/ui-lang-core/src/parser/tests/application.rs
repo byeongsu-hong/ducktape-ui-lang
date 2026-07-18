@@ -11,6 +11,7 @@ fn parses_checked_application_and_window_settings() {
   text-color "#abcdef"
   id "dev.example.demo"
   executor iced::executor::Default
+  renderer crate::backend::Renderer
   font "assets/Brand.ttf"
   font "assets/Icons.otf"
   default-text-size 15
@@ -51,6 +52,10 @@ fn parses_checked_application_and_window_settings() {
     assert_eq!(
         document.settings.executor.as_deref(),
         Some("iced::executor::Default")
+    );
+    assert_eq!(
+        document.settings.renderer.as_deref(),
+        Some("crate::backend::Renderer")
     );
     assert!(matches!(
         document

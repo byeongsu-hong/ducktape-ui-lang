@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 #[derive(Clone, Debug)]
 pub struct Document {
     pub app: String,
+    pub daemon: bool,
     pub settings: AppSettings,
     pub presets: Vec<Preset>,
     pub extern_path: Option<String>,
@@ -34,6 +35,7 @@ pub struct AppSettings {
     pub text_color: Option<AppExpression>,
     pub id: Option<String>,
     pub executor: Option<String>,
+    pub renderer: Option<String>,
     pub fonts: Vec<FontAsset>,
     pub default_text_size: Option<f64>,
     pub antialiasing: Option<bool>,
@@ -239,6 +241,7 @@ pub struct ExternFn {
     pub name: String,
     pub rust_path: String,
     pub params: Vec<(String, Type)>,
+    pub borrowed: Vec<bool>,
     pub progress: Option<Type>,
     pub output: Type,
     pub error: Option<Type>,
@@ -278,6 +281,7 @@ pub enum ExternKind {
     ScrollStyle,
     PickListStyle,
     MenuStyle,
+    PaneGridStyle,
 }
 
 #[derive(Clone, Debug)]

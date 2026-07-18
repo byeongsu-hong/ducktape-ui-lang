@@ -1,3 +1,14 @@
+#[cfg(test)]
+mod font_events {
+    ui_lang::include_app!("src/ui/font_events.ice");
+}
+
+#[cfg(test)]
+mod task_groups {
+    ui_lang::include_app!("src/ui/task_groups.ice");
+}
+
+#[cfg(test)]
 mod task_cancel {
     ui_lang::include_app!("src/ui/task_cancel.ice");
 
@@ -13,6 +24,7 @@ mod task_cancel {
     }
 }
 
+#[cfg(test)]
 mod task_stream {
     ui_lang::include_app!("src/ui/task_stream.ice");
 
@@ -24,6 +36,7 @@ mod task_stream {
     }
 }
 
+#[cfg(test)]
 mod task_sip {
     ui_lang::include_app!("src/ui/task_sip.ice");
 
@@ -34,6 +47,7 @@ mod task_sip {
     }
 }
 
+#[cfg(test)]
 mod task_flow {
     ui_lang::include_app!("src/ui/task_flow.ice");
 
@@ -44,6 +58,7 @@ mod task_flow {
     }
 }
 
+#[cfg(test)]
 mod task_map {
     ui_lang::include_app!("src/ui/task_map.ice");
 
@@ -74,6 +89,7 @@ mod task_map {
     }
 }
 
+#[cfg(test)]
 mod theme_factory {
     ui_lang::include_app!("src/ui/theme_factory.ice");
 
@@ -94,6 +110,7 @@ mod theme_factory {
     }
 }
 
+#[cfg(test)]
 mod alternate_theme {
     ui_lang::include_app!("src/ui/alternate_theme.ice");
 
@@ -114,6 +131,23 @@ mod alternate_theme {
     }
 }
 
+#[cfg(test)]
+mod native_overlay {
+    ui_lang::include_app!("src/ui/native_overlay.ice");
+
+    #[test]
+    fn constructs_a_custom_indexed_overlay() {
+        let (app, _) = NativeOverlay::__boot();
+        let overlay = crate::backend::IndexedOverlay { index: 42.0 };
+        assert_eq!(
+            iced::advanced::Overlay::<(), iced::Theme, iced::Renderer>::index(&overlay),
+            42.0
+        );
+        let _ = app.__view();
+    }
+}
+
+#[cfg(test)]
 mod timer {
     ui_lang::include_app!("src/ui/timer.ice");
 
@@ -125,11 +159,121 @@ mod timer {
     }
 }
 
+#[cfg(test)]
+mod animation {
+    ui_lang::include_app!("src/ui/animation.ice");
+
+    #[test]
+    fn drives_native_animations_only_while_active() {
+        let (mut app, _) = NativeAnimation::__boot();
+        assert_eq!(app.__subscription().units(), 0);
+
+        let _ = app.__update(__NativeAnimationMessage::Start);
+        assert!(app.expanded.value());
+        assert_eq!(app.progress.value(), 1.0);
+        assert_eq!(app.custom_motion.value().value, 1.0);
+        assert_eq!(app.__subscription().units(), 1);
+        let _ = app.__view();
+
+        let _ = app.__update(__NativeAnimationMessage::Sample);
+        assert!(app.maybe_progress.is_some());
+        assert!(app.maybe_visibility.is_none());
+        let _ = app.__update(__NativeAnimationMessage::Rewind(iced::time::Instant::now()));
+        assert_eq!(app.progress.value(), 0.0);
+        assert_eq!(
+            app.__update(__NativeAnimationMessage::__AnimationFrame)
+                .units(),
+            0
+        );
+    }
+}
+
+#[cfg(test)]
+mod image_allocation {
+    ui_lang::include_app!("src/ui/image_allocation.ice");
+
+    #[test]
+    fn constructs_native_allocation_and_preserves_exact_errors() {
+        use iced::futures::StreamExt;
+
+        let (mut app, _) = ImageAllocation::__boot();
+        let task = app.__update(__ImageAllocationMessage::Allocate);
+        assert_eq!(task.units(), 1);
+        let mut stream = iced_runtime::task::into_stream(task).unwrap();
+        let message = iced::futures::executor::block_on(async move {
+            let iced_runtime::Action::Image(iced_runtime::image::Action::Allocate(_, sender)) =
+                stream.next().await.unwrap()
+            else {
+                panic!("expected native image allocation action")
+            };
+            sender
+                .send(Err(iced::widget::image::Error::Unsupported))
+                .unwrap();
+            let iced_runtime::Action::Output(message) = stream.next().await.unwrap() else {
+                panic!("expected routed allocation error")
+            };
+            message
+        });
+        assert_eq!(
+            app.__update(__ImageAllocationMessage::AllocateFlow).units(),
+            1
+        );
+        let _ = app.__update(message);
+        assert_eq!(app.error_kind, "unsupported");
+        assert_eq!(app.error_message, "loading images is unsupported");
+        assert!(matches!(
+            app.failure,
+            Some(iced::widget::image::Error::Unsupported)
+        ));
+        let _ = app.__view();
+    }
+}
+
+#[cfg(test)]
+mod debug_timing {
+    ui_lang::include_app!("src/ui/debug_timing.ice");
+
+    #[test]
+    fn owns_and_finishes_native_debug_spans() {
+        let (mut app, _) = DebugTiming::__boot();
+        assert!(app.timer.is_none());
+
+        let _ = app.__update(__DebugTimingMessage::Begin);
+        assert!(app.timer.is_some());
+        let _ = app.__update(__DebugTimingMessage::Begin);
+        assert!(app.timer.is_some());
+
+        let _ = app.__update(__DebugTimingMessage::Finish);
+        assert!(app.timer.is_none());
+        let _ = app.__update(__DebugTimingMessage::Compute);
+        assert_eq!(app.measured, 42);
+        let _ = app.__view();
+    }
+}
+
+#[cfg(test)]
 mod canvas_events {
     ui_lang::include_app!("src/ui/canvas_events.ice");
 
     #[test]
     fn initializes() {
         let _ = CanvasEvents::__boot();
+    }
+}
+
+#[cfg(test)]
+mod daemon {
+    ui_lang::include_app!("src/ui/daemon.ice");
+
+    #[test]
+    fn constructs_window_open_and_exit_tasks() {
+        let (mut app, open) = BackgroundAgent::__boot();
+        let window = iced::window::Id::unique();
+        assert_eq!(open.units(), 1);
+        assert_eq!(app.__title(window), "Background agent");
+        assert_eq!(app.__theme(window), iced::Theme::Dark);
+        assert_eq!(app.__scale_factor(window), 1.0);
+        let _ = app.__view(window);
+        assert_eq!(app.__update(__BackgroundAgentMessage::Quit).units(), 1);
     }
 }

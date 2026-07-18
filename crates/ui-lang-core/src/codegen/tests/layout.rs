@@ -1,157 +1,6 @@
 use super::*;
 
 #[test]
-fn lowers_complex_native_controls() {
-    let source = r#"app Controls
-extern crate::backend
-  SliderNumber()
-  sync slider_number(value:f64) -> SliderNumber
-  slider-style dynamic_slider(active:bool)
-  progress-style dynamic_progress(active:bool)
-  radio-style dynamic_radio(highlight:bool)
-theme
-  background #000000
-  foreground #ffffff
-  primary #333333
-  danger #ff0000
-state
-  amount = 50.0
-  precise:SliderNumber = slider_number(50.0)
-  enabled = false
-  choice = "first"
-on amount_changed(next)
-  amount = next
-on precise_changed(next)
-  precise = next
-on released
-on enabled_changed(next)
-  enabled = next
-on choice_changed(next)
-  choice = next
-view
-  col
-    grid columns=2 width=640.0 spacing=12.0 height=aspect(16.0,9.0) @gap-2
-      toggler "Enabled" checked=enabled -> enabled_changed _
-      slider amount min=0.0 max=100.0 step=0.5 default=50.0 shift-step=0.1 vertical width=20.0 height=fill(2) style=dynamic_slider(enabled) release=released -> amount_changed _
-        active rail-start=linear(0.0, primary@0.0, danger@1.0) rail-end=linear(1.57, background@0.0, primary/25@1.0) rail-width=4.0 rail-border=transparent rail-border-width=1.0 rail-radius=2.0 rail-radius-tl=1.0 handle=circle(7.0) handle-color=linear(0.785, primary@0.0, foreground@1.0) handle-border=foreground handle-border-width=1.0
-        hovered rail-start=foreground rail-end=background handle=rect(12) handle-color=foreground handle-radius=3.0 handle-radius-tl=1.0
-        dragged rail-start=danger handle=circle(8.0) handle-color=danger
-      slider amount min=0.0 max=100.0 step=1.0 width=fill height=18.0 style=dynamic_slider(enabled) -> amount_changed _
-      slider precise min=slider_number(0.0) max=slider_number(100.0) step=slider_number(5.0) default=slider_number(50.0) shift-step=slider_number(1.0) -> precise_changed _
-      progress amount vertical length=fill(2) girth=20.0 style=dynamic_progress(enabled) background=linear(1.57, background@0.0, primary/25@1.0) bar=linear(0.0, primary/75@0.0, danger@1.0) border=foreground border-width=1.0 radius=4.0 radius-tl=2.0
-      progress amount style=success
-      progress amount style=warning
-      progress amount style=danger
-      radio "First" value="first" selected=(choice == "first") style=dynamic_radio(enabled) size=20.0 width=fill spacing=8.0 text-size=14.0 line-height=1.2 shaping=advanced wrapping=word-or-glyph font=mono -> choice_changed _
-        active selected background=linear(1.57, primary@0.0, background@1.0) dot=foreground border=primary border-width=2.0 text=foreground
-        active unselected background=background dot=primary border=foreground text=foreground
-        hovered selected background=primary dot=foreground border=foreground text=foreground
-        hovered unselected background=foreground dot=background border=primary text=primary
-      rule horizontal thickness=2.0 style=weak fill=full color=primary/50 radius=4.0 radius-tl=2.0 snap=false
-      rule horizontal fill=percent(75.0)
-      rule horizontal fill=pad(4)
-      rule horizontal fill=pad(4,8)
-      space width=fill(2) height=shrink
-      stack clip=true width=fill(2) height=120.0 under=1
-        text "base"
-        text "overlay"
-    grid fluid=240.0 height=fill(2)
-      text "fluid"
-"#;
-    let generated = compile(source, "controls.ice").unwrap();
-    assert!(
-            generated.contains("::iced::widget::grid(__children).spacing(8).spacing(12.0 as f32).width(640.0 as f32).height(::iced::widget::grid::aspect_ratio(16.0 as f32, 9.0 as f32)).columns(2 as usize)")
-        );
-    assert!(generated.contains(
-            "::iced::widget::grid(__children).height(::iced::Length::FillPortion(2)).fluid(240.0 as f32)"
-        ));
-    assert!(generated.contains("::iced::widget::vertical_slider"));
-    assert!(generated.contains(
-        ".default(50.0).shift_step(0.1).width(20.0 as f32).height(::iced::Length::FillPortion(2))"
-    ));
-    assert!(generated.contains("::iced::widget::slider"));
-    assert!(generated.contains(".width(::iced::Fill).height(18.0 as f32)"));
-    assert!(generated.contains(".style(move |__theme, __status|"));
-    assert!(generated.contains("fn __ui_lang_check_slider_style_dynamic_slider"));
-    assert_eq!(
-        generated
-            .matches("crate::backend::dynamic_slider(__theme, __status, self.enabled)")
-            .count(),
-        2
-    );
-    assert!(generated.contains(
-            "::iced::widget::slider((crate::backend::slider_number(0.0))..=(crate::backend::slider_number(100.0)), self.precise, move |__value| __ControlsMessage::PreciseChanged(__value)).step(crate::backend::slider_number(5.0))"
-        ));
-    assert!(!generated.contains("self.precise.clone()"));
-    assert!(generated.contains("slider::Status::Active"));
-    assert!(generated.contains("slider::Status::Hovered"));
-    assert!(generated.contains("slider::Status::Dragged"));
-    assert!(generated.contains("slider::HandleShape::Circle"));
-    assert!(generated.contains("slider::HandleShape::Rectangle"));
-    assert!(generated.contains("__style.rail.backgrounds.0"));
-    assert!(generated.contains("__style.rail.backgrounds.0 = ::iced::Background::from"));
-    assert!(generated.contains("__style.rail.backgrounds.1 = ::iced::Background::from"));
-    assert!(generated.contains("__style.handle.background = ::iced::Background::from"));
-    assert!(generated.contains("::iced::widget::progress_bar"));
-    assert!(generated.contains(".vertical()"));
-    assert!(generated.contains(".length(::iced::Length::FillPortion(2)).girth(20.0 as f32)"));
-    assert!(generated.contains("crate::backend::dynamic_progress(__theme, self.enabled)"));
-    assert!(generated.contains("fn __ui_lang_check_progress_style_dynamic_progress"));
-    assert!(generated.contains("progress_bar::success(__theme)"));
-    assert!(generated.contains("progress_bar::warning(__theme)"));
-    assert!(generated.contains("progress_bar::danger(__theme)"));
-    assert!(generated.contains("__style.background = ::iced::Background::from"));
-    assert!(generated.contains("__style.bar = ::iced::Background::from"));
-    assert!(generated.contains("::iced::gradient::Linear::new(1.57 as f32)"));
-    assert!(generated.contains("::iced::gradient::Linear::new(0.0 as f32)"));
-    assert!(generated.contains("__style.border.radius"));
-    assert!(generated.contains("::iced::widget::radio(\"First\".to_owned(), true"));
-    assert!(generated.contains("move |_| __ControlsMessage::ChoiceChanged(\"first\".to_owned())"));
-    assert!(generated.contains(".size(20.0 as f32).spacing(8.0 as f32)"));
-    assert!(generated.contains(".text_shaping(::iced::widget::text::Shaping::Advanced)"));
-    assert!(generated.contains(".text_wrapping(::iced::widget::text::Wrapping::WordOrGlyph)"));
-    assert!(generated.contains(".font(::iced::Font::MONOSPACE)"));
-    assert!(generated.contains("crate::backend::dynamic_radio(__theme, __status, self.enabled)"));
-    assert!(generated.contains("fn __ui_lang_check_radio_style_dynamic_radio"));
-    for (status, selected) in [
-        ("Active", true),
-        ("Active", false),
-        ("Hovered", true),
-        ("Hovered", false),
-    ] {
-        assert!(generated.contains(&format!(
-            "radio::Status::{status} {{ is_selected: {selected} }}"
-        )));
-    }
-    assert!(generated.contains("__style.background = ::iced::Background::from"));
-    assert!(generated.contains("__style.dot_color ="));
-    assert!(generated.contains("__style.border_width = 2.0 as f32"));
-    assert!(generated.contains("__style.text_color = ::std::option::Option::Some"));
-    let default_radio = compile(
-        &source.replace(" style=dynamic_radio(enabled)", ""),
-        "controls.ice",
-    )
-    .unwrap();
-    assert!(default_radio.contains("radio::default(__theme, __status)"));
-    assert!(generated.contains("::iced::widget::rule::weak(__theme)"));
-    assert!(generated.contains("rule::FillMode::Full"));
-    assert!(generated.contains("rule::FillMode::Percent(75.0 as f32)"));
-    assert!(generated.contains("rule::FillMode::Padded(4)"));
-    assert!(generated.contains("rule::FillMode::AsymmetricPadding(4, 8)"));
-    assert!(generated.contains("__style.snap = false"));
-    assert!(generated.contains(
-        "::iced::widget::space().width(::iced::Length::FillPortion(2)).height(::iced::Shrink)"
-    ));
-    assert!(generated.contains("__children.split_off(__under)"));
-    assert!(generated.contains("::iced::widget::Stack::new()"));
-    assert!(generated.contains("__stack.push_under(__child)"));
-    assert!(
-        generated
-            .contains(".clip(true).width(::iced::Length::FillPortion(2)).height(120.0 as f32)")
-    );
-}
-
-#[test]
 fn lowers_complete_flex_layouts_and_wrapping() {
     let source = r#"app Layouts
 theme
@@ -179,7 +28,6 @@ view
             ".align_y(::iced::alignment::Vertical::Bottom).clip(false).wrap().vertical_spacing(6.0 as f32).align_x(::iced::alignment::Horizontal::Left)"
         ));
 }
-
 #[test]
 fn lowers_complete_container_layout() {
     let source = r#"app Boxed
@@ -286,12 +134,14 @@ theme
   danger #ff0000
 on open_preview
   pane #work split editor preview horizontal ratio=0.4
+on resize_editor_stack
+  pane #work resize editor_stack 0.55
 view
   pane-grid #work width=fill height=fill
-    split vertical ratio=0.7
+    split workspace_root vertical ratio=0.7
       pane files
         text "Files"
-      split horizontal ratio=0.6
+      split editor_stack horizontal ratio=0.6
         pane editor
           text "Editor"
         pane terminal
@@ -310,11 +160,65 @@ view
     assert!(!generated.contains("Configuration::Pane(\"preview\")"));
     assert!(generated.contains("\"preview\" =>"));
     assert!(generated.contains(".split(::iced::widget::pane_grid::Axis::Horizontal"));
+    assert!(generated.contains("__pane_work_splits: ::std::collections::BTreeMap"));
+    assert!(generated.contains("Option::Some(\"workspace_root\")"));
+    assert!(generated.contains("Option::Some(\"editor_stack\")"));
+    assert!(generated.contains("self.__pane_work_splits.get(\"editor_stack\").copied()"));
+    assert!(generated.contains("self.__pane_work.resize(__split, (0.55) as f32)"));
+}
+
+#[test]
+fn lowers_runtime_pane_templates() {
+    let source = r#"app Workspace
+extern crate::backend
+  Task(id:i64, title:str)
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  tasks:[Task] = []
+  selected = 7
+on open_task
+  pane #work split files task(selected) horizontal
+on close_task
+  pane #work close task(selected)
+on clicked(name)
+view
+  pane-grid #work click=clicked(_)
+    pane files maximized=files_maximized
+      col
+        if files_maximized
+          text "Maximized files"
+    pane task in tasks by=task.id maximized=task_maximized
+      scroll #body
+        col
+          if task_maximized
+            text "Maximized task"
+          text task.title
+"#;
+    let generated = compile(source, "workspace.ice").unwrap();
+    assert!(generated.contains("enum __IcePaneWork"));
+    assert!(generated.contains("Task(i64)"));
+    assert!(generated.contains("State<__IcePaneWork>"));
+    assert!(generated.contains("Configuration::Pane(__IcePaneWork::__Static(\"files\"))"));
+    assert!(generated.contains("__IcePaneWork::Task(__pane_key)"));
+    assert!(
+        generated.contains("self.tasks.iter().find(|task| (*task).id == (*__pane_key).clone())")
+    );
+    assert!(generated.contains("__IcePaneWork::Task(self.selected)"));
+    assert!(generated.contains("__pane.__name()"));
+    assert!(generated.contains("__pane_maximized"));
+    assert!(generated.contains("if __pane_maximized"));
+    assert!(generated.contains("format!(\"{}/task({})\""));
 }
 
 #[test]
 fn lowers_structured_pane_titles_and_dynamic_controls() {
     let source = r#"app Workspace
+extern crate::backend
+  pane-grid-style dynamic_panes(active:bool)
 theme
   background #000000
   foreground #ffffff
@@ -322,9 +226,10 @@ theme
   danger #ff0000
 state
   filter = ""
+  active = true
 on close
 view
-  pane-grid #work split=vertical
+  pane-grid #work split=vertical style=dynamic_panes(active)
     style
       hovered-region background=linear(0.785, primary/25@0.0, background@0.5, danger@1.0) border=foreground border-width=2.0 radius=4.0 radius-tl=1.0 radius-tr=2.0 radius-br=3.0 radius-bl=4.0
       hovered-split color=primary width=3.0
@@ -347,6 +252,8 @@ view
         text "Editor body"
 "#;
     let generated = compile(source, "workspace.ice").unwrap();
+    assert!(generated.contains("__ui_lang_check_pane_grid_style_dynamic_panes"));
+    assert!(generated.contains("crate::backend::dynamic_panes(__theme, self.active)"));
     assert!(generated.contains("pane_grid::Content::new(__pane_content).style"));
     assert!(generated.contains(".title_bar(::iced::widget::pane_grid::TitleBar::new"));
     assert!(generated.contains("top: 6.0 as f32"));
@@ -357,7 +264,7 @@ view
     assert!(generated.contains(".always_show_controls().style"));
     assert!(generated.contains("__BindFilter"));
     assert!(generated.contains("format!(\"{}/filter\""));
-    assert!(generated.contains("pane_grid::default(__theme)"));
+    assert!(generated.contains("let mut __style = crate::backend::dynamic_panes"));
     assert!(generated.contains("__style.hovered_region.background"));
     assert!(generated.contains("::iced::gradient::Linear::new(0.785 as f32)"));
     assert!(generated.contains(".add_stop(0.5 as f32"));
@@ -638,4 +545,84 @@ view
     assert!(generated.contains("if __size.width < 600.0 as f32"));
     assert!(generated.contains("if ((__size.width as f64) < (__size.height as f64))"));
     assert!(generated.contains("if ((__size.width as f64) >= (__size.height as f64))"));
+}
+
+#[test]
+fn lowers_configured_scrollables_and_viewport_events() {
+    let source = r#"app Scrolling
+extern crate::backend
+  scroll-style dynamic_scroll(busy:bool)
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  busy = false
+  absolute_x = 0.0
+  absolute_y = 0.0
+  relative_x = 0.0
+  relative_y = 0.0
+on scrolled(ax, ay, rx, ry)
+  absolute_x = ax
+  absolute_y = ay
+  relative_x = rx
+  relative_y = ry
+on viewport(ax, ay, reversed_x, reversed_y, rx, ry, bx, by, bw, bh, cx, cy, cw, ch)
+view
+  col
+    scroll #feed direction=both width=fill height=200.0 bar=hidden bar-width=8.0 bar-margin=2.0 scroller-width=6.0 bar-spacing=4.0 anchor-x=end anchor-y=start auto=true scroll=scrolled style=dynamic_scroll(busy)
+      text "Legacy offsets"
+    scroll direction=both width=fill height=200.0 viewport=viewport style=dynamic_scroll(busy)
+      col
+        text "Complete viewport"
+      active horizontal-disabled=false vertical-disabled=false
+        container background=background text=foreground border=primary border-width=1.0 radius=4.0 radius-tl=1.0 radius-tr=2.0 radius-br=3.0 radius-bl=4.0 shadow=danger shadow-x=1.0 shadow-y=2.0 shadow-blur=4.0 pixel-snap=true
+        horizontal-rail background=background border=primary border-width=1.0 radius=2.0
+        horizontal-scroller background=primary border=foreground border-width=1.0 radius=2.0
+        vertical-rail background=background border=primary border-width=1.0 radius=2.0
+        vertical-scroller background=primary border=foreground border-width=1.0 radius=2.0
+        gap background=background
+        auto background=background border=primary border-width=1.0 radius=4.0 shadow=danger shadow-x=1.0 shadow-y=2.0 shadow-blur=4.0 icon=foreground
+      hovered horizontal-hovered=true vertical-hovered=false horizontal-disabled=false vertical-disabled=false
+        horizontal-scroller background=foreground
+      dragged horizontal-dragged=false vertical-dragged=true horizontal-disabled=false vertical-disabled=false
+        vertical-scroller background=danger
+"#;
+    let generated = compile(source, "scrolling.ice").unwrap();
+    assert!(generated.contains("scrollable::Direction::Both"));
+    assert!(generated.contains("scrollable::Scrollbar::hidden().width(8.0 as f32)"));
+    assert!(generated.contains(".anchor_x(::iced::widget::scrollable::Anchor::End)"));
+    assert!(generated.contains(".auto_scroll(true)"));
+    assert!(generated.contains("crate::backend::dynamic_scroll(__theme, __status, self.busy)"));
+    assert!(generated.contains(
+            ".style(move |__theme, __status| crate::backend::dynamic_scroll(__theme, __status, self.busy))"
+        ));
+    assert!(generated.contains(
+            "let mut __style = crate::backend::dynamic_scroll(__theme, __status, self.busy); match __status"
+        ));
+    assert!(generated.contains("fn __ui_lang_check_scroll_style_dynamic_scroll"));
+    assert!(generated.contains("let __absolute = __viewport.absolute_offset()"));
+    assert!(generated.contains(
+            "__ScrollingMessage::Scrolled(__absolute.x as f64, __absolute.y as f64, __relative.x as f64, __relative.y as f64)"
+        ));
+    assert!(generated.contains("absolute_offset_reversed()"));
+    assert!(generated.contains("let __bounds = __viewport.bounds()"));
+    assert!(generated.contains("let __content_bounds = __viewport.content_bounds()"));
+    assert!(generated.contains("scrollable::Status::Hovered"));
+    assert!(generated.contains("__horizontal_interaction == true"));
+    assert!(generated.contains("let __style = &mut __style.container"));
+    assert!(generated.contains("__style.text_color = ::std::option::Option::Some"));
+    assert!(generated.contains("__style.horizontal_rail.scroller.background"));
+    assert!(generated.contains("__style.vertical_rail.scroller.background"));
+    assert!(generated.contains("__style.gap = ::std::option::Option::Some"));
+    assert!(generated.contains("let __style = &mut __style.auto_scroll"));
+    assert!(generated.contains("__style.shadow.blur_radius = 4.0 as f32"));
+    assert!(generated.contains("__style.auto_scroll.icon"));
+    let default_scroll = compile(
+        &source.replace(" style=dynamic_scroll(busy)", ""),
+        "scrolling.ice",
+    )
+    .unwrap();
+    assert!(default_scroll.contains("scrollable::default(__theme, __status)"));
 }

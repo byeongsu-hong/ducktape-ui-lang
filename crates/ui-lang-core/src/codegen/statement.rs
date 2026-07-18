@@ -1,6 +1,6 @@
 use super::*;
 
-pub(super) fn generate_statements(
+pub(in crate::codegen) fn generate_statements(
     out: &mut String,
     statements: &[Statement],
     document: &Document,
@@ -12,18 +12,33 @@ pub(super) fn generate_statements(
     let mut has_task = false;
     for statement in statements {
         match statement {
-            Statement::Assign { target, value, .. } => {
+            Statement::Assign {
+                target, value, at, ..
+            } => {
+                let target_state = document.states.iter().find(|item| item.name == *target);
                 let code = expr_code(value, env, document, ValueMode::Owned)?;
-                if document
-                    .states
-                    .iter()
-                    .any(|item| item.name == *target && matches!(item.ty, Type::Combo(_)))
-                {
+                if target_state.is_some_and(|item| matches!(item.ty, Type::Combo(_))) {
                     writeln!(
                         out,
                         "{state}.{target} = ::iced::widget::combo_box::State::new({code});"
                     )
                     .unwrap();
+                } else if let Some(State {
+                    ty: Type::Animation(inner),
+                    ..
+                }) = target_state
+                {
+                    let code = if **inner == Type::F64 {
+                        format!("({code}) as f32")
+                    } else {
+                        code
+                    };
+                    let at = at
+                        .as_ref()
+                        .map(|at| expr_code(at, env, document, ValueMode::Owned))
+                        .transpose()?
+                        .unwrap_or_else(|| "::iced::time::Instant::now()".into());
+                    writeln!(out, "{state}.{target}.go_mut({code}, {at});").unwrap();
                 } else {
                     writeln!(out, "{state}.{target} = {code};").unwrap();
                 }
@@ -39,6 +54,16 @@ pub(super) fn generate_statements(
             Statement::ReturnIf { condition, .. } => {
                 let code = expr_code(condition, env, document, ValueMode::Owned)?;
                 writeln!(out, "if {code} {{ return ::iced::Task::none(); }}").unwrap();
+            }
+            Statement::Exit { .. } => {
+                has_task = true;
+                writeln!(
+                    out,
+                    "{}::iced::exit::<{message}>(){}",
+                    if return_task { "return " } else { "" },
+                    if return_task { ";" } else { "" }
+                )
+                .unwrap();
             }
             Statement::Run {
                 kind,
@@ -58,6 +83,7 @@ pub(super) fn generate_statements(
                             | "__ice_clipboard_read"
                             | "__ice_clipboard_read_primary"
                             | "__ice_font_load"
+                            | "__ice_image_allocate"
                     )
                 {
                     if function == "__ice_font_load" {
@@ -66,6 +92,25 @@ pub(super) fn generate_statements(
                         writeln!(
                             out,
                             "{}::iced::font::load({bytes}).map(move |result| match result {{ ::std::result::Result::Ok(value) => {success_message}, ::std::result::Result::Err(error) => match error {{}} }}){}",
+                            if return_task { "return " } else { "" },
+                            if return_task { ";" } else { "" }
+                        )
+                        .unwrap();
+                        continue;
+                    }
+                    if function == "__ice_image_allocate" {
+                        let handle = expr_code(&args[0], env, document, ValueMode::Owned)?;
+                        let success_message = route_code(success, "value", env, document, message)?;
+                        let error_message = route_code(
+                            error.as_ref().expect("checker requires image error route"),
+                            "error",
+                            env,
+                            document,
+                            message,
+                        )?;
+                        writeln!(
+                            out,
+                            "{}::iced::widget::image::allocate({handle}).map(move |result| match result {{ ::std::result::Result::Ok(value) => {success_message}, ::std::result::Result::Err(error) => {error_message} }}){}",
                             if return_task { "return " } else { "" },
                             if return_task { ";" } else { "" }
                         )
@@ -313,6 +358,18 @@ pub(super) fn generate_statements(
             Statement::Abort { handle, .. } => {
                 writeln!(out, "if let ::std::option::Option::Some(__handle) = &{state}.{handle} {{ __handle.abort(); }}").unwrap();
             }
+            Statement::DebugStart { name, target, .. } => {
+                let name = expr_code(name, env, document, ValueMode::Owned)?;
+                writeln!(out, "if let ::std::option::Option::Some(__span) = {state}.{target}.take() {{ __span.finish(); }}").unwrap();
+                writeln!(
+                    out,
+                    "{state}.{target} = ::std::option::Option::Some(::iced::debug::time({name}));"
+                )
+                .unwrap();
+            }
+            Statement::DebugFinish { target, .. } => {
+                writeln!(out, "if let ::std::option::Option::Some(__span) = {state}.{target}.take() {{ __span.finish(); }}").unwrap();
+            }
             Statement::ClipboardWrite { primary, value, .. } => {
                 has_task = true;
                 let value = expr_code(value, env, document, ValueMode::Owned)?;
@@ -431,11 +488,11 @@ pub(super) fn generate_statements(
                 ..
             } => {
                 let field = pane_field(grid);
-                let pane = |name: &str| {
-                    format!(
-                        "{state}.{field}.iter().find_map(|(__pane, __name)| (*__name == {}).then_some(*__pane))",
-                        rust_string(name)
-                    )
+                let dynamic = pane_grids(&document.view).into_iter().any(|node| {
+                    matches!(node, ViewNode::PaneGrid { name, templates, .. } if name == grid && !templates.is_empty())
+                });
+                let pane = |reference: &PaneReference| {
+                    pane_reference_find_code(reference, grid, state, dynamic, env, document)
                 };
                 let edge = |edge: &PaneEdge| match edge {
                     PaneEdge::Top => "Top",
@@ -451,7 +508,7 @@ pub(super) fn generate_statements(
                     PaneOperation::Maximize { pane: name } => writeln!(
                         out,
                         "{{ let __pane = {}; if let ::std::option::Option::Some(__pane) = __pane {{ {state}.{field}.maximize(__pane); }} }}",
-                        pane(name)
+                        pane(name)?
                     )
                     .unwrap(),
                     PaneOperation::Restore => {
@@ -459,30 +516,42 @@ pub(super) fn generate_statements(
                     }
                     PaneOperation::Swap { first, second } => writeln!(
                         out,
-                        "{{ let __first = {}; let __second = {}; if let (::std::option::Option::Some(__first), ::std::option::Option::Some(__second)) = (__first, __second) {{ {state}.{field}.swap(__first, __second); }} }}",
-                        pane(first),
-                        pane(second)
+                        "{{ let __first = {}; let __second = {}; if let (::std::option::Option::Some(__first), ::std::option::Option::Some(__second)) = (__first, __second) && __first != __second {{ {state}.{field}.swap(__first, __second); }} }}",
+                        pane(first)?,
+                        pane(second)?
                     )
                     .unwrap(),
                     PaneOperation::Close { pane: name } => writeln!(
                         out,
                         "{{ let __pane = {}; if let ::std::option::Option::Some(__pane) = __pane {{ let _ = {state}.{field}.close(__pane); }} }}",
-                        pane(name)
+                        pane(name)?
                     )
                     .unwrap(),
                     PaneOperation::Move { pane: name, edge: side } => writeln!(
                         out,
                         "{{ let __pane = {}; if let ::std::option::Option::Some(__pane) = __pane {{ {state}.{field}.move_to_edge(__pane, ::iced::widget::pane_grid::Edge::{}); }} }}",
-                        pane(name),
+                        pane(name)?,
                         edge(side)
                     )
                     .unwrap(),
-                    PaneOperation::Resize { ratio } => writeln!(
-                        out,
-                        "{{ let __split = {state}.{field}.layout().splits().next().copied(); if let ::std::option::Option::Some(__split) = __split {{ {state}.{field}.resize(__split, ({}) as f32); }} }}",
-                        expr_code(ratio, env, document, ValueMode::Owned)?
-                    )
-                    .unwrap(),
+                    PaneOperation::Resize { split, ratio } => {
+                        let split = split.as_ref().map_or_else(
+                            || format!("{state}.{field}.layout().splits().next().copied()"),
+                            |name| {
+                                format!(
+                                    "{state}.{}.get({}).copied()",
+                                    pane_splits_field(grid),
+                                    rust_string(name)
+                                )
+                            },
+                        );
+                        writeln!(
+                            out,
+                            "{{ let __split = {split}; if let ::std::option::Option::Some(__split) = __split {{ {state}.{field}.resize(__split, ({}) as f32); }} }}",
+                            expr_code(ratio, env, document, ValueMode::Owned)?
+                        )
+                        .unwrap();
+                    }
                     PaneOperation::Drop {
                         pane: name,
                         target,
@@ -499,9 +568,9 @@ pub(super) fn generate_statements(
                         );
                         writeln!(
                             out,
-                            "{{ let __pane = {}; let __target = {}; if let (::std::option::Option::Some(__pane), ::std::option::Option::Some(__target)) = (__pane, __target) {{ {state}.{field}.drop(__pane, ::iced::widget::pane_grid::Target::Pane(__target, {region})); }} }}",
-                            pane(name),
-                            pane(target)
+                            "{{ let __pane = {}; let __target = {}; if let (::std::option::Option::Some(__pane), ::std::option::Option::Some(__target)) = (__pane, __target) && __pane != __target {{ {state}.{field}.drop(__pane, ::iced::widget::pane_grid::Target::Pane(__target, {region})); }} }}",
+                            pane(name)?,
+                            pane(target)?
                         )
                         .unwrap();
                     }
@@ -510,22 +579,37 @@ pub(super) fn generate_statements(
                         pane: name,
                         axis: direction,
                         ratio,
-                    } => writeln!(
-                        out,
-                        "{{ let __target = {}; let __pane = {}; if let (::std::option::Option::Some(__target), ::std::option::Option::None) = (__target, __pane) {{ if let ::std::option::Option::Some((_, __split)) = {state}.{field}.split(::iced::widget::pane_grid::Axis::{}, __target, {}) {{ {state}.{field}.resize(__split, ({}) as f32); }} }} }}",
-                        pane(target),
-                        pane(name),
-                        axis(direction),
-                        rust_string(name),
-                        expr_code(ratio, env, document, ValueMode::Owned)?
-                    )
-                    .unwrap(),
+                    } => {
+                        let target = pane(target)?;
+                        let value = pane_reference_value_code(
+                            name, grid, dynamic, env, document,
+                        )?;
+                        let ratio = expr_code(ratio, env, document, ValueMode::Owned)?;
+                        if dynamic {
+                            writeln!(
+                                out,
+                                "{{ let __target = {target}; let __pane_value = {value}; let __pane = {state}.{field}.iter().find_map(|(__pane, __value)| (__value == &__pane_value).then_some(*__pane)); if let (::std::option::Option::Some(__target), ::std::option::Option::None) = (__target, __pane) {{ if let ::std::option::Option::Some((_, __split)) = {state}.{field}.split(::iced::widget::pane_grid::Axis::{}, __target, __pane_value) {{ {state}.{field}.resize(__split, ({ratio}) as f32); }} }} }}",
+                                axis(direction),
+                            )
+                            .unwrap();
+                        } else {
+                            writeln!(
+                                out,
+                                "{{ let __target = {target}; let __pane = {}; if let (::std::option::Option::Some(__target), ::std::option::Option::None) = (__target, __pane) {{ if let ::std::option::Option::Some((_, __split)) = {state}.{field}.split(::iced::widget::pane_grid::Axis::{}, __target, {value}) {{ {state}.{field}.resize(__split, ({ratio}) as f32); }} }} }}",
+                                pane(name)?,
+                                axis(direction),
+                            )
+                            .unwrap();
+                        }
+                    }
                     PaneOperation::Maximized | PaneOperation::Adjacent { .. } => {
                         has_task = true;
                         let value = match operation {
-                            PaneOperation::Maximized => format!(
-                                "{state}.{field}.maximized().and_then(|__pane| {state}.{field}.get(__pane)).map(|__name| (*__name).to_owned())"
-                            ),
+                            PaneOperation::Maximized => if dynamic {
+                                format!("{state}.{field}.maximized().and_then(|__pane| {state}.{field}.get(__pane)).map(|__pane| __pane.__name())")
+                            } else {
+                                format!("{state}.{field}.maximized().and_then(|__pane| {state}.{field}.get(__pane)).map(|__name| (*__name).to_owned())")
+                            },
                             PaneOperation::Adjacent { pane: name, edge: side } => {
                                 let direction = match side {
                                     PaneEdge::Top => "Up",
@@ -533,10 +617,12 @@ pub(super) fn generate_statements(
                                     PaneEdge::Right => "Right",
                                     PaneEdge::Bottom => "Down",
                                 };
-                                format!(
-                                    "{}.and_then(|__pane| {state}.{field}.adjacent(__pane, ::iced::widget::pane_grid::Direction::{direction})).and_then(|__pane| {state}.{field}.get(__pane)).map(|__name| (*__name).to_owned())",
-                                    pane(name)
-                                )
+                                let value = pane(name)?;
+                                if dynamic {
+                                    format!("{value}.and_then(|__pane| {state}.{field}.adjacent(__pane, ::iced::widget::pane_grid::Direction::{direction})).and_then(|__pane| {state}.{field}.get(__pane)).map(|__pane| __pane.__name())")
+                                } else {
+                                    format!("{value}.and_then(|__pane| {state}.{field}.adjacent(__pane, ::iced::widget::pane_grid::Direction::{direction})).and_then(|__pane| {state}.{field}.get(__pane)).map(|__name| (*__name).to_owned())")
+                                }
                             }
                             _ => unreachable!(),
                         };
@@ -773,18 +859,28 @@ pub(super) fn generate_statements(
                     }
                     WindowOperation::Screenshot => {
                         let route = route.as_ref().expect("checker requires window route");
-                        let message_code = ordered_route_code(
-                            route,
-                            &[
-                                "value.rgba.to_vec()",
-                                "value.size.width as i64",
-                                "value.size.height as i64",
-                                "value.scale_factor as f64",
-                            ],
-                            env,
-                            document,
-                            message,
-                        )?;
+                        let message_code = if route
+                            .args
+                            .iter()
+                            .filter(|arg| matches!(arg, RouteArg::Payload))
+                            .count()
+                            == 1
+                        {
+                            route_code(route, "value", env, document, message)?
+                        } else {
+                            ordered_route_code(
+                                route,
+                                &[
+                                    "value.rgba.to_vec()",
+                                    "value.size.width as i64",
+                                    "value.size.height as i64",
+                                    "value.scale_factor as f64",
+                                ],
+                                env,
+                                document,
+                                message,
+                            )?
+                        };
                         format!("::iced::window::screenshot({id}).map(move |value| {message_code})")
                     }
                     WindowOperation::MousePassthrough(enabled) => {

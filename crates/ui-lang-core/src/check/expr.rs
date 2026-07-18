@@ -36,6 +36,883 @@ pub(crate) fn expr_type(
             Ok(ty)
         }
         Expr::Call { name, args } => match name.as_str() {
+            "color.default" | "color.black" | "color.white" | "color.transparent" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::Color)
+            }
+            "color.rgb" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::F64, Type::F64, Type::F64],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::Color)
+            }
+            "color.rgba" | "color.linear_rgba" | "color.from4" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::F64, Type::F64, Type::F64, Type::F64],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::Color)
+            }
+            "color.from3" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::F64, Type::F64, Type::F64],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::Color)
+            }
+            "color.parse" => {
+                check_builtin_args(name, args, &[Type::Str], env, document, span)?;
+                Ok(Type::Option(Box::new(Type::Color)))
+            }
+            "color.rgb8" => {
+                if args.len() != 3 {
+                    return Err(Error::new("E152", span, "color.rgb8 expects 3 arguments"));
+                }
+                check_u8_literals(name, args, 3, span)?;
+                Ok(Type::Color)
+            }
+            "color.rgba8" => {
+                if args.len() != 4 {
+                    return Err(Error::new("E152", span, "color.rgba8 expects 4 arguments"));
+                }
+                check_u8_literals(name, args, 3, span)?;
+                require_type(&expr_type(&args[3], env, document, span)?, &Type::F64, span)?;
+                Ok(Type::Color)
+            }
+            "color.try_rgb8" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::I64, Type::I64, Type::I64],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::Option(Box::new(Type::Color)))
+            }
+            "color.try_rgba8" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::I64, Type::I64, Type::I64, Type::F64],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::Option(Box::new(Type::Color)))
+            }
+            "color.inverse" | "color.invert" => {
+                check_builtin_args(name, args, &[Type::Color], env, document, span)?;
+                Ok(Type::Color)
+            }
+            "color.scale_alpha" => {
+                check_builtin_args(name, args, &[Type::Color, Type::F64], env, document, span)?;
+                Ok(Type::Color)
+            }
+            "color.luminance" => {
+                check_builtin_args(name, args, &[Type::Color], env, document, span)?;
+                Ok(Type::F64)
+            }
+            "color.contrast" => {
+                check_builtin_args(name, args, &[Type::Color, Type::Color], env, document, span)?;
+                Ok(Type::F64)
+            }
+            "color.readable" => {
+                check_builtin_args(name, args, &[Type::Color, Type::Color], env, document, span)?;
+                Ok(Type::Bool)
+            }
+            "color_stop.default" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::ColorStop)
+            }
+            "color_stop" => {
+                check_builtin_args(name, args, &[Type::F64, Type::Color], env, document, span)?;
+                Ok(Type::ColorStop)
+            }
+            "linear" => {
+                if args.len() != 1 {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        "linear expects one f64 or radians angle",
+                    ));
+                }
+                require_radians_value(&args[0], env, document, span)?;
+                Ok(Type::LinearGradient)
+            }
+            "linear.add_stop" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::LinearGradient, Type::F64, Type::Color],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::LinearGradient)
+            }
+            "linear.add_stops" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::LinearGradient, Type::List(Box::new(Type::ColorStop))],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::LinearGradient)
+            }
+            "linear.scale_alpha" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::LinearGradient, Type::F64],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::LinearGradient)
+            }
+            "gradient.linear" | "gradient.from_linear" => {
+                check_builtin_args(name, args, &[Type::LinearGradient], env, document, span)?;
+                Ok(Type::Gradient)
+            }
+            "gradient.scale_alpha" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::Gradient, Type::F64],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::Gradient)
+            }
+            "background.color" | "background.from_color" => {
+                check_builtin_args(name, args, &[Type::Color], env, document, span)?;
+                Ok(Type::Background)
+            }
+            "background.gradient" | "background.from_gradient" => {
+                check_builtin_args(name, args, &[Type::Gradient], env, document, span)?;
+                Ok(Type::Background)
+            }
+            "background.from_linear" => {
+                check_builtin_args(name, args, &[Type::LinearGradient], env, document, span)?;
+                Ok(Type::Background)
+            }
+            "background.scale_alpha" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::Background, Type::F64],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::Background)
+            }
+            "font.default" | "font.sans" | "font.monospace" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::Font)
+            }
+            "font.with_name" => {
+                if !matches!(args.as_slice(), [Expr::Str(_)]) {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        "font.with_name expects one string literal",
+                    ));
+                }
+                Ok(Type::Font)
+            }
+            "font.new" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[
+                        Type::FontFamily,
+                        Type::FontWeight,
+                        Type::FontStretch,
+                        Type::FontStyle,
+                    ],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::Font)
+            }
+            "family.default" | "family.serif" | "family.sans_serif" | "family.cursive"
+            | "family.fantasy" | "family.monospace" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::FontFamily)
+            }
+            "family.named" => {
+                if !matches!(args.as_slice(), [Expr::Str(_)]) {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        "family.named expects one string literal",
+                    ));
+                }
+                Ok(Type::FontFamily)
+            }
+            "weight.default" | "weight.thin" | "weight.extra_light" | "weight.light"
+            | "weight.normal" | "weight.medium" | "weight.semibold" | "weight.bold"
+            | "weight.extra_bold" | "weight.black" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::FontWeight)
+            }
+            "stretch.default"
+            | "stretch.ultra_condensed"
+            | "stretch.extra_condensed"
+            | "stretch.condensed"
+            | "stretch.semi_condensed"
+            | "stretch.normal"
+            | "stretch.semi_expanded"
+            | "stretch.expanded"
+            | "stretch.extra_expanded"
+            | "stretch.ultra_expanded" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::FontStretch)
+            }
+            "font_style.default" | "font_style.normal" | "font_style.italic"
+            | "font_style.oblique" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::FontStyle)
+            }
+            "theme_mode.default" | "theme_mode.none" | "theme_mode.light" | "theme_mode.dark" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::ThemeMode)
+            }
+            "text_alignment.default"
+            | "text_alignment.left"
+            | "text_alignment.center"
+            | "text_alignment.right"
+            | "text_alignment.justified" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::TextAlignment)
+            }
+            "text_alignment.from_horizontal" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::HorizontalAlignment],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::TextAlignment)
+            }
+            "text_alignment.from_alignment" => {
+                check_builtin_args(name, args, &[Type::Alignment], env, document, span)?;
+                Ok(Type::TextAlignment)
+            }
+            "horizontal.from_text_alignment" => {
+                check_builtin_args(name, args, &[Type::TextAlignment], env, document, span)?;
+                Ok(Type::HorizontalAlignment)
+            }
+            "text_shaping.default"
+            | "text_shaping.auto"
+            | "text_shaping.basic"
+            | "text_shaping.advanced" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::TextShaping)
+            }
+            "text_wrapping.default"
+            | "text_wrapping.none"
+            | "text_wrapping.word"
+            | "text_wrapping.glyph"
+            | "text_wrapping.word_or_glyph" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::TextWrapping)
+            }
+            "line_height.default" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::TextLineHeight)
+            }
+            "line_height.relative" | "line_height.from_f64" => {
+                check_builtin_args(name, args, &[Type::F64], env, document, span)?;
+                Ok(Type::TextLineHeight)
+            }
+            "line_height.absolute" | "line_height.from_pixels" => {
+                check_builtin_args(name, args, &[Type::Pixels], env, document, span)?;
+                Ok(Type::TextLineHeight)
+            }
+            "line_height.to_absolute" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::TextLineHeight, Type::Pixels],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::Pixels)
+            }
+            "screenshot.new" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::Bytes, Type::SizeU32, Type::F64],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::WindowScreenshot)
+            }
+            "screenshot.crop" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::WindowScreenshot, Type::RectangleU32],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::Option(Box::new(Type::WindowScreenshot)))
+            }
+            "screenshot.crop_error" | "screenshot.crop_error_message" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::WindowScreenshot, Type::RectangleU32],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::Option(Box::new(Type::Str)))
+            }
+            "screenshot.as_bytes" | "screenshot.into_bytes" => {
+                check_builtin_args(name, args, &[Type::WindowScreenshot], env, document, span)?;
+                Ok(Type::Bytes)
+            }
+            "interaction.default"
+            | "interaction.none"
+            | "interaction.hidden"
+            | "interaction.idle"
+            | "interaction.context_menu"
+            | "interaction.help"
+            | "interaction.pointer"
+            | "interaction.progress"
+            | "interaction.wait"
+            | "interaction.cell"
+            | "interaction.crosshair"
+            | "interaction.text"
+            | "interaction.alias"
+            | "interaction.copy"
+            | "interaction.move"
+            | "interaction.no_drop"
+            | "interaction.not_allowed"
+            | "interaction.grab"
+            | "interaction.grabbing"
+            | "interaction.resize_horizontal"
+            | "interaction.resize_vertical"
+            | "interaction.resize_diagonal_up"
+            | "interaction.resize_diagonal_down"
+            | "interaction.resize_column"
+            | "interaction.resize_row"
+            | "interaction.all_scroll"
+            | "interaction.zoom_in"
+            | "interaction.zoom_out" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::MouseInteraction)
+            }
+            "scroll.lines" | "scroll.pixels" => {
+                check_builtin_args(name, args, &[Type::F64, Type::F64], env, document, span)?;
+                Ok(Type::ScrollDelta)
+            }
+            "event_status.ignored" | "event_status.captured" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::EventStatus)
+            }
+            "event_status.merge" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::EventStatus, Type::EventStatus],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::EventStatus)
+            }
+            "redraw_request.next_frame" | "redraw_request.wait" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::RedrawRequest)
+            }
+            "redraw_request.at" => {
+                check_builtin_args(name, args, &[Type::Instant], env, document, span)?;
+                Ok(Type::RedrawRequest)
+            }
+            "window_id.unique" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::WindowId)
+            }
+            "window_direction.north"
+            | "window_direction.south"
+            | "window_direction.east"
+            | "window_direction.west"
+            | "window_direction.north_east"
+            | "window_direction.north_west"
+            | "window_direction.south_east"
+            | "window_direction.south_west" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::WindowDirection)
+            }
+            "window_level.default"
+            | "window_level.normal"
+            | "window_level.always_on_bottom"
+            | "window_level.always_on_top" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::WindowLevel)
+            }
+            "window_mode.windowed" | "window_mode.fullscreen" | "window_mode.hidden" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::WindowMode)
+            }
+            "window_attention.critical" | "window_attention.informational" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::WindowAttention)
+            }
+            "window_position.default" | "window_position.centered" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::WindowPosition)
+            }
+            "window_position.specific" => {
+                check_builtin_args(name, args, &[Type::Point], env, document, span)?;
+                Ok(Type::WindowPosition)
+            }
+            "length.fill" | "length.shrink" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::Length)
+            }
+            "length.fill_portion" => {
+                check_u16_literal(name, args, span)?;
+                Ok(Type::Length)
+            }
+            "length.try_fill_portion" => {
+                check_builtin_args(name, args, &[Type::I64], env, document, span)?;
+                Ok(Type::Option(Box::new(Type::Length)))
+            }
+            "length.fixed" | "length.from_f64" => {
+                check_builtin_args(name, args, &[Type::F64], env, document, span)?;
+                Ok(Type::Length)
+            }
+            "length.from_pixels" => {
+                check_builtin_args(name, args, &[Type::Pixels], env, document, span)?;
+                Ok(Type::Length)
+            }
+            "length.from_u32" => {
+                check_u32_literal(name, args, span)?;
+                Ok(Type::Length)
+            }
+            "length.try_from_u32" => {
+                check_builtin_args(name, args, &[Type::I64], env, document, span)?;
+                Ok(Type::Option(Box::new(Type::Length)))
+            }
+            "length.fluid" => {
+                check_builtin_args(name, args, &[Type::Length], env, document, span)?;
+                Ok(Type::Length)
+            }
+            "length.enclose" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::Length, Type::Length],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::Length)
+            }
+            "alignment.start" | "alignment.center" | "alignment.end" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::Alignment)
+            }
+            "horizontal.left" | "horizontal.center" | "horizontal.right" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::HorizontalAlignment)
+            }
+            "vertical.top" | "vertical.center" | "vertical.bottom" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::VerticalAlignment)
+            }
+            "alignment.from_horizontal" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::HorizontalAlignment],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::Alignment)
+            }
+            "alignment.from_vertical" => {
+                check_builtin_args(name, args, &[Type::VerticalAlignment], env, document, span)?;
+                Ok(Type::Alignment)
+            }
+            "horizontal.from_alignment" => {
+                check_builtin_args(name, args, &[Type::Alignment], env, document, span)?;
+                Ok(Type::HorizontalAlignment)
+            }
+            "vertical.from_alignment" => {
+                check_builtin_args(name, args, &[Type::Alignment], env, document, span)?;
+                Ok(Type::VerticalAlignment)
+            }
+            "border.default" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::Border)
+            }
+            "border.new" => {
+                if args.len() != 3 {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        "border.new expects color, width, and radius",
+                    ));
+                }
+                require_type(
+                    &expr_type(&args[0], env, document, span)?,
+                    &Type::Color,
+                    span,
+                )?;
+                require_pixel_value(&args[1], env, document, span)?;
+                require_radius_value(&args[2], env, document, span)?;
+                Ok(Type::Border)
+            }
+            "border.color" => {
+                check_builtin_args(name, args, &[Type::Color], env, document, span)?;
+                Ok(Type::Border)
+            }
+            "border.width" => {
+                if args.len() != 1 {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        "border.width expects one pixel value",
+                    ));
+                }
+                require_pixel_value(&args[0], env, document, span)?;
+                Ok(Type::Border)
+            }
+            "border.rounded" => {
+                if args.len() != 1 {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        "border.rounded expects one radius value",
+                    ));
+                }
+                require_radius_value(&args[0], env, document, span)?;
+                Ok(Type::Border)
+            }
+            "border.with_color" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::Border, Type::Color],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::Border)
+            }
+            "border.with_width" => {
+                if args.len() != 2 {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        "border.with_width expects a border and pixel value",
+                    ));
+                }
+                require_type(
+                    &expr_type(&args[0], env, document, span)?,
+                    &Type::Border,
+                    span,
+                )?;
+                require_pixel_value(&args[1], env, document, span)?;
+                Ok(Type::Border)
+            }
+            "border.with_radius" => {
+                if args.len() != 2 {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        "border.with_radius expects a border and radius value",
+                    ));
+                }
+                require_type(
+                    &expr_type(&args[0], env, document, span)?,
+                    &Type::Border,
+                    span,
+                )?;
+                require_radius_value(&args[1], env, document, span)?;
+                Ok(Type::Border)
+            }
+            "radius" | "radius.new" => {
+                if args.len() != 1 {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        format!("{name} expects one pixel value"),
+                    ));
+                }
+                require_pixel_value(&args[0], env, document, span)?;
+                Ok(Type::Radius)
+            }
+            "radius.default" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::Radius)
+            }
+            "radius.top_left"
+            | "radius.top_right"
+            | "radius.bottom_right"
+            | "radius.bottom_left"
+            | "radius.top"
+            | "radius.bottom"
+            | "radius.left"
+            | "radius.right" => {
+                if args.len() != 1 {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        format!("{name} expects one pixel value"),
+                    ));
+                }
+                require_pixel_value(&args[0], env, document, span)?;
+                Ok(Type::Radius)
+            }
+            "radius.with_top_left"
+            | "radius.with_top_right"
+            | "radius.with_bottom_right"
+            | "radius.with_bottom_left"
+            | "radius.with_top"
+            | "radius.with_bottom"
+            | "radius.with_left"
+            | "radius.with_right" => {
+                if args.len() != 2 {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        format!("{name} expects a radius and pixel value"),
+                    ));
+                }
+                require_type(
+                    &expr_type(&args[0], env, document, span)?,
+                    &Type::Radius,
+                    span,
+                )?;
+                require_pixel_value(&args[1], env, document, span)?;
+                Ok(Type::Radius)
+            }
+            "radius.from_f64" => {
+                check_builtin_args(name, args, &[Type::F64], env, document, span)?;
+                Ok(Type::Radius)
+            }
+            "radius.from_u8" => {
+                check_u8_literal(name, args, span)?;
+                Ok(Type::Radius)
+            }
+            "radius.from_u32" => {
+                check_u32_literal(name, args, span)?;
+                Ok(Type::Radius)
+            }
+            "radius.from_i32" => {
+                check_i32_literal(name, args, span)?;
+                Ok(Type::Radius)
+            }
+            "radius.try_from_u8" | "radius.try_from_u32" | "radius.try_from_i32" => {
+                check_builtin_args(name, args, &[Type::I64], env, document, span)?;
+                Ok(Type::Option(Box::new(Type::Radius)))
+            }
+            "shadow.default" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::Shadow)
+            }
+            "shadow.new" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::Color, Type::Vector, Type::F64],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::Shadow)
+            }
+            "fit.default" | "fit.contain" | "fit.cover" | "fit.fill" | "fit.none"
+            | "fit.scale_down" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::ContentFit)
+            }
+            "fit.apply" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::ContentFit, Type::Size, Type::Size],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::Size)
+            }
+            "rotation.default" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::Rotation)
+            }
+            "rotation.floating" | "rotation.solid" => {
+                check_builtin_args(name, args, &[Type::Radians], env, document, span)?;
+                Ok(Type::Rotation)
+            }
+            "rotation.from" => {
+                check_builtin_args(name, args, &[Type::F64], env, document, span)?;
+                Ok(Type::Rotation)
+            }
+            "rotation.with_radians" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::Rotation, Type::Radians],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::Rotation)
+            }
+            "rotation.apply" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::Rotation, Type::Size],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::Size)
+            }
+            "debug.active" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::Option(Box::new(Type::DebugSpan))],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::Bool)
+            }
+            "debug.time_with" => {
+                if args.len() != 2 {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        "debug.time_with expects a name and one value",
+                    ));
+                }
+                require_type(&expr_type(&args[0], env, document, span)?, &Type::Str, span)?;
+                let output = expr_type(&args[1], env, document, span)?;
+                if contains_debug_span(&output) {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        "debug.time_with cannot move debug span state",
+                    ));
+                }
+                Ok(output)
+            }
+            "image.downgrade" => {
+                check_builtin_args(name, args, &[Type::ImageAllocation], env, document, span)?;
+                Ok(Type::ImageMemory)
+            }
+            "image.upgrade" => {
+                check_builtin_args(name, args, &[Type::ImageMemory], env, document, span)?;
+                Ok(Type::Option(Box::new(Type::ImageAllocation)))
+            }
+            "animation.value" => {
+                check_animation_instant(name, args, 1, false, env, document, span)?;
+                animation_inner(&args[0], env, document, span)
+            }
+            "animation.animating" => {
+                check_animation_instant(name, args, 1, true, env, document, span)?;
+                animation_inner(&args[0], env, document, span)?;
+                Ok(Type::Bool)
+            }
+            "animation.interpolate" => {
+                check_animation_instant(name, args, 3, true, env, document, span)?;
+                require_type(
+                    &animation_inner(&args[0], env, document, span)?,
+                    &Type::Bool,
+                    span,
+                )?;
+                let output = expr_type(&args[1], env, document, span)?;
+                let output = if output == Type::F64 {
+                    Type::F64
+                } else {
+                    let optional = Type::Option(Box::new(Type::F64));
+                    require_type(&output, &optional, span).map_err(|_| {
+                        Error::new(
+                            "E152",
+                            span,
+                            "animation.interpolate values must be f64 or f64?",
+                        )
+                    })?;
+                    optional
+                };
+                require_type(&expr_type(&args[2], env, document, span)?, &output, span)?;
+                Ok(output)
+            }
+            "animation.remaining" => {
+                check_animation_instant(name, args, 1, true, env, document, span)?;
+                require_type(
+                    &animation_inner(&args[0], env, document, span)?,
+                    &Type::Bool,
+                    span,
+                )?;
+                Ok(Type::F64)
+            }
+            "animation.project" => {
+                check_animation_instant(name, args, 3, true, env, document, span)?;
+                let inner = animation_inner(&args[0], env, document, span)?;
+                let Expr::Path(binding) = &args[1] else {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        "animation.project second argument must be a binding name",
+                    ));
+                };
+                if binding.len() != 1 {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        "animation.project second argument must be a binding name",
+                    ));
+                }
+                let mut projection_env = env.clone();
+                projection_env.insert(binding[0].clone(), inner);
+                let output = expr_type(&args[2], &projection_env, document, span)?;
+                if output != Type::F64 && output != Type::Option(Box::new(Type::F64)) {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        "animation.project expression must produce f64 or f64?",
+                    ));
+                }
+                Ok(output)
+            }
             "pixels" => {
                 check_builtin_args(name, args, &[Type::F64], env, document, span)?;
                 Ok(Type::Pixels)
@@ -956,6 +1833,13 @@ pub(crate) fn expr_type(
                             "task handles are opaque; use `aborted(handle)`",
                         ));
                     }
+                    if contains_debug_span(&left) || contains_debug_span(&right) {
+                        return Err(Error::new(
+                            "E153",
+                            span,
+                            "debug spans are opaque; use `debug.active(state)`",
+                        ));
+                    }
                     if contains_mouse_click(&left) || contains_mouse_click(&right) {
                         return Err(Error::new(
                             "E153",
@@ -963,10 +1847,47 @@ pub(crate) fn expr_type(
                             "mouse-click values are opaque; compare their kind or position",
                         ));
                     }
+                    if contains_window_screenshot(&left) || contains_window_screenshot(&right) {
+                        return Err(Error::new(
+                            "E153",
+                            span,
+                            "window-screenshot values do not support comparisons",
+                        ));
+                    }
+                    if matches!(
+                        left,
+                        Type::WindowPosition | Type::WindowDirection | Type::WindowAttention
+                    ) || matches!(
+                        right,
+                        Type::WindowPosition | Type::WindowDirection | Type::WindowAttention
+                    ) {
+                        return Err(Error::new(
+                            "E153",
+                            span,
+                            format!("`{}` values do not support comparisons", left.display()),
+                        ));
+                    }
                     if !matches!(op, BinaryOp::Eq | BinaryOp::NotEq)
                         && matches!(
                             left,
                             Type::Padding
+                                | Type::Background
+                                | Type::Gradient
+                                | Type::LinearGradient
+                                | Type::ColorStop
+                                | Type::Font
+                                | Type::FontFamily
+                                | Type::FontWeight
+                                | Type::FontStretch
+                                | Type::FontStyle
+                                | Type::ThemeMode
+                                | Type::TextAlignment
+                                | Type::TextShaping
+                                | Type::TextWrapping
+                                | Type::TextLineHeight
+                                | Type::Border
+                                | Type::Radius
+                                | Type::Shadow
                                 | Type::Point
                                 | Type::PointU32
                                 | Type::Vector
@@ -974,6 +1895,10 @@ pub(crate) fn expr_type(
                                 | Type::Rectangle
                                 | Type::RectangleU32
                                 | Type::Transformation
+                                | Type::ScrollDelta
+                                | Type::EventStatus
+                                | Type::WindowLevel
+                                | Type::WindowMode
                         )
                     {
                         return Err(Error::new(

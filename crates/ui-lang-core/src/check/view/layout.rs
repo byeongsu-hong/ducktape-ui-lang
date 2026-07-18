@@ -41,11 +41,9 @@ pub(in crate::check) fn infer_layout_group(
                             require_literal_range(value, f64::EPSILON, None, label, span)?;
                         }
                     }
-                    GridSizing::EvenlyDistribute(LengthValue::Fixed(value)) => {
-                        require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                        require_literal_range(value, 0.0, None, "grid height", span)?;
+                    GridSizing::EvenlyDistribute(length) => {
+                        check_length_value(length, env, document, span, "grid height")?;
                     }
-                    GridSizing::EvenlyDistribute(_) => {}
                 }
             }
             if let Some(clip) = &options.clip {
@@ -58,11 +56,19 @@ pub(in crate::check) fn infer_layout_group(
                 Layout::Scroll => "scroll metric",
                 Layout::Grid => "grid metric",
             };
-            for length in [&options.width, &options.height].into_iter().flatten() {
-                if let LengthValue::Fixed(value) = length {
+            if let Some(width) = &options.width {
+                if *kind == Layout::Grid {
+                    let LengthValue::Fixed(value) = width else {
+                        unreachable!("parser keeps grid widths fixed")
+                    };
                     require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
                     require_literal_range(value, 0.0, None, layout_metric, span)?;
+                } else {
+                    check_length_value(width, env, document, span, layout_metric)?;
                 }
+            }
+            if let Some(height) = &options.height {
+                check_length_value(height, env, document, span, layout_metric)?;
             }
             for value in [
                 &options.spacing,
@@ -84,10 +90,7 @@ pub(in crate::check) fn infer_layout_group(
             }
             if let Some(scroll) = &options.scroll {
                 for length in [&scroll.width, &scroll.height].into_iter().flatten() {
-                    if let LengthValue::Fixed(value) = length {
-                        require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                        require_literal_range(value, 0.0, None, "scroll size", span)?;
-                    }
+                    check_length_value(length, env, document, span, "scroll size")?;
                 }
                 for (value, label) in [
                     (&scroll.bar_width, "scroll bar width"),
@@ -148,10 +151,7 @@ pub(in crate::check) fn infer_layout_group(
         } => {
             check_id(id, env, document, ids, span)?;
             for length in [&options.width, &options.height].into_iter().flatten() {
-                if let LengthValue::Fixed(value) = length {
-                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                    require_literal_range(value, 0.0, None, "container size", span)?;
-                }
+                check_length_value(length, env, document, span, "container size")?;
             }
             for value in [
                 &options.padding.all,
@@ -216,6 +216,7 @@ pub(in crate::check) fn infer_layout_group(
             name,
             options,
             panes,
+            templates,
             span,
             ..
         } => {
@@ -227,10 +228,7 @@ pub(in crate::check) fn infer_layout_group(
                 ));
             }
             for length in [&options.width, &options.height].into_iter().flatten() {
-                if let LengthValue::Fixed(value) = length {
-                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                    require_literal_range(value, 0.0, None, "pane-grid bounds", span)?;
-                }
+                check_length_value(length, env, document, span, "pane-grid bounds")?;
             }
             for (value, label) in [
                 (&options.spacing, "pane-grid spacing"),
@@ -241,6 +239,11 @@ pub(in crate::check) fn infer_layout_group(
                     require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
                     require_literal_range(value, 0.0, None, label, span)?;
                 }
+            }
+            if let Some(style) = &options.custom_style {
+                let function =
+                    extern_function(document, &style.function, ExternKind::PaneGridStyle, span)?;
+                check_call_args(function, &style.args, env, document, span)?;
             }
             if let Some(background) = &options.style.region_background {
                 check_background_value(
@@ -288,40 +291,30 @@ pub(in crate::check) fn infer_layout_group(
                 infer_route(click, Some(Type::Str), env, document, signatures)?;
             }
             for pane in panes {
-                check_styles(&pane.styles, document, &pane.span, StyleTarget::PaneContent)?;
-                check_container_style_options(&pane.style, env, document, &pane.span, "E187")?;
-                if let Some(title) = &pane.title {
-                    for value in [
-                        &title.padding.all,
-                        &title.padding.x,
-                        &title.padding.y,
-                        &title.padding.top,
-                        &title.padding.right,
-                        &title.padding.bottom,
-                        &title.padding.left,
-                    ]
-                    .into_iter()
-                    .flatten()
-                    {
-                        require_type(
-                            &expr_type(value, env, document, &title.span)?,
-                            &Type::F64,
-                            &title.span,
-                        )?;
-                        require_literal_range(value, 0.0, None, "pane title padding", &title.span)?;
-                    }
-                    check_styles(&title.styles, document, &title.span, StyleTarget::PaneTitle)?;
-                    check_container_style_options(
-                        &title.style,
-                        env,
-                        document,
-                        &title.span,
+                infer_pane_view(pane, env, document, signatures, ids)?;
+            }
+            for template in templates {
+                let Some(Type::List(item_type)) = env.get(&template.items) else {
+                    return Err(Error::new(
                         "E187",
-                    )?;
+                        &template.span,
+                        format!(
+                            "dynamic pane template `{}` requires list state `{}`",
+                            template.item, template.items
+                        ),
+                    ));
+                };
+                let mut template_env = env.clone();
+                template_env.insert(template.item.clone(), (**item_type).clone());
+                let key_type = expr_type(&template.key, &template_env, document, &template.span)?;
+                if !matches!(key_type, Type::Bool | Type::I64 | Type::F64 | Type::Str) {
+                    return Err(Error::new(
+                        "E187",
+                        &template.span,
+                        "dynamic pane keys must be bool, i64, f64, or str values",
+                    ));
                 }
-                for node in pane.nodes() {
-                    infer_view(node, env, document, signatures, ids)?;
-                }
+                infer_pane_view(&template.pane, &template_env, document, signatures, ids)?;
             }
         }
         _ => return Ok(false),

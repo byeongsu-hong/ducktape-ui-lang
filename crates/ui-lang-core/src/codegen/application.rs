@@ -1,7 +1,26 @@
 use super::*;
 
-pub(super) fn generate_theme(out: &mut String, document: &Document) -> Result<(), Error> {
-    let env = state_env(document, "self");
+pub(in crate::codegen) fn generate_theme(
+    out: &mut String,
+    document: &Document,
+) -> Result<(), Error> {
+    let state_env = state_env(document, "self");
+    let mut callback_env = state_env.clone();
+    if document.daemon {
+        callback_env.insert(
+            "window".into(),
+            Binding {
+                code: "window".into(),
+                ty: Type::WindowId,
+                local: true,
+            },
+        );
+    }
+    let callback_arg = if document.daemon {
+        ", window: ::iced::window::Id"
+    } else {
+        ""
+    };
     let color = |name: &str, fallback: &str| {
         color_code(
             document
@@ -26,7 +45,7 @@ pub(super) fn generate_theme(out: &mut String, document: &Document) -> Result<()
     writeln!(out, "warning: {},", color("danger", "#c3423f")).unwrap();
     writeln!(out, "danger: {},", color("danger", "#c3423f")).unwrap();
     writeln!(out, "}})\n}}").unwrap();
-    writeln!(out, "fn __theme(&self) -> ::iced::Theme {{").unwrap();
+    writeln!(out, "fn __theme(&self{callback_arg}) -> ::iced::Theme {{").unwrap();
     if let Some(setting) = &document.settings.theme {
         if let Expr::Call { name, args } = &setting.value
             && document
@@ -34,9 +53,14 @@ pub(super) fn generate_theme(out: &mut String, document: &Document) -> Result<()
                 .iter()
                 .any(|function| function.name == *name && function.kind == ExternKind::Theme)
         {
-            writeln!(out, "{}", theme_factory_code(name, args, &env, document)?).unwrap();
+            writeln!(
+                out,
+                "{}",
+                theme_factory_code(name, args, &callback_env, document)?
+            )
+            .unwrap();
         } else {
-            let value = expr_code(&setting.value, &env, document, ValueMode::Owned)?;
+            let value = expr_code(&setting.value, &callback_env, document, ValueMode::Owned)?;
             writeln!(out, "match ({value}).as_str() {{").unwrap();
             writeln!(out, "\"app\" => Self::__app_theme(),").unwrap();
             writeln!(out, "\"default\" => <::iced::Theme as ::iced::theme::Base>::default(::iced::theme::Mode::None),").unwrap();
@@ -50,10 +74,10 @@ pub(super) fn generate_theme(out: &mut String, document: &Document) -> Result<()
     }
     writeln!(out, "}}").unwrap();
     if let Some(setting) = &document.settings.title {
-        let value = expr_code(&setting.value, &env, document, ValueMode::Owned)?;
+        let value = expr_code(&setting.value, &callback_env, document, ValueMode::Owned)?;
         writeln!(
             out,
-            "fn __title(&self) -> ::std::string::String {{ {value} }}"
+            "fn __title(&self{callback_arg}) -> ::std::string::String {{ {value} }}"
         )
         .unwrap();
     }
@@ -64,40 +88,75 @@ pub(super) fn generate_theme(out: &mut String, document: &Document) -> Result<()
             (&document.settings.text_color, "text_color"),
         ] {
             if let Some(setting) = setting {
-                let value = expr_code(&setting.value, &env, document, ValueMode::Owned)?;
+                let value = expr_code(&setting.value, &state_env, document, ValueMode::Owned)?;
                 writeln!(out, "__style.{field} = ({value}).parse::<::iced::Color>().unwrap_or(__style.{field});").unwrap();
             }
         }
         writeln!(out, "__style }}").unwrap();
     }
     if let Some(setting) = &document.settings.scale_factor {
-        let value = expr_code(&setting.value, &env, document, ValueMode::Owned)?;
+        let value = expr_code(&setting.value, &callback_env, document, ValueMode::Owned)?;
         writeln!(
             out,
-            "fn __scale_factor(&self) -> f32 {{ (({value}) as f32).max(f32::EPSILON) }}"
+            "fn __scale_factor(&self{callback_arg}) -> f32 {{ (({value}) as f32).max(f32::EPSILON) }}"
         )
         .unwrap();
     }
     Ok(())
 }
 
-pub(super) fn generate_boot(
+pub(in crate::codegen) fn generate_boot(
     out: &mut String,
     document: &Document,
     message: &str,
 ) -> Result<(), Error> {
-    writeln!(out, "fn __state() -> Self {{\nSelf {{").unwrap();
+    writeln!(out, "fn __state() -> Self {{").unwrap();
+    for node in pane_grids(&document.view) {
+        let ViewNode::PaneGrid {
+            name,
+            configuration,
+            templates,
+            ..
+        } = node
+        else {
+            unreachable!()
+        };
+        let field = pane_field(name);
+        writeln!(
+            out,
+            "let {field} = ::iced::widget::pane_grid::State::with_configuration({});",
+            pane_configuration_code(
+                configuration,
+                (!templates.is_empty()).then(|| pane_type(name)).as_deref()
+            )
+        )
+        .unwrap();
+        let slots = pane_split_slots(configuration);
+        if slots.iter().any(Option::is_some) {
+            let slots = slots
+                .iter()
+                .map(|name| {
+                    name.map_or_else(
+                        || "::std::option::Option::None".into(),
+                        |name| format!("::std::option::Option::Some({})", rust_string(name)),
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            writeln!(
+                out,
+                "let {} = [{slots}].into_iter().zip({field}.layout().splits().copied()).filter_map(|(__name, __split)| __name.map(|__name| (__name, __split))).collect();",
+                pane_splits_field(name)
+            )
+            .unwrap();
+        }
+    }
+    writeln!(out, "Self {{").unwrap();
     for qr in &document.qr_codes {
         writeln!(out, "{}: {},", qr.name, qr_data_code(qr)).unwrap();
     }
     for state in &document.states {
-        writeln!(
-            out,
-            "{}: {},",
-            state.name,
-            initial_code(&state.initial, &state.ty, document)
-        )
-        .unwrap();
+        writeln!(out, "{}: {},", state.name, initial_code(state, document)).unwrap();
     }
     for node in pane_grids(&document.view) {
         let ViewNode::PaneGrid {
@@ -108,13 +167,10 @@ pub(super) fn generate_boot(
         else {
             unreachable!()
         };
-        writeln!(
-            out,
-            "{}: ::iced::widget::pane_grid::State::with_configuration({}),",
-            pane_field(name),
-            pane_configuration_code(configuration)
-        )
-        .unwrap();
+        writeln!(out, "{},", pane_field(name)).unwrap();
+        if pane_split_slots(configuration).iter().any(Option::is_some) {
+            writeln!(out, "{},", pane_splits_field(name)).unwrap();
+        }
     }
     writeln!(
         out,
@@ -148,7 +204,7 @@ pub(super) fn generate_boot(
     Ok(())
 }
 
-pub(super) fn generate_presets(
+pub(in crate::codegen) fn generate_presets(
     out: &mut String,
     document: &Document,
     message: &str,
@@ -177,7 +233,7 @@ pub(super) fn generate_presets(
     Ok(())
 }
 
-pub(super) fn generate_update(
+pub(in crate::codegen) fn generate_update(
     out: &mut String,
     document: &Document,
     message: &str,
@@ -277,56 +333,9 @@ pub(super) fn generate_update(
     if needs_extern_noop(document) {
         writeln!(out, "{message}::__ExternNoop => ::iced::Task::none(),").unwrap();
     }
+    if has_animations(document) {
+        writeln!(out, "{message}::__AnimationFrame => ::iced::Task::none(),").unwrap();
+    }
     writeln!(out, "}}\n}}").unwrap();
     Ok(())
-}
-
-pub(super) fn subscription_payload_arity(source: &SubscriptionSource, window_id: bool) -> usize {
-    let arity = match source {
-        SubscriptionSource::Every { .. }
-        | SubscriptionSource::Repeat { .. }
-        | SubscriptionSource::Run { .. }
-        | SubscriptionSource::Recipe { .. }
-        | SubscriptionSource::Events { .. }
-        | SubscriptionSource::Extern { .. }
-        | SubscriptionSource::Event { .. }
-        | SubscriptionSource::Keyboard(_)
-        | SubscriptionSource::SystemTheme => 1,
-        SubscriptionSource::InputMethod(InputMethodEvent::Opened | InputMethodEvent::Closed)
-        | SubscriptionSource::Mouse(MouseEvent::Entered | MouseEvent::Left)
-        | SubscriptionSource::Window(
-            WindowEvent::Frame
-            | WindowEvent::Closed
-            | WindowEvent::CloseRequested
-            | WindowEvent::Focused
-            | WindowEvent::Unfocused
-            | WindowEvent::FilesHoveredLeft,
-        ) => 0,
-        SubscriptionSource::InputMethod(InputMethodEvent::Commit)
-        | SubscriptionSource::Mouse(MouseEvent::Pressed | MouseEvent::Released)
-        | SubscriptionSource::Window(
-            WindowEvent::Rescaled | WindowEvent::FileHovered | WindowEvent::FileDropped,
-        ) => 1,
-        SubscriptionSource::Mouse(MouseEvent::Moved)
-        | SubscriptionSource::Window(WindowEvent::Moved | WindowEvent::Resized) => 2,
-        SubscriptionSource::InputMethod(InputMethodEvent::Preedit)
-        | SubscriptionSource::Mouse(MouseEvent::Wheel)
-        | SubscriptionSource::Touch(_) => 3,
-        SubscriptionSource::Window(WindowEvent::Opened) => 4,
-    };
-    arity + usize::from(window_id)
-}
-
-pub(super) fn identified_window_filter(filter: &str, arity: usize) -> String {
-    match arity {
-        0 => format!("({filter}).map(|_| __id)"),
-        1 => format!("({filter}).map(|__value| (__id, __value))"),
-        count => format!(
-            "({filter}).map(|__value| (__id, {}))",
-            (0..count)
-                .map(|index| format!("__value.{index}"))
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
-    }
 }

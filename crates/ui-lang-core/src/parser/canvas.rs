@@ -1,6 +1,6 @@
 use super::*;
 
-pub(super) fn parse_canvas(
+pub(in crate::parser) fn parse_canvas(
     parts: &[String],
     styles: Vec<String>,
     line: &Line,
@@ -101,7 +101,7 @@ pub(super) fn parse_canvas(
     })
 }
 
-pub(super) fn parse_canvas_event(line: &Line) -> Result<CanvasEvent, Error> {
+pub(in crate::parser) fn parse_canvas_event(line: &Line) -> Result<CanvasEvent, Error> {
     if let Some(source) = line.text.strip_prefix("event ")
         && source.contains(" -> ")
     {
@@ -287,7 +287,7 @@ pub(super) fn parse_canvas_event(line: &Line) -> Result<CanvasEvent, Error> {
     })
 }
 
-pub(super) fn validate_canvas_event_source(
+pub(in crate::parser) fn validate_canvas_event_source(
     source: &SubscriptionSource,
     line: &Line,
 ) -> Result<(), Error> {
@@ -308,7 +308,7 @@ pub(super) fn validate_canvas_event_source(
     Ok(())
 }
 
-pub(super) fn parse_canvas_event_source(
+pub(in crate::parser) fn parse_canvas_event_source(
     source: &str,
     line: &Line,
 ) -> Result<SubscriptionSource, Error> {
@@ -326,11 +326,13 @@ pub(super) fn parse_canvas_event_source(
     Ok(subscription.source)
 }
 
-pub(super) fn parse_canvas_commands(lines: &[Line]) -> Result<Vec<CanvasCommand>, Error> {
+pub(in crate::parser) fn parse_canvas_commands(
+    lines: &[Line],
+) -> Result<Vec<CanvasCommand>, Error> {
     lines.iter().map(parse_canvas_command).collect()
 }
 
-pub(super) fn parse_canvas_command(line: &Line) -> Result<CanvasCommand, Error> {
+pub(in crate::parser) fn parse_canvas_command(line: &Line) -> Result<CanvasCommand, Error> {
     if let Some(condition) = line.text.strip_prefix("if ") {
         return Ok(CanvasCommand::If {
             condition: parse_expr(condition, line)?,
@@ -627,7 +629,10 @@ pub(super) fn parse_canvas_command(line: &Line) -> Result<CanvasCommand, Error> 
     }
 }
 
-pub(super) fn parse_canvas_text(parts: &[String], line: &Line) -> Result<CanvasCommand, Error> {
+pub(in crate::parser) fn parse_canvas_text(
+    parts: &[String],
+    line: &Line,
+) -> Result<CanvasCommand, Error> {
     ensure_leaf(line)?;
     let value = parts
         .get(1)
@@ -719,7 +724,9 @@ pub(super) fn parse_canvas_text(parts: &[String], line: &Line) -> Result<CanvasC
     })
 }
 
-pub(super) fn parse_canvas_path_segment(line: &Line) -> Result<CanvasPathSegment, Error> {
+pub(in crate::parser) fn parse_canvas_path_segment(
+    line: &Line,
+) -> Result<CanvasPathSegment, Error> {
     ensure_leaf(line)?;
     let parts = split_words(&line.text);
     let kind = parts
@@ -830,7 +837,7 @@ pub(super) fn parse_canvas_path_segment(line: &Line) -> Result<CanvasPathSegment
     })
 }
 
-pub(super) fn canvas_fields(
+pub(in crate::parser) fn canvas_fields(
     parts: &[String],
     allowed: &[&str],
     line: &Line,
@@ -862,7 +869,7 @@ pub(super) fn canvas_fields(
     Ok(fields)
 }
 
-pub(super) fn canvas_required_expr(
+pub(in crate::parser) fn canvas_required_expr(
     fields: &BTreeMap<String, String>,
     name: &str,
     line: &Line,
@@ -873,7 +880,7 @@ pub(super) fn canvas_required_expr(
         .and_then(|value| parse_expr(strip_wrapping_parens(value), line))
 }
 
-pub(super) fn canvas_optional_expr(
+pub(in crate::parser) fn canvas_optional_expr(
     fields: &BTreeMap<String, String>,
     name: &str,
     line: &Line,
@@ -884,7 +891,7 @@ pub(super) fn canvas_optional_expr(
         .transpose()
 }
 
-pub(super) fn parse_canvas_radius(
+pub(in crate::parser) fn parse_canvas_radius(
     fields: &BTreeMap<String, String>,
     line: &Line,
 ) -> Result<CanvasRadius, Error> {
@@ -897,7 +904,7 @@ pub(super) fn parse_canvas_radius(
     })
 }
 
-pub(super) fn parse_canvas_paint(
+pub(in crate::parser) fn parse_canvas_paint(
     fields: &BTreeMap<String, String>,
     line: &Line,
 ) -> Result<CanvasPaint, Error> {
@@ -922,7 +929,10 @@ pub(super) fn parse_canvas_paint(
     })
 }
 
-pub(super) fn require_canvas_paint(paint: &CanvasPaint, line: &Line) -> Result<(), Error> {
+pub(in crate::parser) fn require_canvas_paint(
+    paint: &CanvasPaint,
+    line: &Line,
+) -> Result<(), Error> {
     if paint.fill.is_none() && paint.stroke.is_none() {
         Err(error(
             "E190",
@@ -934,7 +944,7 @@ pub(super) fn require_canvas_paint(paint: &CanvasPaint, line: &Line) -> Result<(
     }
 }
 
-pub(super) fn parse_canvas_stroke(
+pub(in crate::parser) fn parse_canvas_stroke(
     fields: &BTreeMap<String, String>,
     line: &Line,
 ) -> Result<Option<CanvasStroke>, Error> {

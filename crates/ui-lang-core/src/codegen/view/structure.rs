@@ -18,7 +18,7 @@ pub(in crate::codegen) fn render_structure(
         } => {
             let content = render_node(content, document, message, env, scope, slot)?;
             let mut code = format!(
-                "{{ let __theme_content: ::iced::Element<'_, {message}> = {content}; ::iced::widget::themer({}, __theme_content)",
+                "{{ let __theme_content: __IceElement<'_, {message}> = {content}; ::iced::widget::themer({}, __theme_content)",
                 theme_preset_code(preset, env, document)?
             );
             if let Some(color) = text {
@@ -67,7 +67,7 @@ pub(in crate::codegen) fn render_structure(
             let x = expr_code(x, &translate_env, document, ValueMode::Owned)?;
             let y = expr_code(y, &translate_env, document, ValueMode::Owned)?;
             let mut code = format!(
-                "{{ let __float_content: ::iced::Element<'_, {message}> = {content}; let __float = ::iced::widget::float(__float_content).scale({scale} as f32).translate(move |__original, __viewport| ::iced::Vector::new({x} as f32, {y} as f32))"
+                "{{ let __float_content: __IceElement<'_, {message}> = {content}; let __float = ::iced::widget::float(__float_content).scale({scale} as f32).translate(move |__original, __viewport| ::iced::Vector::new({x} as f32, {y} as f32))"
             );
             append_float_style(&mut code, style, env, document)?;
             Ok(format!("{code}; __float.into() }}"))
@@ -84,7 +84,7 @@ pub(in crate::codegen) fn render_structure(
             let x = expr_code(x, env, document, ValueMode::Owned)?;
             let y = expr_code(y, env, document, ValueMode::Owned)?;
             let mut code = format!(
-                "{{ let __pin_content: ::iced::Element<'_, {message}> = {content}; ::iced::widget::pin(__pin_content).x({x} as f32).y({y} as f32)"
+                "{{ let __pin_content: __IceElement<'_, {message}> = {content}; ::iced::widget::pin(__pin_content).x({x} as f32).y({y} as f32)"
             );
             if let Some(width) = width {
                 write!(code, ".width({})", length_code(width, env, document)?).unwrap();
@@ -99,7 +99,7 @@ pub(in crate::codegen) fn render_structure(
         } => {
             let content = render_node(content, document, message, env, scope, slot)?;
             let mut code = format!(
-                "{{ let __sensor_content: ::iced::Element<'_, {message}> = {content}; ::iced::widget::sensor(__sensor_content)"
+                "{{ let __sensor_content: __IceElement<'_, {message}> = {content}; ::iced::widget::sensor(__sensor_content)"
             );
             if let Some(route) = &options.show {
                 write!(
@@ -167,7 +167,7 @@ pub(in crate::codegen) fn render_structure(
                     let narrow = render_node(narrow, document, message, env, scope, slot)?;
                     let wide = render_node(wide, document, message, env, scope, slot)?;
                     format!(
-                        "move |__size| {{ let __responsive: ::iced::Element<'_, {message}> = if __size.width < {breakpoint} as f32 {{ {narrow} }} else {{ {wide} }}; __responsive }}"
+                        "move |__size| {{ let __responsive: __IceElement<'_, {message}> = if __size.width < {breakpoint} as f32 {{ {narrow} }} else {{ {wide} }}; __responsive }}"
                     )
                 }
                 ResponsiveContent::Size {
@@ -194,7 +194,7 @@ pub(in crate::codegen) fn render_structure(
                     );
                     let content = render_node(content, document, message, &child_env, scope, slot)?;
                     format!(
-                        "move |__size| {{ let __responsive: ::iced::Element<'_, {message}> = {content}; __responsive }}"
+                        "move |__size| {{ let __responsive: __IceElement<'_, {message}> = {content}; __responsive }}"
                     )
                 }
             };
@@ -251,7 +251,7 @@ pub(in crate::codegen) fn render_structure(
             )?;
             let dependency_rust = dependency_type.rust(&document.structs);
             Ok(format!(
-                "::iced::widget::lazy(({dependency}, ({scope}).to_owned()), move |__dependency| {{ let {binding}: {dependency_rust} = __dependency.0.clone(); let __lazy_scope = __dependency.1.clone(); let __lazy_content: ::iced::Element<'static, {message}> = {child}; __lazy_content }}).into()"
+                "::iced::widget::lazy(({dependency}, ({scope}).to_owned()), move |__dependency| {{ let {binding}: {dependency_rust} = __dependency.0.clone(); let __lazy_scope = __dependency.1.clone(); let __lazy_content: __IceElement<'static, {message}> = {child}; __lazy_content }}).into()"
             ))
         }
         _ => return Ok(None),
