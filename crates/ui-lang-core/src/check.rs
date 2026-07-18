@@ -3526,6 +3526,8 @@ fn lazy_hashable(ty: &Type) -> bool {
         | Type::Key
         | Type::PhysicalKey
         | Type::KeyModifiers
+        | Type::MouseButton
+        | Type::TouchFinger
         | Type::Named(_) => true,
         Type::List(inner) | Type::Option(inner) => lazy_hashable(inner),
         Type::Result(output, error) => lazy_hashable(output) && lazy_hashable(error),
@@ -3537,6 +3539,10 @@ fn lazy_hashable(ty: &Type) -> bool {
         | Type::KeyLocation
         | Type::KeyPress
         | Type::KeyRelease
+        | Type::Point
+        | Type::Rectangle
+        | Type::MouseCursor
+        | Type::MouseClick
         | Type::SystemInfo
         | Type::WidgetTarget
         | Type::TaskHandle
@@ -4883,11 +4889,11 @@ fn native_subscription_payloads(source: &SubscriptionSource, window_id: bool) ->
         SubscriptionSource::Mouse(event) => match event {
             MouseEvent::Entered | MouseEvent::Left => Vec::new(),
             MouseEvent::Moved => vec![Type::F64, Type::F64],
-            MouseEvent::Pressed | MouseEvent::Released => vec![Type::Str],
+            MouseEvent::Pressed | MouseEvent::Released => vec![Type::MouseButton],
             MouseEvent::Wheel => vec![Type::F64, Type::F64, Type::Bool],
         },
         SubscriptionSource::SystemTheme => vec![Type::Str],
-        SubscriptionSource::Touch(_) => vec![Type::Str, Type::F64, Type::F64],
+        SubscriptionSource::Touch(_) => vec![Type::TouchFinger, Type::F64, Type::F64],
         SubscriptionSource::Window(event) => match event {
             WindowEvent::Frame
             | WindowEvent::Closed
@@ -6500,6 +6506,27 @@ fn keyboard_variant<'a>(name: &str, args: &'a [Expr], span: &Span) -> Result<&'a
     Ok(value)
 }
 
+fn check_builtin_args(
+    name: &str,
+    args: &[Expr],
+    expected: &[Type],
+    env: &HashMap<String, Type>,
+    document: &Document,
+    span: &Span,
+) -> Result<(), Error> {
+    if args.len() != expected.len() {
+        return Err(Error::new(
+            "E152",
+            span,
+            format!("{name} expects {} argument(s)", expected.len()),
+        ));
+    }
+    for (value, expected) in args.iter().zip(expected) {
+        require_type(&expr_type(value, env, document, span)?, expected, span)?;
+    }
+    Ok(())
+}
+
 pub(crate) fn expr_type(
     expr: &Expr,
     env: &HashMap<String, Type>,
@@ -6536,6 +6563,165 @@ pub(crate) fn expr_type(
             Ok(ty)
         }
         Expr::Call { name, args } => match name.as_str() {
+            "point" => {
+                check_builtin_args(name, args, &[Type::F64, Type::F64], env, document, span)?;
+                Ok(Type::Point)
+            }
+            "rectangle" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::F64, Type::F64, Type::F64, Type::F64],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::Rectangle)
+            }
+            "mouse.button" => {
+                let [Expr::Str(value)] = args.as_slice() else {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        "mouse.button expects one string literal",
+                    ));
+                };
+                if !matches!(
+                    value.as_str(),
+                    "left" | "right" | "middle" | "back" | "forward"
+                ) {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        "mouse.button must be left, right, middle, back, or forward",
+                    ));
+                }
+                Ok(Type::MouseButton)
+            }
+            "mouse.other_button" => {
+                let [Expr::I64(value)] = args.as_slice() else {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        "mouse.other_button expects one integer literal",
+                    ));
+                };
+                if !(0..=u16::MAX as i64).contains(value) {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        format!("mouse.other_button must be in 0..={}", u16::MAX),
+                    ));
+                }
+                Ok(Type::MouseButton)
+            }
+            "mouse.try_other_button" => {
+                check_builtin_args(name, args, &[Type::I64], env, document, span)?;
+                Ok(Type::Option(Box::new(Type::MouseButton)))
+            }
+            "mouse.cursor" | "mouse.levitating" => {
+                check_builtin_args(name, args, &[Type::Point], env, document, span)?;
+                Ok(Type::MouseCursor)
+            }
+            "mouse.unavailable" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::MouseCursor)
+            }
+            "mouse.cursor_position" => {
+                check_builtin_args(name, args, &[Type::MouseCursor], env, document, span)?;
+                Ok(Type::Option(Box::new(Type::Point)))
+            }
+            "mouse.cursor_over" | "mouse.cursor_in" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::MouseCursor, Type::Rectangle],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::Option(Box::new(Type::Point)))
+            }
+            "mouse.cursor_from" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::MouseCursor, Type::Point],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::Option(Box::new(Type::Point)))
+            }
+            "mouse.cursor_is_over" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::MouseCursor, Type::Rectangle],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::Bool)
+            }
+            "mouse.cursor_is_levitating" => {
+                check_builtin_args(name, args, &[Type::MouseCursor], env, document, span)?;
+                Ok(Type::Bool)
+            }
+            "mouse.cursor_levitate" | "mouse.cursor_land" => {
+                check_builtin_args(name, args, &[Type::MouseCursor], env, document, span)?;
+                Ok(Type::MouseCursor)
+            }
+            "mouse.cursor_translate" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::MouseCursor, Type::F64, Type::F64],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::MouseCursor)
+            }
+            "mouse.click" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[
+                        Type::Point,
+                        Type::MouseButton,
+                        Type::Option(Box::new(Type::MouseClick)),
+                    ],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::MouseClick)
+            }
+            "touch.finger" => {
+                let [Expr::Str(value)] = args.as_slice() else {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        "touch.finger expects one decimal string literal",
+                    ));
+                };
+                if value.is_empty()
+                    || !value.bytes().all(|byte| byte.is_ascii_digit())
+                    || value.parse::<u64>().is_err()
+                {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        "touch.finger must contain a decimal u64",
+                    ));
+                }
+                Ok(Type::TouchFinger)
+            }
+            "touch.try_finger" => {
+                check_builtin_args(name, args, &[Type::Str], env, document, span)?;
+                Ok(Type::Option(Box::new(Type::TouchFinger)))
+            }
             "key.named" => {
                 keyboard_variant(name, args, span)?;
                 Ok(Type::Key)
@@ -6848,6 +7034,13 @@ pub(crate) fn expr_type(
                             "task handles are opaque; use `aborted(handle)`",
                         ));
                     }
+                    if contains_mouse_click(&left) || contains_mouse_click(&right) {
+                        return Err(Error::new(
+                            "E153",
+                            span,
+                            "mouse-click values are opaque; compare their kind or position",
+                        ));
+                    }
                     require_type(&left, &right, span)?;
                     Ok(Type::Bool)
                 }
@@ -6872,6 +7065,15 @@ fn contains_task_handle(ty: &Type) -> bool {
         Type::TaskHandle => true,
         Type::List(inner) | Type::Option(inner) | Type::Combo(inner) => contains_task_handle(inner),
         Type::Result(output, error) => contains_task_handle(output) || contains_task_handle(error),
+        _ => false,
+    }
+}
+
+fn contains_mouse_click(ty: &Type) -> bool {
+    match ty {
+        Type::MouseClick => true,
+        Type::List(inner) | Type::Option(inner) | Type::Combo(inner) => contains_mouse_click(inner),
+        Type::Result(output, error) => contains_mouse_click(output) || contains_mouse_click(error),
         _ => false,
     }
 }
@@ -6941,6 +7143,34 @@ fn field_type(ty: &Type, field: &str, document: &Document, span: &Span) -> Resul
             "shift" | "control" | "alt" | "logo" | "command" | "jump" | "macos_command" => {
                 Some(Type::Bool)
             }
+            _ => None,
+        },
+        Type::Point => match field {
+            "x" | "y" => Some(Type::F64),
+            _ => None,
+        },
+        Type::Rectangle => match field {
+            "x" | "y" | "width" | "height" => Some(Type::F64),
+            _ => None,
+        },
+        Type::MouseButton => match field {
+            "kind" => Some(Type::Str),
+            "number" => Some(Type::Option(Box::new(Type::I64))),
+            _ => None,
+        },
+        Type::MouseCursor => match field {
+            "kind" => Some(Type::Str),
+            "position" => Some(Type::Option(Box::new(Type::Point))),
+            "levitating" => Some(Type::Bool),
+            _ => None,
+        },
+        Type::MouseClick => match field {
+            "kind" => Some(Type::Str),
+            "position" => Some(Type::Point),
+            _ => None,
+        },
+        Type::TouchFinger => match field {
+            "id" => Some(Type::Str),
             _ => None,
         },
         Type::SystemInfo => match field {
@@ -7416,8 +7646,8 @@ view
         assert_eq!(handlers["entered"], Vec::<String>::new());
         assert_eq!(handlers["left"], Vec::<String>::new());
         assert_eq!(handlers["moved"], ["f64", "f64"]);
-        assert_eq!(handlers["pressed"], ["str"]);
-        assert_eq!(handlers["released"], ["str"]);
+        assert_eq!(handlers["pressed"], ["mouse-button"]);
+        assert_eq!(handlers["released"], ["mouse-button"]);
         assert_eq!(handlers["wheel"], ["f64", "f64", "bool"]);
 
         let error = analyze(&source.replace(
@@ -7456,7 +7686,7 @@ view
                     .iter()
                     .map(|param| param.ty.display())
                     .collect::<Vec<_>>(),
-                ["str", "f64", "f64"]
+                ["touch-finger", "f64", "f64"]
             );
         }
 
@@ -7471,6 +7701,69 @@ view
                 .unwrap_err();
         assert_eq!(error.code, "E084");
         assert!(error.message.contains("touch event must be"));
+    }
+
+    #[test]
+    fn checks_typed_pointer_values() {
+        let source = include_str!("../../../examples/iced-app/src/ui/pointer_values.ice");
+        let document = analyze(source).unwrap();
+        assert_eq!(document.handlers[1].params[0].ty, Type::MouseButton);
+        assert_eq!(document.handlers[2].params[0].ty, Type::TouchFinger);
+
+        for (from, to, code, message) in [
+            (
+                "mouse.button(\"left\")",
+                "mouse.button(\"side\")",
+                "E152",
+                "must be left, right, middle, back, or forward",
+            ),
+            (
+                "mouse.other_button(9)",
+                "mouse.other_button(65536)",
+                "E152",
+                "must be in 0..=65535",
+            ),
+            (
+                "mouse.cursor(point(12.0, 24.0))",
+                "mouse.cursor(true)",
+                "E101",
+                "expected `point`, got `bool`",
+            ),
+            (
+                "mouse.button(\"left\"), none",
+                "mouse.button(\"left\"), some(mouse.unavailable())",
+                "E101",
+                "expected `mouse-click?`, got `mouse-cursor?`",
+            ),
+            (
+                "touch.finger(\"18446744073709551615\")",
+                "touch.finger(\"18446744073709551616\")",
+                "E152",
+                "must contain a decimal u64",
+            ),
+            (
+                "touch.finger(\"18446744073709551615\")",
+                "touch.finger(\"+42\")",
+                "E152",
+                "must contain a decimal u64",
+            ),
+            (
+                "cursor.kind",
+                "cursor.missing",
+                "E151",
+                "has no field `missing`",
+            ),
+            (
+                "cursor_levitating = mouse.cursor_is_levitating(mouse.cursor_levitate(cursor))",
+                "cursor_levitating = click == click",
+                "E153",
+                "mouse-click values are opaque",
+            ),
+        ] {
+            let error = analyze(&source.replacen(from, to, 1)).unwrap_err();
+            assert_eq!(error.code, code, "{from} -> {to}: {error:?}");
+            assert!(error.message.contains(message), "{from} -> {to}: {error:?}");
+        }
     }
 
     #[test]

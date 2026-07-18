@@ -29,6 +29,18 @@ mod backend {
     }
 
     #[cfg(test)]
+    pub fn pointer_click(
+        click: iced::advanced::mouse::Click,
+        _: iced::mouse::Cursor,
+        _: iced::mouse::Button,
+        _: iced::touch::Finger,
+        _: iced::Point,
+        _: iced::Rectangle,
+    ) -> iced::advanced::mouse::Click {
+        click
+    }
+
+    #[cfg(test)]
     #[derive(Clone, Debug, PartialEq)]
     pub struct NetworkError {
         pub message: String,
@@ -855,6 +867,39 @@ mod keyboard_values {
         assert_eq!(app.code.as_deref(), Some("KeyC"));
         assert_eq!(app.location_name, "numpad");
         assert!(app.modifiers.control());
+    }
+}
+
+#[cfg(test)]
+mod pointer_values {
+    ui_lang::include_app!("src/ui/pointer_values.ice");
+
+    #[test]
+    fn preserves_native_pointer_values() {
+        let (mut app, _) = PointerValues::__boot();
+        let _ = app.__update(__PointerValuesMessage::Inspect);
+
+        assert_eq!(app.cursor_position, Some(iced::Point::new(12.0, 24.0)));
+        assert_eq!(app.cursor_in, Some(iced::Point::new(2.0, 4.0)));
+        assert!(app.cursor_levitating);
+        assert!(app.over);
+        assert_eq!(app.click_kind, "single");
+        assert_eq!(app.width, 40.0);
+
+        let _ = app.__update(__PointerValuesMessage::Pressed(iced::mouse::Button::Other(
+            9,
+        )));
+        assert_eq!(app.button, iced::mouse::Button::Other(9));
+        assert_eq!(app.button_kind, "other");
+        assert_eq!(app.button_number, Some(9));
+
+        let _ = app.__update(__PointerValuesMessage::Touched(
+            iced::touch::Finger(u64::MAX),
+            7.0,
+            8.0,
+        ));
+        assert_eq!(app.finger, iced::touch::Finger(u64::MAX));
+        assert_eq!(app.finger_id, u64::MAX.to_string());
     }
 }
 
