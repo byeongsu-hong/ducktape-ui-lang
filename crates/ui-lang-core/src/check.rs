@@ -3817,6 +3817,7 @@ fn lazy_hashable(ty: &Type) -> bool {
         | Type::Rotation
         | Type::Color
         | Type::Length
+        | Type::Shadow
         | Type::Point
         | Type::PointU32
         | Type::Vector
@@ -7435,6 +7436,21 @@ pub(crate) fn expr_type(
                 check_builtin_args(name, args, &[Type::Alignment], env, document, span)?;
                 Ok(Type::VerticalAlignment)
             }
+            "shadow.default" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::Shadow)
+            }
+            "shadow.new" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::Color, Type::Vector, Type::F64],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::Shadow)
+            }
             "fit.default" | "fit.contain" | "fit.cover" | "fit.fill" | "fit.none"
             | "fit.scale_down" => {
                 check_builtin_args(name, args, &[], env, document, span)?;
@@ -8703,6 +8719,12 @@ fn field_type(ty: &Type, field: &str, document: &Document, span: &Span) -> Resul
             "kind" => Some(Type::Str),
             _ => None,
         },
+        Type::Shadow => match field {
+            "color" => Some(Type::Color),
+            "offset" => Some(Type::Vector),
+            "blur" => Some(Type::F64),
+            _ => None,
+        },
         Type::Point => match field {
             "x" | "y" => Some(Type::F64),
             "values" => Some(Type::List(Box::new(Type::F64))),
@@ -9093,6 +9115,20 @@ mod tests {
         .unwrap_err();
         assert_eq!(error.code, "E101");
         assert!(error.message.contains("expected `alignment`"));
+    }
+
+    #[test]
+    fn checks_native_shadow_values_and_fields() {
+        let source = include_str!("../../../examples/iced-app/src/ui/shadow.ice");
+        analyze(source).unwrap();
+
+        let error = analyze(&source.replace(
+            "shadow.new(color.rgba(0.1, 0.2, 0.3, 0.4), vector(4.0, 8.0), 12.0)",
+            "shadow.new(true, vector(4.0, 8.0), 12.0)",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E101");
+        assert!(error.message.contains("expected `color`"));
     }
 
     #[test]

@@ -10,6 +10,8 @@ mod content_fit;
 mod length;
 #[cfg(test)]
 mod rotation;
+#[cfg(test)]
+mod shadow;
 
 mod backend {
     use std::sync::{LazyLock, Mutex, MutexGuard};
@@ -124,6 +126,9 @@ mod backend {
 
     #[cfg(test)]
     pub use crate::rotation::rotation_round_trip;
+
+    #[cfg(test)]
+    pub use crate::shadow::shadow_round_trip;
 
     #[cfg(test)]
     pub fn elastic(value: f64) -> f64 {

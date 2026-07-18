@@ -1,0 +1,35 @@
+app NativeShadow
+
+extern crate::backend
+  sync shadow_round_trip(value:shadow) -> shadow
+
+theme
+  background #111827
+  foreground #f9fafb
+  primary #60a5fa
+  danger #f87171
+
+state
+  default_shadow:shadow = shadow.default()
+  value:shadow = shadow.default()
+  round_trip:shadow = shadow.default()
+  color_value:color = color.default()
+  offset_value:vector = vector.zero()
+  blur = 0.0
+  equal = false
+
+on inspect
+  default_shadow = shadow.default()
+  value = shadow.new(color.rgba(0.1, 0.2, 0.3, 0.4), vector(4.0, 8.0), 12.0)
+  round_trip = shadow_round_trip(value)
+  color_value = value.color
+  offset_value = value.offset
+  blur = value.blur
+  equal = value == round_trip
+
+view
+  col @p-4 gap-2
+    button "Inspect" -> inspect
+    text blur
+    text color_value.display
+    text offset_value.x

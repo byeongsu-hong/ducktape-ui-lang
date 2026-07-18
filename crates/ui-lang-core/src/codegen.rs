@@ -7934,6 +7934,9 @@ fn native_field_projection(ty: &Type, field: &str, code: &str) -> Option<(String
             ),
             Type::Str,
         ),
+        (Type::Shadow, "color") => (format!("({code}).color"), Type::Color),
+        (Type::Shadow, "offset") => (format!("({code}).offset"), Type::Vector),
+        (Type::Shadow, "blur") => (format!("({code}).blur_radius as f64"), Type::F64),
         (Type::Point | Type::Vector | Type::Size, "values") => (
             format!(
                 "::std::convert::Into::<[f32; 2]>::into({code}).into_iter().map(f64::from).collect::<::std::vec::Vec<_>>()"
@@ -8089,6 +8092,7 @@ fn expr_code(
                     | Type::Alignment
                     | Type::HorizontalAlignment
                     | Type::VerticalAlignment
+                    | Type::Shadow
                     | Type::Point
                     | Type::PointU32
                     | Type::Vector
@@ -8273,6 +8277,13 @@ fn expr_code(
             "vertical.from_alignment" => format!(
                 "::iced::alignment::Vertical::from({})",
                 expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "shadow.default" => "::iced::Shadow::default()".into(),
+            "shadow.new" => format!(
+                "::iced::Shadow {{ color: {}, offset: {}, blur_radius: ({}) as f32 }}",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?,
+                expr_code(&args[2], env, document, ValueMode::Owned)?
             ),
             "fit.default" => "::iced::ContentFit::default()".into(),
             "fit.contain" => "::iced::ContentFit::Contain".into(),
@@ -12196,6 +12207,24 @@ mod tests {
             "::iced::alignment::Horizontal::from(",
             "::iced::alignment::Vertical::from(",
             "crate::backend::alignment_round_trip(self.center)",
+        ] {
+            assert!(generated.contains(expected), "missing {expected}");
+        }
+    }
+
+    #[test]
+    fn lowers_every_native_shadow_operation() {
+        let source = include_str!("../../../examples/iced-app/src/ui/shadow.ice");
+        let generated = compile(source, "shadow.ice").unwrap();
+        for expected in [
+            "::iced::Shadow::default()",
+            "::iced::Shadow { color: ::iced::Color::from_rgba(",
+            "offset: ::iced::Vector::new((4.0) as f32, (8.0) as f32)",
+            "blur_radius: (12.0) as f32",
+            "crate::backend::shadow_round_trip(self.value)",
+            "(self.value).color",
+            "(self.value).offset",
+            "(self.value).blur_radius as f64",
         ] {
             assert!(generated.contains(expected), "missing {expected}");
         }
