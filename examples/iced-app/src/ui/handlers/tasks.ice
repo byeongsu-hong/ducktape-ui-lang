@@ -22,6 +22,17 @@ on retry
 on open_about
   about_open = true
 
+on open_child
+  task window open child -> child_opened _
+
+on child_opened(id)
+  child_window = some(id)
+  task window size target=id -> child_sized _ _
+
+on child_sized(width, height)
+  child_width = width
+  child_height = height
+
 on about_toggled(next)
   about_open = next
 

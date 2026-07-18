@@ -77,11 +77,18 @@ fn check_assets(document: &Document, loaded: &LoadedSource) -> Result<(), Error>
             ));
         }
     }
-    if let Some(icon) = document
+    for icon in document
         .settings
         .window
-        .as_ref()
-        .and_then(|window| window.icon.as_ref())
+        .iter()
+        .chain(
+            document
+                .settings
+                .windows
+                .iter()
+                .map(|window| &window.settings),
+        )
+        .filter_map(|window| window.icon.as_ref())
     {
         let path = parent.join(&icon.path);
         if !path.is_file() {
@@ -387,7 +394,7 @@ mod tests {
 
         fixture.write(
             "app.ice",
-            "app Demo\n  window\n    icon-rgba \"assets/missing.rgba\" 2 1\ntheme\n  background #000000\n  foreground #ffffff\n  primary #333333\n  danger #ff0000\nview\n  text \"Hi\"\n",
+            "app Demo\n  window child\n    icon-rgba \"assets/missing.rgba\" 2 1\ntheme\n  background #000000\n  foreground #ffffff\n  primary #333333\n  danger #ff0000\nview\n  text \"Hi\"\n",
         );
         let error = compile_file(fixture.path("app.ice")).unwrap_err();
         assert_eq!(error.code, "E192");

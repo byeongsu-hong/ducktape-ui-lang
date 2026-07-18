@@ -31,6 +31,7 @@ pub enum Type {
     KeyModifiers,
     SystemInfo,
     Instant,
+    WindowId,
     TaskHandle,
     Named(String),
     Unit,
@@ -63,6 +64,7 @@ impl Type {
             Self::KeyModifiers => "__IceKeyModifiers".into(),
             Self::SystemInfo => "__IceSystemInfo".into(),
             Self::Instant => "::iced::time::Instant".into(),
+            Self::WindowId => "::iced::window::Id".into(),
             Self::TaskHandle => "::iced::task::Handle".into(),
             Self::Named(name) => structs
                 .iter()
@@ -94,6 +96,7 @@ impl Type {
             Self::KeyModifiers => "key-modifiers".into(),
             Self::SystemInfo => "system-info".into(),
             Self::Instant => "instant".into(),
+            Self::WindowId => "window-id".into(),
             Self::TaskHandle => "task-handle".into(),
             Self::Named(name) => name.clone(),
             Self::Unit => "unit".into(),
@@ -138,6 +141,13 @@ pub struct AppSettings {
     pub vsync: Option<bool>,
     pub scale_factor: Option<f64>,
     pub window: Option<WindowSettings>,
+    pub windows: Vec<NamedWindow>,
+}
+
+#[derive(Clone, Debug)]
+pub struct NamedWindow {
+    pub name: String,
+    pub settings: WindowSettings,
 }
 
 #[derive(Clone, Debug)]
@@ -481,6 +491,7 @@ pub enum Statement {
     },
     WindowOperation {
         operation: WindowOperation,
+        target: Option<Expr>,
         route: Option<Route>,
         span: Span,
     },
@@ -600,6 +611,9 @@ pub enum WidgetOperation {
 
 #[derive(Clone, Debug)]
 pub enum WindowOperation {
+    Open(Option<String>),
+    Oldest,
+    Latest,
     Close,
     Drag,
     DragResize(WindowDirection),
