@@ -527,6 +527,21 @@ mod backend {
     }
 
     #[cfg(test)]
+    pub fn by_kind(kind: String) -> impl iced::widget::selector::Selector<Output = String> {
+        move |candidate: iced::widget::selector::Candidate<'_>| {
+            let candidate_kind = match candidate {
+                iced::widget::selector::Candidate::Container { .. } => "container",
+                iced::widget::selector::Candidate::Focusable { .. } => "focusable",
+                iced::widget::selector::Candidate::Scrollable { .. } => "scrollable",
+                iced::widget::selector::Candidate::TextInput { .. } => "text-input",
+                iced::widget::selector::Candidate::Text { .. } => "text",
+                iced::widget::selector::Candidate::Custom { .. } => "custom",
+            };
+            (candidate_kind == kind).then(|| kind.clone())
+        }
+    }
+
+    #[cfg(test)]
     pub fn count_sip(limit: i64) -> impl iced::task::Sipper<i64, i64> + Send + 'static {
         iced::task::sipper(move |mut sender| async move {
             let limit = limit.max(0);
@@ -839,6 +854,26 @@ mod scoped_widget_operations {
             __ScopedOperationsMessage::FocusHeader,
             __ScopedOperationsMessage::FocusCell,
             __ScopedOperationsMessage::SnapPane,
+        ] {
+            assert_eq!(app.__update(message).units(), 1);
+        }
+    }
+}
+
+#[cfg(test)]
+mod widget_selectors {
+    ui_lang::include_app!("src/ui/widget_selectors.ice");
+
+    #[test]
+    fn constructs_native_selector_tasks() {
+        let (mut app, _) = WidgetSelectors::__boot();
+        for message in [
+            __WidgetSelectorsMessage::FindId,
+            __WidgetSelectorsMessage::FindText,
+            __WidgetSelectorsMessage::FindPoint,
+            __WidgetSelectorsMessage::FindFocused,
+            __WidgetSelectorsMessage::FindAllText,
+            __WidgetSelectorsMessage::FindCustom,
         ] {
             assert_eq!(app.__update(message).units(), 1);
         }

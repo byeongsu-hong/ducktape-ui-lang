@@ -499,6 +499,162 @@ fn widget_operation_ids(
     Ok(output)
 }
 
+fn check_widget_target(
+    target: &WidgetTarget,
+    env: &HashMap<String, Type>,
+    document: &Document,
+    operation_ids: &[WidgetIdPath],
+    span: &Span,
+) -> Result<(), Error> {
+    let mut actual = Vec::with_capacity(target.segments.len());
+    for segment in &target.segments {
+        let key = segment
+            .key
+            .as_ref()
+            .map(|key| expr_type(key, env, document, span))
+            .transpose()?;
+        if let Some(key) = &key
+            && !matches!(key, Type::Bool | Type::I64 | Type::F64 | Type::Str)
+        {
+            return Err(Error::new(
+                "E172",
+                span,
+                "widget target keys must be bool, i64, f64, or str",
+            ));
+        }
+        actual.push((segment.name.clone(), key));
+    }
+    if operation_ids.iter().any(|expected| {
+        expected.len() == actual.len()
+            && expected
+                .iter()
+                .zip(&actual)
+                .all(|((expected_name, expected_key), (name, key))| {
+                    expected_name == name
+                        && match (expected_key, key) {
+                            (None, None) => true,
+                            (Some(expected), Some(actual)) => compatible(expected, actual),
+                            _ => false,
+                        }
+                })
+    }) {
+        return Ok(());
+    }
+    let label = format!(
+        "#{}",
+        target
+            .segments
+            .iter()
+            .map(|segment| if segment.key.is_some() {
+                format!("{}(key)", segment.name)
+            } else {
+                segment.name.clone()
+            })
+            .collect::<Vec<_>>()
+            .join("/")
+    );
+    let same_shape = operation_ids
+        .iter()
+        .filter(|expected| {
+            expected.len() == actual.len()
+                && expected.iter().zip(&actual).all(
+                    |((expected_name, expected_key), (name, key))| {
+                        expected_name == name && expected_key.is_some() == key.is_some()
+                    },
+                )
+        })
+        .collect::<Vec<_>>();
+    let mismatch = (!same_shape.is_empty())
+        .then(|| {
+            (0..actual.len()).find(|index| {
+                let Some(actual) = &actual[*index].1 else {
+                    return false;
+                };
+                same_shape.iter().all(|path| {
+                    path[*index]
+                        .1
+                        .as_ref()
+                        .is_some_and(|expected| !compatible(expected, actual))
+                })
+            })
+        })
+        .flatten();
+    if let Some(index) = mismatch {
+        let expected = same_shape
+            .iter()
+            .filter_map(|path| path[index].1.as_ref())
+            .map(Type::display)
+            .collect::<HashSet<_>>();
+        return Err(Error::new(
+            "E172",
+            span,
+            format!(
+                "widget target segment `{}` expects key type {}, got `{}`",
+                actual[index].0,
+                expected
+                    .into_iter()
+                    .map(|ty| format!("`{ty}`"))
+                    .collect::<Vec<_>>()
+                    .join(" or "),
+                actual[index].1.as_ref().unwrap().display()
+            ),
+        ));
+    }
+    Err(
+        Error::new("E172", span, format!("unknown app widget target `{label}`")).hint(
+            "use the full component, layout, keyed, table, or pane identity path from the app view",
+        ),
+    )
+}
+
+fn widget_selector_output(
+    selector: &WidgetSelector,
+    document: &Document,
+    span: &Span,
+) -> Result<Type, Error> {
+    match selector {
+        WidgetSelector::Extern { function, .. } => {
+            Ok(
+                extern_function(document, function, ExternKind::Selector, span)?
+                    .output
+                    .clone(),
+            )
+        }
+        WidgetSelector::Id(_)
+        | WidgetSelector::Text(_)
+        | WidgetSelector::Point { .. }
+        | WidgetSelector::Focused => Ok(Type::WidgetTarget),
+    }
+}
+
+fn check_widget_selector(
+    selector: &WidgetSelector,
+    env: &HashMap<String, Type>,
+    document: &Document,
+    operation_ids: &[WidgetIdPath],
+    span: &Span,
+) -> Result<Type, Error> {
+    match selector {
+        WidgetSelector::Id(target) => {
+            check_widget_target(target, env, document, operation_ids, span)?;
+        }
+        WidgetSelector::Text(value) => {
+            require_type(&expr_type(value, env, document, span)?, &Type::Str, span)?;
+        }
+        WidgetSelector::Point { x, y } => {
+            for value in [x, y] {
+                require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+            }
+        }
+        WidgetSelector::Focused => {}
+        WidgetSelector::Extern { function, args } => {
+            let function = extern_function(document, function, ExternKind::Selector, span)?;
+            check_call_args(function, args, env, document, span)?;
+        }
+    }
+    widget_selector_output(selector, document, span)
+}
+
 fn static_pane_grids(root: &ViewNode) -> Result<HashMap<String, HashSet<String>>, Error> {
     fn collect(
         node: &ViewNode,
@@ -3366,6 +3522,7 @@ fn lazy_hashable(ty: &Type) -> bool {
         | Type::Bytes
         | Type::Instant
         | Type::WindowId
+        | Type::WidgetId
         | Type::Named(_) => true,
         Type::List(inner) | Type::Option(inner) => lazy_hashable(inner),
         Type::Result(output, error) => lazy_hashable(output) && lazy_hashable(error),
@@ -3378,6 +3535,7 @@ fn lazy_hashable(ty: &Type) -> bool {
         | Type::KeyRelease
         | Type::KeyModifiers
         | Type::SystemInfo
+        | Type::WidgetTarget
         | Type::TaskHandle
         | Type::Image
         | Type::Unit
@@ -5010,6 +5168,25 @@ fn infer_runs(
         {
             infer_route(route, Some(Type::Bool), &unknown_env, document, signatures)?;
         }
+        if let Statement::WidgetOperation {
+            operation: WidgetOperation::Find { selector, all },
+            route: Some(route),
+            span,
+        } = statement
+        {
+            let output = widget_selector_output(selector, document, span)?;
+            infer_route(
+                route,
+                Some(if *all {
+                    Type::List(Box::new(output))
+                } else {
+                    Type::Option(Box::new(output))
+                }),
+                &unknown_env,
+                document,
+                signatures,
+            )?;
+        }
         if let Statement::PaneOperation {
             operation: PaneOperation::Maximized | PaneOperation::Adjacent { .. },
             route: Some(route),
@@ -5595,7 +5772,9 @@ fn check_handler(
                     ));
                 }
                 let target = match operation {
-                    WidgetOperation::FocusPrevious | WidgetOperation::FocusNext => None,
+                    WidgetOperation::FocusPrevious
+                    | WidgetOperation::FocusNext
+                    | WidgetOperation::Find { .. } => None,
                     WidgetOperation::Focus { target }
                     | WidgetOperation::Focused { target }
                     | WidgetOperation::CursorFront { target }
@@ -5609,108 +5788,10 @@ fn check_handler(
                     | WidgetOperation::ScrollBy { target, .. } => Some(target),
                 };
                 if let Some(target) = target {
-                    let mut actual = Vec::with_capacity(target.segments.len());
-                    for segment in &target.segments {
-                        let key = segment
-                            .key
-                            .as_ref()
-                            .map(|key| expr_type(key, &env, document, span))
-                            .transpose()?;
-                        if let Some(key) = &key
-                            && !matches!(key, Type::Bool | Type::I64 | Type::F64 | Type::Str)
-                        {
-                            return Err(Error::new(
-                                "E172",
-                                span,
-                                "widget target keys must be bool, i64, f64, or str",
-                            ));
-                        }
-                        actual.push((segment.name.clone(), key));
-                    }
-                    let matches = operation_ids.iter().any(|expected| {
-                        expected.len() == actual.len()
-                            && expected.iter().zip(&actual).all(
-                                |((expected_name, expected_key), (name, key))| {
-                                    expected_name == name
-                                        && match (expected_key, key) {
-                                            (None, None) => true,
-                                            (Some(expected), Some(actual)) => {
-                                                compatible(expected, actual)
-                                            }
-                                            _ => false,
-                                        }
-                                },
-                            )
-                    });
-                    if !matches {
-                        let label = format!(
-                            "#{}",
-                            target
-                                .segments
-                                .iter()
-                                .map(|segment| if segment.key.is_some() {
-                                    format!("{}(key)", segment.name)
-                                } else {
-                                    segment.name.clone()
-                                })
-                                .collect::<Vec<_>>()
-                                .join("/")
-                        );
-                        let same_shape = operation_ids
-                            .iter()
-                            .filter(|expected| {
-                                expected.len() == actual.len()
-                                    && expected.iter().zip(&actual).all(
-                                        |((expected_name, expected_key), (name, key))| {
-                                            expected_name == name
-                                                && expected_key.is_some() == key.is_some()
-                                        },
-                                    )
-                            })
-                            .collect::<Vec<_>>();
-                        let mismatch = (!same_shape.is_empty())
-                            .then(|| {
-                                (0..actual.len()).find(|index| {
-                                    let Some(actual) = &actual[*index].1 else {
-                                        return false;
-                                    };
-                                    same_shape.iter().all(|path| {
-                                        path[*index]
-                                            .1
-                                            .as_ref()
-                                            .is_some_and(|expected| !compatible(expected, actual))
-                                    })
-                                })
-                            })
-                            .flatten();
-                        if let Some(index) = mismatch {
-                            let expected = same_shape
-                                .iter()
-                                .filter_map(|path| path[index].1.as_ref())
-                                .map(Type::display)
-                                .collect::<HashSet<_>>();
-                            return Err(Error::new(
-                                "E172",
-                                span,
-                                format!(
-                                    "widget target segment `{}` expects key type {}, got `{}`",
-                                    actual[index].0,
-                                    expected
-                                        .into_iter()
-                                        .map(|ty| format!("`{ty}`"))
-                                        .collect::<Vec<_>>()
-                                        .join(" or "),
-                                    actual[index].1.as_ref().unwrap().display()
-                                ),
-                            ));
-                        }
-                        return Err(Error::new(
-                            "E172",
-                            span,
-                            format!("unknown app widget target `{label}`"),
-                        )
-                        .hint("use the full component, layout, keyed, table, or pane identity path from the app view"));
-                    }
+                    check_widget_target(target, &env, document, operation_ids, span)?;
+                }
+                if let WidgetOperation::Find { selector, .. } = operation {
+                    check_widget_selector(selector, &env, document, operation_ids, span)?;
                 }
                 match (operation, route) {
                     (WidgetOperation::Focused { .. }, None) => {
@@ -5721,6 +5802,14 @@ fn check_handler(
                         ));
                     }
                     (WidgetOperation::Focused { .. }, Some(_)) => {}
+                    (WidgetOperation::Find { .. }, None) => {
+                        return Err(Error::new(
+                            "E172",
+                            span,
+                            "widget selector requires `-> handler _`",
+                        ));
+                    }
+                    (WidgetOperation::Find { .. }, Some(_)) => {}
                     (_, Some(_)) => {
                         return Err(Error::new(
                             "E172",
@@ -6140,6 +6229,7 @@ fn extern_function<'a>(
                 ExternKind::Stream => "stream",
                 ExternKind::Sip => "sip",
                 ExternKind::Recipe => "recipe",
+                ExternKind::Selector => "selector",
                 ExternKind::EventFilter => "event filter",
                 ExternKind::Sync => "sync function",
                 ExternKind::Subscription => "subscription",
@@ -6610,6 +6700,13 @@ fn contains_task_handle(ty: &Type) -> bool {
 }
 
 fn field_type(ty: &Type, field: &str, document: &Document, span: &Span) -> Result<Type, Error> {
+    if let Type::Option(inner) = ty
+        && **inner == Type::WidgetTarget
+    {
+        return Ok(Type::Option(Box::new(field_type(
+            inner, field, document, span,
+        )?)));
+    }
     let found = match ty {
         Type::Named(name) => {
             let item = document
@@ -6657,6 +6754,16 @@ fn field_type(ty: &Type, field: &str, document: &Document, span: &Span) -> Resul
             "cpu_brand" | "graphics_backend" | "graphics_adapter" => Some(Type::Str),
             "cpu_cores" | "memory_used" => Some(Type::Option(Box::new(Type::I64))),
             "memory_total" => Some(Type::I64),
+            _ => None,
+        },
+        Type::WidgetTarget => match field {
+            "kind" => Some(Type::Str),
+            "id" => Some(Type::Option(Box::new(Type::WidgetId))),
+            "x" | "y" | "width" | "height" => Some(Type::F64),
+            "visible_x" | "visible_y" | "visible_width" | "visible_height" | "content_x"
+            | "content_y" | "content_width" | "content_height" | "translation_x"
+            | "translation_y" => Some(Type::Option(Box::new(Type::F64))),
+            "content" => Some(Type::Option(Box::new(Type::Str))),
             _ => None,
         },
         _ => None,
@@ -10117,6 +10224,54 @@ view
         .unwrap_err();
         assert_eq!(error.code, "E172");
         assert!(error.message.contains("unknown app widget target"));
+    }
+
+    #[test]
+    fn checks_widget_selectors() {
+        let source = include_str!("../../../examples/iced-app/src/ui/widget_selectors.ice");
+        let document = analyze(source).unwrap();
+        assert_eq!(
+            document.handlers[6].params[0].ty,
+            Type::Option(Box::new(Type::WidgetTarget))
+        );
+        assert_eq!(
+            document.handlers[7].params[0].ty,
+            Type::List(Box::new(Type::WidgetTarget))
+        );
+        assert_eq!(
+            document.handlers[8].params[0].ty,
+            Type::List(Box::new(Type::Str))
+        );
+
+        for (before, after, message) in [
+            ("find text \"Search\"", "find text 1", "expected `str`"),
+            (
+                "find point 12.0 24.0",
+                "find point true 24.0",
+                "expected `f64`",
+            ),
+            (
+                "find id #root/field",
+                "find id #root/missing",
+                "unknown app widget target",
+            ),
+            (
+                "find-all by_kind(\"text\")",
+                "find-all by_kind(1)",
+                "expected `str`",
+            ),
+        ] {
+            let error = analyze(&source.replacen(before, after, 1)).unwrap_err();
+            assert!(error.message.contains(message), "{}", error.message);
+        }
+
+        let error = analyze(&source.replacen(" -> found_one _", "", 1)).unwrap_err();
+        assert_eq!(error.code, "E172");
+        assert!(error.message.contains("selector requires"));
+
+        let error = analyze(&source.replacen("value.kind", "value.missing", 1)).unwrap_err();
+        assert_eq!(error.code, "E151");
+        assert!(error.message.contains("has no field `missing`"));
     }
 
     #[test]
