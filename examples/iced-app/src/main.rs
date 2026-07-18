@@ -100,6 +100,29 @@ mod backend {
     }
 
     #[cfg(test)]
+    pub fn elastic(value: f64) -> f64 {
+        value
+    }
+
+    #[cfg(test)]
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct Motion {
+        pub value: f64,
+    }
+
+    #[cfg(test)]
+    impl iced::animation::Float for Motion {
+        fn float_value(&self) -> f32 {
+            self.value as f32
+        }
+    }
+
+    #[cfg(test)]
+    pub fn motion(value: f64) -> Motion {
+        Motion { value }
+    }
+
+    #[cfg(test)]
     pub fn native_theme(dark: bool) -> iced::Theme {
         let palette = if dark {
             iced::theme::Palette::DARK
@@ -1726,6 +1749,35 @@ mod timer {
         let (mut app, _) = TimerEvents::__boot();
         assert_eq!(app.__subscription().units(), 4);
         assert_eq!(app.__update(__TimerEventsMessage::Start).units(), 1);
+    }
+}
+
+#[cfg(test)]
+mod animation {
+    ui_lang::include_app!("src/ui/animation.ice");
+
+    #[test]
+    fn drives_native_animations_only_while_active() {
+        let (mut app, _) = NativeAnimation::__boot();
+        assert_eq!(app.__subscription().units(), 0);
+
+        let _ = app.__update(__NativeAnimationMessage::Start);
+        assert!(app.expanded.value());
+        assert_eq!(app.progress.value(), 1.0);
+        assert_eq!(app.custom_motion.value().value, 1.0);
+        assert_eq!(app.__subscription().units(), 1);
+        let _ = app.__view();
+
+        let _ = app.__update(__NativeAnimationMessage::Sample);
+        assert!(app.maybe_progress.is_some());
+        assert!(app.maybe_visibility.is_none());
+        let _ = app.__update(__NativeAnimationMessage::Rewind(iced::time::Instant::now()));
+        assert_eq!(app.progress.value(), 0.0);
+        assert_eq!(
+            app.__update(__NativeAnimationMessage::__AnimationFrame)
+                .units(),
+            0
+        );
     }
 }
 

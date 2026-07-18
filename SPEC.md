@@ -1,4 +1,4 @@
-# Ice Language Specification 1.36
+# Ice Language Specification 1.37
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 1.36 syntax.
+marked “planned” is a design constraint, not accepted 1.37 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 1.36.
+  block comments are not part of 1.37.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -196,6 +196,7 @@ type           = "bool" | "i64" | "f64" | "str" | "bytes" | "image"
                | PascalName
                | "[" type "]" | type "?" | "result[" type "," type "]"
                | "combo[" type "]"
+               | "animation[" ("bool" | "f64" | PascalName) "]"
 function_sig   = name "(" field_list? ")" "->" type ("!" type)?
 extern_component_sig
                = "component" name "(" extern_component_field_list? ")" "->" type
@@ -272,7 +273,12 @@ qr_data_property = "correction=" ("low" | "medium" | "quartile" | "high")
                  | "version=" ("normal(" u8 ")" | "micro(" u8 ")")
 
 state_decl     = "state" INDENT state_entry+
-state_entry    = name (":" type)? "=" expr
+state_entry    = name (":" type)? "=" expr (INDENT animation_setting*)?
+animation_setting = "easing" name
+                  | "duration" (duration | "very-quick" | "quick" | "slow" | "very-slow")
+                  | "delay" duration
+                  | "repeat" (u32 | "forever")
+                  | "auto-reverse" bool
 
 preset_decl    = "preset" name (INDENT preset_section*)?
 preset_section = preset_state | preset_boot
@@ -285,7 +291,7 @@ component_decl = "component" component_name "(" field_list? ")"
 
 handler_decl   = "on" name ("(" name_list? ")")?
                  INDENT statement*
-statement      = name "=" expr
+statement      = name "=" expr ("at" expr)?
                | "markdown" name "append" expr
                | "combo" name "push" expr
                | "return if" expr
@@ -1020,7 +1026,7 @@ maximum size. `icon-rgba` embeds a relative raw RGBA file without an image
 codec; width and height are positive integers, and generated Rust rejects a
 byte length other than `width × height × 4`. `cargo ice check` reports a
 mismatch at the icon declaration, and generated Rust repeats the check at
-compile time. Encoded icon formats remain outside 1.36.
+compile time. Encoded icon formats remain outside 1.37.
 
 Use `daemon Name` instead of `app Name` for an iced daemon that starts without
 an initial window and remains alive after all windows close. A daemon rejects
@@ -1564,6 +1570,9 @@ button "Add" disabled=(loading || empty(trim(draft))) -> submit
 | `T?` | `Option<T>` |
 | `result[T,E]` | `Result<T, E>` |
 | `combo[T]` | `iced::widget::combo_box::State<T>` |
+| `animation[bool]` | `iced::Animation<bool>` |
+| `animation[f64]` | `iced::Animation<f32>`; expressions convert at the Ice numeric boundary |
+| `animation[Name]` | `iced::Animation<crate::...::Name>`; rustc verifies `Copy + PartialEq + iced::animation::Float` |
 | `instant` | `iced::time::Instant` |
 | `window-id` | `iced::window::Id` |
 | `markdown` | `iced::widget::markdown::Content` |
@@ -1595,7 +1604,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 1.36 message payloads.
+`Clone` for 1.37 message payloads.
 
 Declared `sync` functions are checked, synchronous Rust calls available in
 Ice expressions. They are the small escape hatch for pure domain conversions
@@ -1803,6 +1812,39 @@ selection:str? = none
 search_modes:combo[str] = ["List", "Board"]
 ```
 
+Native animation state keeps motion structured while iced remains in charge of
+time and interpolation:
+
+```ice
+extern crate::backend
+  sync elastic(value:f64) -> f64
+
+state
+  expanded:animation[bool] = false
+    easing ease-in-out
+    duration 400ms
+    delay 50ms
+    repeat 1
+    auto-reverse true
+  progress:animation[f64] = 0.0
+    easing elastic
+    duration quick
+
+on open
+  expanded = true
+  progress = 1.0
+```
+
+The built-in state types are `bool` and `f64`; a named extern type is also
+accepted when its Rust type implements iced's animation bounds. Every native
+easing variant is accepted in kebab case. A different easing name
+must resolve to `sync name(value:f64) -> f64`. Durations and delays accept whole
+`ms`/`s` values, including zero; duration presets are `very-quick`, `quick`,
+`slow`, and `very-slow`. `repeat N` preserves iced's meaning (one repetition
+plays twice), while `repeat forever` and `auto-reverse true` map directly to the
+native builders. Ice subscribes to native window frames only while at least one
+animation is active.
+
 The expression language contains:
 
 - literals: strings, booleans, `i64`, `f64`, `none`, list literals such as
@@ -1828,6 +1870,15 @@ The expression language contains:
   `transform.point(point, transformation)`;
 - native units such as `pixels(value)`, `padding.all(value)`, `degrees(value)`,
   and `radians(value)`;
+- animation queries `animation.value(state)`,
+  `animation.animating(state[, at])`,
+  `animation.interpolate(bool_state, start, end[, at])` for matching `f64` or
+  `f64?` endpoints, and
+  `animation.remaining(bool_state[, at])`; remaining time is returned in
+  milliseconds;
+- checked projection
+  `animation.project(state, value, expression[, at])`, where the expression
+  sees the current inner value as `value` and returns `f64` or `f64?`;
 - `markdown(str) -> markdown` and `markdown_images(markdown) -> [str]`;
 - calls to declared typed `sync` extern functions.
 
@@ -1864,6 +1915,9 @@ Rules:
 
 - assignment targets must be declared state;
 - assigned expressions must have the state type;
+- assigning the inner value of `animation[T]` starts its native transition at
+  the current monotonic instant; `state = value at instant` supplies an exact
+  `instant` instead;
 - `combo state push value` requires a `combo[T]` state and a `T` value;
 - `return if` requires `bool`;
 - `run`, `task`, `sip`, `flow`, or a task group must be the final statement because each
@@ -3373,7 +3427,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 1.36 does not claim that remapping.
+extern line; 1.37 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -3394,7 +3448,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 1.36 native backend covers both windowed applications and windowless
+The 1.37 native backend covers both windowed applications and windowless
 daemons alongside CRUD/settings-style screens, selection, media, hover
 overlays, declarative canvas geometry, and pointer events. Borrowed custom
 widgets and an application-wide renderer type remain the escape hatch for

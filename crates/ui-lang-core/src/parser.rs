@@ -1486,7 +1486,6 @@ fn parse_duration(source: &str, line: &Line) -> Result<u64, Error> {
 }
 
 fn parse_state(line: &Line) -> Result<State, Error> {
-    ensure_leaf(line)?;
     let Some((left, right)) = split_top_once(&line.text, '=') else {
         return Err(error(
             "E030",
@@ -1507,12 +1506,90 @@ fn parse_state(line: &Line) -> Result<State, Error> {
         error("E031", line, "state type cannot be inferred")
             .hint("write an explicit type, for example `items:[Item] = []`")
     })?;
+    let animation = if matches!(ty, Type::Animation(_)) {
+        Some(parse_animation_options(&line.children)?)
+    } else {
+        ensure_leaf(line)?;
+        None
+    };
     Ok(State {
         name,
         ty,
         initial,
+        animation,
         span: Span::line(line.number),
     })
+}
+
+fn parse_animation_options(lines: &[Line]) -> Result<AnimationOptions, Error> {
+    let mut options = AnimationOptions::default();
+    let mut seen = BTreeMap::new();
+    for line in lines {
+        ensure_leaf(line)?;
+        let Some((name, value)) = line.text.split_once(char::is_whitespace) else {
+            return Err(error("E030", line, "animation settings use `name value`"));
+        };
+        if seen.insert(name, line.number).is_some() {
+            return Err(error(
+                "E030",
+                line,
+                format!("duplicate animation setting `{name}`"),
+            ));
+        }
+        let value = value.trim();
+        match name {
+            "easing" if !value.is_empty() && !value.contains(char::is_whitespace) => {
+                options.easing = Some(value.into());
+            }
+            "duration" => {
+                options.duration = Some(match value {
+                    "very-quick" => AnimationDuration::VeryQuick,
+                    "quick" => AnimationDuration::Quick,
+                    "slow" => AnimationDuration::Slow,
+                    "very-slow" => AnimationDuration::VerySlow,
+                    value => {
+                        AnimationDuration::Milliseconds(parse_animation_duration(value, line)?)
+                    }
+                });
+            }
+            "delay" => options.delay_ms = Some(parse_animation_duration(value, line)?),
+            "repeat" if value == "forever" => options.repeat_forever = true,
+            "repeat" => {
+                options.repeat = Some(value.parse::<u32>().map_err(|_| {
+                    error(
+                        "E030",
+                        line,
+                        "animation repeat expects a whole number or `forever`",
+                    )
+                })?);
+            }
+            "auto-reverse" => options.auto_reverse = config_bool(value, line)?,
+            "easing" => {
+                return Err(error("E030", line, "animation easing expects one name"));
+            }
+            _ => {
+                return Err(error(
+                    "E030",
+                    line,
+                    format!("unknown animation setting `{name}`"),
+                ));
+            }
+        }
+    }
+    Ok(options)
+}
+
+fn parse_animation_duration(source: &str, line: &Line) -> Result<u64, Error> {
+    let (number, multiplier) = source
+        .strip_suffix("ms")
+        .map(|number| (number, 1))
+        .or_else(|| source.strip_suffix('s').map(|number| (number, 1_000)))
+        .ok_or_else(|| error("E030", line, "animation time uses `ms` or `s`"))?;
+    number
+        .parse::<u64>()
+        .ok()
+        .and_then(|number| number.checked_mul(multiplier))
+        .ok_or_else(|| error("E030", line, "animation time must be a whole number"))
 }
 
 fn parse_component(header: &str, line: &Line) -> Result<Component, Error> {
@@ -1750,9 +1827,14 @@ fn parse_statement(line: &Line) -> Result<Statement, Error> {
         });
     }
     if let Some((target, value)) = split_top_once(&line.text, '=') {
+        let (value, at) = match split_top_marker(value.trim(), " at ") {
+            Some((value, at)) => (value.trim(), Some(parse_expr(at.trim(), line)?)),
+            None => (value.trim(), None),
+        };
         return Ok(Statement::Assign {
             target: identifier(target.trim(), line)?,
-            value: parse_expr(value.trim(), line)?,
+            value: parse_expr(value, line)?,
+            at,
             span: Span::line(line.number),
         });
     }
@@ -8475,6 +8557,12 @@ fn parse_type(source: &str, line: &Line) -> Result<Type, Error> {
     {
         return Ok(Type::Combo(Box::new(parse_type(inner, line)?)));
     }
+    if let Some(inner) = source
+        .strip_prefix("animation[")
+        .and_then(|source| source.strip_suffix(']'))
+    {
+        return Ok(Type::Animation(Box::new(parse_type(inner, line)?)));
+    }
     if source.starts_with('[') && source.ends_with(']') {
         return Ok(Type::List(Box::new(parse_type(
             &source[1..source.len() - 1],
@@ -9108,6 +9196,24 @@ fn error(code: &'static str, line: &Line, message: impl Into<String>) -> Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_native_animation_configuration_and_explicit_time() {
+        let source = include_str!("../../../examples/iced-app/src/ui/animation.ice");
+        let document = parse(source).unwrap();
+        let state = &document.states[0];
+        assert_eq!(state.ty, Type::Animation(Box::new(Type::Bool)));
+        let options = state.animation.as_ref().unwrap();
+        assert_eq!(options.easing.as_deref(), Some("ease-in-out"));
+        assert_eq!(options.duration, Some(AnimationDuration::Milliseconds(400)));
+        assert_eq!(options.delay_ms, Some(1));
+        assert_eq!(options.repeat, Some(1));
+        assert!(options.auto_reverse);
+        assert!(matches!(
+            &document.handlers[2].statements[0],
+            Statement::Assign { at: Some(_), .. }
+        ));
+    }
 
     const SOURCE: &str = r#"app Demo
 

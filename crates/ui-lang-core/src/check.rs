@@ -43,6 +43,29 @@ pub fn check(document: &mut Document) -> Result<(), Error> {
                 ));
             };
             require_type(&actual, expected, &state.span)?;
+        } else if let Type::Animation(expected) = &state.ty {
+            require_type(&actual, expected, &state.span)?;
+            if let Some(easing) = state
+                .animation
+                .as_ref()
+                .and_then(|options| options.easing.as_deref())
+                && !ANIMATION_EASINGS.contains(&easing)
+            {
+                let function = extern_function(document, easing, ExternKind::Sync, &state.span)?;
+                if function.params.len() != 1
+                    || function.params[0].1 != Type::F64
+                    || function.output != Type::F64
+                    || function.error.is_some()
+                {
+                    return Err(Error::new(
+                        "E103",
+                        &state.span,
+                        format!(
+                            "animation easing `{easing}` must be `sync {easing}(value:f64) -> f64`"
+                        ),
+                    ));
+                }
+            }
         } else {
             let text_initial =
                 matches!(state.ty, Type::Markdown | Type::Editor) && actual == Type::Str;
@@ -922,6 +945,18 @@ fn check_declared_type(ty: &Type, span: &Span, known: &HashSet<&str>) -> Result<
             check_declared_type(output, span, known)?;
             check_declared_type(error, span, known)
         }
+        Type::Animation(inner) if matches!(inner.as_ref(), Type::Bool | Type::F64) => Ok(()),
+        Type::Animation(inner) if matches!(inner.as_ref(), Type::Named(_)) => {
+            check_declared_type(inner, span, known)
+        }
+        Type::Animation(inner) => Err(Error::new(
+            "E103",
+            span,
+            format!(
+                "animation state supports `bool`, `f64`, or a named extern type, not `{}`",
+                inner.display()
+            ),
+        )),
         Type::Named(name) if !known.contains(name.as_str()) => {
             Err(
                 Error::new("E103", span, format!("unknown extern type `{name}`")).hint(format!(
@@ -3394,6 +3429,13 @@ fn infer_view(
                         format!("duplicate canvas state `{}`", local.name),
                     ));
                 }
+                if matches!(local.ty, Type::Animation(_)) {
+                    return Err(Error::new(
+                        "E190",
+                        &local.span,
+                        "canvas-local animation is not supported; declare it in app state",
+                    ));
+                }
                 check_declared_type(&local.ty, &local.span, &known)?;
                 let actual = expr_type(&local.initial, &HashMap::new(), document, &local.span)?;
                 if let Type::Combo(expected) = &local.ty {
@@ -3741,6 +3783,7 @@ fn lazy_hashable(ty: &Type) -> bool {
         Type::Result(output, error) => lazy_hashable(output) && lazy_hashable(error),
         Type::F64
         | Type::Combo(_)
+        | Type::Animation(_)
         | Type::Markdown
         | Type::Editor
         | Type::Event
@@ -5876,6 +5919,7 @@ fn check_handler(
             Statement::Assign {
                 target,
                 value,
+                at,
                 span,
             } => {
                 let expected = states.get(target).ok_or_else(|| {
@@ -5884,8 +5928,20 @@ fn check_handler(
                 let actual = expr_type(value, &env, document, span)?;
                 if let Type::Combo(inner) = expected {
                     require_type(&actual, &Type::List(inner.clone()), span)?;
+                } else if let Type::Animation(inner) = expected {
+                    require_type(&actual, inner, span)?;
                 } else {
                     require_type(&actual, expected, span)?;
+                }
+                if let Some(at) = at {
+                    if !matches!(expected, Type::Animation(_)) {
+                        return Err(Error::new(
+                            "E140",
+                            span,
+                            "`at` is only valid when assigning animation state",
+                        ));
+                    }
+                    require_type(&expr_type(at, &env, document, span)?, &Type::Instant, span)?;
                 }
             }
             Statement::MarkdownAppend {
@@ -6822,6 +6878,52 @@ fn keyboard_variant<'a>(name: &str, args: &'a [Expr], span: &Span) -> Result<&'a
     Ok(value)
 }
 
+fn animation_inner(
+    expr: &Expr,
+    env: &HashMap<String, Type>,
+    document: &Document,
+    span: &Span,
+) -> Result<Type, Error> {
+    let Type::Animation(inner) = expr_type(expr, env, document, span)? else {
+        return Err(Error::new("E152", span, "expected animation state"));
+    };
+    Ok(*inner)
+}
+
+fn check_animation_instant(
+    name: &str,
+    args: &[Expr],
+    required: usize,
+    optional_instant: bool,
+    env: &HashMap<String, Type>,
+    document: &Document,
+    span: &Span,
+) -> Result<(), Error> {
+    let valid = args.len() == required || optional_instant && args.len() == required + 1;
+    if !valid {
+        return Err(Error::new(
+            "E152",
+            span,
+            format!(
+                "{name} expects {required}{} argument(s)",
+                if optional_instant {
+                    " or one more instant"
+                } else {
+                    ""
+                }
+            ),
+        ));
+    }
+    if args.len() > required {
+        require_type(
+            &expr_type(&args[required], env, document, span)?,
+            &Type::Instant,
+            span,
+        )?;
+    }
+    Ok(())
+}
+
 fn check_builtin_args(
     name: &str,
     args: &[Expr],
@@ -6992,6 +7094,77 @@ pub(crate) fn expr_type(
             Ok(ty)
         }
         Expr::Call { name, args } => match name.as_str() {
+            "animation.value" => {
+                check_animation_instant(name, args, 1, false, env, document, span)?;
+                animation_inner(&args[0], env, document, span)
+            }
+            "animation.animating" => {
+                check_animation_instant(name, args, 1, true, env, document, span)?;
+                animation_inner(&args[0], env, document, span)?;
+                Ok(Type::Bool)
+            }
+            "animation.interpolate" => {
+                check_animation_instant(name, args, 3, true, env, document, span)?;
+                require_type(
+                    &animation_inner(&args[0], env, document, span)?,
+                    &Type::Bool,
+                    span,
+                )?;
+                let output = expr_type(&args[1], env, document, span)?;
+                let output = if output == Type::F64 {
+                    Type::F64
+                } else {
+                    let optional = Type::Option(Box::new(Type::F64));
+                    require_type(&output, &optional, span).map_err(|_| {
+                        Error::new(
+                            "E152",
+                            span,
+                            "animation.interpolate values must be f64 or f64?",
+                        )
+                    })?;
+                    optional
+                };
+                require_type(&expr_type(&args[2], env, document, span)?, &output, span)?;
+                Ok(output)
+            }
+            "animation.remaining" => {
+                check_animation_instant(name, args, 1, true, env, document, span)?;
+                require_type(
+                    &animation_inner(&args[0], env, document, span)?,
+                    &Type::Bool,
+                    span,
+                )?;
+                Ok(Type::F64)
+            }
+            "animation.project" => {
+                check_animation_instant(name, args, 3, true, env, document, span)?;
+                let inner = animation_inner(&args[0], env, document, span)?;
+                let Expr::Path(binding) = &args[1] else {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        "animation.project second argument must be a binding name",
+                    ));
+                };
+                if binding.len() != 1 {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        "animation.project second argument must be a binding name",
+                    ));
+                }
+                let mut projection_env = env.clone();
+                projection_env.insert(binding[0].clone(), inner);
+                let output = expr_type(&args[2], &projection_env, document, span)?;
+                if output != Type::F64 && output != Type::Option(Box::new(Type::F64)) {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        "animation.project expression must produce f64 or f64?",
+                    ));
+                }
+                Ok(output)
+            }
             "pixels" => {
                 check_builtin_args(name, args, &[Type::F64], env, document, span)?;
                 Ok(Type::Pixels)
@@ -8429,6 +8602,38 @@ fn type_error(span: &Span, expected: &Type, actual: &Type) -> Error {
 #[cfg(test)]
 mod tests {
     use crate::{PaneConfiguration, Type, ViewNode, analyze};
+
+    #[test]
+    fn rejects_invalid_animation_boundaries_before_codegen() {
+        let source = r#"app Motion
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  label:animation[str] = ""
+view
+  text "Motion"
+"#;
+        let error = analyze(source).unwrap_err();
+        assert_eq!(error.code, "E103");
+        assert!(error.message.contains("supports `bool`, `f64`"));
+
+        let source = source
+            .replace("label:animation[str] = \"\"", "label = \"\"")
+            .replace(
+                "view",
+                "on change\n  label = \"next\" at instant.now()\nview",
+            );
+        let error = analyze(&source).unwrap_err();
+        assert_eq!(error.code, "E140");
+        assert!(
+            error
+                .message
+                .contains("only valid when assigning animation")
+        );
+    }
 
     #[test]
     fn checks_exit_is_a_final_native_task() {

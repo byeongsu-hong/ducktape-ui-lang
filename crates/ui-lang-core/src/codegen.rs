@@ -116,6 +116,9 @@ pub fn generate(document: &Document, source_path: &str) -> Result<String, Error>
     if needs_extern_noop(document) {
         writeln!(out, "__ExternNoop,").unwrap();
     }
+    if has_animations(document) {
+        writeln!(out, "__AnimationFrame,").unwrap();
+    }
     for node in pane_grids(&document.view) {
         let ViewNode::PaneGrid { name, options, .. } = node else {
             unreachable!()
@@ -144,7 +147,7 @@ pub fn generate(document: &Document, source_path: &str) -> Result<String, Error>
     writeln!(out, "impl {} {{", document.app).unwrap();
     generate_named_windows(&mut out, document, source_path);
     writeln!(out, "pub fn run() -> ::iced::Result {{").unwrap();
-    let subscription = if document.subscriptions.is_empty() {
+    let subscription = if document.subscriptions.is_empty() && !has_animations(document) {
         ""
     } else {
         ".subscription(Self::__subscription)"
@@ -217,6 +220,13 @@ pub fn generate(document: &Document, source_path: &str) -> Result<String, Error>
     generate_view(&mut out, document, &message)?;
     writeln!(out, "}}").unwrap();
     Ok(out)
+}
+
+fn has_animations(document: &Document) -> bool {
+    document
+        .states
+        .iter()
+        .any(|state| matches!(state.ty, Type::Animation(_)))
 }
 
 fn font_assets_code(settings: &AppSettings, source_path: &str) -> String {
@@ -1468,13 +1478,7 @@ fn generate_boot(out: &mut String, document: &Document, message: &str) -> Result
         writeln!(out, "{}: {},", qr.name, qr_data_code(qr)).unwrap();
     }
     for state in &document.states {
-        writeln!(
-            out,
-            "{}: {},",
-            state.name,
-            initial_code(&state.initial, &state.ty, document)
-        )
-        .unwrap();
+        writeln!(out, "{}: {},", state.name, initial_code(state, document)).unwrap();
     }
     for node in pane_grids(&document.view) {
         let ViewNode::PaneGrid {
@@ -1643,6 +1647,9 @@ fn generate_update(out: &mut String, document: &Document, message: &str) -> Resu
     if needs_extern_noop(document) {
         writeln!(out, "{message}::__ExternNoop => ::iced::Task::none(),").unwrap();
     }
+    if has_animations(document) {
+        writeln!(out, "{message}::__AnimationFrame => ::iced::Task::none(),").unwrap();
+    }
     writeln!(out, "}}\n}}").unwrap();
     Ok(())
 }
@@ -1702,7 +1709,7 @@ fn generate_subscription(
     document: &Document,
     message: &str,
 ) -> Result<(), Error> {
-    if document.subscriptions.is_empty() {
+    if document.subscriptions.is_empty() && !has_animations(document) {
         return Ok(());
     }
     let env = state_env(document, "self");
@@ -2085,6 +2092,25 @@ fn generate_subscription(
             writeln!(out, "]) }} else {{ ::iced::Subscription::none() }},").unwrap();
         }
     }
+    if has_animations(document) {
+        let active = document
+            .states
+            .iter()
+            .filter(|state| matches!(state.ty, Type::Animation(_)))
+            .map(|state| {
+                format!(
+                    "self.{}.is_animating(::iced::time::Instant::now())",
+                    state.name
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(" || ");
+        writeln!(
+            out,
+            "if {active} {{ ::iced::window::frames().map(|_| {message}::__AnimationFrame) }} else {{ ::iced::Subscription::none() }},"
+        )
+        .unwrap();
+    }
     writeln!(out, "])\n}}").unwrap();
     Ok(())
 }
@@ -2314,18 +2340,33 @@ fn generate_statements(
     let mut has_task = false;
     for statement in statements {
         match statement {
-            Statement::Assign { target, value, .. } => {
+            Statement::Assign {
+                target, value, at, ..
+            } => {
+                let target_state = document.states.iter().find(|item| item.name == *target);
                 let code = expr_code(value, env, document, ValueMode::Owned)?;
-                if document
-                    .states
-                    .iter()
-                    .any(|item| item.name == *target && matches!(item.ty, Type::Combo(_)))
-                {
+                if target_state.is_some_and(|item| matches!(item.ty, Type::Combo(_))) {
                     writeln!(
                         out,
                         "{state}.{target} = ::iced::widget::combo_box::State::new({code});"
                     )
                     .unwrap();
+                } else if let Some(State {
+                    ty: Type::Animation(inner),
+                    ..
+                }) = target_state
+                {
+                    let code = if **inner == Type::F64 {
+                        format!("({code}) as f32")
+                    } else {
+                        code
+                    };
+                    let at = at
+                        .as_ref()
+                        .map(|at| expr_code(at, env, document, ValueMode::Owned))
+                        .transpose()?
+                        .unwrap_or_else(|| "::iced::time::Instant::now()".into());
+                    writeln!(out, "{state}.{target}.go_mut({code}, {at});").unwrap();
                 } else {
                     writeln!(out, "{state}.{target} = {code};").unwrap();
                 }
@@ -6388,13 +6429,7 @@ fn render_canvas(
         .join(" ");
     let state_initials = locals
         .iter()
-        .map(|local| {
-            format!(
-                "{}: {},",
-                local.name,
-                initial_code(&local.initial, &local.ty, document)
-            )
-        })
+        .map(|local| format!("{}: {},", local.name, initial_code(local, document)))
         .collect::<Vec<_>>()
         .join(" ");
     let mut canvas_env = env.clone();
@@ -7951,6 +7986,92 @@ fn expr_code(
             code
         }
         Expr::Call { name, args } => match name.as_str() {
+            "animation.value" => {
+                let animation = expr_code(&args[0], env, document, ValueMode::Borrowed)?;
+                if expr_type(&args[0], &env_types(env), document, &Span::line(1))?
+                    == Type::Animation(Box::new(Type::F64))
+                {
+                    format!("({animation}).value() as f64")
+                } else {
+                    format!("({animation}).value()")
+                }
+            }
+            "animation.animating" => format!(
+                "({}).is_animating({})",
+                expr_code(&args[0], env, document, ValueMode::Borrowed)?,
+                animation_at_code(args, 1, env, document)?
+            ),
+            "animation.interpolate" => {
+                let animation = expr_code(&args[0], env, document, ValueMode::Borrowed)?;
+                let start = expr_code(&args[1], env, document, ValueMode::Owned)?;
+                let end = expr_code(&args[2], env, document, ValueMode::Owned)?;
+                let at = animation_at_code(args, 3, env, document)?;
+                if expr_type(&args[1], &env_types(env), document, &Span::line(1))? == Type::F64 {
+                    format!(
+                        "({animation}).interpolate(({start}) as f32, ({end}) as f32, {at}) as f64"
+                    )
+                } else {
+                    let start = if matches!(args[1], Expr::None) {
+                        "::std::option::Option::<f32>::None".into()
+                    } else {
+                        format!("({start}).map(|__value| __value as f32)")
+                    };
+                    let end = if matches!(args[2], Expr::None) {
+                        "::std::option::Option::<f32>::None".into()
+                    } else {
+                        format!("({end}).map(|__value| __value as f32)")
+                    };
+                    format!(
+                        "({animation}).interpolate({start}, {end}, {at}).map(|__value| __value as f64)"
+                    )
+                }
+            }
+            "animation.remaining" => format!(
+                "({}).remaining({}).as_secs_f64() * 1000.0",
+                expr_code(&args[0], env, document, ValueMode::Borrowed)?,
+                animation_at_code(args, 1, env, document)?
+            ),
+            "animation.project" => {
+                let animation = expr_code(&args[0], env, document, ValueMode::Borrowed)?;
+                let Type::Animation(inner) =
+                    expr_type(&args[0], &env_types(env), document, &Span::line(1))?
+                else {
+                    unreachable!("checker requires animation")
+                };
+                let Expr::Path(binding) = &args[1] else {
+                    unreachable!("checker requires projection binding")
+                };
+                let mut projection_env = env.clone();
+                projection_env.insert(
+                    binding[0].clone(),
+                    Binding {
+                        code: if *inner == Type::F64 {
+                            "(__value as f64)".into()
+                        } else {
+                            "__value".into()
+                        },
+                        ty: *inner,
+                        local: true,
+                    },
+                );
+                let projection = expr_code(&args[2], &projection_env, document, ValueMode::Owned)?;
+                let output = expr_type(
+                    &args[2],
+                    &env_types(&projection_env),
+                    document,
+                    &Span::line(1),
+                )?;
+                let at = animation_at_code(args, 3, env, document)?;
+                if output == Type::F64 {
+                    format!(
+                        "({animation}).interpolate_with(|__value| ({projection}) as f32, {at}) as f64"
+                    )
+                } else {
+                    format!(
+                        "({animation}).interpolate_with(|__value| ({projection}).map(|__value| __value as f32), {at}).map(|__value| __value as f64)"
+                    )
+                }
+            }
             "pixels" => format!(
                 "::iced::Pixels(({}) as f32)",
                 expr_code(&args[0], env, document, ValueMode::Owned)?
@@ -8605,6 +8726,18 @@ fn expr_code(
     })
 }
 
+fn animation_at_code(
+    args: &[Expr],
+    index: usize,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<String, Error> {
+    args.get(index).map_or_else(
+        || Ok("::iced::time::Instant::now()".into()),
+        |at| expr_code(at, env, document, ValueMode::Owned),
+    )
+}
+
 fn widget_target_field_type(field: &str) -> Option<Type> {
     match field {
         "kind" => Some(Type::Str),
@@ -8696,7 +8829,68 @@ fn ordered_route_code(
     Ok(format!("{message}::{variant}({args})"))
 }
 
-fn initial_code(expr: &Expr, ty: &Type, document: &Document) -> String {
+fn initial_code(state: &State, document: &Document) -> String {
+    let Type::Animation(inner) = &state.ty else {
+        return initial_value_code(&state.initial, &state.ty, document);
+    };
+    let mut code = initial_value_code(&state.initial, inner, document);
+    if **inner == Type::F64 {
+        code = format!("({code}) as f32");
+    }
+    code = format!("::iced::Animation::new({code})");
+    let options = state.animation.as_ref().expect("parsed animation options");
+    if let Some(easing) = &options.easing {
+        let easing = if ANIMATION_EASINGS.contains(&easing.as_str()) {
+            format!("::iced::animation::Easing::{}", pascal(easing))
+        } else {
+            let function = document
+                .functions
+                .iter()
+                .find(|function| function.name == *easing && function.kind == ExternKind::Sync)
+                .expect("checked custom animation easing");
+            format!(
+                "::iced::animation::Easing::Custom(|__value: f32| {}(__value as f64) as f32)",
+                function.rust_path
+            )
+        };
+        code.push_str(&format!(".easing({easing})"));
+    }
+    if let Some(duration) = options.duration {
+        code.push_str(match duration {
+            AnimationDuration::VeryQuick => ".very_quick()",
+            AnimationDuration::Quick => ".quick()",
+            AnimationDuration::Slow => ".slow()",
+            AnimationDuration::VerySlow => ".very_slow()",
+            AnimationDuration::Milliseconds(milliseconds) => {
+                return format!(
+                    "{code}.duration(::std::time::Duration::from_millis({milliseconds})){}",
+                    animation_tail(options)
+                );
+            }
+        });
+    }
+    format!("{code}{}", animation_tail(options))
+}
+
+fn animation_tail(options: &AnimationOptions) -> String {
+    let mut code = String::new();
+    if let Some(milliseconds) = options.delay_ms {
+        code.push_str(&format!(
+            ".delay(::std::time::Duration::from_millis({milliseconds}))"
+        ));
+    }
+    if options.repeat_forever {
+        code.push_str(".repeat_forever()");
+    } else if let Some(repeat) = options.repeat {
+        code.push_str(&format!(".repeat({repeat})"));
+    }
+    if options.auto_reverse {
+        code.push_str(".auto_reverse()");
+    }
+    code
+}
+
+fn initial_value_code(expr: &Expr, ty: &Type, document: &Document) -> String {
     match (expr, ty) {
         (Expr::Str(value), Type::Str) => format!("{}.to_owned()", rust_string(value)),
         (Expr::Str(value), Type::Markdown) => format!(
@@ -11639,6 +11833,29 @@ fn pascal(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use crate::compile;
+
+    #[test]
+    fn lowers_native_animation_without_a_custom_runtime() {
+        let source = include_str!("../../../examples/iced-app/src/ui/animation.ice");
+        let generated = compile(source, "animation.ice").unwrap();
+        for expected in [
+            "::iced::Animation::new(false)",
+            "::iced::animation::Easing::EaseInOut",
+            ".duration(::std::time::Duration::from_millis(400))",
+            ".repeat(1).auto_reverse()",
+            "::iced::Animation<crate::backend::Motion>",
+            ".very_quick()",
+            ".slow()",
+            ".very_slow().repeat_forever()",
+            "self.progress.go_mut",
+            ".interpolate_with(",
+            "::std::option::Option::<f32>::None",
+            "::iced::window::frames()",
+            "__AnimationFrame",
+        ] {
+            assert!(generated.contains(expected), "missing {expected}");
+        }
+    }
 
     #[test]
     fn lowers_windowless_daemon_and_exit() {

@@ -1,5 +1,39 @@
 use std::collections::BTreeMap;
 
+pub const ANIMATION_EASINGS: &[&str] = &[
+    "linear",
+    "ease-in",
+    "ease-out",
+    "ease-in-out",
+    "ease-in-quad",
+    "ease-out-quad",
+    "ease-in-out-quad",
+    "ease-in-cubic",
+    "ease-out-cubic",
+    "ease-in-out-cubic",
+    "ease-in-quart",
+    "ease-out-quart",
+    "ease-in-out-quart",
+    "ease-in-quint",
+    "ease-out-quint",
+    "ease-in-out-quint",
+    "ease-in-expo",
+    "ease-out-expo",
+    "ease-in-out-expo",
+    "ease-in-circ",
+    "ease-out-circ",
+    "ease-in-out-circ",
+    "ease-in-back",
+    "ease-out-back",
+    "ease-in-out-back",
+    "ease-in-elastic",
+    "ease-out-elastic",
+    "ease-in-out-elastic",
+    "ease-in-bounce",
+    "ease-out-bounce",
+    "ease-in-out-bounce",
+];
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Span {
     pub line: usize,
@@ -24,6 +58,7 @@ pub enum Type {
     Option(Box<Type>),
     Result(Box<Type>, Box<Type>),
     Combo(Box<Type>),
+    Animation(Box<Type>),
     Markdown,
     Editor,
     Event,
@@ -78,6 +113,10 @@ impl Type {
             Self::Combo(inner) => {
                 format!("::iced::widget::combo_box::State<{}>", inner.rust(structs))
             }
+            Self::Animation(inner) => match inner.as_ref() {
+                Self::F64 => "::iced::Animation<f32>".into(),
+                inner => format!("::iced::Animation<{}>", inner.rust(structs)),
+            },
             Self::Markdown => "::iced::widget::markdown::Content".into(),
             Self::Editor => "::iced::widget::text_editor::Content".into(),
             Self::Event => "::iced::Event".into(),
@@ -131,6 +170,7 @@ impl Type {
                 format!("result[{},{}]", output.display(), error.display())
             }
             Self::Combo(inner) => format!("combo[{}]", inner.display()),
+            Self::Animation(inner) => format!("animation[{}]", inner.display()),
             Self::Markdown => "markdown".into(),
             Self::Editor => "editor".into(),
             Self::Event => "event".into(),
@@ -541,7 +581,27 @@ pub struct State {
     pub name: String,
     pub ty: Type,
     pub initial: Expr,
+    pub animation: Option<AnimationOptions>,
     pub span: Span,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct AnimationOptions {
+    pub easing: Option<String>,
+    pub duration: Option<AnimationDuration>,
+    pub delay_ms: Option<u64>,
+    pub repeat: Option<u32>,
+    pub repeat_forever: bool,
+    pub auto_reverse: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AnimationDuration {
+    VeryQuick,
+    Quick,
+    Slow,
+    VerySlow,
+    Milliseconds(u64),
 }
 
 #[derive(Clone, Debug)]
@@ -571,6 +631,7 @@ pub enum Statement {
     Assign {
         target: String,
         value: Expr,
+        at: Option<Expr>,
         span: Span,
     },
     MarkdownAppend {
