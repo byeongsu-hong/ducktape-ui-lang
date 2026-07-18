@@ -86,6 +86,13 @@ pub fn parse(source: &str) -> Result<Document, Error> {
                         &path,
                         ExternKind::MarkdownViewer,
                     )?);
+                } else if let Some(source) = item.text.strip_prefix("text-style ") {
+                    functions.push(parse_extern_fn(
+                        &format!("{source} -> unit"),
+                        item,
+                        &path,
+                        ExternKind::TextStyle,
+                    )?);
                 } else if let Some(source) = item.text.strip_prefix("progress-style ") {
                     functions.push(parse_extern_fn(
                         &format!("{source} -> unit"),
@@ -1087,6 +1094,7 @@ fn parse_extern_fn(
                 | ExternKind::Subscription
                 | ExternKind::Window
                 | ExternKind::MarkdownViewer
+                | ExternKind::TextStyle
                 | ExternKind::ProgressStyle
                 | ExternKind::ButtonStyle
                 | ExternKind::CheckboxStyle
@@ -6625,6 +6633,13 @@ fn parse_text(parts: &[String], styles: Vec<String>, line: &Line) -> Result<View
             options.shaping = Some(parse_text_shaping(value, line, "E063")?);
         } else if let Some(value) = part.strip_prefix("wrapping=") {
             options.wrapping = Some(parse_text_wrapping(value, line, "E063")?);
+        } else if let Some(value) = part.strip_prefix("style=") {
+            let (function, args) = parse_signature(value, line)
+                .map_err(|_| error("E063", line, "text style must be a declared style call"))?;
+            options.custom_style = Some(ExternCall {
+                function,
+                args: parse_expr_list(&args, line)?,
+            });
         } else {
             return Err(error(
                 "E063",
@@ -6689,6 +6704,18 @@ fn parse_rich_text(
             options.wrapping = Some(parse_text_wrapping(value, line, "E186")?);
         } else if let Some(value) = part.strip_prefix("color=") {
             color = Some(value.to_owned());
+        } else if let Some(value) = part.strip_prefix("style=") {
+            let (function, args) = parse_signature(value, line).map_err(|_| {
+                error(
+                    "E186",
+                    line,
+                    "rich-text style must be a declared style call",
+                )
+            })?;
+            options.custom_style = Some(ExternCall {
+                function,
+                args: parse_expr_list(&args, line)?,
+            });
         } else {
             return Err(error(
                 "E186",

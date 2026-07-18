@@ -10,6 +10,7 @@ extern crate::backend
   set_task_done(id:i64, done:bool) -> [Task] ! AppError
   component native_help(active:bool) -> bool
   markdown-viewer docs_viewer(prefix:str) -> str
+  text-style summary_text(busy:bool)
   progress-style loading_progress(active:bool)
   button-style action_button(busy:bool)
   checkbox-style task_checkbox(busy:bool)
@@ -420,7 +421,7 @@ subscribe
 view
   col @w-full h-full p-6 gap-6 bg-background
     row @w-full items-center gap-3
-      text "Tasks" font=ui @text-2xl font-bold text-foreground
+      text "Tasks" font=ui style=summary_text(loading) @text-2xl font-bold
       lazy tasks as cached_tasks
         text len(cached_tasks) @text-sm text-muted
       text last_key @text-sm text-muted

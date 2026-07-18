@@ -849,6 +849,24 @@ fn generate_extern_probes(out: &mut String, document: &Document) {
                 item.name, item.rust_path
             )
             .unwrap(),
+            ExternKind::TextStyle => {
+                let params = if params.is_empty() {
+                    "theme: &::iced::Theme".into()
+                } else {
+                    format!("theme: &::iced::Theme, {params}")
+                };
+                let args = if args.is_empty() {
+                    "theme".into()
+                } else {
+                    format!("theme, {args}")
+                };
+                writeln!(
+                    out,
+                    "#[allow(dead_code)] fn __ui_lang_check_text_style_{}({params}) {{ let _: ::iced::widget::text::Style = {}({args}); }}",
+                    item.name, item.rust_path
+                )
+                .unwrap();
+            }
             ExternKind::ProgressStyle => {
                 let params = if params.is_empty() {
                     "theme: &::iced::Theme".into()
@@ -8451,6 +8469,27 @@ fn append_text_options(
             ".font(::iced::Font { weight: ::iced::font::Weight::Bold, ..::iced::Font::DEFAULT })",
         );
     }
+    if let Some(style) = &options.custom_style {
+        let function = document
+            .functions
+            .iter()
+            .find(|item| item.name == style.function && item.kind == ExternKind::TextStyle)
+            .expect("checker validates text style");
+        let args = style
+            .args
+            .iter()
+            .map(|arg| expr_code(arg, env, document, ValueMode::Owned))
+            .collect::<Result<Vec<_>, _>>()?;
+        write!(
+            code,
+            ".style(move |__theme| {}(__theme{}))",
+            function.rust_path,
+            args.iter()
+                .map(|arg| format!(", {arg}"))
+                .collect::<String>()
+        )
+        .unwrap();
+    }
     Ok(())
 }
 
@@ -11658,6 +11697,41 @@ view
         assert!(generated.contains("text::Shaping::Advanced"));
         assert!(generated.contains("text::Wrapping::WordOrGlyph"));
         assert!(generated.contains("..::iced::Font::MONOSPACE"));
+    }
+
+    #[test]
+    fn lowers_native_text_style_callbacks() {
+        let source = r#"app Typography
+extern crate::backend
+  text-style dynamic_text(active:bool)
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  active = true
+view
+  col
+    text "Styled" style=dynamic_text(active)
+    rich-text style=dynamic_text(active) color=foreground
+      span "Rich"
+"#;
+        let generated = compile(source, "typography.ice").unwrap();
+        assert!(generated.contains(
+            "fn __ui_lang_check_text_style_dynamic_text(theme: &::iced::Theme, arg0: bool)"
+        ));
+        assert_eq!(
+            generated
+                .matches(
+                    ".style(move |__theme| crate::backend::dynamic_text(__theme, self.active))"
+                )
+                .count(),
+            2
+        );
+        assert!(generated.contains(
+            ".style(move |__theme| crate::backend::dynamic_text(__theme, self.active)).color("
+        ));
     }
 
     #[test]
