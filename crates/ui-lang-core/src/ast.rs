@@ -364,6 +364,7 @@ pub enum ExternKind {
     Window,
     MarkdownViewer,
     ProgressStyle,
+    ButtonStyle,
 }
 
 #[derive(Clone, Debug)]
@@ -1281,6 +1282,7 @@ pub struct ButtonOptions {
 #[derive(Clone, Debug, Default)]
 pub struct ButtonStyleSet {
     pub preset: ButtonStylePreset,
+    pub custom: Option<ExternCall>,
     pub active: Option<ButtonStatusStyle>,
     pub hovered: Option<ButtonStatusStyle>,
     pub pressed: Option<ButtonStatusStyle>,

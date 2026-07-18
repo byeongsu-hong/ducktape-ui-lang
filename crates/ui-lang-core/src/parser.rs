@@ -93,6 +93,13 @@ pub fn parse(source: &str) -> Result<Document, Error> {
                         &path,
                         ExternKind::ProgressStyle,
                     )?);
+                } else if let Some(source) = item.text.strip_prefix("button-style ") {
+                    functions.push(parse_extern_fn(
+                        &format!("{source} -> unit"),
+                        item,
+                        &path,
+                        ExternKind::ButtonStyle,
+                    )?);
                 } else if item.text.chars().next().is_some_and(char::is_uppercase) {
                     structs.push(parse_extern_struct(item, &path)?);
                 } else {
@@ -1018,12 +1025,13 @@ fn parse_extern_fn(
                 | ExternKind::Window
                 | ExternKind::MarkdownViewer
                 | ExternKind::ProgressStyle
+                | ExternKind::ButtonStyle
         )
     {
         return Err(error(
             "E023",
             line,
-            "extern components, shaders, recipes, event filters, sync functions, subscriptions, window callbacks, markdown viewers, and progress styles cannot declare an error type",
+            "extern components, shaders, recipes, event filters, sync functions, subscriptions, window callbacks, markdown viewers, and widget styles cannot declare an error type",
         ));
     }
     Ok(ExternFn {
@@ -6813,23 +6821,32 @@ fn parse_button(
         } else if let Some(value) = part.strip_prefix("clip=") {
             options.clip = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else if let Some(value) = part.strip_prefix("style=") {
-            options.style.preset = match value {
-                "primary" => ButtonStylePreset::Primary,
-                "secondary" => ButtonStylePreset::Secondary,
-                "success" => ButtonStylePreset::Success,
-                "warning" => ButtonStylePreset::Warning,
-                "danger" => ButtonStylePreset::Danger,
-                "text" => ButtonStylePreset::Text,
-                "background" => ButtonStylePreset::Background,
-                "subtle" => ButtonStylePreset::Subtle,
-                _ => {
-                    return Err(error(
+            if let Some(preset) = match value {
+                "primary" => Some(ButtonStylePreset::Primary),
+                "secondary" => Some(ButtonStylePreset::Secondary),
+                "success" => Some(ButtonStylePreset::Success),
+                "warning" => Some(ButtonStylePreset::Warning),
+                "danger" => Some(ButtonStylePreset::Danger),
+                "text" => Some(ButtonStylePreset::Text),
+                "background" => Some(ButtonStylePreset::Background),
+                "subtle" => Some(ButtonStylePreset::Subtle),
+                _ => None,
+            } {
+                options.style.preset = preset;
+                options.style.custom = None;
+            } else {
+                let (function, args) = parse_signature(value, line).map_err(|_| {
+                    error(
                         "E066",
                         line,
-                        "button style must be primary, secondary, success, warning, danger, text, background, or subtle",
-                    ));
-                }
-            };
+                        "button style must be a preset or declared style call",
+                    )
+                })?;
+                options.style.custom = Some(ExternCall {
+                    function,
+                    args: parse_expr_list(&args, line)?,
+                });
+            }
         } else {
             return Err(error(
                 "E066",
