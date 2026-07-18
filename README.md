@@ -85,7 +85,8 @@ formatted text, an extended text input and child-content buttons, plus an
 application event subscription, expanded boolean controls, configured rules,
 sliders with nested status styles, configured progress bars, configured native
 tooltip styles, a styled fixed-version QR code, nested built-in themes, and
-dependency-keyed lazy subtrees, plus parsed Markdown with link events.
+dependency-keyed lazy subtrees, plus incrementally parsed Markdown with complete
+native styling, image URI access, link events, and typed custom viewers.
 The showcase also contains a typed structured table with arbitrary header and
 cell subtrees, an automatically bound syntax-highlighted text editor, and
 structured keyboard press/release/modifier subscriptions.
@@ -130,7 +131,7 @@ cargo fmt --all
 
 ## Status
 
-This is an executable v1.01 language slice, not yet a complete iced replacement.
+This is an executable v1.02 language slice, not yet a complete iced replacement.
 It implements typed extern data/actions, state, handlers, async tasks, pure
 components with named props, default children, named structural slots, and
 React-like qualified compound children, scoped IDs, relative

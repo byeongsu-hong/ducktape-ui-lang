@@ -174,6 +174,33 @@ mod backend {
     }
 
     #[cfg(test)]
+    pub struct DocsViewer {
+        prefix: String,
+    }
+
+    #[cfg(test)]
+    pub fn docs_viewer(prefix: String) -> DocsViewer {
+        DocsViewer { prefix }
+    }
+
+    #[cfg(test)]
+    impl<'a> iced::widget::markdown::Viewer<'a, String> for DocsViewer {
+        fn on_link_click(url: iced::widget::markdown::Uri) -> String {
+            url
+        }
+
+        fn image(
+            &self,
+            _settings: iced::widget::markdown::Settings,
+            url: &'a iced::widget::markdown::Uri,
+            _title: &'a str,
+            _alt: &iced::widget::markdown::Text,
+        ) -> iced::Element<'a, String> {
+            iced::widget::text(format!("{} image: {url}", self.prefix)).into()
+        }
+    }
+
+    #[cfg(test)]
     pub fn copy_text(text: String) -> iced::Task<Result<(), AppError>> {
         iced::Task::batch([iced::clipboard::write::<()>(text), iced::Task::done(())]).map(Ok)
     }
@@ -444,6 +471,15 @@ mod showcase {
     #[test]
     fn qr_data_initializes() {
         let _ = Showcase::__boot();
+    }
+
+    #[test]
+    fn appends_markdown_and_tracks_image_uris() {
+        let (mut app, _) = Showcase::__boot();
+        assert!(app.help_images.is_empty());
+
+        assert_eq!(app.__update(__ShowcaseMessage::ExtendMarkdown).units(), 0);
+        assert_eq!(app.help_images, ["asset://ice"]);
     }
 }
 

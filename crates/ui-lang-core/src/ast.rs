@@ -362,6 +362,7 @@ pub enum ExternKind {
     Sync,
     Subscription,
     Window,
+    MarkdownViewer,
 }
 
 #[derive(Clone, Debug)]
@@ -481,6 +482,11 @@ pub struct HandlerParam {
 #[derive(Clone, Debug)]
 pub enum Statement {
     Assign {
+        target: String,
+        value: Expr,
+        span: Span,
+    },
+    MarkdownAppend {
         target: String,
         value: Expr,
         span: Span,
@@ -952,7 +958,7 @@ pub enum ViewNode {
     },
     Markdown {
         content: String,
-        options: MarkdownOptions,
+        options: Box<MarkdownOptions>,
         route: Route,
         span: Span,
     },
@@ -1079,6 +1085,32 @@ pub struct MarkdownOptions {
     pub h6_size: Option<Expr>,
     pub code_size: Option<Expr>,
     pub spacing: Option<Expr>,
+    pub viewer: Option<MarkdownViewerCall>,
+    pub style: MarkdownStyleOptions,
+}
+
+#[derive(Clone, Debug)]
+pub struct MarkdownViewerCall {
+    pub function: String,
+    pub args: Vec<Expr>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct MarkdownStyleOptions {
+    pub font: Option<FontPreset>,
+    pub inline_code_background: Option<BackgroundValue>,
+    pub inline_code_color: Option<String>,
+    pub inline_code_font: Option<FontPreset>,
+    pub code_block_font: Option<FontPreset>,
+    pub link_color: Option<String>,
+    pub inline_code_padding: PaddingOptions,
+    pub inline_code_border_color: Option<String>,
+    pub inline_code_border_width: Option<Expr>,
+    pub inline_code_radius: Option<Expr>,
+    pub inline_code_radius_top_left: Option<Expr>,
+    pub inline_code_radius_top_right: Option<Expr>,
+    pub inline_code_radius_bottom_right: Option<Expr>,
+    pub inline_code_radius_bottom_left: Option<Expr>,
 }
 
 #[derive(Clone, Debug, Default)]

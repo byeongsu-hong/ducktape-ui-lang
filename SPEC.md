@@ -1,4 +1,4 @@
-# Ice Language Specification 1.01
+# Ice Language Specification 1.02
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 1.01 syntax.
+marked “planned” is a design constraint, not accepted 1.02 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 1.01.
+  block comments are not part of 1.02.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -163,7 +163,7 @@ extern_item    = struct_sig | function_sig | extern_component_sig
                | extern_shader_sig | extern_task_sig | extern_stream_sig
                | extern_sip_sig | extern_recipe_sig | extern_event_filter_sig
                | extern_sync_sig | extern_subscription_sig
-               | extern_window_sig
+               | extern_window_sig | extern_markdown_viewer_sig
 struct_sig     = PascalName "(" field_list? ")"
 field_list     = field ("," field)*
 field          = name ":" type
@@ -188,6 +188,8 @@ extern_sync_sig = "sync" name "(" field_list? ")" "->" type
 extern_subscription_sig
                = "subscription" name "(" field_list? ")" "->" type
 extern_window_sig = "window" name "(" field_list? ")" "->" type
+extern_markdown_viewer_sig
+               = "markdown-viewer" name "(" field_list? ")" "->" type
 
 theme_decl     = "theme" INDENT color_entry+
 color_entry    = name color
@@ -223,6 +225,7 @@ component_decl = "component" component_name "(" field_list? ")"
 handler_decl   = "on" name ("(" name_list? ")")?
                  INDENT statement*
 statement      = name "=" expr
+               | "markdown" name "append" expr
                | "return if" expr
                | task_group
                | abortable_task
@@ -437,9 +440,23 @@ keyed_property = ("width=" | "height=") length | "spacing=" expr
                | "align=" ("start" | "center" | "end")
 lazy_node      = "lazy" expr "as" name INDENT node
 markdown_view  = "markdown" name markdown_property* "->" route
+                 (INDENT markdown_style)?
 markdown_property = ("text-size=" | "h1-size=" | "h2-size="
                   | "h3-size=" | "h4-size=" | "h5-size=" | "h6-size="
                   | "code-size=" | "spacing=") expr
+                  | "viewer=" call
+markdown_style = "style" markdown_style_property+
+markdown_style_property
+               = ("font=" | "inline-code-font=" | "code-block-font=") font_ref
+               | "inline-code-background=" background_value
+               | ("inline-code-color=" | "link=" | "inline-code-border=") color_ref
+               | ("inline-code-padding=" | "inline-code-padding-x="
+                 | "inline-code-padding-y=" | "inline-code-padding-top="
+                 | "inline-code-padding-right=" | "inline-code-padding-bottom="
+                 | "inline-code-padding-left=" | "inline-code-border-width="
+                 | "inline-code-radius=" | "inline-code-radius-tl="
+                 | "inline-code-radius-tr=" | "inline-code-radius-br="
+                 | "inline-code-radius-bl=") expr
 table_view     = "table" name "in" expr table_property* INDENT table_column+
 table_property = "width=" length
                | ("padding=" | "padding-x=" | "padding-y="
@@ -911,7 +928,7 @@ maximum size. `icon-rgba` embeds a relative raw RGBA file without an image
 codec; width and height are positive integers, and generated Rust rejects a
 byte length other than `width × height × 4`. `cargo ice check` reports a
 mismatch at the icon declaration, and generated Rust repeats the check at
-compile time. Encoded icon formats remain outside 1.01.
+compile time. Encoded icon formats remain outside 1.02.
 
 Application boot presets are structured top-level declarations:
 
@@ -1241,22 +1258,32 @@ Components and structured children remain usable when their complete expanded
 tree satisfies the same static rule.
 
 Markdown content is parsed into owned iced state instead of being reparsed by
-the view. A literal initializes it directly, and `markdown(source)` replaces it
-from a runtime str:
+the view. A literal initializes it directly, `markdown(source)` replaces it,
+`markdown state append source` incrementally extends it, and
+`markdown_images(state)` returns every referenced image URI as `[str]`:
 
 ```ice
 state
   help:markdown = "# Help [docs](https://iced.rs)"
+  images:[str] = []
 
 on open_link(url)
+on extend
+  markdown help append "\n\n![Ice](asset://ice)"
+  images = markdown_images(help)
 
 view
   markdown help text-size=16.0 spacing=12.0 -> open_link _
+    style font=ui inline-code-background=surface inline-code-color=foreground inline-code-font=mono code-block-font=mono link=primary inline-code-padding=3.0 inline-code-border=border inline-code-border-width=1.0 inline-code-radius=4.0
 ```
 
 The route receives the clicked URI as str. `text-size`, every h1-h6 size,
 `code-size`, and `spacing` map directly to iced Markdown `Settings`; sizes must
-be positive and spacing non-negative. The reference app enables iced's Markdown
+be positive and spacing non-negative. The nested `style` line covers every
+field in iced Markdown `Style`: base, inline-code, and code-block fonts;
+inline-code highlight background, padding, text color, and full border; and
+link color. Uniform, axis, per-side padding and uniform/per-corner radius use
+the most specific supplied value. The reference app enables iced's Markdown
 parser and syntax highlighter features.
 
 A table iterates a typed list and gives every cell its row binding. Headers and
@@ -1351,7 +1378,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 1.01 message payloads.
+`Clone` for 1.02 message payloads.
 
 Declared `sync` functions are checked, synchronous Rust calls available in
 Ice expressions. They are the small escape hatch for pure domain conversions
@@ -1369,7 +1396,7 @@ This declaration requires
 actual Rust signature. A sync function cannot declare `! Error` because it
 returns its value directly.
 
-Eight typed iced adapters expose framework capabilities without embedding Rust
+Twelve typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
 
 ```ice
@@ -1382,6 +1409,7 @@ extern crate::backend
   recipe events(channel:i64) -> str
   event-filter runtime_event() -> str
   subscription app_events() -> bool
+  markdown-viewer docs_viewer(prefix:str) -> str
 ```
 
 Their Rust signatures are:
@@ -1395,6 +1423,7 @@ fn download(url: String) -> impl iced::task::Straw<Vec<u8>, f64, AppError> + Sen
 fn events(channel: i64) -> impl iced::advanced::subscription::Recipe<Output = String>;
 fn runtime_event(event: iced::advanced::subscription::Event) -> Option<String>;
 fn app_events() -> iced::Subscription<bool>;
+fn docs_viewer(prefix: String) -> impl for<'a> iced::widget::markdown::Viewer<'a, String>;
 ```
 
 An extern component receives owned props and returns a default-renderer
@@ -1414,10 +1443,16 @@ meets iced's platform send bound. A sip returns a static
 recipe factory returns a concrete `advanced::subscription::Recipe`. An event
 filter receives iced's implicit runtime `Event` and optionally returns its
 declared payload. A subscription adapter returns `Subscription<Event>`.
+`markdown-viewer` returns one concrete viewer implementing iced's default-theme,
+default-renderer `Viewer` for every item lifetime. `viewer=docs_viewer(args)`
+switches the Markdown node to native `view_with`; its declared output type is
+the checked route payload. The viewer owns customization of images, headings,
+paragraphs, code blocks, lists, quotes, rules, and tables.
+
 Generated probes type-check every declaration
 against the actual Rust item. Extern component, shader, recipe, event-filter,
-and subscription declarations are infallible; errors are ordinary event
-payloads when an adapter needs them. Shader programs retain native control of
+sync, subscription, window, and Markdown viewer declarations are infallible;
+errors are ordinary event payloads when an adapter needs them. Shader programs retain native control of
 `State`, `Primitive`, GPU
 pipeline/storage, event actions, redraws, capture, and mouse interaction. The
 consumer must enable iced's `wgpu` feature.
@@ -1463,6 +1498,7 @@ The expression language contains:
   `empty(list_or_str_or_bytes) -> bool`, `trim(str) -> str`, `some(T) -> T?`,
   `encoded(bytes) -> image`, `rgba(i64, i64, bytes) -> image`, and
   `aborted(task-handle?) -> bool`;
+- `markdown(str) -> markdown` and `markdown_images(markdown) -> [str]`;
 - calls to declared typed `sync` extern functions.
 
 Store `encoded` and `rgba` handles in state so they are created when state
@@ -1722,7 +1758,7 @@ The implemented native nodes are:
 | `for` | iterates a list and adds one typed item binding |
 | `keyed` | repeats one child template with a bool/i64/f64 identity key and native column sizing/alignment |
 | `lazy` | caches one owned static child subtree by a checked hashable dependency |
-| `markdown` | renders owned parsed content with all text/heading/code sizes, spacing and str link events |
+| `markdown` | renders owned parsed/replaced/appended content, exposes image URIs, all Settings and Style fields, str link events, and typed custom Viewer factories |
 | `table` | maps typed rows into arbitrary structured headers/cells with complete sizing, padding, separator and alignment options |
 | `editor` | binds owned multi-line content to generated iced actions with sizing, typography, wrapping, built-in highlighting and every concrete status style field |
 
@@ -2358,7 +2394,7 @@ snap/end; and absolute scroll-to/scroll-by. Effects have no route and
 non-negative `i64`; relative offsets are `f64` in `0.0..=1.0`; absolute
 offsets are unrestricted `f64`. Targets must be real static IDs in the app
 scope. Repeated/component scopes and the feature-gated selector API remain
-outside 1.01.
+outside 1.02.
 
 Persistent pane grids expose their native layout-state operations directly in
 handlers:
@@ -2612,7 +2648,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 1.01 does not claim that remapping.
+extern line; 1.02 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -2633,7 +2669,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 1.01 native backend is enough for CRUD/settings-style screens, selection,
+The 1.02 native backend is enough for CRUD/settings-style screens, selection,
 media, hover overlays, declarative canvas geometry, and common pointer events,
 not all of iced. It still lacks direct syntax for arbitrary custom overlays,
 and custom widgets. [`COVERAGE.md`](COVERAGE.md) is the exact versioned ledger.

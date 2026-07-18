@@ -843,6 +843,12 @@ fn generate_extern_probes(out: &mut String, document: &Document) {
                 )
                 .unwrap();
             }
+            ExternKind::MarkdownViewer => writeln!(
+                out,
+                "#[allow(dead_code)] fn __ui_lang_check_markdown_viewer_{}({params}) {{ let __viewer = {}({args}); fn __accept<V>(_: &V) where for<'a> V: ::iced::widget::markdown::Viewer<'a, {output}, ::iced::Theme, ::iced::Renderer> {{}} __accept(&__viewer); }}",
+                item.name, item.rust_path
+            )
+            .unwrap(),
         }
     }
 }
@@ -1727,6 +1733,10 @@ fn generate_statements(
                 } else {
                     writeln!(out, "{state}.{target} = {code};").unwrap();
                 }
+            }
+            Statement::MarkdownAppend { target, value, .. } => {
+                let code = expr_code(value, env, document, ValueMode::Owned)?;
+                writeln!(out, "{state}.{target}.push_str(&{code});").unwrap();
             }
             Statement::ReturnIf { condition, .. } => {
                 let code = expr_code(condition, env, document, ValueMode::Owned)?;
@@ -3933,9 +3943,121 @@ fn render_node(
                     .unwrap();
                 }
             }
-            let route = route_code(route, "__uri", env, document, message)?;
+            let style = &options.style;
+            if let Some(font) = &style.font {
+                write!(
+                    settings,
+                    " __markdown_settings.style.font = {};",
+                    font_preset_code(font, document)?
+                )
+                .unwrap();
+            }
+            if let Some(background) = &style.inline_code_background {
+                write!(
+                    settings,
+                    " __markdown_settings.style.inline_code_highlight.background = {};",
+                    background_code(background, env, document)?
+                )
+                .unwrap();
+            }
+            if let Some(color) = &style.inline_code_color {
+                write!(
+                    settings,
+                    " __markdown_settings.style.inline_code_color = {};",
+                    theme_color(document, color)
+                )
+                .unwrap();
+            }
+            if let Some(font) = &style.inline_code_font {
+                write!(
+                    settings,
+                    " __markdown_settings.style.inline_code_font = {};",
+                    font_preset_code(font, document)?
+                )
+                .unwrap();
+            }
+            if let Some(font) = &style.code_block_font {
+                write!(
+                    settings,
+                    " __markdown_settings.style.code_block_font = {};",
+                    font_preset_code(font, document)?
+                )
+                .unwrap();
+            }
+            if let Some(color) = &style.link_color {
+                write!(
+                    settings,
+                    " __markdown_settings.style.link_color = {};",
+                    theme_color(document, color)
+                )
+                .unwrap();
+            }
+            if let Some(padding) = typed_padding_code(&style.inline_code_padding, env, document)? {
+                write!(
+                    settings,
+                    " __markdown_settings.style.inline_code_padding = {padding};"
+                )
+                .unwrap();
+            }
+            if let Some(color) = &style.inline_code_border_color {
+                write!(
+                    settings,
+                    " __markdown_settings.style.inline_code_highlight.border.color = {};",
+                    theme_color(document, color)
+                )
+                .unwrap();
+            }
+            if let Some(width) = &style.inline_code_border_width {
+                write!(
+                    settings,
+                    " __markdown_settings.style.inline_code_highlight.border.width = {} as f32;",
+                    expr_code(width, env, document, ValueMode::Owned)?
+                )
+                .unwrap();
+            }
+            if let Some(radius) = radius_code(
+                style.inline_code_radius.as_ref(),
+                [
+                    style.inline_code_radius_top_left.as_ref(),
+                    style.inline_code_radius_top_right.as_ref(),
+                    style.inline_code_radius_bottom_right.as_ref(),
+                    style.inline_code_radius_bottom_left.as_ref(),
+                ],
+                env,
+                document,
+            )? {
+                write!(
+                    settings,
+                    " __markdown_settings.style.inline_code_highlight.border.radius = {radius};"
+                )
+                .unwrap();
+            }
+            let route = route_code(route, "__event", env, document, message)?;
+            let view = if let Some(viewer) = &options.viewer {
+                let function = document
+                    .functions
+                    .iter()
+                    .find(|item| {
+                        item.name == viewer.function && item.kind == ExternKind::MarkdownViewer
+                    })
+                    .expect("checker validates markdown viewer");
+                let args = viewer
+                    .args
+                    .iter()
+                    .map(|arg| expr_code(arg, env, document, ValueMode::Owned))
+                    .collect::<Result<Vec<_>, _>>()?
+                    .join(", ");
+                format!(
+                    "let __markdown_viewer = {}({args}); ::iced::widget::markdown::view_with(self.{content}.items(), __markdown_settings, &__markdown_viewer)",
+                    function.rust_path
+                )
+            } else {
+                format!(
+                    "::iced::widget::markdown::view(self.{content}.items(), __markdown_settings)"
+                )
+            };
             Ok(format!(
-                "{{ {settings} ::iced::widget::markdown::view(self.{content}.items(), __markdown_settings).map(move |__uri| {route}) }}"
+                "{{ {settings} {view}.map(move |__event| {route}) }}"
             ))
         }
         ViewNode::TextEditor {
@@ -6638,6 +6760,10 @@ fn expr_code(
             "markdown" => format!(
                 "::iced::widget::markdown::Content::parse(&{})",
                 expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "markdown_images" => format!(
+                "({}).images().iter().cloned().collect::<::std::vec::Vec<_>>()",
+                expr_code(&args[0], env, document, ValueMode::Borrowed)?
             ),
             "editor" => format!(
                 "::iced::widget::text_editor::Content::with_text(&{})",
@@ -9813,6 +9939,9 @@ view
     #[test]
     fn lowers_parsed_markdown_with_complete_sizes_and_link_route() {
         let source = r##"app Docs
+font ui family=sans
+extern crate::backend
+  markdown-viewer docs_viewer(prefix:str) -> str
 theme
   background #000000
   foreground #ffffff
@@ -9820,11 +9949,16 @@ theme
   danger #ff0000
 state
   docs:markdown = "# Hello"
+  images:[str] = []
 on open(url)
 on reset
   docs = markdown("# Reset")
+on extend
+  markdown docs append "\n![Ice](asset://ice)"
+  images = markdown_images(docs)
 view
-  markdown docs text-size=16.0 h1-size=32.0 h2-size=28.0 h3-size=24.0 h4-size=20.0 h5-size=18.0 h6-size=16.0 code-size=13.0 spacing=12.0 -> open _
+  markdown docs text-size=16.0 h1-size=32.0 h2-size=28.0 h3-size=24.0 h4-size=20.0 h5-size=18.0 h6-size=16.0 code-size=13.0 spacing=12.0 viewer=docs_viewer("docs") -> open _
+    style font=ui inline-code-background=linear(1.57, background@0.0, primary@1.0) inline-code-color=foreground inline-code-font=mono code-block-font=mono link=primary inline-code-padding=2.0 inline-code-padding-x=3.0 inline-code-padding-y=4.0 inline-code-padding-top=5.0 inline-code-padding-right=6.0 inline-code-padding-bottom=7.0 inline-code-padding-left=8.0 inline-code-border=primary inline-code-border-width=1.0 inline-code-radius=4.0 inline-code-radius-tl=1.0 inline-code-radius-tr=2.0 inline-code-radius-br=3.0 inline-code-radius-bl=4.0
 "##;
         let generated = compile(source, "docs.ice").unwrap();
         assert!(generated.contains("docs: ::iced::widget::markdown::Content::parse(\"# Hello\")"));
@@ -9844,8 +9978,26 @@ view
         ] {
             assert!(generated.contains(&format!("__markdown_settings.{field} =")));
         }
-        assert!(generated.contains("::iced::widget::markdown::view(self.docs.items()"));
-        assert!(generated.contains("map(move |__uri| __DocsMessage::Open(__uri))"));
+        assert!(generated.contains("self.docs.push_str(&\"\\n![Ice](asset://ice)\".to_owned())"));
+        assert!(generated.contains(".images().iter().cloned().collect"));
+        assert!(generated.contains("::iced::widget::markdown::view_with(self.docs.items()"));
+        assert!(generated.contains("crate::backend::docs_viewer(\"docs\".to_owned())"));
+        assert!(generated.contains("map(move |__event| __DocsMessage::Open(__event))"));
+        assert!(generated.contains("fn __ui_lang_check_markdown_viewer_docs_viewer"));
+        for field in [
+            "style.font",
+            "style.inline_code_highlight.background",
+            "style.inline_code_color",
+            "style.inline_code_font",
+            "style.code_block_font",
+            "style.link_color",
+            "style.inline_code_padding",
+            "style.inline_code_highlight.border.color",
+            "style.inline_code_highlight.border.width",
+            "style.inline_code_highlight.border.radius",
+        ] {
+            assert!(generated.contains(&format!("__markdown_settings.{field} =")));
+        }
     }
 
     #[test]

@@ -9,6 +9,7 @@ extern crate::backend
   create_task(title:str) -> [Task] ! AppError
   set_task_done(id:i64, done:bool) -> [Task] ! AppError
   component native_help(active:bool) -> bool
+  markdown-viewer docs_viewer(prefix:str) -> str
   task copy_text(text:str) -> unit ! AppError
   subscription app_events() -> bool
 
@@ -50,6 +51,7 @@ state
   scroll_relative_x = 0.0
   scroll_relative_y = 0.0
   help:markdown = "# Ice **renders** [iced docs](https://iced.rs)"
+  help_images:[str] = []
   notes:editor = "fn main() { println!(\"ice\"); }"
   last_key = "none"
   command_down = false
@@ -360,6 +362,10 @@ on task_list_scrolled(x, y, _reversed_x, _reversed_y, relative_x, relative_y, _b
 
 on docs_link(url)
 
+on extend_markdown
+  markdown help append "\n\n![Ice](asset://ice)"
+  help_images = markdown_images(help)
+
 on key_pressed(event)
   last_key = event.key
   command_down = event.modifiers.command
@@ -484,7 +490,11 @@ view
               text pointer_x @text-xs text-muted
       col width=fill height=shrink spacing=8.0 padding=16.0 max-width=672.0 align=start clip=false wrap wrap-spacing=8.0 wrap-align=start @bg-surface rounded-lg
         text "View mode" @text-lg font-bold text-foreground
-        markdown help text-size=14.0 h1-size=28.0 h2-size=24.0 h3-size=20.0 h4-size=18.0 h5-size=16.0 h6-size=14.0 code-size=12.0 spacing=10.0 -> docs_link _
+        markdown help text-size=14.0 h1-size=28.0 h2-size=24.0 h3-size=20.0 h4-size=18.0 h5-size=16.0 h6-size=14.0 code-size=12.0 spacing=10.0 viewer=docs_viewer("showcase") -> docs_link _
+          style font=ui inline-code-background=background inline-code-color=foreground inline-code-font=mono code-block-font=mono link=primary inline-code-padding=2.0 inline-code-padding-x=4.0 inline-code-padding-y=3.0 inline-code-border=border inline-code-border-width=1.0 inline-code-radius=4.0
+        row @items-center gap-2
+          button "Append Markdown image" -> extend_markdown
+          text len(help_images) @text-xs text-muted
         editor #notes <-> notes placeholder="Write notes" width=640.0 height=120.0 min-height=80.0 max-height=240.0 size=14.0 line-height=1.3 padding=8.0 wrapping=word font=ui highlight="rs" highlight-theme=base16-ocean disabled=loading
           active background=surface border=border border-width=1.0 radius=8.0 placeholder=muted value=foreground selection=primary
           hovered background=surface border=foreground placeholder=muted value=foreground selection=primary
