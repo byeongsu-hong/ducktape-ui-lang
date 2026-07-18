@@ -5003,6 +5003,23 @@ fn check_handler(
                 require_type(expected, &Type::Markdown, span)?;
                 require_type(&expr_type(value, &env, document, span)?, &Type::Str, span)?;
             }
+            Statement::ComboPush {
+                target,
+                value,
+                span,
+            } => {
+                let actual = states.get(target).ok_or_else(|| {
+                    Error::new("E140", span, format!("unknown combo state `{target}`"))
+                })?;
+                let Type::Combo(expected) = actual else {
+                    return Err(Error::new(
+                        "E140",
+                        span,
+                        format!("`{target}` is not combo state"),
+                    ));
+                };
+                require_type(&expr_type(value, &env, document, span)?, expected, span)?;
+            }
             Statement::ReturnIf { condition, span } => {
                 require_type(
                     &expr_type(condition, &env, document, span)?,
@@ -5508,6 +5525,7 @@ fn invalid_task_producer(statement: &Statement) -> Option<&Span> {
         }
         Statement::Assign { .. }
         | Statement::MarkdownAppend { .. }
+        | Statement::ComboPush { .. }
         | Statement::ReturnIf { .. }
         | Statement::Abort { .. }
         | Statement::PaneOperation { .. } => Some(statement_span(statement)),
@@ -5534,6 +5552,7 @@ fn statement_span(statement: &Statement) -> &Span {
     match statement {
         Statement::Assign { span, .. }
         | Statement::MarkdownAppend { span, .. }
+        | Statement::ComboPush { span, .. }
         | Statement::ReturnIf { span, .. }
         | Statement::Run { span, .. }
         | Statement::Sip { span, .. }
@@ -7597,6 +7616,8 @@ on searched(next)
 on hovered(next)
 on opened
 on closed
+on add
+  combo modes push "Timeline"
 view
   combo modes selected "Search modes" line-height=1.2 shaping=advanced font=ui input=searched hover=hovered open=opened close=closed style=dynamic_input(busy) menu-style=dynamic_menu(busy) -> selected _
     active background=background border=foreground border-width=1.0 radius=4.0 icon=primary placeholder=danger value=foreground selection=primary
@@ -7616,6 +7637,18 @@ view
         let error = analyze(&source.replace("spacing=6.0", "spacing=-1.0")).unwrap_err();
         assert_eq!(error.code, "E128");
         assert!(error.message.contains("icon spacing"));
+
+        let error = analyze(&source.replace("combo modes push", "combo missing push")).unwrap_err();
+        assert_eq!(error.code, "E140");
+        assert!(error.message.contains("unknown combo state"));
+
+        let error =
+            analyze(&source.replace("combo modes push", "combo selected push")).unwrap_err();
+        assert_eq!(error.code, "E140");
+        assert!(error.message.contains("not combo state"));
+
+        let error = analyze(&source.replace("push \"Timeline\"", "push 1")).unwrap_err();
+        assert_eq!(error.code, "E101");
     }
 
     #[test]

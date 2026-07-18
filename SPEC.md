@@ -1,4 +1,4 @@
-# Ice Language Specification 1.13
+# Ice Language Specification 1.14
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 1.13 syntax.
+marked “planned” is a design constraint, not accepted 1.14 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 1.13.
+  block comments are not part of 1.14.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -254,6 +254,7 @@ handler_decl   = "on" name ("(" name_list? ")")?
                  INDENT statement*
 statement      = name "=" expr
                | "markdown" name "append" expr
+               | "combo" name "push" expr
                | "return if" expr
                | task_group
                | abortable_task
@@ -962,7 +963,7 @@ maximum size. `icon-rgba` embeds a relative raw RGBA file without an image
 codec; width and height are positive integers, and generated Rust rejects a
 byte length other than `width × height × 4`. `cargo ice check` reports a
 mismatch at the icon declaration, and generated Rust repeats the check at
-compile time. Encoded icon formats remain outside 1.13.
+compile time. Encoded icon formats remain outside 1.14.
 
 Application boot presets are structured top-level declarations:
 
@@ -1277,8 +1278,9 @@ combo modes mode "Search views" font=ui shaping=advanced style=form_input(loadin
 ```
 
 Assigning a matching `[T]` to `combo[T]` state replaces its searchable options
-with a freshly indexed native `combo_box::State<T>`; mismatched lists fail
-before Rust generation.
+with a freshly indexed native `combo_box::State<T>`. `combo modes push value`
+calls native `State::push` to incrementally add one matching option and rebuild
+its search index. Mismatched lists or pushed values fail before Rust generation.
 
 `float` applies positive scale and x/y translation to one child. Its x/y
 expressions can use the scoped `f64` names `original_x`, `original_y`,
@@ -1462,7 +1464,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 1.13 message payloads.
+`Clone` for 1.14 message payloads.
 
 Declared `sync` functions are checked, synchronous Rust calls available in
 Ice expressions. They are the small escape hatch for pure domain conversions
@@ -1652,6 +1654,7 @@ Rules:
 
 - assignment targets must be declared state;
 - assigned expressions must have the state type;
+- `combo state push value` requires a `combo[T]` state and a `T` value;
 - `return if` requires `bool`;
 - `run`, `task`, `sip`, `flow`, or a task group must be the final statement because each
   returns one iced `Task`;
@@ -1857,7 +1860,7 @@ The implemented native nodes are:
 | `progress` | `f64` value/range, all length/girth variants, vertical axis, five presets, complete concrete style overrides and typed native runtime style callbacks |
 | `radio` | string label, bool/i64/f64/str/extern value route, bool selection, complete sizing/typography/font and selected-aware status styles |
 | `pick` | `[T]` options, `T?` selection, complete typography/handle/status/menu configuration, typed native field/menu style callbacks and `T`-payload route |
-| `combo` | searchable/replaced `combo[T]` state, `T?` selection, complete typography/icon/input/menu styles, typed native input/menu style callbacks and all routes |
+| `combo` | searchable/replaced/incrementally pushed `combo[T]` state, `T?` selection, complete typography/icon/input/menu styles, typed native input/menu style callbacks and all routes |
 | `float` | one child with positive scale, bounds/viewport-aware x/y translation, shadow and per-corner shadow radius |
 | `pin` | one child with typed width/height and fixed x/y position |
 | `sensor` | one child with show/resize `(width, height)`, hide, key, anticipation and delay |
@@ -2521,7 +2524,7 @@ snap/end; and absolute scroll-to/scroll-by. Effects have no route and
 non-negative `i64`; relative offsets are `f64` in `0.0..=1.0`; absolute
 offsets are unrestricted `f64`. Targets must be real static IDs in the app
 scope. Repeated/component scopes and the feature-gated selector API remain
-outside 1.13.
+outside 1.14.
 
 Persistent pane grids expose their native layout-state operations directly in
 handlers:
@@ -2775,7 +2778,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 1.13 does not claim that remapping.
+extern line; 1.14 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -2796,7 +2799,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 1.13 native backend is enough for CRUD/settings-style screens, selection,
+The 1.14 native backend is enough for CRUD/settings-style screens, selection,
 media, hover overlays, declarative canvas geometry, and common pointer events,
 not all of iced. It still lacks direct syntax for arbitrary custom overlays,
 and custom widgets. [`COVERAGE.md`](COVERAGE.md) is the exact versioned ledger.

@@ -159,6 +159,9 @@ on mode_hovered(next)
 on reset_search_modes
   searchable_modes = ["List", "Board", "Timeline", "Compact"]
 
+on add_search_mode
+  combo searchable_modes push "Calendar"
+
 on panel_measured(width, height)
   observed_width = width
   observed_height = height
@@ -538,6 +541,7 @@ view
           menu text=foreground selected-text=foreground selected-background=linear(1.57, primary@0.0, surface@1.0) background=surface border=border border-width=1.0 radius=6.0 shadow=black/50 shadow-y=4.0 shadow-blur=12.0
           icon code="⌕" font=ui size=14.0 spacing=6.0 side=right
         button "Reset search options" -> reset_search_modes
+        button "Add search option" -> add_search_mode
         if picker_open
           text "Picker is open" @text-xs text-muted
         if mode_query != ""

@@ -1518,6 +1518,20 @@ fn parse_statement(line: &Line) -> Result<Statement, Error> {
         return Err(error("E050", line, "sip requires an extern call"));
     }
     ensure_leaf(line)?;
+    if let Some(source) = line.text.strip_prefix("combo ") {
+        let Some((target, value)) = split_top_marker(source, " push ") else {
+            return Err(error(
+                "E050",
+                line,
+                "combo mutation uses `combo state push value`",
+            ));
+        };
+        return Ok(Statement::ComboPush {
+            target: identifier(target.trim(), line)?,
+            value: parse_expr(value.trim(), line)?,
+            span: Span::line(line.number),
+        });
+    }
     if let Some(source) = line.text.strip_prefix("markdown ") {
         let Some((target, value)) = split_top_marker(source, " append ") else {
             return Err(error(

@@ -502,6 +502,11 @@ pub enum Statement {
         value: Expr,
         span: Span,
     },
+    ComboPush {
+        target: String,
+        value: Expr,
+        span: Span,
+    },
     ReturnIf {
         condition: Expr,
         span: Span,
