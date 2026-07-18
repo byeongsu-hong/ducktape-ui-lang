@@ -907,6 +907,26 @@ fn generate_extern_probes(out: &mut String, document: &Document) {
                 )
                 .unwrap();
             }
+            ExternKind::TogglerStyle => {
+                let params = if params.is_empty() {
+                    "theme: &::iced::Theme, status: ::iced::widget::toggler::Status".into()
+                } else {
+                    format!(
+                        "theme: &::iced::Theme, status: ::iced::widget::toggler::Status, {params}"
+                    )
+                };
+                let args = if args.is_empty() {
+                    "theme, status".into()
+                } else {
+                    format!("theme, status, {args}")
+                };
+                writeln!(
+                    out,
+                    "#[allow(dead_code)] fn __ui_lang_check_toggler_style_{}({params}) {{ let _: ::iced::widget::toggler::Style = {}({args}); }}",
+                    item.name, item.rust_path
+                )
+                .unwrap();
+            }
         }
     }
 }
@@ -8330,6 +8350,29 @@ fn toggler_style_code(
     env: &HashMap<String, Binding>,
     document: &Document,
 ) -> Result<String, Error> {
+    let custom = styles
+        .custom
+        .as_ref()
+        .map(|style| {
+            let function = document
+                .functions
+                .iter()
+                .find(|item| item.name == style.function && item.kind == ExternKind::TogglerStyle)
+                .expect("checker validates toggler style");
+            let args = style
+                .args
+                .iter()
+                .map(|arg| expr_code(arg, env, document, ValueMode::Owned))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok::<_, Error>(format!(
+                "{}(__theme, __status{})",
+                function.rust_path,
+                args.iter()
+                    .map(|arg| format!(", {arg}"))
+                    .collect::<String>()
+            ))
+        })
+        .transpose()?;
     let overrides = [
         ("Active", true, &styles.active_checked),
         ("Active", false, &styles.active_unchecked),
@@ -8339,10 +8382,15 @@ fn toggler_style_code(
         ("Disabled", false, &styles.disabled_unchecked),
     ];
     if overrides.iter().all(|(_, _, style)| style.is_none()) {
-        return Ok(String::new());
+        return Ok(custom
+            .map(|custom| format!(".style(move |__theme, __status| {custom})"))
+            .unwrap_or_default());
     }
 
-    let mut code = ".style(move |__theme, __status| { let mut __style = ::iced::widget::toggler::default(__theme, __status); match __status {".to_owned();
+    let base =
+        custom.unwrap_or_else(|| "::iced::widget::toggler::default(__theme, __status)".to_owned());
+    let mut code =
+        format!(".style(move |__theme, __status| {{ let mut __style = {base}; match __status {{");
     for (status, checked, style) in overrides {
         let Some(style) = style else { continue };
         write!(
@@ -10962,6 +11010,7 @@ view
         let source = r#"app Preferences
 extern crate::backend
   checkbox-style dynamic_checkbox(disabled:bool)
+  toggler-style dynamic_toggler(disabled:bool)
 theme
   background #000000
   foreground #ffffff
@@ -10980,7 +11029,7 @@ view
       hovered unchecked background=foreground icon=background text=primary border=primary
       disabled checked background=background icon=foreground text=foreground border=foreground
       disabled unchecked background=background icon=primary text=foreground border=primary
-    toggler "Toggler" checked=enabled size=20.0 width=fill spacing=8.0 text-size=14.0 line-height=1.2 shaping=auto wrapping=glyph font=default align=right -> changed _
+    toggler "Toggler" checked=enabled style=dynamic_toggler(enabled) size=20.0 width=fill spacing=8.0 text-size=14.0 line-height=1.2 shaping=auto wrapping=glyph font=default align=right -> changed _
       active checked background=linear(1.57, primary@0.0, background@1.0) background-border=primary background-border-width=1.0 foreground=linear(0.0, foreground@0.0, primary@1.0) foreground-border=foreground foreground-border-width=2.0 text=foreground radius=7.0 radius-tl=6.0 radius-tr=7.0 radius-br=8.0 radius-bl=9.0 padding-ratio=0.125
       active unchecked background=background foreground=foreground text=primary
       hovered checked background=primary foreground=foreground text=foreground
@@ -11028,7 +11077,10 @@ view
             .unwrap();
             assert!(generated.contains(&format!("checkbox::{preset}(__theme, __status)")));
         }
-        assert!(generated.contains("toggler::default(__theme, __status)"));
+        assert!(
+            generated.contains("crate::backend::dynamic_toggler(__theme, __status, self.enabled)")
+        );
+        assert!(generated.contains("fn __ui_lang_check_toggler_style_dynamic_toggler"));
         for (status, checked) in [
             ("Active", true),
             ("Active", false),
@@ -11048,6 +11100,12 @@ view
         assert!(generated.contains("__style.border_radius = ::std::option::Option::Some"));
         assert!(generated.contains("top_left: 6.0 as f32"));
         assert!(generated.contains("__style.padding_ratio = 0.125 as f32"));
+        let generated = compile(
+            &source.replace(" style=dynamic_toggler(enabled)", ""),
+            "preferences.ice",
+        )
+        .unwrap();
+        assert!(generated.contains("toggler::default(__theme, __status)"));
     }
 
     #[test]

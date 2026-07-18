@@ -222,6 +222,19 @@ mod backend {
     }
 
     #[cfg(test)]
+    pub fn notification_toggler(
+        theme: &iced::Theme,
+        status: iced::widget::toggler::Status,
+        busy: bool,
+    ) -> iced::widget::toggler::Style {
+        let mut style = iced::widget::toggler::default(theme, status);
+        if busy {
+            style.text_color = Some(theme.palette().text);
+        }
+        style
+    }
+
+    #[cfg(test)]
     impl<'a> iced::widget::markdown::Viewer<'a, String> for DocsViewer {
         fn on_link_click(url: iced::widget::markdown::Uri) -> String {
             url

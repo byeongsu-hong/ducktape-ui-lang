@@ -366,6 +366,7 @@ pub enum ExternKind {
     ProgressStyle,
     ButtonStyle,
     CheckboxStyle,
+    TogglerStyle,
 }
 
 #[derive(Clone, Debug)]
@@ -1378,6 +1379,7 @@ pub struct CheckboxStatusStyle {
 
 #[derive(Clone, Debug, Default)]
 pub struct TogglerStyleSet {
+    pub custom: Option<ExternCall>,
     pub active_checked: Option<TogglerStatusStyle>,
     pub active_unchecked: Option<TogglerStatusStyle>,
     pub hovered_checked: Option<TogglerStatusStyle>,

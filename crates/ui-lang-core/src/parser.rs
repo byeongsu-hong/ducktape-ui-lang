@@ -107,6 +107,13 @@ pub fn parse(source: &str) -> Result<Document, Error> {
                         &path,
                         ExternKind::CheckboxStyle,
                     )?);
+                } else if let Some(source) = item.text.strip_prefix("toggler-style ") {
+                    functions.push(parse_extern_fn(
+                        &format!("{source} -> unit"),
+                        item,
+                        &path,
+                        ExternKind::TogglerStyle,
+                    )?);
                 } else if item.text.chars().next().is_some_and(char::is_uppercase) {
                     structs.push(parse_extern_struct(item, &path)?);
                 } else {
@@ -1034,6 +1041,7 @@ fn parse_extern_fn(
                 | ExternKind::ProgressStyle
                 | ExternKind::ButtonStyle
                 | ExternKind::CheckboxStyle
+                | ExternKind::TogglerStyle
         )
     {
         return Err(error(
@@ -7095,6 +7103,13 @@ fn parse_toggler(
             checked = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else if let Some(value) = part.strip_prefix("disabled=") {
             disabled = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("style=") {
+            let (function, args) = parse_signature(value, line)
+                .map_err(|_| error("E075", line, "toggler style must be a declared style call"))?;
+            style.custom = Some(ExternCall {
+                function,
+                args: parse_expr_list(&args, line)?,
+            });
         } else if parse_bool_control_option(part, &mut options, true, false, line)? {
         } else {
             return Err(error(
