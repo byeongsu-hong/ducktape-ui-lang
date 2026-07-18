@@ -1,4 +1,4 @@
-# Ice Language Specification 1.24
+# Ice Language Specification 1.25
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 1.24 syntax.
+marked “planned” is a design constraint, not accepted 1.25 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 1.24.
+  block comments are not part of 1.25.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -181,7 +181,8 @@ field          = name ":" type
 type           = "bool" | "i64" | "f64" | "str" | "bytes" | "image"
                | "markdown" | "editor" | "event" | "instant" | "window-id"
                | "key" | "physical-key" | "key-location" | "key-modifiers"
-               | "point" | "rectangle" | "mouse-button" | "mouse-cursor"
+               | "point" | "vector" | "size" | "rectangle"
+               | "transformation" | "mouse-button" | "mouse-cursor"
                | "mouse-click" | "touch-finger"
                | "widget-id" | "widget-target"
                | "task-handle" | "unit"
@@ -993,7 +994,7 @@ maximum size. `icon-rgba` embeds a relative raw RGBA file without an image
 codec; width and height are positive integers, and generated Rust rejects a
 byte length other than `width × height × 4`. `cargo ice check` reports a
 mismatch at the icon declaration, and generated Rust repeats the check at
-compile time. Encoded icon formats remain outside 1.24.
+compile time. Encoded icon formats remain outside 1.25.
 
 Application boot presets are structured top-level declarations:
 
@@ -1544,7 +1545,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 1.24 message payloads.
+`Clone` for 1.25 message payloads.
 
 Declared `sync` functions are checked, synchronous Rust calls available in
 Ice expressions. They are the small escape hatch for pure domain conversions
@@ -1732,6 +1733,9 @@ The expression language contains:
 - native pointer built-ins such as `point(x, y)`, `mouse.button("left")`,
   `mouse.cursor(point)`, `mouse.click(point, button, previous)`, and
   `touch.finger("42")`;
+- native geometry transformations such as `vector(x, y)`, `size(width, height)`,
+  `transform.translate(x, y)`, `transform.compose(left, right)`, and
+  `transform.point(point, transformation)`;
 - `markdown(str) -> markdown` and `markdown_images(markdown) -> [str]`;
 - calls to declared typed `sync` extern functions.
 
@@ -2604,7 +2608,10 @@ typed extern functions:
 ```ice
 state
   position:point = point(12.0, 24.0)
+  offset:vector = vector(10.0, 20.0)
+  extent:size = size(100.0, 80.0)
   bounds:rectangle = rectangle(0.0, 0.0, 100.0, 80.0)
+  transform:transformation = transform.compose(transform.translate(10.0, 20.0), transform.scale(2.0))
   button:mouse-button = mouse.button("left")
   cursor:mouse-cursor = mouse.cursor(point(12.0, 24.0))
   click:mouse-click = mouse.click(point(12.0, 24.0), mouse.button("left"), none)
@@ -2624,17 +2631,31 @@ construct all cursor variants. `mouse.cursor_position`, `cursor_over`,
 `cursor_is_over`, `cursor_is_levitating`, `cursor_levitate`, `cursor_land`, and
 `cursor_translate` expose its variant and vector-translation behavior.
 `mouse.click` creates a native click from a point, button, and optional previous
-click. Point and rectangle coordinates are `f64` in Ice and lower to iced's
-`f32` geometry.
+click. Point, vector, size, and rectangle coordinates are `f64` in Ice and
+lower to iced's `f32` geometry.
 
-Fields are checked: points expose `x/y`; rectangles expose
-`x/y/width/height`; buttons expose `kind` and optional `number`; cursors expose
-`kind`, optional `position`, and `levitating`; clicks expose `kind` and
-`position`; fingers expose their lossless decimal `id`. `mouse-click` uses
-iced's advanced mouse API and therefore requires the `advanced` Cargo feature.
-Native clicks do not implement equality; compare their checked `kind` or
-`position` fields instead. Native `Transformation` multiplication for cursors
-and clicks remains a typed Rust-boundary operation in 1.24.
+Fields are checked: points and vectors expose `x/y`; sizes expose
+`width/height`; rectangles expose `x/y/width/height`; buttons expose `kind`
+and optional `number`; cursors expose `kind`, optional `position`, and
+`levitating`; clicks expose `kind` and `position`; fingers expose their
+lossless decimal `id`.
+
+`transform.identity()`, `transform.translate(x, y)`, and
+`transform.scale(factor)` construct native transformations.
+`transform.orthographic(width, height)` accepts two literal values in the full
+native `u32` range; `transform.try_orthographic(i64, i64) -> transformation?`
+safely handles runtime dimensions. `transform.inverse(value)` and
+`transform.compose(left, right)` preserve iced's exact matrix behavior and
+composition order. Transformations expose `scale_factor`, `translation`, and a
+lossless 16-value `matrix` projection.
+
+`transform.point`, `transform.vector`, `transform.size`,
+`transform.rectangle`, `transform.cursor`, and `transform.click` apply the
+native matrix to every iced value that implements transformation
+multiplication. All geometry and transformation values can cross typed extern
+boundaries unchanged. `mouse-click` uses iced's advanced mouse API and
+therefore requires the `advanced` Cargo feature. Native clicks do not implement
+equality; compare their checked `kind` or `position` fields instead.
 
 Input-method composition events use a separate readable source:
 
@@ -3048,7 +3069,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 1.24 does not claim that remapping.
+extern line; 1.25 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -3069,7 +3090,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 1.24 native backend is enough for CRUD/settings-style screens, selection,
+The 1.25 native backend is enough for CRUD/settings-style screens, selection,
 media, hover overlays, declarative canvas geometry, and common pointer events,
 not all of iced. It still lacks direct syntax for arbitrary custom overlays,
 and custom widgets. [`COVERAGE.md`](COVERAGE.md) is the exact versioned ledger.
@@ -3105,9 +3126,12 @@ compile-tested widget example is
 Native pointer constructors, subscription payloads, projections, and Rust
 extern round trips are exercised by
 [`examples/iced-app/src/ui/pointer_values.ice`](examples/iced-app/src/ui/pointer_values.ice).
+Complete native geometry construction, transformation, matrix inspection, and
+extern passage are exercised by
+[`examples/iced-app/src/ui/transformation_values.ice`](examples/iced-app/src/ui/transformation_values.ice).
 Together they exercise
 state inference, typed extern structs/functions, mount and result handlers,
-direct and component-prop input/editor binding, complete typed time tasks/subscriptions, typed generic/native-keyboard/mouse/touch/input-method/system subscriptions with status filters, exact keyboard and pointer value constructors and native extern passage, static, repeated, and hierarchically scoped widget operations, built-in and custom widget selectors, system tasks, clipboard effects, `if`, `for`, native keyed columns and lazy subtrees, parsed Markdown, structured tables, pure components, structured and compound component composition,
+direct and component-prop input/editor binding, complete typed time tasks/subscriptions, typed generic/native-keyboard/mouse/touch/input-method/system subscriptions with status filters, exact keyboard, pointer, geometry, and transformation value operations with native extern passage, static, repeated, and hierarchically scoped widget operations, built-in and custom widget selectors, system tasks, clipboard effects, `if`, `for`, native keyed columns and lazy subtrees, parsed Markdown, structured tables, pure components, structured and compound component composition,
 dynamic component IDs,
 theme utilities, disabled controls, fallible asynchronous tasks, complete
 wrapping row/column layouts, grids and fully sized underlay stacks, toggles,

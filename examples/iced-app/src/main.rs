@@ -41,6 +41,15 @@ mod backend {
     }
 
     #[cfg(test)]
+    pub fn transformation_round_trip(
+        value: iced::Transformation,
+        _: iced::Vector,
+        _: iced::Size,
+    ) -> iced::Transformation {
+        value
+    }
+
+    #[cfg(test)]
     #[derive(Clone, Debug, PartialEq)]
     pub struct NetworkError {
         pub message: String,
@@ -900,6 +909,39 @@ mod pointer_values {
         ));
         assert_eq!(app.finger, iced::touch::Finger(u64::MAX));
         assert_eq!(app.finger_id, u64::MAX.to_string());
+    }
+}
+
+#[cfg(test)]
+mod transformation_values {
+    ui_lang::include_app!("src/ui/transformation_values.ice");
+
+    #[test]
+    fn preserves_and_applies_native_transformations() {
+        let (mut app, _) = TransformationValues::__boot();
+        let _ = app.__update(__TransformationValuesMessage::Inspect);
+
+        assert_eq!(app.translation, iced::Vector::new(10.0, 20.0));
+        assert_eq!(app.scale_factor, 2.0);
+        assert_eq!(app.matrix.len(), 16);
+        assert_eq!(app.point_value, iced::Point::new(12.0, 24.0));
+        assert_eq!(app.vector_value, iced::Vector::new(2.0, 4.0));
+        assert_eq!(app.size_value, iced::Size::new(6.0, 8.0));
+        assert_eq!(
+            app.bounds,
+            iced::Rectangle {
+                x: 12.0,
+                y: 24.0,
+                width: 6.0,
+                height: 8.0,
+            }
+        );
+        assert_eq!(app.cursor.position(), Some(iced::Point::new(12.0, 24.0)));
+        assert_eq!(app.click.position(), iced::Point::new(12.0, 24.0));
+        assert_eq!(app.recovered, iced::Point::new(1.0, 2.0));
+        assert!(app.identity_equal);
+        assert!(app.maybe_projection.is_some());
+        assert!(app.invalid_projection.is_none());
     }
 }
 

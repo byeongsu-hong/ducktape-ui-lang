@@ -8251,7 +8251,10 @@ fn parse_type(source: &str, line: &Line) -> Result<Type, Error> {
         "key-location" => Type::KeyLocation,
         "key-modifiers" => Type::KeyModifiers,
         "point" => Type::Point,
+        "vector" => Type::Vector,
+        "size" => Type::Size,
         "rectangle" => Type::Rectangle,
+        "transformation" => Type::Transformation,
         "mouse-button" => Type::MouseButton,
         "mouse-cursor" => Type::MouseCursor,
         "mouse-click" => Type::MouseClick,
@@ -9134,6 +9137,26 @@ view
                 value: Expr::Call { name, args },
                 ..
             } if name == "mouse.cursor_position" && args.len() == 1
+        ));
+    }
+
+    #[test]
+    fn parses_native_transformations() {
+        let source = include_str!("../../../examples/iced-app/src/ui/transformation_values.ice");
+        let document = parse(source).unwrap();
+        assert_eq!(document.states[0].ty, Type::Transformation);
+        assert_eq!(document.states[6].ty, Type::Vector);
+        assert_eq!(document.states[11].ty, Type::Size);
+        assert!(matches!(
+            &document.states[4].initial,
+            Expr::Call { name, args } if name == "transform.compose" && args.len() == 2
+        ));
+        assert!(matches!(
+            &document.handlers[0].statements[4],
+            Statement::Assign {
+                value: Expr::Call { name, args },
+                ..
+            } if name == "transform.point" && args.len() == 2
         ));
     }
 

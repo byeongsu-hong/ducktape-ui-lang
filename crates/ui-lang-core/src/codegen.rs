@@ -7333,9 +7333,22 @@ fn native_field_projection(ty: &Type, field: &str, code: &str) -> Option<(String
             };
             (format!("({code}).{method}()"), Type::Bool)
         }
-        (Type::Point, "x" | "y") | (Type::Rectangle, "x" | "y" | "width" | "height") => {
+        (Type::Point, "x" | "y")
+        | (Type::Vector, "x" | "y")
+        | (Type::Size, "width" | "height")
+        | (Type::Rectangle, "x" | "y" | "width" | "height") => {
             (format!("({code}).{field} as f64"), Type::F64)
         }
+        (Type::Transformation, "scale_factor") => {
+            (format!("({code}).scale_factor() as f64"), Type::F64)
+        }
+        (Type::Transformation, "translation") => (format!("({code}).translation()"), Type::Vector),
+        (Type::Transformation, "matrix") => (
+            format!(
+                "::std::convert::Into::<[f32; 16]>::into({code}).into_iter().map(f64::from).collect::<::std::vec::Vec<_>>()"
+            ),
+            Type::List(Box::new(Type::F64)),
+        ),
         (Type::MouseButton, "kind") => (
             format!(
                 "match &({code}) {{ ::iced::mouse::Button::Left => \"left\", ::iced::mouse::Button::Right => \"right\", ::iced::mouse::Button::Middle => \"middle\", ::iced::mouse::Button::Back => \"back\", ::iced::mouse::Button::Forward => \"forward\", ::iced::mouse::Button::Other(_) => \"other\" }}.to_owned()"
@@ -7458,7 +7471,10 @@ fn expr_code(
                     | Type::KeyLocation
                     | Type::KeyModifiers
                     | Type::Point
+                    | Type::Vector
+                    | Type::Size
                     | Type::Rectangle
+                    | Type::Transformation
                     | Type::MouseButton
                     | Type::MouseCursor
                     | Type::MouseClick
@@ -7478,12 +7494,62 @@ fn expr_code(
                 expr_code(&args[0], env, document, ValueMode::Owned)?,
                 expr_code(&args[1], env, document, ValueMode::Owned)?
             ),
+            "vector" => format!(
+                "::iced::Vector::new(({}) as f32, ({}) as f32)",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "size" => format!(
+                "::iced::Size::new(({}) as f32, ({}) as f32)",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
             "rectangle" => format!(
                 "::iced::Rectangle {{ x: ({}) as f32, y: ({}) as f32, width: ({}) as f32, height: ({}) as f32 }}",
                 expr_code(&args[0], env, document, ValueMode::Owned)?,
                 expr_code(&args[1], env, document, ValueMode::Owned)?,
                 expr_code(&args[2], env, document, ValueMode::Owned)?,
                 expr_code(&args[3], env, document, ValueMode::Owned)?
+            ),
+            "transform.identity" => "::iced::Transformation::IDENTITY".into(),
+            "transform.orthographic" => {
+                let (Expr::I64(width), Expr::I64(height)) = (&args[0], &args[1]) else {
+                    unreachable!("checker requires orthographic dimension literals")
+                };
+                format!("::iced::Transformation::orthographic({width}u32, {height}u32)")
+            }
+            "transform.try_orthographic" => format!(
+                "match (<u32>::try_from({}), <u32>::try_from({})) {{ (::std::result::Result::Ok(width), ::std::result::Result::Ok(height)) => ::std::option::Option::Some(::iced::Transformation::orthographic(width, height)), _ => ::std::option::Option::None }}",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "transform.translate" => format!(
+                "::iced::Transformation::translate(({}) as f32, ({}) as f32)",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "transform.scale" => format!(
+                "::iced::Transformation::scale(({}) as f32)",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "transform.inverse" => format!(
+                "({}).inverse()",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "transform.compose" => format!(
+                "({}) * ({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "transform.point"
+            | "transform.vector"
+            | "transform.size"
+            | "transform.rectangle"
+            | "transform.cursor"
+            | "transform.click" => format!(
+                "({}) * ({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
             ),
             "mouse.button" => {
                 let Expr::Str(value) = &args[0] else {
@@ -12746,6 +12812,26 @@ view
             "::iced::touch::Finger(18446744073709551615u64)",
             ".position_over(self.bounds)",
             "fn __ui_lang_check_sync_pointer_click",
+        ] {
+            assert!(generated.contains(expected), "missing {expected}");
+        }
+    }
+
+    #[test]
+    fn lowers_native_transformations() {
+        let source = include_str!("../../../examples/iced-app/src/ui/transformation_values.ice");
+        let generated = compile(source, "transformation_values.ice").unwrap();
+        for expected in [
+            "identity: ::iced::Transformation",
+            "translation: ::iced::Vector",
+            "size_value: ::iced::Size",
+            "::iced::Transformation::orthographic(640u32, 480u32)",
+            "<u32>::try_from((-1))",
+            "::iced::Transformation::translate",
+            "::iced::Transformation::scale",
+            ".inverse()",
+            "::std::convert::Into::<[f32; 16]>::into",
+            "fn __ui_lang_check_sync_transformation_round_trip",
         ] {
             assert!(generated.contains(expected), "missing {expected}");
         }
