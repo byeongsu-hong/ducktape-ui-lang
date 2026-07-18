@@ -884,6 +884,12 @@ fn generate_extern_probes(out: &mut String, document: &Document) {
                 item.name, item.rust_path
             )
             .unwrap(),
+            ExternKind::Theme => writeln!(
+                out,
+                "#[allow(dead_code)] fn __ui_lang_check_theme_{}({params}) {{ let _: ::iced::Theme = {}({args}); }}",
+                item.name, item.rust_path
+            )
+            .unwrap(),
             ExternKind::Window => {
                 let params = if params.is_empty() {
                     "window: &dyn ::iced::window::Window".into()
@@ -1257,14 +1263,23 @@ fn generate_theme(out: &mut String, document: &Document) -> Result<(), Error> {
     writeln!(out, "}})\n}}").unwrap();
     writeln!(out, "fn __theme(&self) -> ::iced::Theme {{").unwrap();
     if let Some(setting) = &document.settings.theme {
-        let value = expr_code(&setting.value, &env, document, ValueMode::Owned)?;
-        writeln!(out, "match ({value}).as_str() {{").unwrap();
-        writeln!(out, "\"app\" => Self::__app_theme(),").unwrap();
-        writeln!(out, "\"default\" => <::iced::Theme as ::iced::theme::Base>::default(::iced::theme::Mode::None),").unwrap();
-        for name in BUILT_IN_THEMES {
-            writeln!(out, "\"{name}\" => ::iced::Theme::{},", pascal(name)).unwrap();
+        if let Expr::Call { name, args } = &setting.value
+            && document
+                .functions
+                .iter()
+                .any(|function| function.name == *name && function.kind == ExternKind::Theme)
+        {
+            writeln!(out, "{}", theme_factory_code(name, args, &env, document)?).unwrap();
+        } else {
+            let value = expr_code(&setting.value, &env, document, ValueMode::Owned)?;
+            writeln!(out, "match ({value}).as_str() {{").unwrap();
+            writeln!(out, "\"app\" => Self::__app_theme(),").unwrap();
+            writeln!(out, "\"default\" => <::iced::Theme as ::iced::theme::Base>::default(::iced::theme::Mode::None),").unwrap();
+            for name in BUILT_IN_THEMES {
+                writeln!(out, "\"{name}\" => ::iced::Theme::{},", pascal(name)).unwrap();
+            }
+            writeln!(out, "_ => Self::__app_theme(),\n}}").unwrap();
         }
-        writeln!(out, "_ => Self::__app_theme(),\n}}").unwrap();
     } else {
         writeln!(out, "Self::__app_theme()").unwrap();
     }
@@ -4166,7 +4181,7 @@ fn render_node(
             let content = render_node(content, document, message, env, scope, slot)?;
             let mut code = format!(
                 "{{ let __theme_content: ::iced::Element<'_, {message}> = {content}; ::iced::widget::themer({}, __theme_content)",
-                theme_preset_code(preset)
+                theme_preset_code(preset, env, document)?
             );
             if let Some(color) = text {
                 write!(code, ".text_color(|_| {})", theme_color(document, color)).unwrap();
@@ -10989,15 +11004,42 @@ fn theme_color(document: &Document, token: &str) -> String {
     color_code(value, opacity)
 }
 
-fn theme_preset_code(preset: &ThemePreset) -> String {
-    match preset {
+fn theme_preset_code(
+    preset: &ThemePreset,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<String, Error> {
+    Ok(match preset {
         ThemePreset::Default => "::std::option::Option::None".into(),
         ThemePreset::App => "::std::option::Option::Some(Self::__app_theme())".into(),
         ThemePreset::BuiltIn(name) => format!(
             "::std::option::Option::Some(::iced::Theme::{})",
             pascal(name)
         ),
-    }
+        ThemePreset::Factory(factory) => format!(
+            "::std::option::Option::Some({})",
+            theme_factory_code(&factory.function, &factory.args, env, document)?
+        ),
+    })
+}
+
+fn theme_factory_code(
+    name: &str,
+    args: &[Expr],
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<String, Error> {
+    let function = document
+        .functions
+        .iter()
+        .find(|function| function.name == name && function.kind == ExternKind::Theme)
+        .expect("checker validates theme factories");
+    let args = args
+        .iter()
+        .map(|arg| expr_code(arg, env, document, ValueMode::Owned))
+        .collect::<Result<Vec<_>, _>>()?
+        .join(", ");
+    Ok(format!("{}({args})", function.rust_path))
 }
 
 fn qr_data_code(qr: &QrData) -> String {
@@ -11566,6 +11608,35 @@ view
         assert!(generated.contains(".background(|_| ::iced::Background::Color"));
         assert!(generated.contains(".background(|_| ::iced::Background::from(::iced::gradient::Linear::new(1.57 as f32).add_stop(0.0 as f32"));
         assert!(generated.contains("themer(::std::option::Option::None"));
+    }
+
+    #[test]
+    fn lowers_native_theme_factories() {
+        let source = r#"extern crate::backend
+  theme native_theme(dark:bool)
+app Themes
+  theme native_theme(dark)
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  dark = true
+view
+  theme native_theme(!dark)
+    text "Nested"
+"#;
+        let generated = compile(source, "themes.ice").unwrap();
+        assert!(generated.contains(
+            "fn __ui_lang_check_theme_native_theme(arg0: bool) { let _: ::iced::Theme = crate::backend::native_theme(arg0); }"
+        ));
+        assert!(generated.contains(
+            "fn __theme(&self) -> ::iced::Theme {\ncrate::backend::native_theme(self.dark)"
+        ));
+        assert!(generated.contains(
+            "themer(::std::option::Option::Some(crate::backend::native_theme((!self.dark)))"
+        ));
     }
 
     #[test]

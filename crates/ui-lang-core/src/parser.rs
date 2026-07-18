@@ -79,6 +79,13 @@ pub fn parse(source: &str) -> Result<Document, Error> {
                         &path,
                         ExternKind::Subscription,
                     )?);
+                } else if let Some(source) = item.text.strip_prefix("theme ") {
+                    functions.push(parse_extern_fn(
+                        &format!("{source} -> unit"),
+                        item,
+                        &path,
+                        ExternKind::Theme,
+                    )?);
                 } else if let Some(source) = item.text.strip_prefix("window ") {
                     functions.push(parse_extern_fn(source, item, &path, ExternKind::Window)?);
                 } else if let Some(source) = item.text.strip_prefix("markdown-viewer ") {
@@ -3974,6 +3981,14 @@ fn parse_theme(parts: &[String], styles: Vec<String>, line: &Line) -> Result<Vie
 }
 
 fn parse_theme_preset(value: &str, line: &Line) -> Result<ThemePreset, Error> {
+    if value.contains('(') {
+        let (function, args) = parse_signature(value, line)
+            .map_err(|_| error("E094", line, "theme factory must be a declared call"))?;
+        return Ok(ThemePreset::Factory(ExternCall {
+            function,
+            args: parse_expr_list(&args, line)?,
+        }));
+    }
     match value {
         "default" => Ok(ThemePreset::Default),
         "app" => Ok(ThemePreset::App),
@@ -9741,6 +9756,35 @@ view
         .unwrap_err();
         assert_eq!(error.code, "E014");
         assert!(error.message.contains("duplicate setting `skip-taskbar`"));
+    }
+
+    #[test]
+    fn parses_native_theme_factories() {
+        let source = r#"extern crate::backend
+  theme native_theme(dark:bool)
+app Themes
+  theme native_theme(dark)
+theme
+  background #000000
+state
+  dark = true
+view
+  theme native_theme(!dark)
+    text "Nested"
+"#;
+        let document = parse(source).unwrap();
+        assert_eq!(document.functions[0].kind, ExternKind::Theme);
+        assert!(matches!(
+            document.settings.theme.as_ref().map(|setting| &setting.value),
+            Some(Expr::Call { name, .. }) if name == "native_theme"
+        ));
+        assert!(matches!(
+            document.view,
+            ViewNode::Theme {
+                preset: ThemePreset::Factory(ExternCall { ref function, .. }),
+                ..
+            } if function == "native_theme"
+        ));
     }
 
     #[test]

@@ -82,6 +82,28 @@ mod backend {
     }
 
     #[cfg(test)]
+    pub fn native_theme(dark: bool) -> iced::Theme {
+        let palette = if dark {
+            iced::theme::Palette::DARK
+        } else {
+            iced::theme::Palette::LIGHT
+        };
+        iced::Theme::custom_with_fn(
+            if dark { "Native dark" } else { "Native light" },
+            palette,
+            move |palette| {
+                let mut extended = iced::theme::palette::Extended::generate(palette);
+                extended.primary.base.color = if dark {
+                    iced::Color::from_rgb8(0x7c, 0x3a, 0xed)
+                } else {
+                    iced::Color::from_rgb8(0x25, 0x63, 0xeb)
+                };
+                extended
+            },
+        )
+    }
+
+    #[cfg(test)]
     #[derive(Clone, Debug, PartialEq)]
     pub struct NetworkError {
         pub message: String,
@@ -1377,6 +1399,27 @@ mod task_map {
         assert_eq!(app.mapped_optional, Some(2));
         assert_eq!(app.mapped_result, 8);
         assert_eq!(app.error, "task failed");
+    }
+}
+
+#[cfg(test)]
+mod theme_factory {
+    ui_lang::include_app!("src/ui/theme_factory.ice");
+
+    #[test]
+    fn constructs_app_and_nested_native_themes() {
+        let (mut app, _) = NativeTheme::__boot();
+        let theme = app.__theme();
+        assert_eq!(theme.to_string(), "Native dark");
+        assert!(theme.extended_palette().is_dark);
+        assert_eq!(
+            theme.extended_palette().primary.base.color,
+            iced::Color::from_rgb8(0x7c, 0x3a, 0xed)
+        );
+
+        app.dark = false;
+        assert_eq!(app.__theme().to_string(), "Native light");
+        let _ = app.__view();
     }
 }
 
