@@ -8250,6 +8250,10 @@ fn parse_type(source: &str, line: &Line) -> Result<Type, Error> {
         "physical-key" => Type::PhysicalKey,
         "key-location" => Type::KeyLocation,
         "key-modifiers" => Type::KeyModifiers,
+        "pixels" => Type::Pixels,
+        "padding" => Type::Padding,
+        "degrees" => Type::Degrees,
+        "radians" => Type::Radians,
         "point" => Type::Point,
         "point-u32" => Type::PointU32,
         "vector" => Type::Vector,
@@ -8318,6 +8322,7 @@ enum Token {
     Plus,
     Star,
     Slash,
+    Percent,
     EqEq,
     NotEq,
     Lt,
@@ -8474,6 +8479,7 @@ impl<'a> ExprParser<'a> {
             Token::Neg => (BinaryOp::Sub, 5),
             Token::Star => (BinaryOp::Mul, 6),
             Token::Slash => (BinaryOp::Div, 6),
+            Token::Percent => (BinaryOp::Rem, 6),
             _ => return None,
         })
     }
@@ -8598,6 +8604,7 @@ fn lex_expr(source: &str, line: &Line) -> Result<Vec<Token>, Error> {
             ('+', _) => (Token::Plus, 1),
             ('*', _) => (Token::Star, 1),
             ('/', _) => (Token::Slash, 1),
+            ('%', _) => (Token::Percent, 1),
             ('<', _) => (Token::Lt, 1),
             ('>', _) => (Token::Gt, 1),
             _ => return Err(error("E070", line, format!("unexpected character `{ch}`"))),
@@ -9190,6 +9197,45 @@ view
                     value: Expr::Binary { op: BinaryOp::Mul, .. },
                     ..
                 } if target == "scaled_bounds"
+            )
+        }));
+    }
+
+    #[test]
+    fn parses_native_padding_and_angles() {
+        fn contains_remainder(expr: &Expr) -> bool {
+            match expr {
+                Expr::Binary {
+                    op: BinaryOp::Rem, ..
+                } => true,
+                Expr::Binary { left, right, .. } => {
+                    contains_remainder(left) || contains_remainder(right)
+                }
+                Expr::Unary { value, .. } => contains_remainder(value),
+                Expr::Call { args, .. } | Expr::List(args) => args.iter().any(contains_remainder),
+                _ => false,
+            }
+        }
+
+        let source = include_str!("../../../examples/iced-app/src/ui/padding_angles.ice");
+        let document = parse(source).unwrap();
+        let state_type = |name: &str| {
+            document
+                .states
+                .iter()
+                .find(|state| state.name == name)
+                .map(|state| state.ty.clone())
+                .unwrap()
+        };
+        assert_eq!(state_type("pixel_value"), Type::Pixels);
+        assert_eq!(state_type("direct_padding"), Type::Padding);
+        assert_eq!(state_type("degree_value"), Type::Degrees);
+        assert_eq!(state_type("radians_value"), Type::Radians);
+        assert!(document.handlers[0].statements.iter().any(|statement| {
+            matches!(
+                statement,
+                Statement::Assign { target, value, .. }
+                    if target == "radians_math" && contains_remainder(value)
             )
         }));
     }

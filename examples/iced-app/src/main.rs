@@ -72,6 +72,16 @@ mod backend {
     }
 
     #[cfg(test)]
+    pub fn unit_round_trip(
+        _: iced::Pixels,
+        padding: iced::Padding,
+        _: iced::Degrees,
+        _: iced::Radians,
+    ) -> iced::Padding {
+        padding
+    }
+
+    #[cfg(test)]
     #[derive(Clone, Debug, PartialEq)]
     pub struct NetworkError {
         pub message: String,
@@ -1107,6 +1117,108 @@ mod geometry_values {
         assert_eq!(app.center, iced::Point::new(30.0, 50.0));
         assert_eq!(app.bounds_size, iced::Size::new(40.0, 60.0));
         assert_eq!(app.area, 2400.0);
+    }
+}
+
+#[cfg(test)]
+mod padding_angles {
+    ui_lang::include_app!("src/ui/padding_angles.ice");
+
+    #[test]
+    fn preserves_native_padding_and_angle_values() {
+        let (mut app, _) = PaddingAngles::__boot();
+        let _ = app.__update(__PaddingAnglesMessage::Inspect);
+
+        assert_eq!(app.pixel_value, iced::Pixels(8.0));
+        assert_eq!(app.u32_pixels, iced::Pixels(u32::MAX as f32));
+        assert_eq!(app.maybe_pixels, Some(iced::Pixels(42.0)));
+        assert!(app.invalid_pixels.is_none());
+        assert!(app.pixel_ordered);
+        assert_eq!(app.all_padding, iced::Padding::new(5.0));
+        assert_eq!(app.pixel_padding, iced::Padding::new(6.0));
+        assert_eq!(app.top_padding, iced::Padding::ZERO.top(1.0));
+        assert_eq!(app.right_padding, iced::Padding::ZERO.right(2.0));
+        assert_eq!(app.bottom_padding, iced::Padding::ZERO.bottom(3.0));
+        assert_eq!(app.left_padding, iced::Padding::ZERO.left(4.0));
+        assert_eq!(app.horizontal_padding, iced::Padding::ZERO.horizontal(5.0));
+        assert_eq!(app.vertical_padding, iced::Padding::ZERO.vertical(6.0));
+        assert_eq!(app.axes_padding, iced::Padding::from([7.0, 8.0]));
+        assert_eq!(
+            app.changed_padding,
+            iced::Padding {
+                top: 6.0,
+                right: 5.0,
+                bottom: 6.0,
+                left: 5.0
+            }
+        );
+        assert_eq!(
+            app.fitted_padding,
+            iced::Padding {
+                top: 3.0,
+                right: 0.0,
+                bottom: 0.0,
+                left: 2.0
+            }
+        );
+        assert_eq!(app.padding_size, iced::Size::new(6.0, 4.0));
+        assert_eq!(
+            app.expanded_bounds,
+            iced::Rectangle {
+                x: 6.0,
+                y: 19.0,
+                width: 36.0,
+                height: 44.0
+            }
+        );
+        assert_eq!(
+            app.shrunk_bounds,
+            iced::Rectangle {
+                x: 14.0,
+                y: 21.0,
+                width: 24.0,
+                height: 36.0
+            }
+        );
+        assert_eq!((app.padding_x, app.padding_y), (6.0, 4.0));
+        assert!(app.padding_equal);
+        assert_eq!(app.degree_value, iced::Degrees(90.0));
+        assert_eq!(app.degree_start, *iced::Degrees::RANGE.start());
+        assert_eq!(app.degree_end, *iced::Degrees::RANGE.end());
+        assert!(app.degree_in_range);
+        assert!(!app.degree_out_of_range);
+        assert!(app.degree_ordered);
+        assert_eq!(app.radians_start, *iced::Radians::RANGE.start());
+        assert_eq!(app.radians_end, *iced::Radians::RANGE.end());
+        assert_eq!(app.radians_pi, iced::Radians::PI);
+        assert_eq!(
+            app.radians_from_degrees,
+            iced::Radians::from(iced::Degrees(180.0))
+        );
+        assert!((app.radians_math.0 - (1.0 + std::f32::consts::PI)).abs() < 0.0001);
+        assert_eq!(app.radians_reverse, iced::Radians(3.0));
+        assert!(app.radians_in_range);
+        assert!(app.radians_equal_scalar);
+        assert_eq!(app.radians_display, "1 rad");
+        assert!((app.distance_start.x - 50.0).abs() < 0.0001);
+        assert!((app.distance_start.y - 50.0).abs() < 0.0001);
+        assert!((app.distance_end.x - 50.0).abs() < 0.0001);
+        assert!((app.distance_end.y - 0.0).abs() < 0.0001);
+        assert_eq!(
+            app.rotated_size,
+            iced::Size::new(10.0, 20.0).rotate(iced::Radians(1.0))
+        );
+        assert_eq!(
+            app.rotated_bounds,
+            iced::Rectangle {
+                x: 0.0,
+                y: 0.0,
+                width: 10.0,
+                height: 20.0
+            }
+            .rotate(iced::Radians(1.0))
+        );
+        assert!((app.vertices_angle.0 - std::f32::consts::FRAC_PI_2).abs() < 0.0001);
     }
 }
 

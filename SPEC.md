@@ -1,4 +1,4 @@
-# Ice Language Specification 1.26
+# Ice Language Specification 1.27
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 1.26 syntax.
+marked “planned” is a design constraint, not accepted 1.27 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 1.26.
+  block comments are not part of 1.27.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -181,6 +181,7 @@ field          = name ":" type
 type           = "bool" | "i64" | "f64" | "str" | "bytes" | "image"
                | "markdown" | "editor" | "event" | "instant" | "window-id"
                | "key" | "physical-key" | "key-location" | "key-modifiers"
+               | "pixels" | "padding" | "degrees" | "radians"
                | "point" | "point-u32" | "vector" | "size"
                | "rectangle" | "rectangle-u32"
                | "transformation" | "mouse-button" | "mouse-cursor"
@@ -995,7 +996,7 @@ maximum size. `icon-rgba` embeds a relative raw RGBA file without an image
 codec; width and height are positive integers, and generated Rust rejects a
 byte length other than `width × height × 4`. `cargo ice check` reports a
 mismatch at the icon declaration, and generated Rust repeats the check at
-compile time. Encoded icon formats remain outside 1.26.
+compile time. Encoded icon formats remain outside 1.27.
 
 Application boot presets are structured top-level declarations:
 
@@ -1546,7 +1547,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 1.26 message payloads.
+`Clone` for 1.27 message payloads.
 
 Declared `sync` functions are checked, synchronous Rust calls available in
 Ice expressions. They are the small escape hatch for pure domain conversions
@@ -1721,7 +1722,7 @@ The expression language contains:
   `[]` and `["List", "Board"]`, and hexadecimal `bytes(00 ff ...)`;
 - paths: `state_name`, `parameter`, `item.field`;
 - unary operators: `!`, `-`;
-- arithmetic: `*`, `/`, `+`, `-`;
+- arithmetic: `*`, `/`, `%`, `+`, `-`;
 - comparison: `==`, `!=`, `<`, `<=`, `>`, `>=`;
 - boolean operators: `&&`, `||`;
 - parentheses;
@@ -1738,6 +1739,8 @@ The expression language contains:
   `point.distance(from, to)`, `rectangle.intersection(left, right)`,
   `transform.translate(x, y)`, `transform.compose(left, right)`, and
   `transform.point(point, transformation)`;
+- native units such as `pixels(value)`, `padding.all(value)`, `degrees(value)`,
+  and `radians(value)`;
 - `markdown(str) -> markdown` and `markdown_images(markdown) -> [str]`;
 - calls to declared typed `sync` extern functions.
 
@@ -2644,6 +2647,56 @@ and optional `number`; cursors expose `kind`, optional `position`, and
 `levitating`; clicks expose `kind` and `position`; fingers expose their
 lossless decimal `id`.
 
+Native units remain first-class iced values instead of becoming untyped
+numbers:
+
+```ice
+state
+  gap:pixels = pixels(8.0)
+  inset:padding = padding(4.0, 8.0, 12.0, 16.0)
+  quarter:degrees = degrees(45.0) * 2.0
+  rotation:radians = radians.from_degrees(quarter)
+
+on inspect
+  inset = padding.fit(inset, size(80.0, 40.0), size(96.0, 56.0))
+  rotation = (rotation + radians.pi()) % radians(6.0)
+```
+
+`pixels(value)` and `pixels.zero()` construct native `Pixels`;
+`pixels.from_u32(literal)` checks the full native range and
+`pixels.try_from_u32(i64) -> pixels?` safely converts runtime integers. Pixels
+expose their `value`, native equality/order, and every native `+`, `*`, and `/`
+combination with another pixels value or an Ice `f64`. The native `u32`
+division form is represented by the same checked f64 scalar operation.
+
+`padding(top, right, bottom, left)`, `padding.zero`, `all`, `top`, `right`,
+`bottom`, `left`, `horizontal`, `vertical`, and `axes(vertical, horizontal)`
+cover every native constructor and scalar/axis conversion.
+`padding.from_pixels` preserves the exact Pixels conversion. `with_top`,
+`with_right`, `with_bottom`, `with_left`, `with_horizontal`, and
+`with_vertical` call the native builder methods and accept either f64 or
+pixels. Padding exposes each side plus computed `x/y`; `padding.fit` delegates
+to iced's size-constrained fit. `size.from_padding`,
+`rectangle.expand_padding`, and `rectangle.shrink_padding` preserve the native
+conversion and geometry behavior. Padding values support equality and typed
+extern passage.
+
+`degrees(value)` and `radians(value)` narrow numeric construction to native
+f32. Both expose their lossless Ice-f64 `value`, equality/order against their
+own type, and iced's angle-left comparison against f64. Degrees support native
+f64 multiplication. Radians support same-type `+`, `-`, `*`, `/`, `%`, f64
+scaling in either native direction, and native addition of Degrees.
+`radians.from_degrees` performs iced's exact conversion; `radians.pi` exposes
+the native constant and `display` uses native formatting.
+
+`degrees.range_start/end/in_range` and `radians.range_start/end/in_range`
+expose the full native `RangeInclusive` behavior without adding a speculative
+generic range type. `radians.distance_start/end` expose both points returned by
+native `to_distance`. Size and rectangle rotation accept either the existing
+f64 radians or a first-class radians value; `rectangle.vertices_angle` keeps
+the exact native radians result alongside the compatible f64
+`vertices_rotation` projection.
+
 The default iced `f32` geometry API has direct checked expressions:
 
 ```ice
@@ -3113,7 +3166,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 1.26 does not claim that remapping.
+extern line; 1.27 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -3134,7 +3187,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 1.26 native backend is enough for CRUD/settings-style screens, selection,
+The 1.27 native backend is enough for CRUD/settings-style screens, selection,
 media, hover overlays, declarative canvas geometry, and common pointer events,
 not all of iced. It still lacks direct syntax for arbitrary custom overlays,
 and custom widgets. [`COVERAGE.md`](COVERAGE.md) is the exact versioned ledger.
@@ -3174,6 +3227,10 @@ Complete native geometry construction, fields, constants, conversions,
 arithmetic, queries, exact unsigned snapping, and extern passage are exercised
 by
 [`examples/iced-app/src/ui/geometry_values.ice`](examples/iced-app/src/ui/geometry_values.ice).
+First-class pixels, padding, degrees, radians, range behavior, mixed native
+operators, distance conversion, geometry integration, and extern passage are
+exercised by
+[`examples/iced-app/src/ui/padding_angles.ice`](examples/iced-app/src/ui/padding_angles.ice).
 Native transformation construction, matrix inspection, application, and extern
 passage are exercised by
 [`examples/iced-app/src/ui/transformation_values.ice`](examples/iced-app/src/ui/transformation_values.ice).
