@@ -8014,6 +8014,24 @@ fn native_field_projection(ty: &Type, field: &str, code: &str) -> Option<(String
             ),
             Type::Str,
         ),
+        (Type::ScrollDelta, "kind") => (
+            format!(
+                "match ({code}) {{ ::iced::mouse::ScrollDelta::Lines {{ .. }} => \"lines\", ::iced::mouse::ScrollDelta::Pixels {{ .. }} => \"pixels\" }}.to_owned()"
+            ),
+            Type::Str,
+        ),
+        (Type::ScrollDelta, "x") => (
+            format!(
+                "match ({code}) {{ ::iced::mouse::ScrollDelta::Lines {{ x, .. }} | ::iced::mouse::ScrollDelta::Pixels {{ x, .. }} => x as f64 }}"
+            ),
+            Type::F64,
+        ),
+        (Type::ScrollDelta, "y") => (
+            format!(
+                "match ({code}) {{ ::iced::mouse::ScrollDelta::Lines {{ y, .. }} | ::iced::mouse::ScrollDelta::Pixels {{ y, .. }} => y as f64 }}"
+            ),
+            Type::F64,
+        ),
         (Type::Length, "fill_factor") => (format!("({code}).fill_factor() as i64"), Type::I64),
         (Type::Length, "is_fill") => (format!("({code}).is_fill()"), Type::Bool),
         (Type::Length, "kind") => (
@@ -8228,6 +8246,7 @@ fn expr_code(
                     | Type::FontStretch
                     | Type::FontStyle
                     | Type::MouseInteraction
+                    | Type::ScrollDelta
                     | Type::Length
                     | Type::Alignment
                     | Type::HorizontalAlignment
@@ -8512,6 +8531,16 @@ fn expr_code(
             | "interaction.zoom_out" => format!(
                 "::iced::mouse::Interaction::{}",
                 first_class_mouse_interaction_code(name)
+            ),
+            "scroll.lines" | "scroll.pixels" => format!(
+                "::iced::mouse::ScrollDelta::{} {{ x: ({}) as f32, y: ({}) as f32 }}",
+                if name == "scroll.lines" {
+                    "Lines"
+                } else {
+                    "Pixels"
+                },
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
             ),
             "length.fill" => "::iced::Length::Fill".into(),
             "length.shrink" => "::iced::Length::Shrink".into(),
@@ -12827,6 +12856,23 @@ mod tests {
             "::iced::mouse::Interaction::Pointer => \"pointer\"",
             "::iced::widget::mouse_area(__mouse_content).interaction(self.returned)",
             "if (false) || __cursor.is_over(__bounds) { self.returned }",
+        ] {
+            assert!(generated.contains(expected), "missing {expected}");
+        }
+    }
+
+    #[test]
+    fn lowers_every_native_scroll_delta_operation() {
+        let source = include_str!("../../../examples/iced-app/src/ui/scroll_delta.ice");
+        let generated = compile(source, "scroll_delta.ice").unwrap();
+        for expected in [
+            "::iced::mouse::ScrollDelta::Lines { x: (1.5) as f32, y: ((-2.25)) as f32 }",
+            "::iced::mouse::ScrollDelta::Pixels { x: ((-3.75)) as f32, y: (4.5) as f32 }",
+            "crate::backend::scroll_delta_round_trip(self.pixels)",
+            "::iced::mouse::ScrollDelta::Lines { .. } => \"lines\"",
+            "::iced::mouse::ScrollDelta::Pixels { .. } => \"pixels\"",
+            "::iced::mouse::ScrollDelta::Lines { x, .. } | ::iced::mouse::ScrollDelta::Pixels { x, .. } => x as f64",
+            "::iced::mouse::ScrollDelta::Lines { y, .. } | ::iced::mouse::ScrollDelta::Pixels { y, .. } => y as f64",
         ] {
             assert!(generated.contains(expected), "missing {expected}");
         }

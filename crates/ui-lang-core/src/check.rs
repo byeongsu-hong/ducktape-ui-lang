@@ -3853,6 +3853,7 @@ fn lazy_hashable(ty: &Type) -> bool {
         | Type::RectangleU32
         | Type::Transformation
         | Type::MouseInteraction
+        | Type::ScrollDelta
         | Type::MouseCursor
         | Type::MouseClick
         | Type::SystemInfo
@@ -7649,6 +7650,10 @@ pub(crate) fn expr_type(
                 check_builtin_args(name, args, &[], env, document, span)?;
                 Ok(Type::MouseInteraction)
             }
+            "scroll.lines" | "scroll.pixels" => {
+                check_builtin_args(name, args, &[Type::F64, Type::F64], env, document, span)?;
+                Ok(Type::ScrollDelta)
+            }
             "length.fill" | "length.shrink" => {
                 check_builtin_args(name, args, &[], env, document, span)?;
                 Ok(Type::Length)
@@ -9024,6 +9029,7 @@ pub(crate) fn expr_type(
                                 | Type::Rectangle
                                 | Type::RectangleU32
                                 | Type::Transformation
+                                | Type::ScrollDelta
                         )
                     {
                         return Err(Error::new(
@@ -9217,6 +9223,11 @@ fn field_type(ty: &Type, field: &str, document: &Document, span: &Span) -> Resul
         },
         Type::MouseInteraction => match field {
             "kind" => Some(Type::Str),
+            _ => None,
+        },
+        Type::ScrollDelta => match field {
+            "kind" => Some(Type::Str),
+            "x" | "y" => Some(Type::F64),
             _ => None,
         },
         Type::Length => match field {
@@ -9728,6 +9739,34 @@ mod tests {
             analyze(&source.replace("mouse cursor=(returned)", "mouse cursor=(kind)")).unwrap_err();
         assert_eq!(error.code, "E101");
         assert!(error.message.contains("expected `mouse-interaction`"));
+
+        let error = analyze(&source.replace(
+            "    button \"Inspect\" -> inspect",
+            "    lazy returned as cached\n      text cached.kind",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E139");
+        assert!(error.message.contains("does not implement stable hashing"));
+    }
+
+    #[test]
+    fn checks_native_scroll_delta_values() {
+        let source = include_str!("../../../examples/iced-app/src/ui/scroll_delta.ice");
+        analyze(source).unwrap();
+
+        let error =
+            analyze(&source.replace("scroll.lines(1.5, -2.25)", "scroll.lines(true, -2.25)"))
+                .unwrap_err();
+        assert_eq!(error.code, "E101");
+        assert!(error.message.contains("expected `f64`"));
+
+        let error = analyze(&source.replace(
+            "values_equal = returned == pixels",
+            "values_equal = returned < pixels",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E153");
+        assert!(error.message.contains("does not accept `scroll-delta`"));
 
         let error = analyze(&source.replace(
             "    button \"Inspect\" -> inspect",

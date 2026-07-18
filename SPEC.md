@@ -1,4 +1,4 @@
-# Ice Language Specification 1.49
+# Ice Language Specification 1.50
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 1.49 syntax.
+marked “planned” is a design constraint, not accepted 1.50 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 1.49.
+  block comments are not part of 1.50.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -202,7 +202,7 @@ type           = "bool" | "i64" | "f64" | "str" | "bytes" | "image"
                | "point" | "point-u32" | "vector" | "size" | "size-u32"
                | "rectangle" | "rectangle-u32"
                | "transformation" | "mouse-interaction"
-               | "mouse-button" | "mouse-cursor"
+               | "scroll-delta" | "mouse-button" | "mouse-cursor"
                | "mouse-click" | "touch-finger"
                | "widget-id" | "widget-target"
                | "task-handle" | "unit"
@@ -1044,7 +1044,7 @@ maximum size. `icon-rgba` embeds a relative raw RGBA file without an image
 codec; width and height are positive integers, and generated Rust rejects a
 byte length other than `width × height × 4`. `cargo ice check` reports a
 mismatch at the icon declaration, and generated Rust repeats the check at
-compile time. Encoded icon formats remain outside 1.49.
+compile time. Encoded icon formats remain outside 1.50.
 
 Use `daemon Name` instead of `app Name` for an iced daemon that starts without
 an initial window and remains alive after all windows close. A daemon rejects
@@ -1622,6 +1622,7 @@ button "Add" disabled=(loading || empty(trim(draft))) -> submit
 | `radius` | `iced::border::Radius` |
 | `shadow` | `iced::Shadow` |
 | `mouse-interaction` | `iced::mouse::Interaction` |
+| `scroll-delta` | `iced::mouse::ScrollDelta` |
 | `instant` | `iced::time::Instant` |
 | `window-id` | `iced::window::Id` |
 | `markdown` | `iced::widget::markdown::Content` |
@@ -1653,7 +1654,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 1.49 message payloads.
+`Clone` for 1.50 message payloads.
 
 Declared `sync` functions are checked, synchronous Rust calls available in
 Ice expressions. They are the small escape hatch for pure domain conversions
@@ -3002,6 +3003,14 @@ Mouse areas and canvases accept first-class values with
 equivalent human-readable sugar; canvases also retain runtime string cursor
 selection for mutable local state.
 
+`scroll.lines(x, y)` and `scroll.pixels(x, y)` construct both native
+`iced::mouse::ScrollDelta` variants. Each value exposes `.kind`, `.x`, and `.y`,
+supports equality and exact typed extern passage, and preserves negative and
+fractional native coordinates. It is rejected for ordering and lazy identity
+because the native floating-point enum implements neither `Ord` nor `Hash`.
+Existing mouse-area, canvas, and subscription scroll routes keep their readable
+`x, y, pixels` payloads as destructuring sugar for the same native variants.
+
 Fields are checked: points and vectors expose `x/y` plus lossless two-value
 `values`; points also expose native `display`; sizes expose `width/height` plus
 `values`; rectangles expose `x/y/width/height`, `center`, `center_x`,
@@ -3701,7 +3710,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 1.49 does not claim that remapping.
+extern line; 1.50 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -3722,7 +3731,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 1.49 native backend covers both windowed applications and windowless
+The 1.50 native backend covers both windowed applications and windowless
 daemons alongside CRUD/settings-style screens, selection, media, hover
 overlays, declarative canvas geometry, and pointer events. Borrowed custom
 widgets and an application-wide renderer type remain the escape hatch for
@@ -3766,6 +3775,11 @@ Every native mouse interaction variant, kind projection, ordering, typed extern
 passage, and direct mouse-area/canvas use are exercised by the split
 [`examples/iced-app/src/ui/mouse_interaction.ice`](examples/iced-app/src/ui/mouse_interaction.ice)
 and [`examples/iced-app/src/mouse_interaction.rs`](examples/iced-app/src/mouse_interaction.rs)
+fixture.
+Both native scroll delta variants, exact coordinates, projections, equality,
+and typed extern passage are exercised by the split
+[`examples/iced-app/src/ui/scroll_delta.ice`](examples/iced-app/src/ui/scroll_delta.ice)
+and [`examples/iced-app/src/scroll_delta.rs`](examples/iced-app/src/scroll_delta.rs)
 fixture.
 Complete native geometry construction, fields, constants, conversions,
 arithmetic, queries, exact unsigned snapping, and extern passage are exercised
