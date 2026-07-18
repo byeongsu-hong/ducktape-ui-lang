@@ -1,4 +1,4 @@
-# Ice Language Specification 0.98
+# Ice Language Specification 0.99
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.98 syntax.
+marked “planned” is a design constraint, not accepted 0.99 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.98.
+  block comments are not part of 0.99.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -306,7 +306,7 @@ subscription_source
                | "keyboard" ("press" | "release" | "modifiers")
                | "mouse" mouse_event
                | "touch" touch_event
-               | "window" window_event
+               | "window" window_event ("with-id")?
                | "system theme"
 input_method_event
                = "opened" | "preedit" | "commit" | "closed"
@@ -858,7 +858,7 @@ codec; width and height are positive integers, and generated Rust rejects a
 byte length other than `width × height × 4`. `cargo ice check` reports a
 mismatch at the icon declaration, and generated Rust repeats the check at
 compile time. Encoded icon formats and platform-specific settings are not part
-of 0.98.
+of 0.99.
 
 Application boot presets are structured top-level declarations:
 
@@ -1298,7 +1298,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.98 message payloads.
+`Clone` for 0.99 message payloads.
 
 Declared `sync` functions are checked, synchronous Rust calls available in
 Ice expressions. They are the small escape hatch for pure domain conversions
@@ -2305,7 +2305,7 @@ snap/end; and absolute scroll-to/scroll-by. Effects have no route and
 non-negative `i64`; relative offsets are `f64` in `0.0..=1.0`; absolute
 offsets are unrestricted `f64`. Targets must be real static IDs in the app
 scope. Repeated/component scopes and the feature-gated selector API remain
-outside 0.98.
+outside 0.99.
 
 Persistent pane grids expose their native layout-state operations directly in
 handlers:
@@ -2381,26 +2381,28 @@ all modes, decorations, user attention, focus, level, system menu, mouse
 passthrough, monitor size, and automatic tabbing. Positive sizes, bool
 arguments, and target IDs are checked before Rust generation. Runtime icon
 changes, raw window callbacks/handles, and platform settings remain outside
-0.98.
+0.99.
 
 Every iced window event has a direct subscription form:
 
 ```ice
 subscribe
   window frame -> frame
-  window opened -> opened _ _ _ _
-  window moved -> moved _ _
-  window resized -> resized _ _
-  window close-request -> close_requested
-  window file-dropped -> file_dropped _
+  window opened with-id -> opened _ _ _ _ _
+  window moved with-id -> moved _ _ _
+  window resized with-id -> resized _ _ _
+  window close-request with-id -> close_requested _
+  window file-dropped with-id -> file_dropped _ _
 ```
 
 `opened` emits optional x/y followed by width/height; moved and resized emit
 two `f64` values; rescaled emits `f64`; file paths emit `str`; and frame,
 closed, close-request, focused, unfocused, and files-hovered-left have no
-payload. Routes accept only the exact number of `_` payloads. These sources are
-application-wide and currently omit the originating window ID. Use a typed raw
-event filter when that identity is required.
+payload. Add `with-id` to any of the eleven non-frame forms to prepend the
+originating typed `window-id`; the frame stream is application-wide and has no
+window identity. Routes accept only the exact number of `_` payloads. The
+modifier also works with `status=`, while Canvas window events reject it because
+Canvas receives only the event value.
 
 Every iced mouse event also has a direct subscription form:
 
@@ -2534,7 +2536,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 0.98 does not claim that remapping.
+extern line; 0.99 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -2555,11 +2557,10 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 0.98 native backend is enough for CRUD/settings-style screens, selection,
+The 0.99 native backend is enough for CRUD/settings-style screens, selection,
 media, hover overlays, declarative canvas geometry, and common pointer events,
 not all of iced. It still lacks direct syntax for arbitrary custom overlays,
-window-specific event IDs, and custom widgets. [`COVERAGE.md`](COVERAGE.md) is
-the exact versioned ledger.
+and custom widgets. [`COVERAGE.md`](COVERAGE.md) is the exact versioned ledger.
 
 The language must not grow one ad-hoc syntax form for every iced API. The next
 layer is therefore implemented as six typed Rust adapters: component, shader,

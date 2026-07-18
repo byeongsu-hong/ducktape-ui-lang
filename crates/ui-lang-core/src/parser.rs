@@ -853,6 +853,7 @@ fn parse_subscription(line: &Line) -> Result<Subscription, Error> {
         .map_or((call, None), |(call, context)| {
             (call.trim(), Some(context.trim()))
         });
+    let mut window_id = false;
     let source = if call == "system theme" {
         SubscriptionSource::SystemTheme
     } else if let Some(source) = call.strip_prefix("repeat ") {
@@ -918,7 +919,12 @@ fn parse_subscription(line: &Line) -> Result<Subscription, Error> {
             }
         })
     } else if let Some(event) = call.strip_prefix("window ") {
-        SubscriptionSource::Window(match event.trim() {
+        let event = event.trim();
+        let event = event.strip_suffix(" with-id").map_or(event, |event| {
+            window_id = true;
+            event.trim()
+        });
+        SubscriptionSource::Window(match event {
             "frame" => WindowEvent::Frame,
             "opened" => WindowEvent::Opened,
             "closed" => WindowEvent::Closed,
@@ -983,6 +989,13 @@ fn parse_subscription(line: &Line) -> Result<Subscription, Error> {
             args: parse_expr_list(&args, line)?,
         }
     };
+    if window_id && matches!(&source, SubscriptionSource::Window(WindowEvent::Frame)) {
+        return Err(error(
+            "E084",
+            line,
+            "window frame does not expose a window ID",
+        ));
+    }
     if status.is_some()
         && !matches!(
             &source,
@@ -1013,6 +1026,7 @@ fn parse_subscription(line: &Line) -> Result<Subscription, Error> {
     }
     Ok(Subscription {
         source,
+        window_id,
         context: context
             .map(|context| parse_expr(context, line))
             .transpose()?,
@@ -4704,11 +4718,14 @@ fn parse_canvas_event(line: &Line) -> Result<CanvasEvent, Error> {
         let mut event_line = line.clone();
         event_line.text = source.to_owned();
         let subscription = parse_subscription(&event_line)?;
-        if subscription.condition.is_some() || subscription.status.is_some() {
+        if subscription.condition.is_some()
+            || subscription.status.is_some()
+            || subscription.window_id
+        {
             return Err(error(
                 "E190",
                 line,
-                "canvas events do not use subscription `when` or `status` filters",
+                "canvas events do not use subscription `when`, `status`, or `with-id` options",
             ));
         }
         validate_canvas_event_source(&subscription.source, line)?;
@@ -4901,7 +4918,15 @@ fn parse_canvas_event_source(source: &str, line: &Line) -> Result<SubscriptionSo
     let mut event_line = line.clone();
     event_line.text = format!("{source} -> __canvas_event");
     event_line.children.clear();
-    Ok(parse_subscription(&event_line)?.source)
+    let subscription = parse_subscription(&event_line)?;
+    if subscription.window_id {
+        return Err(error(
+            "E190",
+            line,
+            "canvas window events do not use `with-id`",
+        ));
+    }
+    Ok(subscription.source)
 }
 
 fn parse_canvas_commands(lines: &[Line]) -> Result<Vec<CanvasCommand>, Error> {

@@ -945,8 +945,8 @@ fn generate_update(out: &mut String, document: &Document, message: &str) -> Resu
     Ok(())
 }
 
-fn subscription_payload_arity(source: &SubscriptionSource) -> usize {
-    match source {
+fn subscription_payload_arity(source: &SubscriptionSource, window_id: bool) -> usize {
+    let arity = match source {
         SubscriptionSource::Every { .. }
         | SubscriptionSource::Repeat { .. }
         | SubscriptionSource::Run { .. }
@@ -976,6 +976,21 @@ fn subscription_payload_arity(source: &SubscriptionSource) -> usize {
         | SubscriptionSource::Mouse(MouseEvent::Wheel)
         | SubscriptionSource::Touch(_) => 3,
         SubscriptionSource::Window(WindowEvent::Opened) => 4,
+    };
+    arity + usize::from(window_id)
+}
+
+fn identified_window_filter(filter: &str, arity: usize) -> String {
+    match arity {
+        0 => format!("({filter}).map(|_| __id)"),
+        1 => format!("({filter}).map(|__value| (__id, __value))"),
+        count => format!(
+            "({filter}).map(|__value| (__id, {}))",
+            (0..count)
+                .map(|index| format!("__value.{index}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
     }
 }
 
@@ -995,7 +1010,7 @@ fn generate_subscription(
     .unwrap();
     writeln!(out, "::iced::Subscription::batch([").unwrap();
     for subscription in &document.subscriptions {
-        let source_arity = subscription_payload_arity(&subscription.source);
+        let source_arity = subscription_payload_arity(&subscription.source, subscription.window_id);
         let filter = subscription
             .filter
             .as_ref()
@@ -1321,14 +1336,22 @@ fn generate_subscription(
                     }
                     WindowEvent::Frame => unreachable!("handled above"),
                 };
+                let filter = if subscription.window_id {
+                    identified_window_filter(
+                        filter,
+                        subscription_payload_arity(&subscription.source, false),
+                    )
+                } else {
+                    filter.to_owned()
+                };
                 if subscription.status.is_some() {
                     let filter = format!(
                         "match __event {{ ::iced::Event::Window(__event) => {{ {filter} }}, _ => ::std::option::Option::None }}"
                     );
                     let (filter, status) = event_status_filter(&filter, subscription.status);
-                    writeln!(out, "::iced::event::listen_with(|__event, {status}, _| {{ {filter} }}){transforms}.map(move |__value| {route}),").unwrap();
+                    writeln!(out, "::iced::event::listen_with(|__event, {status}, __id| {{ {filter} }}){transforms}.map(move |__value| {route}),").unwrap();
                 } else {
-                    writeln!(out, "::iced::window::events().filter_map(|(_, __event)| {{ {filter} }}){transforms}.map(move |__value| {route}),").unwrap();
+                    writeln!(out, "::iced::window::events().filter_map(|(__id, __event)| {{ {filter} }}){transforms}.map(move |__value| {route}),").unwrap();
                 }
             }
         }
@@ -10698,6 +10721,23 @@ view
         assert!(generated.contains("]) } else { ::iced::Subscription::none() }"));
         assert!(generated.contains("::iced::Event::Window(__event)"));
         assert!(generated.contains("::iced::event::Status::Captured"));
+        assert!(generated.contains("::iced::window::events().filter_map(|(__id, __event)|"));
+        assert!(generated.contains("::iced::event::listen_with(|__event, __status, __id|"));
+        assert!(generated.contains("(__id, __value.0, __value.1, __value.2, __value.3)"));
+        assert!(generated.contains(".map(|_| __id)"));
+        assert!(generated.contains(".map(|__value| (__id, __value))"));
+        assert!(generated.contains(
+            "__WindowEventsMessage::Opened(__value.0, __value.1, __value.2, __value.3, __value.4)"
+        ));
+
+        let legacy = source
+            .replace("on focused(id)\n  last_window = some(id)", "on focused")
+            .replace(
+                "window focused with-id -> focused _",
+                "window focused -> focused",
+            );
+        let generated = compile(&legacy, "window_events.ice").unwrap();
+        assert!(generated.contains("map(move |__value| __WindowEventsMessage::Focused)"));
     }
 
     #[test]
