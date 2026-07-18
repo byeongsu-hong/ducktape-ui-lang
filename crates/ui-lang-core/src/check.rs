@@ -1595,11 +1595,9 @@ fn infer_view(
                             require_literal_range(value, f64::EPSILON, None, label, span)?;
                         }
                     }
-                    GridSizing::EvenlyDistribute(LengthValue::Fixed(value)) => {
-                        require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                        require_literal_range(value, 0.0, None, "grid height", span)?;
+                    GridSizing::EvenlyDistribute(length) => {
+                        check_length_value(length, env, document, span, "grid height")?;
                     }
-                    GridSizing::EvenlyDistribute(_) => {}
                 }
             }
             if let Some(clip) = &options.clip {
@@ -1612,11 +1610,19 @@ fn infer_view(
                 Layout::Scroll => "scroll metric",
                 Layout::Grid => "grid metric",
             };
-            for length in [&options.width, &options.height].into_iter().flatten() {
-                if let LengthValue::Fixed(value) = length {
+            if let Some(width) = &options.width {
+                if *kind == Layout::Grid {
+                    let LengthValue::Fixed(value) = width else {
+                        unreachable!("parser keeps grid widths fixed")
+                    };
                     require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
                     require_literal_range(value, 0.0, None, layout_metric, span)?;
+                } else {
+                    check_length_value(width, env, document, span, layout_metric)?;
                 }
+            }
+            if let Some(height) = &options.height {
+                check_length_value(height, env, document, span, layout_metric)?;
             }
             for value in [
                 &options.spacing,
@@ -1638,10 +1644,7 @@ fn infer_view(
             }
             if let Some(scroll) = &options.scroll {
                 for length in [&scroll.width, &scroll.height].into_iter().flatten() {
-                    if let LengthValue::Fixed(value) = length {
-                        require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                        require_literal_range(value, 0.0, None, "scroll size", span)?;
-                    }
+                    check_length_value(length, env, document, span, "scroll size")?;
                 }
                 for (value, label) in [
                     (&scroll.bar_width, "scroll bar width"),
@@ -1702,10 +1705,7 @@ fn infer_view(
         } => {
             check_id(id, env, document, ids, span)?;
             for length in [&options.width, &options.height].into_iter().flatten() {
-                if let LengthValue::Fixed(value) = length {
-                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                    require_literal_range(value, 0.0, None, "container size", span)?;
-                }
+                check_length_value(length, env, document, span, "container size")?;
             }
             for value in [
                 &options.padding.all,
@@ -1782,10 +1782,7 @@ fn infer_view(
                 ));
             }
             for length in [&options.width, &options.height].into_iter().flatten() {
-                if let LengthValue::Fixed(value) = length {
-                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                    require_literal_range(value, 0.0, None, "pane-grid bounds", span)?;
-                }
+                check_length_value(length, env, document, span, "pane-grid bounds")?;
             }
             for (value, label) in [
                 (&options.spacing, "pane-grid spacing"),
@@ -2048,11 +2045,8 @@ fn infer_view(
             if let Some(route) = &options.paste {
                 infer_route(route, Some(Type::Str), env, document, signatures)?;
             }
-            if let Some(length) = &options.width
-                && let LengthValue::Fixed(value) = length
-            {
-                require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                require_literal_range(value, 0.0, None, "input width", span)?;
+            if let Some(length) = &options.width {
+                check_length_value(length, env, document, span, "input width")?;
             }
             for (value, label, min) in [
                 (&options.padding, "input padding", 0.0),
@@ -2090,10 +2084,7 @@ fn infer_view(
                 require_type(&ty, &Type::Bool, span)?;
             }
             for length in [&options.width, &options.height].into_iter().flatten() {
-                if let LengthValue::Fixed(value) = length {
-                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                    require_literal_range(value, 0.0, None, "button size", span)?;
-                }
+                check_length_value(length, env, document, span, "button size")?;
             }
             if let Some(padding) = &options.padding {
                 require_type(&expr_type(padding, env, document, span)?, &Type::F64, span)?;
@@ -2253,13 +2244,16 @@ fn infer_view(
             ] {
                 if let Some(length) = length {
                     match length {
-                        LengthValue::Fixed(value) => {
+                        LengthValue::Fixed(value) if !fluid => {
                             require_type(
                                 &expr_type(value, env, document, span)?,
                                 &Type::F64,
                                 span,
                             )?;
                             require_literal_range(value, 0.0, None, label, span)?;
+                        }
+                        LengthValue::Fixed(_) => {
+                            check_length_value(length, env, document, span, label)?;
                         }
                         _ if !fluid => {
                             return Err(Error::new(
@@ -2302,10 +2296,7 @@ fn infer_view(
                 return Err(Error::new("E128", span, "progress min cannot exceed max"));
             }
             for length in [&options.length, &options.girth].into_iter().flatten() {
-                if let LengthValue::Fixed(value) = length {
-                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                    require_literal_range(value, 0.0, None, "progress size", span)?;
-                }
+                check_length_value(length, env, document, span, "progress size")?;
             }
             if let Some(style) = &options.custom_style {
                 let function =
@@ -2420,10 +2411,7 @@ fn infer_view(
                 .into_iter()
                 .flatten()
             {
-                if let LengthValue::Fixed(value) = length {
-                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                    require_literal_range(value, 0.0, None, "pick size", span)?;
-                }
+                check_length_value(length, env, document, span, "pick size")?;
             }
             for (value, label) in [
                 (&options_config.padding, "pick padding"),
@@ -2490,10 +2478,7 @@ fn infer_view(
                 ));
             }
             for length in [&options.width, &options.menu_height].into_iter().flatten() {
-                if let LengthValue::Fixed(value) = length {
-                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                    require_literal_range(value, 0.0, None, "combo size", span)?;
-                }
+                check_length_value(length, env, document, span, "combo size")?;
             }
             for (value, label) in [
                 (&options.padding, "combo padding"),
@@ -2633,10 +2618,7 @@ fn infer_view(
             span,
         } => {
             for length in [width, height].into_iter().flatten() {
-                if let LengthValue::Fixed(value) = length {
-                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                    require_literal_range(value, 0.0, None, "space length", span)?;
-                }
+                check_length_value(length, env, document, span, "space length")?;
             }
             check_styles(styles, document, span, StyleTarget::Space)?;
         }
@@ -2691,10 +2673,7 @@ fn infer_view(
                 ));
             }
             for length in [&options.width, &options.height].into_iter().flatten() {
-                if let LengthValue::Fixed(value) = length {
-                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                    require_literal_range(value, 0.0, None, "keyed size", span)?;
-                }
+                check_length_value(length, env, document, span, "keyed size")?;
             }
             for value in [
                 &options.spacing,
@@ -2806,9 +2785,8 @@ fn infer_view(
                     require_literal_range(value, min, None, label, span)?;
                 }
             }
-            if let Some(LengthValue::Fixed(value)) = &options.height {
-                require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                require_literal_range(value, 0.0, None, "editor height", span)?;
+            if let Some(length) = &options.height {
+                check_length_value(length, env, document, span, "editor height")?;
             }
             if let Some(line_height) = &options.line_height {
                 let value = match line_height {
@@ -2869,9 +2847,8 @@ fn infer_view(
             let Type::List(inner) = expr_type(rows, env, document, span)? else {
                 return Err(Error::new("E139", span, "table expects a list of rows"));
             };
-            if let Some(LengthValue::Fixed(value)) = &options.width {
-                require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                require_literal_range(value, 0.0, None, "table width", span)?;
+            if let Some(length) = &options.width {
+                check_length_value(length, env, document, span, "table width")?;
             }
             for (value, label) in [
                 (&options.padding, "table padding"),
@@ -2889,13 +2866,8 @@ fn infer_view(
             let mut cell_env = env.clone();
             cell_env.insert(item.clone(), *inner);
             for column in columns {
-                if let Some(LengthValue::Fixed(value)) = &column.width {
-                    require_type(
-                        &expr_type(value, env, document, &column.span)?,
-                        &Type::F64,
-                        &column.span,
-                    )?;
-                    require_literal_range(value, 0.0, None, "table column width", &column.span)?;
+                if let Some(length) = &column.width {
+                    check_length_value(length, env, document, &column.span, "table column width")?;
                 }
                 let mut header_ids = HashSet::new();
                 infer_view(&column.header, env, document, signatures, &mut header_ids)?;
@@ -3087,10 +3059,7 @@ fn infer_view(
             let shader = extern_function(document, function, ExternKind::Shader, span)?;
             check_call_args(shader, args, env, document, span)?;
             for length in [width, height].into_iter().flatten() {
-                if let LengthValue::Fixed(value) = length {
-                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                    require_literal_range(value, 0.0, None, "shader size", span)?;
-                }
+                check_length_value(length, env, document, span, "shader size")?;
             }
             match (&shader.output, route) {
                 (Type::Unit, None) => {}
@@ -3150,10 +3119,7 @@ fn infer_view(
                 });
             }
             for length in [&options.width, &options.height].into_iter().flatten() {
-                if let LengthValue::Fixed(value) = length {
-                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                    require_literal_range(value, 0.0, None, "media size", span)?;
-                }
+                check_length_value(length, env, document, span, "media size")?;
             }
             if let Some(rotation) = &options.rotation {
                 let actual = expr_type(rotation, env, document, span)?;
@@ -3387,10 +3353,7 @@ fn infer_view(
             span,
         } => {
             for length in [&options.width, &options.height].into_iter().flatten() {
-                if let LengthValue::Fixed(value) = length {
-                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                    require_literal_range(value, 0.0, None, "canvas size", span)?;
-                }
+                check_length_value(length, env, document, span, "canvas size")?;
             }
             if let Some(dependency) = &options.cache {
                 let ty = expr_type(dependency, env, document, span)?;
@@ -3716,10 +3679,7 @@ fn infer_view(
                 require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
             }
             for length in [width, height].into_iter().flatten() {
-                if let LengthValue::Fixed(value) = length {
-                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                    require_literal_range(value, 0.0, None, "pin size", span)?;
-                }
+                check_length_value(length, env, document, span, "pin size")?;
             }
             infer_view(content, env, document, signatures, ids)?;
         }
@@ -3781,10 +3741,7 @@ fn infer_view(
             span,
         } => {
             for length in [width, height].into_iter().flatten() {
-                if let LengthValue::Fixed(value) = length {
-                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                    require_literal_range(value, 0.0, None, "responsive size", span)?;
-                }
+                check_length_value(length, env, document, span, "responsive size")?;
             }
             match content {
                 ResponsiveContent::Breakpoint {
@@ -3856,6 +3813,7 @@ fn lazy_hashable(ty: &Type) -> bool {
         | Type::Radians
         | Type::Rotation
         | Type::Color
+        | Type::Length
         | Type::Point
         | Type::PointU32
         | Type::Vector
@@ -4725,11 +4683,8 @@ fn check_bool_control_options(
     span: &Span,
 ) -> Result<(), Error> {
     check_font(options.font.as_ref(), document, span)?;
-    if let Some(length) = &options.width
-        && let LengthValue::Fixed(value) = length
-    {
-        require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-        require_literal_range(value, 0.0, None, "control width", span)?;
+    if let Some(length) = &options.width {
+        check_length_value(length, env, document, span, "control width")?;
     }
     for (value, label, min) in [
         (&options.size, "control size", f64::EPSILON),
@@ -5218,10 +5173,7 @@ fn check_text_options(
         check_call_args(function, &style.args, env, document, span)?;
     }
     for length in [&options.width, &options.height].into_iter().flatten() {
-        if let LengthValue::Fixed(value) = length {
-            require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-            require_literal_range(value, 0.0, None, "text bounds", span)?;
-        }
+        check_length_value(length, env, document, span, "text bounds")?;
     }
     for (value, label) in [
         (options.size.as_ref(), "text size"),
@@ -7121,6 +7073,23 @@ fn check_u32_literal(name: &str, args: &[Expr], span: &Span) -> Result<u32, Erro
     })
 }
 
+fn check_u16_literal(name: &str, args: &[Expr], span: &Span) -> Result<u16, Error> {
+    let [Expr::I64(value)] = args else {
+        return Err(Error::new(
+            "E152",
+            span,
+            format!("{name} expects one integer literal"),
+        ));
+    };
+    u16::try_from(*value).map_err(|_| {
+        Error::new(
+            "E152",
+            span,
+            format!("{name} value must be in 0..={}", u16::MAX),
+        )
+    })
+}
+
 fn check_u8_literals(name: &str, args: &[Expr], count: usize, span: &Span) -> Result<(), Error> {
     if args.len() < count
         || !args[..count]
@@ -7162,6 +7131,33 @@ fn require_pixel_value(
             format!("expected `f64` or `pixels`, got `{}`", actual.display()),
         ))
     }
+}
+
+fn check_length_value(
+    length: &LengthValue,
+    env: &HashMap<String, Type>,
+    document: &Document,
+    span: &Span,
+    label: &str,
+) -> Result<(), Error> {
+    let LengthValue::Fixed(value) = length else {
+        return Ok(());
+    };
+    let actual = expr_type(value, env, document, span)?;
+    if actual == Type::Length {
+        return Ok(());
+    }
+    if actual != Type::F64 {
+        return Err(Error::new(
+            "E101",
+            span,
+            format!(
+                "expected `f64` or `length`, got `{}` for {label}",
+                actual.display()
+            ),
+        ));
+    }
+    require_literal_range(value, 0.0, None, label, span)
 }
 
 fn require_radians_value(
@@ -7357,6 +7353,49 @@ pub(crate) fn expr_type(
             "color.readable" => {
                 check_builtin_args(name, args, &[Type::Color, Type::Color], env, document, span)?;
                 Ok(Type::Bool)
+            }
+            "length.fill" | "length.shrink" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::Length)
+            }
+            "length.fill_portion" => {
+                check_u16_literal(name, args, span)?;
+                Ok(Type::Length)
+            }
+            "length.try_fill_portion" => {
+                check_builtin_args(name, args, &[Type::I64], env, document, span)?;
+                Ok(Type::Option(Box::new(Type::Length)))
+            }
+            "length.fixed" | "length.from_f64" => {
+                check_builtin_args(name, args, &[Type::F64], env, document, span)?;
+                Ok(Type::Length)
+            }
+            "length.from_pixels" => {
+                check_builtin_args(name, args, &[Type::Pixels], env, document, span)?;
+                Ok(Type::Length)
+            }
+            "length.from_u32" => {
+                check_u32_literal(name, args, span)?;
+                Ok(Type::Length)
+            }
+            "length.try_from_u32" => {
+                check_builtin_args(name, args, &[Type::I64], env, document, span)?;
+                Ok(Type::Option(Box::new(Type::Length)))
+            }
+            "length.fluid" => {
+                check_builtin_args(name, args, &[Type::Length], env, document, span)?;
+                Ok(Type::Length)
+            }
+            "length.enclose" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::Length, Type::Length],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::Length)
             }
             "fit.default" | "fit.contain" | "fit.cover" | "fit.fill" | "fit.none"
             | "fit.scale_down" => {
@@ -8614,6 +8653,14 @@ fn field_type(ty: &Type, field: &str, document: &Document, span: &Span) -> Resul
             "display" => Some(Type::Str),
             _ => None,
         },
+        Type::Length => match field {
+            "fill_factor" => Some(Type::I64),
+            "is_fill" => Some(Type::Bool),
+            "kind" => Some(Type::Str),
+            "portion" => Some(Type::Option(Box::new(Type::I64))),
+            "fixed" => Some(Type::Option(Box::new(Type::F64))),
+            _ => None,
+        },
         Type::Point => match field {
             "x" | "y" => Some(Type::F64),
             "values" => Some(Type::List(Box::new(Type::F64))),
@@ -8991,6 +9038,37 @@ fn type_error(span: &Span, expected: &Type, actual: &Type) -> Error {
 #[cfg(test)]
 mod tests {
     use crate::{PaneConfiguration, Type, ViewNode, analyze};
+
+    #[test]
+    fn checks_native_length_values_and_widget_passage() {
+        let source = include_str!("../../../examples/iced-app/src/ui/length.ice");
+        analyze(source).unwrap();
+
+        let error = analyze(&source.replace(
+            "portion_length = length.fill_portion(3)",
+            "portion_length = length.fill_portion(65536)",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E152");
+        assert!(error.message.contains("0..=65535"));
+
+        let error = analyze(&source.replace(
+            "col width=fill_length height=shrink_length",
+            "col width=true height=shrink_length",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E101");
+        assert!(error.message.contains("expected `f64` or `length`"));
+
+        let error = analyze(&source.replace(
+            "grid columns=1 width=96.0",
+            "grid columns=1 width=round_trip",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E101");
+        assert!(error.message.contains("expected `f64`"));
+        assert!(error.message.contains("got `length`"));
+    }
 
     #[test]
     fn checks_native_color_values_and_boundaries() {

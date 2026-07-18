@@ -7896,6 +7896,26 @@ fn native_field_projection(ty: &Type, field: &str, code: &str) -> Option<(String
             Type::List(Box::new(Type::F64)),
         ),
         (Type::Color, "display") => (format!("::std::format!(\"{{}}\", ({code}))"), Type::Str),
+        (Type::Length, "fill_factor") => (format!("({code}).fill_factor() as i64"), Type::I64),
+        (Type::Length, "is_fill") => (format!("({code}).is_fill()"), Type::Bool),
+        (Type::Length, "kind") => (
+            format!(
+                "match ({code}) {{ ::iced::Length::Fill => \"fill\", ::iced::Length::FillPortion(_) => \"fill-portion\", ::iced::Length::Shrink => \"shrink\", ::iced::Length::Fixed(_) => \"fixed\" }}.to_owned()"
+            ),
+            Type::Str,
+        ),
+        (Type::Length, "portion") => (
+            format!(
+                "match ({code}) {{ ::iced::Length::FillPortion(__value) => ::std::option::Option::Some(__value as i64), _ => ::std::option::Option::None }}"
+            ),
+            Type::Option(Box::new(Type::I64)),
+        ),
+        (Type::Length, "fixed") => (
+            format!(
+                "match ({code}) {{ ::iced::Length::Fixed(__value) => ::std::option::Option::Some(__value as f64), _ => ::std::option::Option::None }}"
+            ),
+            Type::Option(Box::new(Type::F64)),
+        ),
         (Type::Point | Type::Vector | Type::Size, "values") => (
             format!(
                 "::std::convert::Into::<[f32; 2]>::into({code}).into_iter().map(f64::from).collect::<::std::vec::Vec<_>>()"
@@ -8047,6 +8067,7 @@ fn expr_code(
                     | Type::Rotation
                     | Type::ContentFit
                     | Type::Color
+                    | Type::Length
                     | Type::Point
                     | Type::PointU32
                     | Type::Vector
@@ -8165,6 +8186,49 @@ fn expr_code(
             ),
             "color.readable" => format!(
                 "({}).is_readable_on({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "length.fill" => "::iced::Length::Fill".into(),
+            "length.shrink" => "::iced::Length::Shrink".into(),
+            "length.fill_portion" => {
+                let Expr::I64(value) = &args[0] else {
+                    unreachable!("checker requires a u16 literal")
+                };
+                format!("::iced::Length::FillPortion({value}u16)")
+            }
+            "length.try_fill_portion" => format!(
+                "<u16>::try_from({}).ok().map(::iced::Length::FillPortion)",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "length.fixed" => format!(
+                "::iced::Length::Fixed(({}) as f32)",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "length.from_f64" => format!(
+                "::iced::Length::from(({}) as f32)",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "length.from_pixels" => format!(
+                "::iced::Length::from({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "length.from_u32" => {
+                let Expr::I64(value) = &args[0] else {
+                    unreachable!("checker requires a u32 literal")
+                };
+                format!("::iced::Length::from({value}u32)")
+            }
+            "length.try_from_u32" => format!(
+                "<u32>::try_from({}).ok().map(::iced::Length::from)",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "length.fluid" => format!(
+                "({}).fluid()",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "length.enclose" => format!(
+                "({}).enclose({})",
                 expr_code(&args[0], env, document, ValueMode::Owned)?,
                 expr_code(&args[1], env, document, ValueMode::Owned)?
             ),
@@ -9557,10 +9621,14 @@ fn length_code(
             format!("::iced::Length::FillPortion({portion})")
         }
         LengthValue::Shrink => "::iced::Shrink".into(),
-        LengthValue::Fixed(value) => format!(
-            "{} as f32",
-            expr_code(value, env, document, ValueMode::Owned)?
-        ),
+        LengthValue::Fixed(value) => {
+            let code = expr_code(value, env, document, ValueMode::Owned)?;
+            if expr_type(value, &env_types(env), document, &Span::line(1))? == Type::Length {
+                code
+            } else {
+                format!("{code} as f32")
+            }
+        }
     })
 }
 
@@ -12067,6 +12135,32 @@ fn pascal(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use crate::compile;
+
+    #[test]
+    fn lowers_every_native_length_operation() {
+        let source = include_str!("../../../examples/iced-app/src/ui/length.ice");
+        let generated = compile(source, "length.ice").unwrap();
+        for expected in [
+            "::iced::Length::Fill",
+            "::iced::Length::FillPortion(3u16)",
+            "::iced::Length::Shrink",
+            "::iced::Length::Fixed((48.0) as f32)",
+            "::iced::Length::from((64.0) as f32)",
+            "::iced::Length::from(::iced::Pixels((72.0) as f32))",
+            "::iced::Length::from(96u32)",
+            "<u16>::try_from(self.portion_input)",
+            "<u32>::try_from(self.units_input)",
+            ".fluid()",
+            ".enclose(",
+            ".fill_factor() as i64",
+            ".is_fill()",
+            ".width(self.fill_length)",
+            ".height(self.shrink_length)",
+            "crate::backend::length_round_trip(self.fixed_length)",
+        ] {
+            assert!(generated.contains(expected), "missing {expected}");
+        }
+    }
 
     #[test]
     fn lowers_every_native_color_operation() {

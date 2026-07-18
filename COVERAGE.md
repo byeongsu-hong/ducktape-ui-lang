@@ -15,7 +15,7 @@ counts toward the row below.
 
 ## Typed system reachability
 
-Ice 1.42 has thirty-three checked Rust boundaries:
+Ice 1.43 has thirty-three checked Rust boundaries:
 
 | Boundary | Rust ABI | Covers |
 | --- | --- | --- |
@@ -128,6 +128,7 @@ public behavior has direct documented Ice syntax and tests.
 | `Rotation` | native | exact floating/solid/default/f32 conversion, radians/degrees/kind projection, native `radians_mut` update, equality, size application, typed extern passage, and direct Image/SVG builder input cover the complete public enum behavior |
 | `ContentFit` | native | all five variants/default, compact kind/native display, equality/hashable lazy identity, exact size fitting, typed extern passage, and direct Image/SVG/Viewer builder input cover the complete public enum behavior |
 | `Color` | native | default/constants, normalized/static and dynamically checked 8-bit/linear/array constructors, all accepted hexadecimal parse forms with optional rejection, exact channel/RGBA8/linear/display projections, inverse/in-place inversion/alpha scaling, luminance/contrast/readability, equality, and typed extern passage cover the complete public behavior; native floating channels correctly remain unavailable as lazy hash identities |
+| `Length` | native | all four variants, static/dynamically checked portion and u32 construction, exact f32/Pixels/u32 conversions, fill factor/fluidity/kind/payload projections, fluid/enclose operations, equality, typed extern passage, and direct passage through every builder that accepts native Length cover the complete public behavior; pixel-only Grid width and slider short axes retain numeric checks, and floating fixed values correctly remain unavailable as lazy hash identities |
 | `Transformation` | native | identity/default, orthographic, translate, scale, inverse, scale/translation inspection, composition, lossless matrix conversion, equality, typed extern passage, and native application to every supported geometry and pointer value cover the complete public behavior |
 | custom widget | native | typed owned or app-state-borrowing `Element` adapters with checked event routing, selected Theme/Renderer propagation, alternate-Theme subtrees, and the complete advanced Widget/Overlay escape hatch |
 | custom renderer | native | checked application-wide concrete `iced::program::Renderer` type path propagated through every generated `Element`, including extern components, shaders, alternate themes, and editor adapters |
