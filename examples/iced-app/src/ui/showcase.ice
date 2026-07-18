@@ -14,6 +14,7 @@ extern crate::backend
   button-style action_button(busy:bool)
   checkbox-style task_checkbox(busy:bool)
   toggler-style notification_toggler(busy:bool)
+  radio-style view_radio(busy:bool)
   task copy_text(text:str) -> unit ! AppError
   subscription app_events() -> bool
 
@@ -554,7 +555,7 @@ view
           text "Pinned label" @text-xs text-muted
         pin width=fill(2) height=shrink x=8.0 y=6.0
           text "Pinned with flexible bounds" @text-xs text-muted
-        radio "List" value=0 selected=(view_mode == 0) -> view_mode_changed _
+        radio "List" value=0 selected=(view_mode == 0) style=view_radio(loading) -> view_mode_changed _
         radio "Board" value=1 selected=(view_mode == 1) -> view_mode_changed _
         grid columns=2 height=shrink spacing=4.0 @w-full
           text "Even" @text-xs text-muted

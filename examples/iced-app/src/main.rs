@@ -235,6 +235,19 @@ mod backend {
     }
 
     #[cfg(test)]
+    pub fn view_radio(
+        theme: &iced::Theme,
+        status: iced::widget::radio::Status,
+        busy: bool,
+    ) -> iced::widget::radio::Style {
+        let mut style = iced::widget::radio::default(theme, status);
+        if busy {
+            style.text_color = Some(theme.palette().text);
+        }
+        style
+    }
+
+    #[cfg(test)]
     impl<'a> iced::widget::markdown::Viewer<'a, String> for DocsViewer {
         fn on_link_click(url: iced::widget::markdown::Uri) -> String {
             url

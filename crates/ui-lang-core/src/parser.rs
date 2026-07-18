@@ -114,6 +114,13 @@ pub fn parse(source: &str) -> Result<Document, Error> {
                         &path,
                         ExternKind::TogglerStyle,
                     )?);
+                } else if let Some(source) = item.text.strip_prefix("radio-style ") {
+                    functions.push(parse_extern_fn(
+                        &format!("{source} -> unit"),
+                        item,
+                        &path,
+                        ExternKind::RadioStyle,
+                    )?);
                 } else if item.text.chars().next().is_some_and(char::is_uppercase) {
                     structs.push(parse_extern_struct(item, &path)?);
                 } else {
@@ -1042,6 +1049,7 @@ fn parse_extern_fn(
                 | ExternKind::ButtonStyle
                 | ExternKind::CheckboxStyle
                 | ExternKind::TogglerStyle
+                | ExternKind::RadioStyle
         )
     {
         return Err(error(
@@ -7570,6 +7578,13 @@ fn parse_radio(
             value = Some(parse_expr(strip_wrapping_parens(source), line)?);
         } else if let Some(source) = part.strip_prefix("selected=") {
             selected = Some(parse_expr(strip_wrapping_parens(source), line)?);
+        } else if let Some(source) = part.strip_prefix("style=") {
+            let (function, args) = parse_signature(source, line)
+                .map_err(|_| error("E078", line, "radio style must be a declared style call"))?;
+            style.custom = Some(ExternCall {
+                function,
+                args: parse_expr_list(&args, line)?,
+            });
         } else if parse_bool_control_option(part, &mut options, false, false, line)? {
         } else {
             return Err(error(

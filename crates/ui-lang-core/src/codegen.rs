@@ -927,6 +927,26 @@ fn generate_extern_probes(out: &mut String, document: &Document) {
                 )
                 .unwrap();
             }
+            ExternKind::RadioStyle => {
+                let params = if params.is_empty() {
+                    "theme: &::iced::Theme, status: ::iced::widget::radio::Status".into()
+                } else {
+                    format!(
+                        "theme: &::iced::Theme, status: ::iced::widget::radio::Status, {params}"
+                    )
+                };
+                let args = if args.is_empty() {
+                    "theme, status".into()
+                } else {
+                    format!("theme, status, {args}")
+                };
+                writeln!(
+                    out,
+                    "#[allow(dead_code)] fn __ui_lang_check_radio_style_{}({params}) {{ let _: ::iced::widget::radio::Style = {}({args}); }}",
+                    item.name, item.rust_path
+                )
+                .unwrap();
+            }
         }
     }
 }
@@ -8490,6 +8510,29 @@ fn radio_style_code(
     env: &HashMap<String, Binding>,
     document: &Document,
 ) -> Result<String, Error> {
+    let custom = styles
+        .custom
+        .as_ref()
+        .map(|style| {
+            let function = document
+                .functions
+                .iter()
+                .find(|item| item.name == style.function && item.kind == ExternKind::RadioStyle)
+                .expect("checker validates radio style");
+            let args = style
+                .args
+                .iter()
+                .map(|arg| expr_code(arg, env, document, ValueMode::Owned))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok::<_, Error>(format!(
+                "{}(__theme, __status{})",
+                function.rust_path,
+                args.iter()
+                    .map(|arg| format!(", {arg}"))
+                    .collect::<String>()
+            ))
+        })
+        .transpose()?;
     let overrides = [
         ("Active", true, &styles.active_selected),
         ("Active", false, &styles.active_unselected),
@@ -8497,10 +8540,15 @@ fn radio_style_code(
         ("Hovered", false, &styles.hovered_unselected),
     ];
     if overrides.iter().all(|(_, _, style)| style.is_none()) {
-        return Ok(String::new());
+        return Ok(custom
+            .map(|custom| format!(".style(move |__theme, __status| {custom})"))
+            .unwrap_or_default());
     }
 
-    let mut code = ".style(move |__theme, __status| { let mut __style = ::iced::widget::radio::default(__theme, __status); match __status {".to_owned();
+    let base =
+        custom.unwrap_or_else(|| "::iced::widget::radio::default(__theme, __status)".to_owned());
+    let mut code =
+        format!(".style(move |__theme, __status| {{ let mut __style = {base}; match __status {{");
     for (status, selected, style) in overrides {
         let Some(style) = style else { continue };
         write!(
@@ -10268,6 +10316,7 @@ view
         let source = r#"app Controls
 extern crate::backend
   progress-style dynamic_progress(active:bool)
+  radio-style dynamic_radio(highlight:bool)
 theme
   background #000000
   foreground #ffffff
@@ -10297,7 +10346,7 @@ view
       progress amount style=success
       progress amount style=warning
       progress amount style=danger
-      radio "First" value="first" selected=(choice == "first") size=20.0 width=fill spacing=8.0 text-size=14.0 line-height=1.2 shaping=advanced wrapping=word-or-glyph font=mono -> choice_changed _
+      radio "First" value="first" selected=(choice == "first") style=dynamic_radio(enabled) size=20.0 width=fill spacing=8.0 text-size=14.0 line-height=1.2 shaping=advanced wrapping=word-or-glyph font=mono -> choice_changed _
         active selected background=linear(1.57, primary@0.0, background@1.0) dot=foreground border=primary border-width=2.0 text=foreground
         active unselected background=background dot=primary border=foreground text=foreground
         hovered selected background=primary dot=foreground border=foreground text=foreground
@@ -10355,7 +10404,10 @@ view
         assert!(generated.contains(".text_shaping(::iced::widget::text::Shaping::Advanced)"));
         assert!(generated.contains(".text_wrapping(::iced::widget::text::Wrapping::WordOrGlyph)"));
         assert!(generated.contains(".font(::iced::Font::MONOSPACE)"));
-        assert!(generated.contains("radio::default(__theme, __status)"));
+        assert!(
+            generated.contains("crate::backend::dynamic_radio(__theme, __status, self.enabled)")
+        );
+        assert!(generated.contains("fn __ui_lang_check_radio_style_dynamic_radio"));
         for (status, selected) in [
             ("Active", true),
             ("Active", false),
@@ -10370,6 +10422,12 @@ view
         assert!(generated.contains("__style.dot_color ="));
         assert!(generated.contains("__style.border_width = 2.0 as f32"));
         assert!(generated.contains("__style.text_color = ::std::option::Option::Some"));
+        let default_radio = compile(
+            &source.replace(" style=dynamic_radio(enabled)", ""),
+            "controls.ice",
+        )
+        .unwrap();
+        assert!(default_radio.contains("radio::default(__theme, __status)"));
         assert!(generated.contains("::iced::widget::rule::weak(__theme)"));
         assert!(generated.contains("rule::FillMode::Full"));
         assert!(generated.contains("rule::FillMode::Percent(75.0 as f32)"));

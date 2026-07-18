@@ -367,6 +367,7 @@ pub enum ExternKind {
     ButtonStyle,
     CheckboxStyle,
     TogglerStyle,
+    RadioStyle,
 }
 
 #[derive(Clone, Debug)]
@@ -1408,6 +1409,7 @@ pub struct TogglerStatusStyle {
 
 #[derive(Clone, Debug, Default)]
 pub struct RadioStyleSet {
+    pub custom: Option<ExternCall>,
     pub active_selected: Option<RadioStatusStyle>,
     pub active_unselected: Option<RadioStatusStyle>,
     pub hovered_selected: Option<RadioStatusStyle>,
