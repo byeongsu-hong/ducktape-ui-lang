@@ -77,6 +77,8 @@ pub fn parse(source: &str) -> Result<Document, Error> {
                         &path,
                         ExternKind::Subscription,
                     )?);
+                } else if let Some(source) = item.text.strip_prefix("window ") {
+                    functions.push(parse_extern_fn(source, item, &path, ExternKind::Window)?);
                 } else if item.text.chars().next().is_some_and(char::is_uppercase) {
                     structs.push(parse_extern_struct(item, &path)?);
                 } else {
@@ -323,6 +325,42 @@ fn app_number_expression(source: &str, line: &Line) -> Result<AppExpression, Err
 fn parse_window_settings(line: &Line) -> Result<WindowSettings, Error> {
     let mut settings = WindowSettings::default();
     for item in &line.children {
+        if let Some(platform) = item.text.strip_prefix("platform ") {
+            match platform.trim() {
+                "linux" => set_setting(
+                    &mut settings.linux,
+                    parse_linux_window_settings(item)?,
+                    "platform linux",
+                    item,
+                )?,
+                "windows" => set_setting(
+                    &mut settings.windows,
+                    parse_windows_window_settings(item)?,
+                    "platform windows",
+                    item,
+                )?,
+                "macos" => set_setting(
+                    &mut settings.macos,
+                    parse_macos_window_settings(item)?,
+                    "platform macos",
+                    item,
+                )?,
+                "wasm" => set_setting(
+                    &mut settings.wasm,
+                    parse_wasm_window_settings(item)?,
+                    "platform wasm",
+                    item,
+                )?,
+                _ => {
+                    return Err(error(
+                        "E015",
+                        item,
+                        "window platform must be linux, windows, macos, or wasm",
+                    ));
+                }
+            }
+            continue;
+        }
         ensure_leaf(item)?;
         let (name, value) = item
             .text
@@ -386,6 +424,156 @@ fn parse_window_settings(line: &Line) -> Result<WindowSettings, Error> {
             line,
             "window min-size cannot exceed max-size",
         ));
+    }
+    Ok(settings)
+}
+
+fn parse_linux_window_settings(line: &Line) -> Result<LinuxWindowSettings, Error> {
+    let mut settings = LinuxWindowSettings::default();
+    for item in &line.children {
+        ensure_leaf(item)?;
+        let Some((name, value)) = item.text.split_once(char::is_whitespace) else {
+            return Err(error("E015", item, "Linux window setting requires a value"));
+        };
+        let value = value.trim();
+        match name {
+            "application-id" => set_setting(
+                &mut settings.application_id,
+                string_literal(value, item)?,
+                name,
+                item,
+            )?,
+            "override-redirect" => set_setting(
+                &mut settings.override_redirect,
+                config_bool(value, item)?,
+                name,
+                item,
+            )?,
+            _ => {
+                return Err(error(
+                    "E015",
+                    item,
+                    format!("unknown Linux window setting `{name}`"),
+                ));
+            }
+        }
+    }
+    Ok(settings)
+}
+
+fn parse_windows_window_settings(line: &Line) -> Result<WindowsWindowSettings, Error> {
+    let mut settings = WindowsWindowSettings::default();
+    for item in &line.children {
+        ensure_leaf(item)?;
+        let Some((name, value)) = item.text.split_once(char::is_whitespace) else {
+            return Err(error(
+                "E015",
+                item,
+                "Windows window setting requires a value",
+            ));
+        };
+        let value = value.trim();
+        match name {
+            "drag-and-drop" => set_setting(
+                &mut settings.drag_and_drop,
+                config_bool(value, item)?,
+                name,
+                item,
+            )?,
+            "skip-taskbar" => set_setting(
+                &mut settings.skip_taskbar,
+                config_bool(value, item)?,
+                name,
+                item,
+            )?,
+            "undecorated-shadow" => set_setting(
+                &mut settings.undecorated_shadow,
+                config_bool(value, item)?,
+                name,
+                item,
+            )?,
+            "corner" => set_setting(
+                &mut settings.corner,
+                match value {
+                    "default" => WindowCorner::Default,
+                    "do-not-round" => WindowCorner::DoNotRound,
+                    "round" => WindowCorner::Round,
+                    "round-small" => WindowCorner::RoundSmall,
+                    _ => {
+                        return Err(error(
+                            "E015",
+                            item,
+                            "Windows window corner must be default, do-not-round, round, or round-small",
+                        ));
+                    }
+                },
+                name,
+                item,
+            )?,
+            _ => {
+                return Err(error(
+                    "E015",
+                    item,
+                    format!("unknown Windows window setting `{name}`"),
+                ));
+            }
+        }
+    }
+    Ok(settings)
+}
+
+fn parse_macos_window_settings(line: &Line) -> Result<MacosWindowSettings, Error> {
+    let mut settings = MacosWindowSettings::default();
+    for item in &line.children {
+        ensure_leaf(item)?;
+        let Some((name, value)) = item.text.split_once(char::is_whitespace) else {
+            return Err(error("E015", item, "macOS window setting requires a value"));
+        };
+        let value = value.trim();
+        let slot = match name {
+            "title-hidden" => &mut settings.title_hidden,
+            "titlebar-transparent" => &mut settings.titlebar_transparent,
+            "fullsize-content-view" => &mut settings.fullsize_content_view,
+            _ => {
+                return Err(error(
+                    "E015",
+                    item,
+                    format!("unknown macOS window setting `{name}`"),
+                ));
+            }
+        };
+        set_setting(slot, config_bool(value, item)?, name, item)?;
+    }
+    Ok(settings)
+}
+
+fn parse_wasm_window_settings(line: &Line) -> Result<WasmWindowSettings, Error> {
+    let mut settings = WasmWindowSettings::default();
+    for item in &line.children {
+        ensure_leaf(item)?;
+        let Some((name, value)) = item.text.split_once(char::is_whitespace) else {
+            return Err(error("E015", item, "Wasm window setting requires a value"));
+        };
+        let value = value.trim();
+        match name {
+            "target" => set_setting(
+                &mut settings.target,
+                if value == "none" {
+                    None
+                } else {
+                    Some(string_literal(value, item)?)
+                },
+                name,
+                item,
+            )?,
+            _ => {
+                return Err(error(
+                    "E015",
+                    item,
+                    format!("unknown Wasm window setting `{name}`"),
+                ));
+            }
+        }
     }
     Ok(settings)
 }
@@ -813,12 +1001,13 @@ fn parse_extern_fn(
                 | ExternKind::EventFilter
                 | ExternKind::Sync
                 | ExternKind::Subscription
+                | ExternKind::Window
         )
     {
         return Err(error(
             "E023",
             line,
-            "extern components, shaders, recipes, event filters, sync functions, and subscriptions cannot declare an error type",
+            "extern components, shaders, recipes, event filters, sync functions, subscriptions, and window callbacks cannot declare an error type",
         ));
     }
     Ok(ExternFn {
@@ -1884,6 +2073,18 @@ fn parse_window_operation(source: &str, line: &Line) -> Result<Statement, Error>
         Some("monitor-size") if parts.len() == 1 => WindowOperation::MonitorSize,
         Some("automatic-tabbing") if parts.len() == 2 => {
             WindowOperation::AutomaticTabbing(expr(1)?)
+        }
+        Some("icon") if parts.len() == 4 => WindowOperation::Icon {
+            pixels: expr(1)?,
+            width: expr(2)?,
+            height: expr(3)?,
+        },
+        Some(_) if source.contains('(') => {
+            let (function, args) = parse_signature(source.trim(), line)?;
+            WindowOperation::Callback {
+                function,
+                args: parse_expr_list(&args, line)?,
+            }
         }
         _ => {
             return Err(error(
@@ -8530,6 +8731,20 @@ view
     position centered
     level always-on-top
     visible true
+    platform linux
+      application-id "dev.example.demo"
+      override-redirect false
+    platform windows
+      drag-and-drop true
+      skip-taskbar false
+      undecorated-shadow true
+      corner round-small
+    platform macos
+      title-hidden true
+      titlebar-transparent true
+      fullsize-content-view true
+    platform wasm
+      target none
   window child
     size 640 480
     position centered"##,
@@ -8561,6 +8776,31 @@ view
         assert_eq!(window.size, Some((960.0, 720.0)));
         assert!(matches!(window.position, Some(WindowPosition::Centered)));
         assert!(matches!(window.level, Some(WindowLevel::AlwaysOnTop)));
+        assert_eq!(
+            window
+                .linux
+                .as_ref()
+                .and_then(|settings| settings.application_id.as_deref()),
+            Some("dev.example.demo")
+        );
+        assert!(matches!(
+            window.windows.as_ref().and_then(|settings| settings.corner),
+            Some(WindowCorner::RoundSmall)
+        ));
+        assert_eq!(
+            window
+                .macos
+                .as_ref()
+                .and_then(|settings| settings.fullsize_content_view),
+            Some(true)
+        );
+        assert_eq!(
+            window
+                .wasm
+                .as_ref()
+                .and_then(|settings| settings.target.clone()),
+            Some(None)
+        );
         let icon = window.icon.unwrap();
         assert_eq!(
             (icon.path.as_str(), icon.width, icon.height, icon.byte_len),
@@ -8628,6 +8868,35 @@ view
         ))
         .unwrap_err();
         assert_eq!(error.code, "E073");
+
+        let error = parse(&source.replace(
+            "    platform linux\n      application-id \"dev.example.demo\"\n      override-redirect false",
+            "    platform plan9\n      application-id \"dev.example.demo\"",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E015");
+        assert!(error.message.contains("linux, windows, macos, or wasm"));
+
+        let error =
+            parse(&source.replace("corner round-small", "corner softly-rounded")).unwrap_err();
+        assert_eq!(error.code, "E015");
+        assert!(error.message.contains("window corner"));
+
+        let error = parse(&source.replace(
+            "    platform wasm\n      target none",
+            "    platform wasm\n      target none\n    platform wasm\n      target \"app\"",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E014");
+        assert!(error.message.contains("duplicate setting `platform wasm`"));
+
+        let error = parse(&source.replace(
+            "      skip-taskbar false",
+            "      skip-taskbar false\n      skip-taskbar true",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E014");
+        assert!(error.message.contains("duplicate setting `skip-taskbar`"));
     }
 
     #[test]

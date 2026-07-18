@@ -1,4 +1,4 @@
-# Ice Language Specification 1.00
+# Ice Language Specification 1.01
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 1.00 syntax.
+marked “planned” is a design constraint, not accepted 1.01 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 1.00.
+  block comments are not part of 1.01.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -147,12 +147,23 @@ window_setting = ("size" | "min-size" | "max-size") number number
                | ("maximized" | "fullscreen" | "visible" | "resizable"
                  | "closeable" | "minimizable" | "decorations" | "transparent"
                  | "blur" | "exit-on-close-request") bool
+               | window_platform
+window_platform = "platform" "linux" INDENT
+                    (("application-id" string) | ("override-redirect" bool))*
+                | "platform" "windows" INDENT
+                    (("drag-and-drop" | "skip-taskbar" | "undecorated-shadow") bool
+                    | "corner" ("default" | "do-not-round" | "round" | "round-small"))*
+                | "platform" "macos" INDENT
+                    (("title-hidden" | "titlebar-transparent"
+                    | "fullsize-content-view") bool)*
+                | "platform" "wasm" INDENT ("target" (string | "none"))?
 
 extern_decl    = "extern" rust_path INDENT extern_item+
 extern_item    = struct_sig | function_sig | extern_component_sig
                | extern_shader_sig | extern_task_sig | extern_stream_sig
                | extern_sip_sig | extern_recipe_sig | extern_event_filter_sig
                | extern_sync_sig | extern_subscription_sig
+               | extern_window_sig
 struct_sig     = PascalName "(" field_list? ")"
 field_list     = field ("," field)*
 field          = name ":" type
@@ -176,6 +187,7 @@ extern_event_filter_sig = "event-filter" name "()" "->" type
 extern_sync_sig = "sync" name "(" field_list? ")" "->" type
 extern_subscription_sig
                = "subscription" name "(" field_list? ")" "->" type
+extern_window_sig = "window" name "(" field_list? ")" "->" type
 
 theme_decl     = "theme" INDENT color_entry+
 color_entry    = name color
@@ -291,6 +303,8 @@ window_operation = "open" name? | "oldest" | "latest"
                  | "level" ("normal" | "always-on-bottom" | "always-on-top")
                  | "size" | "maximized" | "minimized" | "position"
                  | "scale-factor" | "mode" | "monitor-size"
+                 | "icon" expr expr expr
+                 | call
 direction      = "north" | "south" | "east" | "west"
                | "north-east" | "north-west" | "south-east" | "south-west"
 
@@ -837,6 +851,20 @@ app Tasks
     max-size 1920 1080
     position centered
     level normal
+    platform linux
+      application-id "dev.ducktape.ice.tasks"
+      override-redirect false
+    platform windows
+      drag-and-drop true
+      skip-taskbar false
+      undecorated-shadow true
+      corner round-small
+    platform macos
+      title-hidden false
+      titlebar-transparent true
+      fullsize-content-view true
+    platform wasm
+      target "iced"
   window child
     size 640 480
     min-size 320 240
@@ -874,13 +902,16 @@ can instantiate; names must be unique. Both forms cover every cross-platform
 initial/minimum/maximum size, maximized/fullscreen state,
 default/centered/fixed position, visibility, resizability, close/minimize
 buttons, decorations, transparency, blur, level, and close-request behavior.
+Nested `platform linux`, `platform windows`, `platform macos`, and
+`platform wasm` blocks expose every field of iced's target-specific settings.
+All four may coexist in one source; generated `cfg` blocks select only the
+current compilation target. Wasm `target none` appends to the document body.
 Sizes, text size, and scale factor must be positive; minimum size cannot exceed
 maximum size. `icon-rgba` embeds a relative raw RGBA file without an image
 codec; width and height are positive integers, and generated Rust rejects a
 byte length other than `width × height × 4`. `cargo ice check` reports a
 mismatch at the icon declaration, and generated Rust repeats the check at
-compile time. Encoded icon formats and platform-specific settings are not part
-of 1.00.
+compile time. Encoded icon formats remain outside 1.01.
 
 Application boot presets are structured top-level declarations:
 
@@ -1320,7 +1351,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 1.00 message payloads.
+`Clone` for 1.01 message payloads.
 
 Declared `sync` functions are checked, synchronous Rust calls available in
 Ice expressions. They are the small escape hatch for pure domain conversions
@@ -2327,7 +2358,7 @@ snap/end; and absolute scroll-to/scroll-by. Effects have no route and
 non-negative `i64`; relative offsets are `f64` in `0.0..=1.0`; absolute
 offsets are unrestricted `f64`. Targets must be real static IDs in the app
 scope. Repeated/component scopes and the feature-gated selector API remain
-outside 1.00.
+outside 1.01.
 
 Persistent pane grids expose their native layout-state operations directly in
 handlers:
@@ -2381,6 +2412,9 @@ on capture_window
 
 on window_captured(pixels, width, height, scale)
   snapshot = rgba(width, height, pixels)
+
+on change_icon
+  task window icon bytes(ff 00 00 ff 00 ff 00 ff) 2 1
 ```
 
 `open` emits `window-id`; `oldest` and `latest` emit `window-id?`. They require
@@ -2395,15 +2429,35 @@ values; `maximized` emits `bool`; `minimized` emits `bool?`; `position` and
 `mode` emits `str`. `raw-id` emits the opaque platform `u64` identifier as a
 lossless `str`. `screenshot` emits RGBA `bytes`, physical `i64` width and
 height, then its `f64` scale factor; the bytes can feed directly into
-`rgba(width, height, pixels)`.
+`rgba(width, height, pixels)`. `icon` accepts RGBA `bytes` followed by positive
+`i64` width and height. Literal byte counts are checked as
+`width × height × 4`; dynamic invalid data safely produces no task.
+
+Callback-only iced window behavior crosses one exact typed boundary:
+
+```ice
+extern crate::backend
+  window describe_window(prefix:str) -> str
+
+on inspect_window
+  task window describe_window("main") -> window_described _
+```
+
+The Rust item has the ABI
+`fn(&dyn iced::window::Window, String) -> String`. The implicit first argument
+provides iced's native `HasWindowHandle` and `HasDisplayHandle` access without
+putting Rust syntax in Ice. Parameters, output, route, and optional
+`target=window-id` are statically checked; generated probes make a missing item
+or wrong Rust signature a local rustc error.
 
 Ice covers close, drag and all resize directions, resize
 and constraints, resizability, maximize/minimize state, position and movement,
 all modes, decorations, user attention, focus, level, system menu, mouse
-passthrough, monitor size, and automatic tabbing. Positive sizes, bool
-arguments, and target IDs are checked before Rust generation. Runtime icon
-changes, raw window callbacks/handles, and platform settings remain outside
-1.00.
+passthrough, monitor size, runtime RGBA icon changes, and automatic tabbing.
+Positive sizes, bool arguments, icon payloads, callback arguments, and target
+IDs are checked before Rust generation. Together with the structured platform
+blocks and typed callback boundary, this covers iced 0.14's public window
+surface.
 
 Every iced window event has a direct subscription form:
 
@@ -2558,7 +2612,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 1.00 does not claim that remapping.
+extern line; 1.01 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -2579,18 +2633,17 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 1.00 native backend is enough for CRUD/settings-style screens, selection,
+The 1.01 native backend is enough for CRUD/settings-style screens, selection,
 media, hover overlays, declarative canvas geometry, and common pointer events,
 not all of iced. It still lacks direct syntax for arbitrary custom overlays,
 and custom widgets. [`COVERAGE.md`](COVERAGE.md) is the exact versioned ledger.
 
-The language must not grow one ad-hoc syntax form for every iced API. The next
-layer is therefore implemented as six typed Rust adapters: component, shader,
-task, stream, sip, and subscription. They make advanced widgets and runtime operations
-reachable without admitting arbitrary Rust into expressions or duplicating
-iced in the core grammar. Direct native syntax remains preferable for common
-UI concepts. A seventh checked `sync` boundary supplies small synchronous
-domain conversions inside expressions without exposing arbitrary Rust syntax.
+The language must not grow one ad-hoc syntax form for every iced API. Eleven typed
+Rust boundaries cover async functions, components, shaders, tasks, streams,
+sippers, recipes, raw event filters, synchronous conversions, subscriptions,
+and native window callbacks without admitting arbitrary Rust into expressions
+or duplicating iced in the core grammar. Direct native syntax remains
+preferable for common UI concepts.
 
 Native language coverage and system coverage are therefore separate:
 
@@ -2603,6 +2656,7 @@ repeated task output     -> typed Rust Stream/Sipper adapter
 event/stream source      -> typed Rust Subscription adapter
 domain and I/O           -> typed Rust async extern
 pure domain conversion   -> typed Rust sync extern
+native window handle     -> typed Rust window callback
 ```
 
 ## 13. Reference application

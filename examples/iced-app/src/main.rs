@@ -71,6 +71,10 @@ mod backend {
         Ok(tasks.clone())
     }
 
+    pub fn describe_window(window: &dyn iced::window::Window, prefix: String) -> String {
+        format!("{prefix}: raw-handle={}", window.window_handle().is_ok())
+    }
+
     pub fn status_shader(speed: f64) -> StatusShader {
         StatusShader { speed }
     }
@@ -420,6 +424,8 @@ mod application {
         let (mut app, _) = Tasks::__boot();
         assert_eq!(app.__update(__TasksMessage::ReadRawWindowId).units(), 1);
         assert_eq!(app.__update(__TasksMessage::CaptureWindow).units(), 1);
+        assert_eq!(app.__update(__TasksMessage::SetWindowIcon).units(), 1);
+        assert_eq!(app.__update(__TasksMessage::InspectWindowHandle).units(), 1);
 
         let pixels = vec![255, 0, 0, 255, 0, 255, 0, 255];
         let _ = app.__update(__TasksMessage::WindowCaptured(pixels, 2, 1, 1.5));
