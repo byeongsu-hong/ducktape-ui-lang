@@ -116,6 +116,8 @@ Key files:
   native event statuses, merge precedence, and Rust extern passage;
 - [`redraw_request.ice`](examples/iced-app/src/ui/redraw_request.ice) preserves
   every native redraw request, scheduled instant, and Rust extern passage;
+- [`window_id.ice`](examples/iced-app/src/ui/window_id.ice) preserves native
+  unique IDs, display, comparison, lazy identity, and Rust extern passage;
 - [`window_values.ice`](examples/iced-app/src/ui/window_values.ice) preserves
   native direction, level, mode, and user-attention enums;
 - [`window_position.ice`](examples/iced-app/src/ui/window_position.ice)
@@ -176,8 +178,9 @@ Key files:
   [`window_values.rs`](examples/iced-app/src/window_values.rs), plus
   [`window_position.rs`](examples/iced-app/src/window_position.rs) and
   [`event_status.rs`](examples/iced-app/src/event_status.rs), plus
-  [`redraw_request.rs`](examples/iced-app/src/redraw_request.rs), instead of
-  growing a monolithic entry point;
+  [`redraw_request.rs`](examples/iced-app/src/redraw_request.rs) and
+  [`window_id.rs`](examples/iced-app/src/window_id.rs), instead of growing a
+  monolithic entry point;
 - [`SPEC.md`](SPEC.md) defines the implemented language.
 
 ## Tooling
@@ -204,7 +207,7 @@ cargo fmt --all
 
 ## Status
 
-This is an executable v1.54 language slice, not yet a complete iced replacement.
+This is an executable v1.55 language slice, not yet a complete iced replacement.
 It implements typed extern data/actions, state, handlers, async tasks, pure
 components with named props, default children, named structural slots, and
 React-like qualified compound children, scoped IDs, relative

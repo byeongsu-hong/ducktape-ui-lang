@@ -7684,6 +7684,10 @@ pub(crate) fn expr_type(
                 check_builtin_args(name, args, &[Type::Instant], env, document, span)?;
                 Ok(Type::RedrawRequest)
             }
+            "window_id.unique" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::WindowId)
+            }
             "window_direction.north"
             | "window_direction.south"
             | "window_direction.east"
@@ -9319,6 +9323,10 @@ fn field_type(ty: &Type, field: &str, document: &Document, span: &Span) -> Resul
             "instant" => Some(Type::Option(Box::new(Type::Instant))),
             _ => None,
         },
+        Type::WindowId => match field {
+            "display" => Some(Type::Str),
+            _ => None,
+        },
         Type::WindowPosition => match field {
             "kind" => Some(Type::Str),
             "point" => Some(Type::Option(Box::new(Type::Point))),
@@ -9987,6 +9995,17 @@ mod tests {
         .unwrap_err();
         assert_eq!(error.code, "E139");
         assert!(error.message.contains("does not implement stable hashing"));
+    }
+
+    #[test]
+    fn checks_native_window_id_values_and_traits() {
+        let source = include_str!("../../../examples/iced-app/src/ui/window_id.ice");
+        analyze(source).unwrap();
+
+        let error =
+            analyze(&source.replace("window_id.unique()", "window_id.unique(true)")).unwrap_err();
+        assert_eq!(error.code, "E152");
+        assert!(error.message.contains("expects 0 argument"));
     }
 
     #[test]

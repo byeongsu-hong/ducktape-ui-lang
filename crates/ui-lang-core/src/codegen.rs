@@ -8050,6 +8050,7 @@ fn native_field_projection(ty: &Type, field: &str, code: &str) -> Option<(String
             ),
             Type::Option(Box::new(Type::Instant)),
         ),
+        (Type::WindowId, "display") => (format!("({code}).to_string()"), Type::Str),
         (Type::WindowPosition, "kind") => (
             format!(
                 "match ({code}) {{ ::iced::window::Position::Default => \"default\", ::iced::window::Position::Centered => \"centered\", ::iced::window::Position::Specific(_) => \"specific\", ::iced::window::Position::SpecificWith(_) => \"specific-with\" }}.to_owned()"
@@ -8321,6 +8322,7 @@ fn expr_code(
                     | Type::MouseCursor
                     | Type::MouseClick
                     | Type::TouchFinger
+                    | Type::WindowId
                     | Type::WindowPosition
                     | Type::RedrawRequest
                     | Type::WindowDirection
@@ -8616,6 +8618,7 @@ fn expr_code(
                 "::iced::window::RedrawRequest::At({})",
                 expr_code(&args[0], env, document, ValueMode::Owned)?
             ),
+            "window_id.unique" => "::iced::window::Id::unique()".into(),
             "window_direction.north"
             | "window_direction.south"
             | "window_direction.east"
@@ -13080,6 +13083,20 @@ mod tests {
             "crate::backend::redraw_round_trip(self.at)",
             "::iced::window::RedrawRequest::At(_) => \"at\"",
             "::iced::window::RedrawRequest::At(__value) => ::std::option::Option::Some(__value)",
+        ] {
+            assert!(generated.contains(expected), "missing {expected}");
+        }
+    }
+
+    #[test]
+    fn lowers_every_native_window_id_operation() {
+        let source = include_str!("../../../examples/iced-app/src/ui/window_id.ice");
+        let generated = compile(source, "window_id.ice").unwrap();
+        for expected in [
+            "::iced::window::Id::unique()",
+            "crate::backend::window_id_round_trip(self.first)",
+            "(self.first).to_string()",
+            "::iced::widget::lazy((self.first,",
         ] {
             assert!(generated.contains(expected), "missing {expected}");
         }
