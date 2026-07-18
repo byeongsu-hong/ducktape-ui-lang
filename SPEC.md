@@ -1,4 +1,4 @@
-# Ice Language Specification 1.19
+# Ice Language Specification 1.20
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 1.19 syntax.
+marked “planned” is a design constraint, not accepted 1.20 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 1.19.
+  block comments are not part of 1.20.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -980,7 +980,7 @@ maximum size. `icon-rgba` embeds a relative raw RGBA file without an image
 codec; width and height are positive integers, and generated Rust rejects a
 byte length other than `width × height × 4`. `cargo ice check` reports a
 mismatch at the icon declaration, and generated Rust repeats the check at
-compile time. Encoded icon formats remain outside 1.19.
+compile time. Encoded icon formats remain outside 1.20.
 
 Application boot presets are structured top-level declarations:
 
@@ -1531,7 +1531,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 1.19 message payloads.
+`Clone` for 1.20 message payloads.
 
 Declared `sync` functions are checked, synchronous Rust calls available in
 Ice expressions. They are the small escape hatch for pure domain conversions
@@ -2618,7 +2618,7 @@ on load_font
 The expression must be `bytes`, the success payload is `unit`, and the task is
 treated as infallible because iced's current `font::Error` has no variants.
 
-Widget operation tasks target checked static IDs in the app view:
+Widget operation tasks target checked static or dynamic IDs in the app view:
 
 ```ice
 task widget focus #search
@@ -2629,14 +2629,36 @@ task widget snap #results 0.0 1.0
 task widget scroll-by #results 0.0 24.0
 ```
 
+The same `#name(key)` identity used by a repeated widget is accepted by every
+targeted operation:
+
+```ice
+state
+  selected = 42
+
+on edit_selected
+  task widget focus #task-title(selected)
+
+view
+  col
+    for task in tasks
+      input "Title" #task-title(task.id) <-> draft
+```
+
+The operation key must be `i64` or `str` and must match a dynamic input,
+editor, or scroll ID with the same name and key type in the direct app scope.
+The checker rejects misspelled names, mismatched key types, and dynamic targets
+that exist only under another identity scope. Generated operations use
+`widget::Id::from(String)` while static targets retain `widget::Id::new`.
+
 Ice exposes all 13 functions in `iced::widget::operation`: previous/next/direct
 focus and focus query; cursor front/end/position; select all/range; relative
 snap/end; and absolute scroll-to/scroll-by. Effects have no route and
 `focused` requires a `bool` route. Cursor and selection positions are
 non-negative `i64`; relative offsets are `f64` in `0.0..=1.0`; absolute
-offsets are unrestricted `f64`. Targets must be real static IDs in the app
-scope. Repeated/component scopes and the feature-gated selector API remain
-outside 1.19.
+offsets are unrestricted `f64`. Targets must be real IDs in the app scope.
+Nested component, keyed-column, table, and pane scopes plus the feature-gated
+selector API remain outside 1.20.
 
 Persistent pane grids expose their native layout-state operations directly in
 handlers:
@@ -2890,7 +2912,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 1.19 does not claim that remapping.
+extern line; 1.20 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -2911,7 +2933,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 1.19 native backend is enough for CRUD/settings-style screens, selection,
+The 1.20 native backend is enough for CRUD/settings-style screens, selection,
 media, hover overlays, declarative canvas geometry, and common pointer events,
 not all of iced. It still lacks direct syntax for arbitrary custom overlays,
 and custom widgets. [`COVERAGE.md`](COVERAGE.md) is the exact versioned ledger.
@@ -2946,7 +2968,7 @@ compile-tested widget example is
 [`examples/iced-app/src/ui/showcase.ice`](examples/iced-app/src/ui/showcase.ice).
 Together they exercise
 state inference, typed extern structs/functions, mount and result handlers,
-direct and component-prop input/editor binding, complete typed time tasks/subscriptions, typed generic/keyboard/mouse/touch/input-method/system subscriptions with status filters, system tasks, clipboard effects, `if`, `for`, native keyed columns and lazy subtrees, parsed Markdown, structured tables, pure components, structured and compound component composition,
+direct and component-prop input/editor binding, complete typed time tasks/subscriptions, typed generic/keyboard/mouse/touch/input-method/system subscriptions with status filters, static and repeated dynamic widget operations, system tasks, clipboard effects, `if`, `for`, native keyed columns and lazy subtrees, parsed Markdown, structured tables, pure components, structured and compound component composition,
 dynamic component IDs,
 theme utilities, disabled controls, fallible asynchronous tasks, complete
 wrapping row/column layouts, grids and fully sized underlay stacks, toggles,

@@ -2385,11 +2385,18 @@ fn generate_statements(
                 operation, route, ..
             } => {
                 has_task = true;
-                let id = |id: &str| {
-                    format!(
-                        "::iced::widget::Id::new({})",
-                        rust_string(&format!("{}/{}", document.app, id))
-                    )
+                let id = |id: &Id| {
+                    if id.key.is_some() {
+                        Ok::<_, Error>(format!(
+                            "::iced::widget::Id::from({})",
+                            id_code(id, &rust_string(&document.app), env, document)?
+                        ))
+                    } else {
+                        Ok(format!(
+                            "::iced::widget::Id::new({})",
+                            rust_string(&format!("{}/{}", document.app, id.name))
+                        ))
+                    }
                 };
                 let value = |value: &Expr, cast: &str| {
                     Ok::<_, Error>(format!(
@@ -2406,35 +2413,35 @@ fn generate_statements(
                     }
                     WidgetOperation::Focus { id: target } => format!(
                         "::iced::widget::operation::focus::<{message}>({})",
-                        id(target)
+                        id(target)?
                     ),
                     WidgetOperation::Focused { id: target } => {
                         let route = route.as_ref().expect("checker requires focused route");
                         let message_code = route_code(route, "value", env, document, message)?;
                         format!(
                             "::iced::widget::operation::is_focused({}).map(move |value| {message_code})",
-                            id(target)
+                            id(target)?
                         )
                     }
                     WidgetOperation::CursorFront { id: target } => format!(
                         "::iced::widget::operation::move_cursor_to_front::<{message}>({})",
-                        id(target)
+                        id(target)?
                     ),
                     WidgetOperation::CursorEnd { id: target } => format!(
                         "::iced::widget::operation::move_cursor_to_end::<{message}>({})",
-                        id(target)
+                        id(target)?
                     ),
                     WidgetOperation::Cursor {
                         id: target,
                         position,
                     } => format!(
                         "::iced::widget::operation::move_cursor_to::<{message}>({}, {})",
-                        id(target),
+                        id(target)?,
                         value(position, "usize")?
                     ),
                     WidgetOperation::SelectAll { id: target } => format!(
                         "::iced::widget::operation::select_all::<{message}>({})",
-                        id(target)
+                        id(target)?
                     ),
                     WidgetOperation::Select {
                         id: target,
@@ -2442,29 +2449,29 @@ fn generate_statements(
                         end,
                     } => format!(
                         "::iced::widget::operation::select_range::<{message}>({}, {}, {})",
-                        id(target),
+                        id(target)?,
                         value(start, "usize")?,
                         value(end, "usize")?
                     ),
                     WidgetOperation::Snap { id: target, x, y } => format!(
                         "::iced::widget::operation::snap_to::<{message}>({}, ::iced::widget::operation::RelativeOffset {{ x: {}, y: {} }})",
-                        id(target),
+                        id(target)?,
                         value(x, "f32")?,
                         value(y, "f32")?
                     ),
                     WidgetOperation::SnapEnd { id: target } => format!(
                         "::iced::widget::operation::snap_to_end::<{message}>({})",
-                        id(target)
+                        id(target)?
                     ),
                     WidgetOperation::ScrollTo { id: target, x, y } => format!(
                         "::iced::widget::operation::scroll_to::<{message}>({}, ::iced::widget::operation::AbsoluteOffset {{ x: {}, y: {} }})",
-                        id(target),
+                        id(target)?,
                         value(x, "f32")?,
                         value(y, "f32")?
                     ),
                     WidgetOperation::ScrollBy { id: target, x, y } => format!(
                         "::iced::widget::operation::scroll_by::<{message}>({}, ::iced::widget::operation::AbsoluteOffset {{ x: {}, y: {} }})",
-                        id(target),
+                        id(target)?,
                         value(x, "f32")?,
                         value(y, "f32")?
                     ),
@@ -12397,6 +12404,82 @@ view
         assert!(generated.contains("RelativeOffset { x: (0.0) as f32, y: (1.0) as f32 }"));
         assert!(generated.contains("AbsoluteOffset"));
         assert!(generated.contains("(-4.0)"));
+    }
+
+    #[test]
+    fn lowers_all_dynamic_widget_operations() {
+        let source = r#"app DynamicOperations
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  ids = [1, 2]
+  selected = 1
+  value = ""
+on checked(value)
+on focus
+  task widget focus #field(selected)
+on check
+  task widget focused #field(selected) -> checked _
+on front
+  task widget cursor-front #field(selected)
+on end
+  task widget cursor-end #field(selected)
+on cursor
+  task widget cursor #field(selected) 2
+on all
+  task widget select-all #field(selected)
+on range
+  task widget select #field(selected) 1 3
+on snap
+  task widget snap #list(selected) 0.0 1.0
+on snap_end
+  task widget snap-end #list(selected)
+on scroll_to
+  task widget scroll-to #list(selected) 0.0 24.0
+on scroll_by
+  task widget scroll-by #list(selected) -4.0 8.0
+view
+  col
+    for id in ids
+      input "Value" #field(id) <-> value
+      scroll #list(id)
+        text id
+"#;
+        let generated = compile(source, "dynamic_operations.ice").unwrap();
+        for function in [
+            "focus::<",
+            "is_focused",
+            "move_cursor_to_front",
+            "move_cursor_to_end",
+            "move_cursor_to::<",
+            "select_all",
+            "select_range",
+            "snap_to::<",
+            "snap_to_end",
+            "scroll_to::<",
+            "scroll_by::<",
+        ] {
+            assert!(generated.contains(function), "missing {function}");
+        }
+        assert!(
+            generated.contains(
+                "Id::from(format!(\"{}/field({})\", \"DynamicOperations\", self.selected))"
+            )
+        );
+        assert!(
+            generated.contains(
+                "Id::from(format!(\"{}/list({})\", \"DynamicOperations\", self.selected))"
+            )
+        );
+        assert!(generated.contains(
+            ".id(::iced::widget::Id::from(format!(\"{}/field({})\", \"DynamicOperations\", id)))"
+        ));
+        assert!(generated.contains(
+            ".id(::iced::widget::Id::from(format!(\"{}/list({})\", \"DynamicOperations\", id)))"
+        ));
     }
 
     #[test]

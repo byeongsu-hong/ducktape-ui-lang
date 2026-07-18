@@ -65,6 +65,7 @@ pub fn check(document: &mut Document) -> Result<(), Error> {
     let mut ids = HashSet::new();
     infer_view(&document.view, &states, document, &mut signatures, &mut ids)?;
     let operation_ids = static_widget_ids(&document.view);
+    let dynamic_operation_ids = dynamic_widget_ids(&document.view, &states, document)?;
     let pane_grids = static_pane_grids(&document.view)?;
     for component in &document.components {
         if let Some(span) = pane_grid_span(&component.root) {
@@ -103,7 +104,14 @@ pub fn check(document: &mut Document) -> Result<(), Error> {
     }
 
     for handler in document.handlers.iter().chain(&preset_handlers) {
-        check_handler(handler, &states, document, &operation_ids, &pane_grids)?;
+        check_handler(
+            handler,
+            &states,
+            document,
+            &operation_ids,
+            &dynamic_operation_ids,
+            &pane_grids,
+        )?;
     }
     Ok(())
 }
@@ -241,6 +249,140 @@ fn static_widget_ids(root: &ViewNode) -> HashSet<String> {
     let mut output = HashSet::new();
     collect(root, &mut output);
     output
+}
+
+fn dynamic_widget_ids(
+    root: &ViewNode,
+    env: &HashMap<String, Type>,
+    document: &Document,
+) -> Result<Vec<(String, Type)>, Error> {
+    fn insert(
+        id: &Option<Id>,
+        env: &HashMap<String, Type>,
+        document: &Document,
+        span: &Span,
+        output: &mut Vec<(String, Type)>,
+    ) -> Result<(), Error> {
+        let Some(Id {
+            name,
+            key: Some(key),
+        }) = id
+        else {
+            return Ok(());
+        };
+        let ty = expr_type(key, env, document, span)?;
+        if !output
+            .iter()
+            .any(|entry| entry == &(name.clone(), ty.clone()))
+        {
+            output.push((name.clone(), ty));
+        }
+        Ok(())
+    }
+
+    fn collect(
+        node: &ViewNode,
+        env: &HashMap<String, Type>,
+        document: &Document,
+        output: &mut Vec<(String, Type)>,
+    ) -> Result<(), Error> {
+        match node {
+            ViewNode::Layout {
+                kind,
+                id,
+                children,
+                span,
+                ..
+            } => {
+                if *kind == Layout::Scroll {
+                    insert(id, env, document, span, output)?;
+                }
+                if id.is_none() {
+                    for child in children {
+                        collect(child, env, document, output)?;
+                    }
+                }
+            }
+            ViewNode::Input { id, span, .. } | ViewNode::TextEditor { id, span, .. } => {
+                insert(id, env, document, span, output)?;
+            }
+            ViewNode::Container { id, content, .. }
+            | ViewNode::Button {
+                id,
+                content: Some(content),
+                ..
+            } => {
+                if id.is_none() {
+                    collect(content, env, document, output)?;
+                }
+            }
+            ViewNode::If { children, .. } => {
+                for child in children {
+                    collect(child, env, document, output)?;
+                }
+            }
+            ViewNode::For {
+                item,
+                items,
+                children,
+                span,
+            } => {
+                let Type::List(inner) = expr_type(items, env, document, span)? else {
+                    unreachable!("checker validates for lists")
+                };
+                let mut child_env = env.clone();
+                child_env.insert(item.clone(), *inner);
+                for child in children {
+                    collect(child, &child_env, document, output)?;
+                }
+            }
+            ViewNode::Lazy {
+                dependency,
+                binding,
+                child,
+                span,
+            } => {
+                let mut child_env = env.clone();
+                child_env.insert(binding.clone(), expr_type(dependency, env, document, span)?);
+                collect(child, &child_env, document, output)?;
+            }
+            ViewNode::Tooltip { content, tip, .. } => {
+                collect(content, env, document, output)?;
+                collect(tip, env, document, output)?;
+            }
+            ViewNode::Overlay { content, layer, .. } => {
+                collect(content, env, document, output)?;
+                collect(layer, env, document, output)?;
+            }
+            ViewNode::MouseArea { content, .. }
+            | ViewNode::Theme { content, .. }
+            | ViewNode::Float { content, .. }
+            | ViewNode::Pin { content, .. }
+            | ViewNode::Sensor { content, .. } => collect(content, env, document, output)?,
+            ViewNode::Responsive { content, .. } => match content {
+                ResponsiveContent::Breakpoint { narrow, wide, .. } => {
+                    collect(narrow, env, document, output)?;
+                    collect(wide, env, document, output)?;
+                }
+                ResponsiveContent::Size {
+                    width,
+                    height,
+                    content,
+                } => {
+                    let mut child_env = env.clone();
+                    child_env.insert(width.clone(), Type::F64);
+                    child_env.insert(height.clone(), Type::F64);
+                    collect(content, &child_env, document, output)?;
+                }
+            },
+            _ => {}
+        }
+        Ok(())
+    }
+
+    let mut output = Vec::new();
+    collect(root, env, document, &mut output)?;
+    Ok(output)
 }
 
 fn static_pane_grids(root: &ViewNode) -> Result<HashMap<String, HashSet<String>>, Error> {
@@ -5160,6 +5302,7 @@ fn check_handler(
     states: &HashMap<String, Type>,
     document: &Document,
     operation_ids: &HashSet<String>,
+    dynamic_operation_ids: &[(String, Type)],
     pane_grids: &HashMap<String, HashSet<String>>,
 ) -> Result<(), Error> {
     let mut env = states.clone();
@@ -5294,6 +5437,7 @@ fn check_handler(
                         states,
                         document,
                         operation_ids,
+                        dynamic_operation_ids,
                         pane_grids,
                     )?;
                 }
@@ -5310,6 +5454,7 @@ fn check_handler(
                     states,
                     document,
                     operation_ids,
+                    dynamic_operation_ids,
                     pane_grids,
                 )?;
             }
@@ -5352,15 +5497,53 @@ fn check_handler(
                     | WidgetOperation::ScrollTo { id, .. }
                     | WidgetOperation::ScrollBy { id, .. } => Some(id),
                 };
-                if let Some(id) = target
-                    && !operation_ids.contains(id)
-                {
-                    return Err(Error::new(
-                        "E172",
-                        span,
-                        format!("unknown static app widget `#{id}`"),
-                    )
-                    .hint("declare this ID in the app view; repeated and component IDs need a scoped selector"));
+                if let Some(id) = target {
+                    if let Some(key) = &id.key {
+                        let ty = expr_type(key, &env, document, span)?;
+                        if !matches!(ty, Type::I64 | Type::Str) {
+                            return Err(Error::new(
+                                "E172",
+                                span,
+                                "dynamic widget operation keys must be i64 or str",
+                            ));
+                        }
+                        let expected = dynamic_operation_ids
+                            .iter()
+                            .filter(|(name, _)| name == &id.name)
+                            .map(|(_, ty)| ty)
+                            .collect::<Vec<_>>();
+                        if expected.is_empty() {
+                            return Err(Error::new(
+                                "E172",
+                                span,
+                                format!("unknown dynamic app widget `#{}(key)`", id.name),
+                            )
+                            .hint("declare the same dynamic ID on an input, editor, or scroll in the app view"));
+                        }
+                        if !expected.iter().any(|expected| compatible(expected, &ty)) {
+                            return Err(Error::new(
+                                "E172",
+                                span,
+                                format!(
+                                    "dynamic app widget `#{}` expects key type {}, got `{}`",
+                                    id.name,
+                                    expected
+                                        .iter()
+                                        .map(|ty| format!("`{}`", ty.display()))
+                                        .collect::<Vec<_>>()
+                                        .join(" or "),
+                                    ty.display()
+                                ),
+                            ));
+                        }
+                    } else if !operation_ids.contains(&id.name) {
+                        return Err(Error::new(
+                            "E172",
+                            span,
+                            format!("unknown static app widget `#{}`", id.name),
+                        )
+                        .hint("declare this ID in the app view; nested component IDs need a scoped selector"));
+                    }
                 }
                 match (operation, route) {
                     (WidgetOperation::Focused { .. }, None) => {
@@ -9677,6 +9860,69 @@ view
         let error =
             analyze(&source.replace("snap #list 0.0 1.0", "snap #list 0.0 1.1")).unwrap_err();
         assert_eq!(error.code, "E128");
+    }
+
+    #[test]
+    fn checks_all_dynamic_widget_operations() {
+        let source = r#"app DynamicOperations
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  ids = [1, 2]
+  selected = 1
+  value = ""
+  focused = false
+on focus
+  task widget focus #field(selected)
+on check
+  task widget focused #field(selected) -> checked _
+on checked(value)
+  focused = value
+on front
+  task widget cursor-front #field(selected)
+on end
+  task widget cursor-end #field(selected)
+on cursor
+  task widget cursor #field(selected) 2
+on all
+  task widget select-all #field(selected)
+on range
+  task widget select #field(selected) 1 3
+on snap
+  task widget snap #list(selected) 0.0 1.0
+on snap_end
+  task widget snap-end #list(selected)
+on scroll_to
+  task widget scroll-to #list(selected) 0.0 24.0
+on scroll_by
+  task widget scroll-by #list(selected) -4.0 8.0
+view
+  col
+    for id in ids
+      input "Value" #field(id) <-> value
+      scroll #list(id)
+        text id
+"#;
+        let document = analyze(source).unwrap();
+        assert_eq!(document.handlers[2].params[0].ty, Type::Bool);
+
+        let error =
+            analyze(&source.replacen("focus #field(selected)", "focus #missing(selected)", 1))
+                .unwrap_err();
+        assert_eq!(error.code, "E172");
+        assert!(error.message.contains("#missing(key)"));
+
+        let error = analyze(&source.replace("selected = 1", "selected = \"one\"")).unwrap_err();
+        assert_eq!(error.code, "E172");
+        assert!(error.message.contains("expects key type `i64`, got `str`"));
+
+        let error = analyze(&source.replacen("focus #field(selected)", "focus #field(true)", 1))
+            .unwrap_err();
+        assert_eq!(error.code, "E172");
+        assert!(error.message.contains("must be i64 or str"));
     }
 
     #[test]
