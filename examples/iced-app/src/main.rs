@@ -437,6 +437,89 @@ mod backend {
     }
 
     #[cfg(test)]
+    pub struct IndexedOverlayHost {
+        index: f32,
+    }
+
+    #[cfg(test)]
+    pub struct IndexedOverlay {
+        pub index: f32,
+    }
+
+    #[cfg(test)]
+    impl iced::advanced::Widget<(), iced::Theme, iced::Renderer> for IndexedOverlayHost {
+        fn size(&self) -> iced::Size<iced::Length> {
+            iced::Size::new(iced::Length::Shrink, iced::Length::Shrink)
+        }
+
+        fn layout(
+            &mut self,
+            _tree: &mut iced::advanced::widget::Tree,
+            _renderer: &iced::Renderer,
+            limits: &iced::advanced::layout::Limits,
+        ) -> iced::advanced::layout::Node {
+            iced::advanced::layout::atomic(limits, iced::Length::Shrink, iced::Length::Shrink)
+        }
+
+        fn draw(
+            &self,
+            _tree: &iced::advanced::widget::Tree,
+            _renderer: &mut iced::Renderer,
+            _theme: &iced::Theme,
+            _style: &iced::advanced::renderer::Style,
+            _layout: iced::advanced::Layout<'_>,
+            _cursor: iced::mouse::Cursor,
+            _viewport: &iced::Rectangle,
+        ) {
+        }
+
+        fn overlay<'a>(
+            &'a mut self,
+            _tree: &'a mut iced::advanced::widget::Tree,
+            _layout: iced::advanced::Layout<'a>,
+            _renderer: &iced::Renderer,
+            _viewport: &iced::Rectangle,
+            _translation: iced::Vector,
+        ) -> Option<iced::advanced::overlay::Element<'a, (), iced::Theme, iced::Renderer>> {
+            Some(iced::advanced::overlay::Element::new(Box::new(
+                IndexedOverlay { index: self.index },
+            )))
+        }
+    }
+
+    #[cfg(test)]
+    impl iced::advanced::Overlay<(), iced::Theme, iced::Renderer> for IndexedOverlay {
+        fn layout(
+            &mut self,
+            _renderer: &iced::Renderer,
+            _bounds: iced::Size,
+        ) -> iced::advanced::layout::Node {
+            iced::advanced::layout::Node::new(iced::Size::new(1.0, 1.0))
+        }
+
+        fn draw(
+            &self,
+            _renderer: &mut iced::Renderer,
+            _theme: &iced::Theme,
+            _style: &iced::advanced::renderer::Style,
+            _layout: iced::advanced::Layout<'_>,
+            _cursor: iced::mouse::Cursor,
+        ) {
+        }
+
+        fn index(&self) -> f32 {
+            self.index
+        }
+    }
+
+    #[cfg(test)]
+    pub fn native_overlay(index: f64) -> iced::Element<'static, ()> {
+        iced::Element::new(IndexedOverlayHost {
+            index: index as f32,
+        })
+    }
+
+    #[cfg(test)]
     pub struct DocsViewer {
         prefix: String,
     }
@@ -1515,6 +1598,22 @@ mod alternate_theme {
         app.active = false;
         let (theme, _, text_color, background) = crate::backend::alternate_panel(false);
         assert!(theme.is_none() && text_color.is_none() && background.is_none());
+        let _ = app.__view();
+    }
+}
+
+#[cfg(test)]
+mod native_overlay {
+    ui_lang::include_app!("src/ui/native_overlay.ice");
+
+    #[test]
+    fn constructs_a_custom_indexed_overlay() {
+        let (app, _) = NativeOverlay::__boot();
+        let overlay = crate::backend::IndexedOverlay { index: 42.0 };
+        assert_eq!(
+            iced::advanced::Overlay::<(), iced::Theme, iced::Renderer>::index(&overlay),
+            42.0
+        );
         let _ = app.__view();
     }
 }

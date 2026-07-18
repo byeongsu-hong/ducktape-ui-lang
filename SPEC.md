@@ -1,4 +1,4 @@
-# Ice Language Specification 1.30
+# Ice Language Specification 1.31
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 1.30 syntax.
+marked “planned” is a design constraint, not accepted 1.31 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 1.30.
+  block comments are not part of 1.31.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -1003,7 +1003,7 @@ maximum size. `icon-rgba` embeds a relative raw RGBA file without an image
 codec; width and height are positive integers, and generated Rust rejects a
 byte length other than `width × height × 4`. `cargo ice check` reports a
 mismatch at the icon declaration, and generated Rust repeats the check at
-compile time. Encoded icon formats remain outside 1.30.
+compile time. Encoded icon formats remain outside 1.31.
 
 Application boot presets are structured top-level declarations:
 
@@ -1554,7 +1554,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 1.30 message payloads.
+`Clone` for 1.31 message payloads.
 
 Declared `sync` functions are checked, synchronous Rust calls available in
 Ice expressions. They are the small escape hatch for pure domain conversions
@@ -2096,6 +2096,24 @@ overlay when=about_open dismiss=close_about backdrop=black/60 padding=24.0
   layer
     AboutDialog
 ```
+
+Advanced overlays stay behind the existing typed component boundary instead
+of duplicating the `Overlay` trait in Ice:
+
+```ice
+extern crate::backend
+  component native_overlay(index:f64) -> unit
+
+view
+  extern native_overlay(42.0)
+```
+
+The Rust `Element` may contain a custom `Widget::overlay` implementation. Rust
+therefore retains the complete native `Overlay` contract: layout, draw,
+operate, update, mouse interaction, nested overlays, and `index()` ordering.
+The generated component probe verifies the owned Element ABI; a non-unit
+overlay event uses the same checked `-> handler _` mapping as any extern
+component.
 
 Rich text uses structured `span` children with `str`, `i64`, `f64`, or bool
 expressions, so mixed formatting and links remain
@@ -3242,7 +3260,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 1.30 does not claim that remapping.
+extern line; 1.31 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -3263,10 +3281,10 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 1.30 native backend is enough for CRUD/settings-style screens, selection,
+The 1.31 native backend is enough for CRUD/settings-style screens, selection,
 media, hover overlays, declarative canvas geometry, and common pointer events,
-not all of iced. It still lacks direct syntax for arbitrary custom overlays,
-and custom widgets. [`COVERAGE.md`](COVERAGE.md) is the exact versioned ledger.
+not all of iced. It still lacks borrowed custom widgets and a custom renderer
+boundary. [`COVERAGE.md`](COVERAGE.md) is the exact versioned ledger.
 
 The language must not grow one ad-hoc syntax form for every iced API. Thirty-one
 typed Rust boundaries cover domain work, native elements and programs, runtime
@@ -3318,6 +3336,9 @@ executed by
 An alternate Rust Theme type, its Theme-dependent base callbacks, and the
 native Themer bridge are executed by
 [`examples/iced-app/src/ui/alternate_theme.ice`](examples/iced-app/src/ui/alternate_theme.ice).
+The typed Element escape hatch is compiled with a custom advanced Overlay and
+non-default `index()` by
+[`examples/iced-app/src/ui/native_overlay.ice`](examples/iced-app/src/ui/native_overlay.ice).
 Native transformation construction, matrix inspection, application, and extern
 passage are exercised by
 [`examples/iced-app/src/ui/transformation_values.ice`](examples/iced-app/src/ui/transformation_values.ice).
