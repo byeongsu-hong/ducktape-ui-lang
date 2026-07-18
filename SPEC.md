@@ -1,4 +1,4 @@
-# Ice Language Specification 1.47
+# Ice Language Specification 1.48
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 1.47 syntax.
+marked “planned” is a design constraint, not accepted 1.48 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 1.47.
+  block comments are not part of 1.48.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -193,6 +193,8 @@ type           = "bool" | "i64" | "f64" | "str" | "bytes" | "image"
                | "content-fit"
                | "color"
                | "background" | "gradient" | "linear-gradient" | "color-stop"
+               | "font" | "font-family" | "font-weight"
+               | "font-stretch" | "font-style"
                | "length"
                | "alignment" | "horizontal-alignment" | "vertical-alignment"
                | "border" | "radius"
@@ -1041,7 +1043,7 @@ maximum size. `icon-rgba` embeds a relative raw RGBA file without an image
 codec; width and height are positive integers, and generated Rust rejects a
 byte length other than `width × height × 4`. `cargo ice check` reports a
 mismatch at the icon declaration, and generated Rust repeats the check at
-compile time. Encoded icon formats remain outside 1.47.
+compile time. Encoded icon formats remain outside 1.48.
 
 Use `daemon Name` instead of `app Name` for an iced daemon that starts without
 an initial window and remains alive after all windows close. A daemon rejects
@@ -1606,6 +1608,11 @@ button "Add" disabled=(loading || empty(trim(draft))) -> submit
 | `gradient` | `iced::Gradient` |
 | `linear-gradient` | `iced::gradient::Linear` |
 | `color-stop` | `iced::gradient::ColorStop` |
+| `font` | `iced::Font` |
+| `font-family` | `iced::font::Family` |
+| `font-weight` | `iced::font::Weight` |
+| `font-stretch` | `iced::font::Stretch` |
+| `font-style` | `iced::font::Style` |
 | `length` | `iced::Length` |
 | `alignment` | `iced::Alignment` |
 | `horizontal-alignment` | `iced::alignment::Horizontal` |
@@ -1644,7 +1651,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 1.47 message payloads.
+`Clone` for 1.48 message payloads.
 
 Declared `sync` functions are checked, synchronous Rust calls available in
 Ice expressions. They are the small escape hatch for pure domain conversions
@@ -3099,6 +3106,28 @@ and typed extern passage but remain unavailable as floating-point lazy
 identities. Existing solid/linear style properties remain compact equivalent
 sugar.
 
+`font.default()`, `font.sans()`, and `font.monospace()` produce the native
+default, `Font::DEFAULT`, and `Font::MONOSPACE` values. `font.with_name("Inter")`
+maps to `Font::with_name`, while `font.new(family, weight, stretch, style)`
+constructs the complete public value. Names must be string literals because
+iced stores them as `&'static str`.
+
+`family.default/serif/sans_serif/cursive/fantasy/monospace()` cover the default
+and every non-named family variant; `family.named("Inter")` covers `Name` with
+the same static-literal rule. A family exposes `.kind` and optional owned
+`.name`. `weight.default/thin/extra_light/light/normal/medium/semibold/bold/
+extra_bold/black()` and `stretch.default/ultra_condensed/extra_condensed/
+condensed/semi_condensed/normal/semi_expanded/expanded/extra_expanded/
+ultra_expanded()` cover every native descriptor. `font_style.default/normal/
+italic/oblique()` covers every style. Each descriptor exposes a compact
+kebab-case `.kind`.
+
+A font exposes `.family`, `.weight`, `.stretch`, and `.style`. All five values
+support equality, hashable lazy identity, and exact typed extern passage;
+ordering is rejected. Existing `font name family=... weight=... stretch=...
+style=...` declarations and `font=default`/`font=mono` properties remain the
+human-readable widget sugar over the same native descriptors.
+
 `length.fill()`, `length.fill_portion(u16 literal)`, `length.shrink()`, and
 `length.fixed(f64)` construct every native variant. Dynamic `i64` portions use
 `length.try_fill_portion(value) -> length?`, which returns `none` outside the
@@ -3656,7 +3685,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 1.47 does not claim that remapping.
+extern line; 1.48 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -3677,7 +3706,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 1.47 native backend covers both windowed applications and windowless
+The 1.48 native backend covers both windowed applications and windowless
 daemons alongside CRUD/settings-style screens, selection, media, hover
 overlays, declarative canvas geometry, and pointer events. Borrowed custom
 widgets and an application-wide renderer type remain the escape hatch for
@@ -3738,6 +3767,12 @@ Complete native background variants/conversions, gradient/linear operations,
 color stops, projections, and extern passage are exercised by the split
 [`examples/iced-app/src/ui/background_gradient.ice`](examples/iced-app/src/ui/background_gradient.ice)
 and [`examples/iced-app/src/background_gradient.rs`](examples/iced-app/src/background_gradient.rs)
+fixture.
+Complete native font construction, constants, every descriptor variant,
+projections, hashable lazy identity, and extern passage are exercised by the
+split
+[`examples/iced-app/src/ui/font_values.ice`](examples/iced-app/src/ui/font_values.ice)
+and [`examples/iced-app/src/font_values.rs`](examples/iced-app/src/font_values.rs)
 fixture.
 Native `Task::map` output/optional conversion and fallible error preservation
 are executed by

@@ -11,6 +11,8 @@ mod color;
 #[cfg(test)]
 mod content_fit;
 #[cfg(test)]
+mod font_values;
+#[cfg(test)]
 mod length;
 #[cfg(test)]
 mod rotation;
@@ -132,6 +134,11 @@ mod backend {
 
     #[cfg(test)]
     pub use crate::content_fit::content_fit_round_trip;
+
+    #[cfg(test)]
+    pub use crate::font_values::{
+        family_round_trip, font_round_trip, stretch_round_trip, style_round_trip, weight_round_trip,
+    };
 
     #[cfg(test)]
     pub use crate::length::length_round_trip;

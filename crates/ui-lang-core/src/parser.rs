@@ -8634,6 +8634,11 @@ fn parse_type(source: &str, line: &Line) -> Result<Type, Error> {
         "gradient" => Type::Gradient,
         "linear-gradient" => Type::LinearGradient,
         "color-stop" => Type::ColorStop,
+        "font" => Type::Font,
+        "font-family" => Type::FontFamily,
+        "font-weight" => Type::FontWeight,
+        "font-stretch" => Type::FontStretch,
+        "font-style" => Type::FontStyle,
         "length" => Type::Length,
         "alignment" => Type::Alignment,
         "horizontal-alignment" => Type::HorizontalAlignment,
@@ -9304,6 +9309,31 @@ mod tests {
         assert!(matches!(
             &document.handlers[0].statements[1],
             Statement::Assign { value: Expr::Call { name, .. }, .. } if name == "color_stop"
+        ));
+    }
+
+    #[test]
+    fn parses_first_class_native_font_values() {
+        let source = include_str!("../../../examples/iced-app/src/ui/font_values.ice");
+        let document = parse(source).unwrap();
+        for (function, expected) in document.functions.iter().zip([
+            Type::Font,
+            Type::FontFamily,
+            Type::FontWeight,
+            Type::FontStretch,
+            Type::FontStyle,
+        ]) {
+            assert_eq!(function.params[0].1, expected);
+            assert_eq!(function.output, expected);
+        }
+        assert_eq!(document.states[0].ty, Type::Font);
+        assert_eq!(
+            document.states[7].ty,
+            Type::List(Box::new(Type::FontFamily))
+        );
+        assert!(matches!(
+            &document.handlers[0].statements[4],
+            Statement::Assign { value: Expr::Call { name, .. }, .. } if name == "font.new"
         ));
     }
 

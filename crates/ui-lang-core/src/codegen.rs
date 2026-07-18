@@ -7961,6 +7961,40 @@ fn native_field_projection(ty: &Type, field: &str, code: &str) -> Option<(String
         ),
         (Type::ColorStop, "offset") => (format!("({code}).offset as f64"), Type::F64),
         (Type::ColorStop, "color") => (format!("({code}).color"), Type::Color),
+        (Type::Font, "family") => (format!("({code}).family"), Type::FontFamily),
+        (Type::Font, "weight") => (format!("({code}).weight"), Type::FontWeight),
+        (Type::Font, "stretch") => (format!("({code}).stretch"), Type::FontStretch),
+        (Type::Font, "style") => (format!("({code}).style"), Type::FontStyle),
+        (Type::FontFamily, "kind") => (
+            format!(
+                "match ({code}) {{ ::iced::font::Family::Name(_) => \"named\", ::iced::font::Family::Serif => \"serif\", ::iced::font::Family::SansSerif => \"sans-serif\", ::iced::font::Family::Cursive => \"cursive\", ::iced::font::Family::Fantasy => \"fantasy\", ::iced::font::Family::Monospace => \"monospace\" }}.to_owned()"
+            ),
+            Type::Str,
+        ),
+        (Type::FontFamily, "name") => (
+            format!(
+                "match ({code}) {{ ::iced::font::Family::Name(__value) => ::std::option::Option::Some(__value.to_owned()), _ => ::std::option::Option::None }}"
+            ),
+            Type::Option(Box::new(Type::Str)),
+        ),
+        (Type::FontWeight, "kind") => (
+            format!(
+                "match ({code}) {{ ::iced::font::Weight::Thin => \"thin\", ::iced::font::Weight::ExtraLight => \"extra-light\", ::iced::font::Weight::Light => \"light\", ::iced::font::Weight::Normal => \"normal\", ::iced::font::Weight::Medium => \"medium\", ::iced::font::Weight::Semibold => \"semibold\", ::iced::font::Weight::Bold => \"bold\", ::iced::font::Weight::ExtraBold => \"extra-bold\", ::iced::font::Weight::Black => \"black\" }}.to_owned()"
+            ),
+            Type::Str,
+        ),
+        (Type::FontStretch, "kind") => (
+            format!(
+                "match ({code}) {{ ::iced::font::Stretch::UltraCondensed => \"ultra-condensed\", ::iced::font::Stretch::ExtraCondensed => \"extra-condensed\", ::iced::font::Stretch::Condensed => \"condensed\", ::iced::font::Stretch::SemiCondensed => \"semi-condensed\", ::iced::font::Stretch::Normal => \"normal\", ::iced::font::Stretch::SemiExpanded => \"semi-expanded\", ::iced::font::Stretch::Expanded => \"expanded\", ::iced::font::Stretch::ExtraExpanded => \"extra-expanded\", ::iced::font::Stretch::UltraExpanded => \"ultra-expanded\" }}.to_owned()"
+            ),
+            Type::Str,
+        ),
+        (Type::FontStyle, "kind") => (
+            format!(
+                "match ({code}) {{ ::iced::font::Style::Normal => \"normal\", ::iced::font::Style::Italic => \"italic\", ::iced::font::Style::Oblique => \"oblique\" }}.to_owned()"
+            ),
+            Type::Str,
+        ),
         (Type::Length, "fill_factor") => (format!("({code}).fill_factor() as i64"), Type::I64),
         (Type::Length, "is_fill") => (format!("({code}).is_fill()"), Type::Bool),
         (Type::Length, "kind") => (
@@ -8169,6 +8203,11 @@ fn expr_code(
                     | Type::Gradient
                     | Type::LinearGradient
                     | Type::ColorStop
+                    | Type::Font
+                    | Type::FontFamily
+                    | Type::FontWeight
+                    | Type::FontStretch
+                    | Type::FontStyle
                     | Type::Length
                     | Type::Alignment
                     | Type::HorizontalAlignment
@@ -8360,6 +8399,68 @@ fn expr_code(
                 "({}).scale_alpha(({}) as f32)",
                 expr_code(&args[0], env, document, ValueMode::Owned)?,
                 expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "font.default" => "::iced::Font::default()".into(),
+            "font.sans" => "::iced::Font::DEFAULT".into(),
+            "font.monospace" => "::iced::Font::MONOSPACE".into(),
+            "font.with_name" => {
+                let Expr::Str(name) = &args[0] else {
+                    unreachable!("checker requires a font name literal")
+                };
+                format!("::iced::Font::with_name({})", rust_string(name))
+            }
+            "font.new" => format!(
+                "::iced::Font {{ family: {}, weight: {}, stretch: {}, style: {} }}",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?,
+                expr_code(&args[2], env, document, ValueMode::Owned)?,
+                expr_code(&args[3], env, document, ValueMode::Owned)?
+            ),
+            "family.default" => "::iced::font::Family::default()".into(),
+            "family.named" => {
+                let Expr::Str(name) = &args[0] else {
+                    unreachable!("checker requires a family name literal")
+                };
+                format!("::iced::font::Family::Name({})", rust_string(name))
+            }
+            "family.serif"
+            | "family.sans_serif"
+            | "family.cursive"
+            | "family.fantasy"
+            | "family.monospace" => format!(
+                "::iced::font::Family::{}",
+                pascal(name.strip_prefix("family.").expect("checked prefix"))
+            ),
+            "weight.default" => "::iced::font::Weight::default()".into(),
+            "weight.thin"
+            | "weight.extra_light"
+            | "weight.light"
+            | "weight.normal"
+            | "weight.medium"
+            | "weight.semibold"
+            | "weight.bold"
+            | "weight.extra_bold"
+            | "weight.black" => format!(
+                "::iced::font::Weight::{}",
+                pascal(name.strip_prefix("weight.").expect("checked prefix"))
+            ),
+            "stretch.default" => "::iced::font::Stretch::default()".into(),
+            "stretch.ultra_condensed"
+            | "stretch.extra_condensed"
+            | "stretch.condensed"
+            | "stretch.semi_condensed"
+            | "stretch.normal"
+            | "stretch.semi_expanded"
+            | "stretch.expanded"
+            | "stretch.extra_expanded"
+            | "stretch.ultra_expanded" => format!(
+                "::iced::font::Stretch::{}",
+                pascal(name.strip_prefix("stretch.").expect("checked prefix"))
+            ),
+            "font_style.default" => "::iced::font::Style::default()".into(),
+            "font_style.normal" | "font_style.italic" | "font_style.oblique" => format!(
+                "::iced::font::Style::{}",
+                pascal(name.strip_prefix("font_style.").expect("checked prefix"))
             ),
             "length.fill" => "::iced::Length::Fill".into(),
             "length.shrink" => "::iced::Length::Shrink".into(),
@@ -12560,6 +12661,64 @@ mod tests {
             "crate::backend::background_round_trip(self.from_linear_background)",
             "::iced::Background::Color(__value) => ::std::option::Option::Some(__value)",
             "::iced::Background::Gradient(__value) => ::std::option::Option::Some(__value)",
+        ] {
+            assert!(generated.contains(expected), "missing {expected}");
+        }
+    }
+
+    #[test]
+    fn lowers_every_native_font_operation() {
+        let source = include_str!("../../../examples/iced-app/src/ui/font_values.ice");
+        let generated = compile(source, "font_values.ice").unwrap();
+        for expected in [
+            "::iced::Font::default()",
+            "::iced::Font::DEFAULT",
+            "::iced::Font::MONOSPACE",
+            "::iced::Font::with_name(\"Inter\")",
+            "::iced::Font { family: ::iced::font::Family::Name(\"Display\"), weight: ::iced::font::Weight::Bold, stretch: ::iced::font::Stretch::Expanded, style: ::iced::font::Style::Italic }",
+            "::iced::font::Family::default()",
+            "::iced::font::Family::Name(\"Inter\")",
+            "::iced::font::Family::Serif",
+            "::iced::font::Family::SansSerif",
+            "::iced::font::Family::Cursive",
+            "::iced::font::Family::Fantasy",
+            "::iced::font::Family::Monospace",
+            "::iced::font::Weight::default()",
+            "::iced::font::Weight::Thin",
+            "::iced::font::Weight::ExtraLight",
+            "::iced::font::Weight::Light",
+            "::iced::font::Weight::Normal",
+            "::iced::font::Weight::Medium",
+            "::iced::font::Weight::Semibold",
+            "::iced::font::Weight::Bold",
+            "::iced::font::Weight::ExtraBold",
+            "::iced::font::Weight::Black",
+            "::iced::font::Stretch::default()",
+            "::iced::font::Stretch::UltraCondensed",
+            "::iced::font::Stretch::ExtraCondensed",
+            "::iced::font::Stretch::Condensed",
+            "::iced::font::Stretch::SemiCondensed",
+            "::iced::font::Stretch::Normal",
+            "::iced::font::Stretch::SemiExpanded",
+            "::iced::font::Stretch::Expanded",
+            "::iced::font::Stretch::ExtraExpanded",
+            "::iced::font::Stretch::UltraExpanded",
+            "::iced::font::Style::default()",
+            "::iced::font::Style::Normal",
+            "::iced::font::Style::Italic",
+            "::iced::font::Style::Oblique",
+            "crate::backend::font_round_trip(self.custom_font)",
+            "crate::backend::family_round_trip(::iced::font::Family::Name(\"Inter\"))",
+            "crate::backend::weight_round_trip(::iced::font::Weight::Bold)",
+            "crate::backend::stretch_round_trip(::iced::font::Stretch::Expanded)",
+            "crate::backend::style_round_trip(::iced::font::Style::Italic)",
+            "(self.custom_font).family",
+            "(self.custom_font).weight",
+            "(self.custom_font).stretch",
+            "(self.custom_font).style",
+            "::iced::font::Family::Name(_) => \"named\"",
+            "::iced::font::Family::Name(__value) => ::std::option::Option::Some(__value.to_owned())",
+            "::iced::widget::lazy((self.returned_font,",
         ] {
             assert!(generated.contains(expected), "missing {expected}");
         }

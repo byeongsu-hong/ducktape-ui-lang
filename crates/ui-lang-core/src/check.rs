@@ -3795,6 +3795,11 @@ fn lazy_hashable(ty: &Type) -> bool {
         | Type::MouseButton
         | Type::TouchFinger
         | Type::ContentFit
+        | Type::Font
+        | Type::FontFamily
+        | Type::FontWeight
+        | Type::FontStretch
+        | Type::FontStyle
         | Type::Alignment
         | Type::HorizontalAlignment
         | Type::VerticalAlignment
@@ -7527,6 +7532,75 @@ pub(crate) fn expr_type(
                 )?;
                 Ok(Type::Background)
             }
+            "font.default" | "font.sans" | "font.monospace" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::Font)
+            }
+            "font.with_name" => {
+                if !matches!(args.as_slice(), [Expr::Str(_)]) {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        "font.with_name expects one string literal",
+                    ));
+                }
+                Ok(Type::Font)
+            }
+            "font.new" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[
+                        Type::FontFamily,
+                        Type::FontWeight,
+                        Type::FontStretch,
+                        Type::FontStyle,
+                    ],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::Font)
+            }
+            "family.default" | "family.serif" | "family.sans_serif" | "family.cursive"
+            | "family.fantasy" | "family.monospace" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::FontFamily)
+            }
+            "family.named" => {
+                if !matches!(args.as_slice(), [Expr::Str(_)]) {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        "family.named expects one string literal",
+                    ));
+                }
+                Ok(Type::FontFamily)
+            }
+            "weight.default" | "weight.thin" | "weight.extra_light" | "weight.light"
+            | "weight.normal" | "weight.medium" | "weight.semibold" | "weight.bold"
+            | "weight.extra_bold" | "weight.black" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::FontWeight)
+            }
+            "stretch.default"
+            | "stretch.ultra_condensed"
+            | "stretch.extra_condensed"
+            | "stretch.condensed"
+            | "stretch.semi_condensed"
+            | "stretch.normal"
+            | "stretch.semi_expanded"
+            | "stretch.expanded"
+            | "stretch.extra_expanded"
+            | "stretch.ultra_expanded" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::FontStretch)
+            }
+            "font_style.default" | "font_style.normal" | "font_style.italic"
+            | "font_style.oblique" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::FontStyle)
+            }
             "length.fill" | "length.shrink" => {
                 check_builtin_args(name, args, &[], env, document, span)?;
                 Ok(Type::Length)
@@ -8887,6 +8961,11 @@ pub(crate) fn expr_type(
                                 | Type::Gradient
                                 | Type::LinearGradient
                                 | Type::ColorStop
+                                | Type::Font
+                                | Type::FontFamily
+                                | Type::FontWeight
+                                | Type::FontStretch
+                                | Type::FontStyle
                                 | Type::Border
                                 | Type::Radius
                                 | Type::Shadow
@@ -9070,6 +9149,22 @@ fn field_type(ty: &Type, field: &str, document: &Document, span: &Span) -> Resul
         Type::ColorStop => match field {
             "offset" => Some(Type::F64),
             "color" => Some(Type::Color),
+            _ => None,
+        },
+        Type::Font => match field {
+            "family" => Some(Type::FontFamily),
+            "weight" => Some(Type::FontWeight),
+            "stretch" => Some(Type::FontStretch),
+            "style" => Some(Type::FontStyle),
+            _ => None,
+        },
+        Type::FontFamily => match field {
+            "kind" => Some(Type::Str),
+            "name" => Some(Type::Option(Box::new(Type::Str))),
+            _ => None,
+        },
+        Type::FontWeight | Type::FontStretch | Type::FontStyle => match field {
+            "kind" => Some(Type::Str),
             _ => None,
         },
         Type::Length => match field {
@@ -9550,6 +9645,26 @@ mod tests {
         .unwrap_err();
         assert_eq!(error.code, "E153");
         assert!(error.message.contains("does not accept `background`"));
+    }
+
+    #[test]
+    fn checks_native_font_values_and_static_names() {
+        let source = include_str!("../../../examples/iced-app/src/ui/font_values.ice");
+        analyze(source).unwrap();
+
+        let error =
+            analyze(&source.replace("font.with_name(\"Inter\")", "font.with_name(family_kind)"))
+                .unwrap_err();
+        assert_eq!(error.code, "E152");
+        assert!(error.message.contains("expects one string literal"));
+
+        let error = analyze(&source.replace(
+            "fonts_equal = custom_font == returned_font",
+            "fonts_equal = custom_font < returned_font",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E153");
+        assert!(error.message.contains("does not accept `font`"));
     }
 
     #[test]
