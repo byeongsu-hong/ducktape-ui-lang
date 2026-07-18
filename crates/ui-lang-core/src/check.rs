@@ -3539,6 +3539,10 @@ fn lazy_hashable(ty: &Type) -> bool {
         | Type::KeyLocation
         | Type::KeyPress
         | Type::KeyRelease
+        | Type::Pixels
+        | Type::Padding
+        | Type::Degrees
+        | Type::Radians
         | Type::Point
         | Type::PointU32
         | Type::Vector
@@ -6550,11 +6554,77 @@ fn check_u32_literals(name: &str, args: &[Expr], span: &Span) -> Result<(u32, u3
     Ok((first, second))
 }
 
+fn check_u32_literal(name: &str, args: &[Expr], span: &Span) -> Result<u32, Error> {
+    let [Expr::I64(value)] = args else {
+        return Err(Error::new(
+            "E152",
+            span,
+            format!("{name} expects one integer literal"),
+        ));
+    };
+    u32::try_from(*value).map_err(|_| {
+        Error::new(
+            "E152",
+            span,
+            format!("{name} value must be in 0..={}", u32::MAX),
+        )
+    })
+}
+
+fn require_pixel_value(
+    value: &Expr,
+    env: &HashMap<String, Type>,
+    document: &Document,
+    span: &Span,
+) -> Result<Type, Error> {
+    let actual = expr_type(value, env, document, span)?;
+    if matches!(actual, Type::F64 | Type::Pixels) {
+        Ok(actual)
+    } else {
+        Err(Error::new(
+            "E101",
+            span,
+            format!("expected `f64` or `pixels`, got `{}`", actual.display()),
+        ))
+    }
+}
+
+fn require_radians_value(
+    value: &Expr,
+    env: &HashMap<String, Type>,
+    document: &Document,
+    span: &Span,
+) -> Result<Type, Error> {
+    let actual = expr_type(value, env, document, span)?;
+    if matches!(actual, Type::F64 | Type::Radians) {
+        Ok(actual)
+    } else {
+        Err(Error::new(
+            "E101",
+            span,
+            format!("expected `f64` or `radians`, got `{}`", actual.display()),
+        ))
+    }
+}
+
 fn arithmetic_type(left: &Type, op: BinaryOp, right: &Type) -> Option<Type> {
     if matches!(left, Type::I64 | Type::F64) && left == right {
         return Some(left.clone());
     }
     match (left, op, right) {
+        (Type::Pixels, BinaryOp::Add | BinaryOp::Mul | BinaryOp::Div, Type::Pixels)
+        | (Type::Pixels, BinaryOp::Add | BinaryOp::Mul | BinaryOp::Div, Type::F64) => {
+            Some(Type::Pixels)
+        }
+        (Type::Degrees, BinaryOp::Mul, Type::F64) => Some(Type::Degrees),
+        (Type::Radians, BinaryOp::Add, Type::Degrees)
+        | (
+            Type::Radians,
+            BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem,
+            Type::Radians,
+        )
+        | (Type::Radians, BinaryOp::Mul | BinaryOp::Div, Type::F64)
+        | (Type::F64, BinaryOp::Mul, Type::Radians) => Some(Type::Radians),
         (Type::Point, BinaryOp::Add | BinaryOp::Sub, Type::Vector) => Some(Type::Point),
         (Type::Point, BinaryOp::Sub, Type::Point) => Some(Type::Vector),
         (Type::Vector, BinaryOp::Add | BinaryOp::Sub, Type::Vector) => Some(Type::Vector),
@@ -6615,6 +6685,128 @@ pub(crate) fn expr_type(
             Ok(ty)
         }
         Expr::Call { name, args } => match name.as_str() {
+            "pixels" => {
+                check_builtin_args(name, args, &[Type::F64], env, document, span)?;
+                Ok(Type::Pixels)
+            }
+            "pixels.zero" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::Pixels)
+            }
+            "pixels.from_u32" => {
+                check_u32_literal(name, args, span)?;
+                Ok(Type::Pixels)
+            }
+            "pixels.try_from_u32" => {
+                check_builtin_args(name, args, &[Type::I64], env, document, span)?;
+                Ok(Type::Option(Box::new(Type::Pixels)))
+            }
+            "padding" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::F64, Type::F64, Type::F64, Type::F64],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::Padding)
+            }
+            "padding.zero" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::Padding)
+            }
+            "padding.all" | "padding.top" | "padding.right" | "padding.bottom" | "padding.left"
+            | "padding.horizontal" | "padding.vertical" => {
+                if args.len() != 1 {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        format!("{name} expects one argument"),
+                    ));
+                }
+                require_pixel_value(&args[0], env, document, span)?;
+                Ok(Type::Padding)
+            }
+            "padding.axes" => {
+                check_builtin_args(name, args, &[Type::F64, Type::F64], env, document, span)?;
+                Ok(Type::Padding)
+            }
+            "padding.from_pixels" => {
+                check_builtin_args(name, args, &[Type::Pixels], env, document, span)?;
+                Ok(Type::Padding)
+            }
+            "padding.with_top"
+            | "padding.with_right"
+            | "padding.with_bottom"
+            | "padding.with_left"
+            | "padding.with_horizontal"
+            | "padding.with_vertical" => {
+                if args.len() != 2 {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        format!("{name} expects padding and a pixel value"),
+                    ));
+                }
+                require_type(
+                    &expr_type(&args[0], env, document, span)?,
+                    &Type::Padding,
+                    span,
+                )?;
+                require_pixel_value(&args[1], env, document, span)?;
+                Ok(Type::Padding)
+            }
+            "padding.fit" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::Padding, Type::Size, Type::Size],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::Padding)
+            }
+            "degrees" => {
+                check_builtin_args(name, args, &[Type::F64], env, document, span)?;
+                Ok(Type::Degrees)
+            }
+            "radians" => {
+                check_builtin_args(name, args, &[Type::F64], env, document, span)?;
+                Ok(Type::Radians)
+            }
+            "degrees.range_start" | "degrees.range_end" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::Degrees)
+            }
+            "radians.range_start" | "radians.range_end" | "radians.pi" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::Radians)
+            }
+            "degrees.in_range" => {
+                check_builtin_args(name, args, &[Type::Degrees], env, document, span)?;
+                Ok(Type::Bool)
+            }
+            "radians.in_range" => {
+                check_builtin_args(name, args, &[Type::Radians], env, document, span)?;
+                Ok(Type::Bool)
+            }
+            "radians.from_degrees" => {
+                check_builtin_args(name, args, &[Type::Degrees], env, document, span)?;
+                Ok(Type::Radians)
+            }
+            "radians.distance_start" | "radians.distance_end" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::Radians, Type::Rectangle],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::Point)
+            }
             "point" => {
                 check_builtin_args(name, args, &[Type::F64, Type::F64], env, document, span)?;
                 Ok(Type::Point)
@@ -6662,7 +6854,23 @@ pub(crate) fn expr_type(
                 check_builtin_args(name, args, &[Type::Size, Type::Size], env, document, span)?;
                 Ok(Type::Size)
             }
-            "size.rotate" | "size.ratio" => {
+            "size.rotate" => {
+                if args.len() != 2 {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        "size.rotate expects a size and radians",
+                    ));
+                }
+                require_type(
+                    &expr_type(&args[0], env, document, span)?,
+                    &Type::Size,
+                    span,
+                )?;
+                require_radians_value(&args[1], env, document, span)?;
+                Ok(Type::Size)
+            }
+            "size.ratio" => {
                 check_builtin_args(name, args, &[Type::Size, Type::F64], env, document, span)?;
                 Ok(Type::Size)
             }
@@ -6673,6 +6881,10 @@ pub(crate) fn expr_type(
             "vector.from_size" => {
                 check_builtin_args(name, args, &[Type::Size], env, document, span)?;
                 Ok(Type::Vector)
+            }
+            "size.from_padding" => {
+                check_builtin_args(name, args, &[Type::Padding], env, document, span)?;
+                Ok(Type::Size)
             }
             "size.from_u32" => {
                 check_u32_literals(name, args, span)?;
@@ -6694,7 +6906,9 @@ pub(crate) fn expr_type(
                 check_builtin_args(name, args, &[Type::F64], env, document, span)?;
                 Ok(Type::Rectangle)
             }
-            "rectangle.with_vertices" | "rectangle.vertices_rotation" => {
+            "rectangle.with_vertices"
+            | "rectangle.vertices_rotation"
+            | "rectangle.vertices_angle" => {
                 check_builtin_args(
                     name,
                     args,
@@ -6703,10 +6917,10 @@ pub(crate) fn expr_type(
                     document,
                     span,
                 )?;
-                Ok(if name == "rectangle.with_vertices" {
-                    Type::Rectangle
-                } else {
-                    Type::F64
+                Ok(match name.as_str() {
+                    "rectangle.with_vertices" => Type::Rectangle,
+                    "rectangle.vertices_rotation" => Type::F64,
+                    _ => Type::Radians,
                 })
             }
             "rectangle.contains" | "rectangle.distance" => {
@@ -6783,7 +6997,34 @@ pub(crate) fn expr_type(
                 )?;
                 Ok(Type::Rectangle)
             }
-            "rectangle.rotate" | "rectangle.zoom" => {
+            "rectangle.expand_padding" | "rectangle.shrink_padding" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::Rectangle, Type::Padding],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::Rectangle)
+            }
+            "rectangle.rotate" => {
+                if args.len() != 2 {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        "rectangle.rotate expects a rectangle and radians",
+                    ));
+                }
+                require_type(
+                    &expr_type(&args[0], env, document, span)?,
+                    &Type::Rectangle,
+                    span,
+                )?;
+                require_radians_value(&args[1], env, document, span)?;
+                Ok(Type::Rectangle)
+            }
+            "rectangle.zoom" => {
                 check_builtin_args(
                     name,
                     args,
@@ -7374,7 +7615,8 @@ pub(crate) fn expr_type(
                     if !matches!(op, BinaryOp::Eq | BinaryOp::NotEq)
                         && matches!(
                             left,
-                            Type::Point
+                            Type::Padding
+                                | Type::Point
                                 | Type::PointU32
                                 | Type::Vector
                                 | Type::Size
@@ -7393,7 +7635,9 @@ pub(crate) fn expr_type(
                             ),
                         ));
                     }
-                    require_type(&left, &right, span)?;
+                    if !matches!((&left, &right), (Type::Degrees | Type::Radians, Type::F64)) {
+                        require_type(&left, &right, span)?;
+                    }
                     Ok(Type::Bool)
                 }
                 _ => arithmetic_type(&left, *op, &right).ok_or_else(|| {
@@ -7495,6 +7739,23 @@ fn field_type(ty: &Type, field: &str, document: &Document, span: &Span) -> Resul
             "shift" | "control" | "alt" | "logo" | "command" | "jump" | "macos_command" => {
                 Some(Type::Bool)
             }
+            _ => None,
+        },
+        Type::Pixels => match field {
+            "value" => Some(Type::F64),
+            _ => None,
+        },
+        Type::Padding => match field {
+            "top" | "right" | "bottom" | "left" | "x" | "y" => Some(Type::F64),
+            _ => None,
+        },
+        Type::Degrees => match field {
+            "value" => Some(Type::F64),
+            _ => None,
+        },
+        Type::Radians => match field {
+            "value" => Some(Type::F64),
+            "display" => Some(Type::Str),
             _ => None,
         },
         Type::Point => match field {
@@ -8270,6 +8531,95 @@ view
                 "contains_point = point_value < point.origin()",
                 "E153",
                 "does not accept `point` and `point`",
+            ),
+        ] {
+            let error = analyze(&source.replacen(from, to, 1)).unwrap_err();
+            assert_eq!(error.code, code, "{from} -> {to}: {error:?}");
+            assert!(error.message.contains(message), "{from} -> {to}: {error:?}");
+        }
+    }
+
+    #[test]
+    fn checks_native_padding_and_angles() {
+        let source = include_str!("../../../examples/iced-app/src/ui/padding_angles.ice");
+        let document = analyze(source).unwrap();
+        assert_eq!(document.functions[0].params[0].1, Type::Pixels);
+        assert_eq!(document.functions[0].params[1].1, Type::Padding);
+        assert_eq!(document.functions[0].params[2].1, Type::Degrees);
+        assert_eq!(document.functions[0].params[3].1, Type::Radians);
+
+        for (from, to, code, message) in [
+            (
+                "pixels.from_u32(4294967295)",
+                "pixels.from_u32(4294967296)",
+                "E152",
+                "value must be in 0..=4294967295",
+            ),
+            (
+                "pixels.from_u32(4294967295)",
+                "pixels.from_u32(pixel_value.value)",
+                "E152",
+                "expects one integer literal",
+            ),
+            (
+                "all_padding = padding.all(5.0)",
+                "all_padding = padding.all(true)",
+                "E101",
+                "expected `f64` or `pixels`, got `bool`",
+            ),
+            (
+                "all_padding = padding.all(5.0)",
+                "all_padding = padding.all(5.0, 6.0)",
+                "E152",
+                "expects one argument",
+            ),
+            (
+                "padding_equal = direct_padding == padding(1.0, 2.0, 3.0, 4.0)",
+                "padding_equal = direct_padding < padding(1.0, 2.0, 3.0, 4.0)",
+                "E153",
+                "does not accept `padding` and `padding`",
+            ),
+            (
+                "pixel_value = ((((pixels(4.0) + pixels(2.0))",
+                "pixel_value = ((((pixels(4.0) - pixels(2.0))",
+                "E153",
+                "does not accept `pixels` and `pixels`",
+            ),
+            (
+                "degree_value = degrees(45.0) * 2.0",
+                "degree_value = degrees(45.0) + degrees(2.0)",
+                "E153",
+                "does not accept `degrees` and `degrees`",
+            ),
+            (
+                "radians_reverse = 2.0 * radians(1.5)",
+                "radians_reverse = 2.0 + radians(1.5)",
+                "E153",
+                "does not accept `f64` and `radians`",
+            ),
+            (
+                "radians(5.0) % radians(2.0)",
+                "radians(5.0) % degrees(2.0)",
+                "E153",
+                "does not accept `radians` and `degrees`",
+            ),
+            (
+                "rotated_size = size.rotate(size(10.0, 20.0), radians_value)",
+                "rotated_size = size.rotate(size(10.0, 20.0), degree_value)",
+                "E101",
+                "expected `f64` or `radians`, got `degrees`",
+            ),
+            (
+                "radians_equal_scalar = radians_value == 1.0",
+                "radians_equal_scalar = 1.0 == radians_value",
+                "E101",
+                "expected `radians`, got `f64`",
+            ),
+            (
+                "radians_display = radians_value.display",
+                "radians_display = radians_value.missing",
+                "E151",
+                "has no field `missing`",
             ),
         ] {
             let error = analyze(&source.replacen(from, to, 1)).unwrap_err();

@@ -7254,6 +7254,36 @@ fn env_types(env: &HashMap<String, Binding>) -> HashMap<String, Type> {
         .collect()
 }
 
+fn pixel_value_code(
+    value: &Expr,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<String, Error> {
+    let code = expr_code(value, env, document, ValueMode::Owned)?;
+    Ok(
+        if expr_type(value, &env_types(env), document, &Span::line(1))? == Type::Pixels {
+            code
+        } else {
+            format!("({code}) as f32")
+        },
+    )
+}
+
+fn radians_value_code(
+    value: &Expr,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<String, Error> {
+    let code = expr_code(value, env, document, ValueMode::Owned)?;
+    Ok(
+        if expr_type(value, &env_types(env), document, &Span::line(1))? == Type::Radians {
+            code
+        } else {
+            format!("::iced::Radians(({code}) as f32)")
+        },
+    )
+}
+
 fn native_field_type(ty: &Type, field: &str) -> Option<Type> {
     match ty {
         Type::KeyPress => match field {
@@ -7339,6 +7369,14 @@ fn native_field_projection(ty: &Type, field: &str, code: &str) -> Option<(String
             };
             (format!("({code}).{method}()"), Type::Bool)
         }
+        (Type::Pixels | Type::Degrees | Type::Radians, "value") => {
+            (format!("({code}).0 as f64"), Type::F64)
+        }
+        (Type::Padding, "top" | "right" | "bottom" | "left") => {
+            (format!("({code}).{field} as f64"), Type::F64)
+        }
+        (Type::Padding, "x" | "y") => (format!("({code}).{field}() as f64"), Type::F64),
+        (Type::Radians, "display") => (format!("::std::format!(\"{{}}\", {code})"), Type::Str),
         (Type::Point, "x" | "y")
         | (Type::Vector, "x" | "y")
         | (Type::Size, "width" | "height")
@@ -7492,6 +7530,10 @@ fn expr_code(
                     | Type::PhysicalKey
                     | Type::KeyLocation
                     | Type::KeyModifiers
+                    | Type::Pixels
+                    | Type::Padding
+                    | Type::Degrees
+                    | Type::Radians
                     | Type::Point
                     | Type::PointU32
                     | Type::Vector
@@ -7513,6 +7555,101 @@ fn expr_code(
             code
         }
         Expr::Call { name, args } => match name.as_str() {
+            "pixels" => format!(
+                "::iced::Pixels(({}) as f32)",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "pixels.zero" => "::iced::Pixels::ZERO".into(),
+            "pixels.from_u32" => {
+                let Expr::I64(value) = &args[0] else {
+                    unreachable!("checker requires a pixels u32 literal")
+                };
+                format!("::iced::Pixels::from({value}u32)")
+            }
+            "pixels.try_from_u32" => format!(
+                "<u32>::try_from({}).ok().map(::iced::Pixels::from)",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "padding" => format!(
+                "::iced::Padding {{ top: ({}) as f32, right: ({}) as f32, bottom: ({}) as f32, left: ({}) as f32 }}",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?,
+                expr_code(&args[2], env, document, ValueMode::Owned)?,
+                expr_code(&args[3], env, document, ValueMode::Owned)?
+            ),
+            "padding.zero" => "::iced::Padding::ZERO".into(),
+            "padding.all"
+            | "padding.top"
+            | "padding.right"
+            | "padding.bottom"
+            | "padding.left"
+            | "padding.horizontal"
+            | "padding.vertical" => {
+                let function = name.strip_prefix("padding.").expect("checked prefix");
+                format!(
+                    "::iced::padding::{function}({})",
+                    pixel_value_code(&args[0], env, document)?
+                )
+            }
+            "padding.axes" => format!(
+                "::iced::Padding::from([({}) as f32, ({}) as f32])",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "padding.from_pixels" => format!(
+                "::iced::Padding::from({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "padding.with_top"
+            | "padding.with_right"
+            | "padding.with_bottom"
+            | "padding.with_left"
+            | "padding.with_horizontal"
+            | "padding.with_vertical" => {
+                let method = name.strip_prefix("padding.with_").expect("checked prefix");
+                format!(
+                    "({}).{method}({})",
+                    expr_code(&args[0], env, document, ValueMode::Owned)?,
+                    pixel_value_code(&args[1], env, document)?
+                )
+            }
+            "padding.fit" => format!(
+                "({}).fit({}, {})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?,
+                expr_code(&args[2], env, document, ValueMode::Owned)?
+            ),
+            "degrees" => format!(
+                "::iced::Degrees(({}) as f32)",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "radians" => format!(
+                "::iced::Radians(({}) as f32)",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "degrees.range_start" => "*::iced::Degrees::RANGE.start()".into(),
+            "degrees.range_end" => "*::iced::Degrees::RANGE.end()".into(),
+            "radians.range_start" => "*::iced::Radians::RANGE.start()".into(),
+            "radians.range_end" => "*::iced::Radians::RANGE.end()".into(),
+            "radians.pi" => "::iced::Radians::PI".into(),
+            "degrees.in_range" => format!(
+                "::iced::Degrees::RANGE.contains(&({}))",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "radians.in_range" => format!(
+                "::iced::Radians::RANGE.contains(&({}))",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "radians.from_degrees" => format!(
+                "::iced::Radians::from({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "radians.distance_start" | "radians.distance_end" => format!(
+                "({}).to_distance(&({})).{}",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?,
+                if name == "radians.distance_start" { 0 } else { 1 }
+            ),
             "point" => format!(
                 "::iced::Point::new(({}) as f32, ({}) as f32)",
                 expr_code(&args[0], env, document, ValueMode::Owned)?,
@@ -7565,9 +7702,9 @@ fn expr_code(
                 expr_code(&args[1], env, document, ValueMode::Owned)?
             ),
             "size.rotate" => format!(
-                "({}).rotate(::iced::Radians(({}) as f32))",
+                "({}).rotate({})",
                 expr_code(&args[0], env, document, ValueMode::Owned)?,
-                expr_code(&args[1], env, document, ValueMode::Owned)?
+                radians_value_code(&args[1], env, document)?
             ),
             "size.ratio" => format!(
                 "({}).ratio(({}) as f32)",
@@ -7580,6 +7717,10 @@ fn expr_code(
             ),
             "vector.from_size" => format!(
                 "::iced::Vector::from({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "size.from_padding" => format!(
+                "::iced::Size::from({})",
                 expr_code(&args[0], env, document, ValueMode::Owned)?
             ),
             "size.from_u32" => {
@@ -7611,6 +7752,12 @@ fn expr_code(
             ),
             "rectangle.vertices_rotation" => format!(
                 "::iced::Rectangle::with_vertices({}, {}, {}).1.0 as f64",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?,
+                expr_code(&args[2], env, document, ValueMode::Owned)?
+            ),
+            "rectangle.vertices_angle" => format!(
+                "::iced::Rectangle::with_vertices({}, {}, {}).1",
                 expr_code(&args[0], env, document, ValueMode::Owned)?,
                 expr_code(&args[1], env, document, ValueMode::Owned)?,
                 expr_code(&args[2], env, document, ValueMode::Owned)?
@@ -7667,10 +7814,20 @@ fn expr_code(
                 expr_code(&args[3], env, document, ValueMode::Owned)?,
                 expr_code(&args[4], env, document, ValueMode::Owned)?
             ),
-            "rectangle.rotate" => format!(
-                "({}).rotate(::iced::Radians(({}) as f32))",
+            "rectangle.expand_padding" | "rectangle.shrink_padding" => format!(
+                "({}).{}({})",
                 expr_code(&args[0], env, document, ValueMode::Owned)?,
+                if name == "rectangle.expand_padding" {
+                    "expand"
+                } else {
+                    "shrink"
+                },
                 expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "rectangle.rotate" => format!(
+                "({}).rotate({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                radians_value_code(&args[1], env, document)?
             ),
             "rectangle.zoom" => format!(
                 "({}).zoom(({}) as f32)",
@@ -8003,10 +8160,26 @@ fn expr_code(
             let types = env_types(env);
             let left_ty = expr_type(left, &types, document, &Span::line(1))?;
             let right_ty = expr_type(right, &types, document, &Span::line(1))?;
+            let left = expr_code(left, env, document, mode)?;
             let right = expr_code(right, env, document, mode)?;
-            let right = if matches!(left_ty, Type::Vector | Type::Size | Type::Rectangle)
-                && matches!(op, BinaryOp::Mul | BinaryOp::Div)
-                && right_ty == Type::F64
+            let left = if left_ty == Type::F64
+                && right_ty == Type::Radians
+                && *op == BinaryOp::Mul
+            {
+                format!("({left}) as f32")
+            } else {
+                left
+            };
+            let right = if right_ty == Type::F64
+                && matches!(
+                    left_ty,
+                    Type::Pixels
+                        | Type::Degrees
+                        | Type::Radians
+                        | Type::Vector
+                        | Type::Size
+                        | Type::Rectangle
+                )
             {
                 format!("({right}) as f32")
             } else {
@@ -8014,12 +8187,13 @@ fn expr_code(
             };
             format!(
                 "({} {} {})",
-                expr_code(left, env, document, mode)?,
+                left,
                 match op {
                     BinaryOp::Add => "+",
                     BinaryOp::Sub => "-",
                     BinaryOp::Mul => "*",
                     BinaryOp::Div => "/",
+                    BinaryOp::Rem => "%",
                     BinaryOp::Eq => "==",
                     BinaryOp::NotEq => "!=",
                     BinaryOp::Lt => "<",
@@ -13065,6 +13239,34 @@ view
             "::iced::alignment::Vertical::Bottom",
             "(2.0) as f32",
             "fn __ui_lang_check_sync_geometry_round_trip",
+        ] {
+            assert!(generated.contains(expected), "missing {expected}");
+        }
+    }
+
+    #[test]
+    fn lowers_native_padding_and_angles() {
+        let source = include_str!("../../../examples/iced-app/src/ui/padding_angles.ice");
+        let generated = compile(source, "padding_angles.ice").unwrap();
+        for expected in [
+            "pixel_value: ::iced::Pixels",
+            "direct_padding: ::iced::Padding",
+            "degree_value: ::iced::Degrees",
+            "radians_value: ::iced::Radians",
+            "::iced::Pixels::from(4294967295u32)",
+            ".ok().map(::iced::Pixels::from)",
+            "::iced::padding::all((5.0) as f32)",
+            "::iced::padding::right(::iced::Pixels",
+            "::iced::Padding::from([",
+            ".fit(::iced::Size::new",
+            "::iced::Degrees::RANGE.contains",
+            "::iced::Radians::RANGE.contains",
+            "::iced::Radians::from(::iced::Degrees",
+            ".to_distance(&(::iced::Rectangle",
+            " % ",
+            "(2.0) as f32 * ::iced::Radians",
+            ".rotate(self.radians_value)",
+            "fn __ui_lang_check_sync_unit_round_trip",
         ] {
             assert!(generated.contains(expected), "missing {expected}");
         }
