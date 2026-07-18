@@ -10,6 +10,7 @@ extern crate::backend
   set_task_done(id:i64, done:bool) -> [Task] ! AppError
   component native_help(active:bool) -> bool
   markdown-viewer docs_viewer(prefix:str) -> str
+  progress-style loading_progress(active:bool)
   task copy_text(text:str) -> unit ! AppError
   subscription app_events() -> bool
 
@@ -467,7 +468,7 @@ view
           hovered rail-start=foreground rail-end=border rail-width=5.0 handle=rect(12) handle-color=foreground handle-radius=3.0
           dragged rail-start=danger rail-end=border handle=circle(8.0) handle-color=danger handle-border=foreground handle-border-width=1.0
         slider volume min=0.0 max=100.0 step=5.0 default=50.0 shift-step=1.0 vertical width=20.0 height=120.0 release=volume_committed -> volume_changed _
-        progress volume length=fill girth=24.0 style=success background=linear(1.57, background@0.0, surface@1.0) bar=linear(0.0, primary@0.0, foreground@1.0) border=foreground border-width=1.0 radius=4.0 radius-tl=2.0
+        progress volume length=fill girth=24.0 style=loading_progress(loading) background=linear(1.57, background@0.0, surface@1.0) bar=linear(0.0, primary@0.0, foreground@1.0) border=foreground border-width=1.0 radius=4.0 radius-tl=2.0
         progress volume vertical length=120.0 girth=20.0 style=warning background=linear(1.57, background@0.0, surface@1.0) bar=linear(0.0, danger@0.0, primary@1.0) radius=3.0
         extern native_help(external_hover) -> external_hover_changed _
         if event_seen

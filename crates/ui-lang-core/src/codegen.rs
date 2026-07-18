@@ -849,6 +849,24 @@ fn generate_extern_probes(out: &mut String, document: &Document) {
                 item.name, item.rust_path
             )
             .unwrap(),
+            ExternKind::ProgressStyle => {
+                let params = if params.is_empty() {
+                    "theme: &::iced::Theme".into()
+                } else {
+                    format!("theme: &::iced::Theme, {params}")
+                };
+                let args = if args.is_empty() {
+                    "theme".into()
+                } else {
+                    format!("theme, {args}")
+                };
+                writeln!(
+                    out,
+                    "#[allow(dead_code)] fn __ui_lang_check_progress_style_{}({params}) {{ let _: ::iced::widget::progress_bar::Style = {}({args}); }}",
+                    item.name, item.rust_path
+                )
+                .unwrap();
+            }
         }
     }
 }
@@ -7803,6 +7821,7 @@ fn append_progress_options(
         || options.radius_bottom_right.is_some()
         || options.radius_bottom_left.is_some();
     if options.style.is_none()
+        && options.custom_style.is_none()
         && options.background.is_none()
         && options.bar.is_none()
         && options.border_color.is_none()
@@ -7811,18 +7830,40 @@ fn append_progress_options(
     {
         return Ok(());
     }
-    let preset = match options.style.unwrap_or(ProgressStyle::Primary) {
-        ProgressStyle::Primary => "primary",
-        ProgressStyle::Secondary => "secondary",
-        ProgressStyle::Success => "success",
-        ProgressStyle::Warning => "warning",
-        ProgressStyle::Danger => "danger",
-    };
-    write!(
-        code,
-        ".style(move |__theme| {{ let mut __style = ::iced::widget::progress_bar::{preset}(__theme);"
-    )
-    .unwrap();
+    if let Some(style) = &options.custom_style {
+        let function = document
+            .functions
+            .iter()
+            .find(|item| item.name == style.function && item.kind == ExternKind::ProgressStyle)
+            .expect("checker validates progress style");
+        let args = style
+            .args
+            .iter()
+            .map(|arg| expr_code(arg, env, document, ValueMode::Owned))
+            .collect::<Result<Vec<_>, _>>()?;
+        write!(
+            code,
+            ".style(move |__theme| {{ let mut __style = {}(__theme{});",
+            function.rust_path,
+            args.iter()
+                .map(|arg| format!(", {arg}"))
+                .collect::<String>()
+        )
+        .unwrap();
+    } else {
+        let preset = match options.style.unwrap_or(ProgressStyle::Primary) {
+            ProgressStyle::Primary => "primary",
+            ProgressStyle::Secondary => "secondary",
+            ProgressStyle::Success => "success",
+            ProgressStyle::Warning => "warning",
+            ProgressStyle::Danger => "danger",
+        };
+        write!(
+            code,
+            ".style(move |__theme| {{ let mut __style = ::iced::widget::progress_bar::{preset}(__theme);"
+        )
+        .unwrap();
+    }
     if let Some(background) = &options.background {
         write!(
             code,
@@ -10086,6 +10127,8 @@ view
     #[test]
     fn lowers_complex_native_controls() {
         let source = r#"app Controls
+extern crate::backend
+  progress-style dynamic_progress(active:bool)
 theme
   background #000000
   foreground #ffffff
@@ -10111,7 +10154,7 @@ view
         hovered rail-start=foreground rail-end=background handle=rect(12) handle-color=foreground handle-radius=3.0 handle-radius-tl=1.0
         dragged rail-start=danger handle=circle(8.0) handle-color=danger
       slider amount min=0.0 max=100.0 step=1.0 width=fill height=18.0 -> amount_changed _
-      progress amount vertical length=fill(2) girth=20.0 style=secondary background=linear(1.57, background@0.0, primary/25@1.0) bar=linear(0.0, primary/75@0.0, danger@1.0) border=foreground border-width=1.0 radius=4.0 radius-tl=2.0
+      progress amount vertical length=fill(2) girth=20.0 style=dynamic_progress(enabled) background=linear(1.57, background@0.0, primary/25@1.0) bar=linear(0.0, primary/75@0.0, danger@1.0) border=foreground border-width=1.0 radius=4.0 radius-tl=2.0
       progress amount style=success
       progress amount style=warning
       progress amount style=danger
@@ -10155,7 +10198,8 @@ view
         assert!(generated.contains("::iced::widget::progress_bar"));
         assert!(generated.contains(".vertical()"));
         assert!(generated.contains(".length(::iced::Length::FillPortion(2)).girth(20.0 as f32)"));
-        assert!(generated.contains("progress_bar::secondary(__theme)"));
+        assert!(generated.contains("crate::backend::dynamic_progress(__theme, self.enabled)"));
+        assert!(generated.contains("fn __ui_lang_check_progress_style_dynamic_progress"));
         assert!(generated.contains("progress_bar::success(__theme)"));
         assert!(generated.contains("progress_bar::warning(__theme)"));
         assert!(generated.contains("progress_bar::danger(__theme)"));

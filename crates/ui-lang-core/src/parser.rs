@@ -86,6 +86,13 @@ pub fn parse(source: &str) -> Result<Document, Error> {
                         &path,
                         ExternKind::MarkdownViewer,
                     )?);
+                } else if let Some(source) = item.text.strip_prefix("progress-style ") {
+                    functions.push(parse_extern_fn(
+                        &format!("{source} -> unit"),
+                        item,
+                        &path,
+                        ExternKind::ProgressStyle,
+                    )?);
                 } else if item.text.chars().next().is_some_and(char::is_uppercase) {
                     structs.push(parse_extern_struct(item, &path)?);
                 } else {
@@ -1010,12 +1017,13 @@ fn parse_extern_fn(
                 | ExternKind::Subscription
                 | ExternKind::Window
                 | ExternKind::MarkdownViewer
+                | ExternKind::ProgressStyle
         )
     {
         return Err(error(
             "E023",
             line,
-            "extern components, shaders, recipes, event filters, sync functions, subscriptions, window callbacks, and markdown viewers cannot declare an error type",
+            "extern components, shaders, recipes, event filters, sync functions, subscriptions, window callbacks, markdown viewers, and progress styles cannot declare an error type",
         ));
     }
     Ok(ExternFn {
@@ -3454,7 +3462,7 @@ fn parse_markdown(
             "spacing" => options.spacing = Some(parse_expr(strip_wrapping_parens(value), line)?),
             "viewer" => {
                 let (function, args) = parse_signature(value, line)?;
-                options.viewer = Some(MarkdownViewerCall {
+                options.viewer = Some(ExternCall {
                     function,
                     args: parse_expr_list(&args, line)?,
                 });
@@ -7432,20 +7440,30 @@ fn parse_progress(parts: &[String], styles: Vec<String>, line: &Line) -> Result<
         } else if let Some(value) = part.strip_prefix("girth=") {
             options.girth = Some(parse_length(value, line)?);
         } else if let Some(value) = part.strip_prefix("style=") {
-            options.style = Some(match value {
-                "primary" => ProgressStyle::Primary,
-                "secondary" => ProgressStyle::Secondary,
-                "success" => ProgressStyle::Success,
-                "warning" => ProgressStyle::Warning,
-                "danger" => ProgressStyle::Danger,
-                _ => {
-                    return Err(error(
+            if let Some(style) = match value {
+                "primary" => Some(ProgressStyle::Primary),
+                "secondary" => Some(ProgressStyle::Secondary),
+                "success" => Some(ProgressStyle::Success),
+                "warning" => Some(ProgressStyle::Warning),
+                "danger" => Some(ProgressStyle::Danger),
+                _ => None,
+            } {
+                options.style = Some(style);
+                options.custom_style = None;
+            } else {
+                let (function, args) = parse_signature(value, line).map_err(|_| {
+                    error(
                         "E077",
                         line,
-                        "progress style must be primary, secondary, success, warning, or danger",
-                    ));
-                }
-            });
+                        "progress style must be a preset or declared style call",
+                    )
+                })?;
+                options.custom_style = Some(ExternCall {
+                    function,
+                    args: parse_expr_list(&args, line)?,
+                });
+                options.style = None;
+            }
         } else if let Some(value) = part.strip_prefix("background=") {
             options.background = Some(parse_background_value(value, line)?);
         } else if let Some(value) = part.strip_prefix("bar=") {

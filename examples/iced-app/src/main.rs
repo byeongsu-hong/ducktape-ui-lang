@@ -184,6 +184,18 @@ mod backend {
     }
 
     #[cfg(test)]
+    pub fn loading_progress(
+        theme: &iced::Theme,
+        active: bool,
+    ) -> iced::widget::progress_bar::Style {
+        if active {
+            iced::widget::progress_bar::warning(theme)
+        } else {
+            iced::widget::progress_bar::success(theme)
+        }
+    }
+
+    #[cfg(test)]
     impl<'a> iced::widget::markdown::Viewer<'a, String> for DocsViewer {
         fn on_link_click(url: iced::widget::markdown::Uri) -> String {
             url

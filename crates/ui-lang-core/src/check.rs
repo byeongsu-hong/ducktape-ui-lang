@@ -1455,6 +1455,11 @@ fn infer_view(
                     require_literal_range(value, 0.0, None, "progress size", span)?;
                 }
             }
+            if let Some(style) = &options.custom_style {
+                let function =
+                    extern_function(document, &style.function, ExternKind::ProgressStyle, span)?;
+                check_call_args(function, &style.args, env, document, span)?;
+            }
             for (background, label) in [
                 (&options.background, "progress background"),
                 (&options.bar, "progress bar"),
@@ -5512,6 +5517,7 @@ fn extern_function<'a>(
                 ExternKind::Subscription => "subscription",
                 ExternKind::Window => "window callback",
                 ExternKind::MarkdownViewer => "markdown viewer",
+                ExternKind::ProgressStyle => "progress style",
             };
             Error::new("E130", span, format!("unknown extern {label} `{name}`"))
         })
@@ -8118,6 +8124,8 @@ view
     #[test]
     fn checks_progress_options_and_rejects_invalid_style() {
         let source = r#"app Controls
+extern crate::backend
+  progress-style dynamic_progress(active:bool)
 theme
   background #000000
   foreground #ffffff
@@ -8125,9 +8133,10 @@ theme
   danger #ff0000
 state
   amount = 50.0
+  active = true
 view
   col
-    progress amount min=0.0 max=100.0 length=fill(2) girth=20.0 style=success background=linear(1.57, background@0.0, primary/25@1.0) bar=linear(0.0, primary/75@0.0, danger@1.0) border=foreground border-width=1.0 radius=4.0 radius-tl=2.0 radius-tr=3.0 radius-br=4.0 radius-bl=5.0
+    progress amount min=0.0 max=100.0 length=fill(2) girth=20.0 style=dynamic_progress(active) background=linear(1.57, background@0.0, primary/25@1.0) bar=linear(0.0, primary/75@0.0, danger@1.0) border=foreground border-width=1.0 radius=4.0 radius-tl=2.0 radius-tr=3.0 radius-br=4.0 radius-bl=5.0
     progress amount vertical length=120.0 girth=fill style=warning
 "#;
         analyze(source).unwrap();
@@ -8146,6 +8155,19 @@ view
         let error = analyze(&bad_radius).unwrap_err();
         assert_eq!(error.code, "E128");
         assert!(error.message.contains("progress radius"));
+
+        let unknown = source.replace("dynamic_progress(active)", "missing(active)");
+        let error = analyze(&unknown).unwrap_err();
+        assert_eq!(error.code, "E130");
+        assert!(error.message.contains("progress style"));
+
+        let wrong_arg = source.replace("dynamic_progress(active)", "dynamic_progress(amount)");
+        let error = analyze(&wrong_arg).unwrap_err();
+        assert_eq!(error.code, "E101");
+
+        let malformed = source.replace("dynamic_progress(active)", "unknown");
+        let error = analyze(&malformed).unwrap_err();
+        assert_eq!(error.code, "E077");
     }
 
     #[test]
