@@ -319,6 +319,7 @@ pub enum ExternKind {
 #[derive(Clone, Debug)]
 pub struct Subscription {
     pub source: SubscriptionSource,
+    pub window_id: bool,
     pub context: Option<Expr>,
     pub filter: Option<String>,
     pub condition: Option<Expr>,

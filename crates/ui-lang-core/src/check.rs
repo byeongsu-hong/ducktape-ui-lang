@@ -2511,9 +2511,10 @@ fn infer_view(
                         format!("duplicate canvas event `{name}`"),
                     ));
                 }
-                let payloads = native_subscription_payloads(&event.source).ok_or_else(|| {
-                    Error::new("E190", &event.span, "invalid canvas event source")
-                })?;
+                let payloads =
+                    native_subscription_payloads(&event.source, false).ok_or_else(|| {
+                        Error::new("E190", &event.span, "invalid canvas event source")
+                    })?;
                 if !event.route_payload
                     && !event.bindings.is_empty()
                     && event.bindings.len() != payloads.len()
@@ -4042,8 +4043,8 @@ fn check_text_options(
     Ok(())
 }
 
-fn native_subscription_payloads(source: &SubscriptionSource) -> Option<Vec<Type>> {
-    Some(match source {
+fn native_subscription_payloads(source: &SubscriptionSource, window_id: bool) -> Option<Vec<Type>> {
+    let mut payloads = match source {
         SubscriptionSource::Every { .. } => vec![Type::Instant],
         SubscriptionSource::InputMethod(event) => match event {
             InputMethodEvent::Opened | InputMethodEvent::Closed => Vec::new(),
@@ -4087,7 +4088,11 @@ fn native_subscription_payloads(source: &SubscriptionSource) -> Option<Vec<Type>
         | SubscriptionSource::Recipe { .. }
         | SubscriptionSource::Events { .. }
         | SubscriptionSource::Extern { .. } => return None,
-    })
+    };
+    if window_id {
+        payloads.insert(0, Type::WindowId);
+    }
+    Some(payloads)
 }
 
 fn canvas_event_name(source: &SubscriptionSource) -> Option<&'static str> {
@@ -4239,7 +4244,8 @@ fn infer_subscriptions(
                 check_call_args(source, args, states, document, &subscription.span)?;
                 vec![source.output.clone()]
             }
-            source => native_subscription_payloads(source).expect("native subscription payloads"),
+            source => native_subscription_payloads(source, subscription.window_id)
+                .expect("native subscription payloads"),
         };
         if let Some(filter) = &subscription.filter {
             let function = extern_function(document, filter, ExternKind::Sync, &subscription.span)?;
@@ -6257,23 +6263,31 @@ mod tests {
                 .iter()
                 .map(|param| param.ty.display())
                 .collect::<Vec<_>>(),
-            ["f64?", "f64?", "f64", "f64"]
+            ["window-id", "f64?", "f64?", "f64", "f64"]
         );
 
         let error = analyze(&source.replace(
-            "window moved status=captured -> moved _ _",
-            "window moved status=captured -> moved _",
+            "window moved with-id status=captured -> moved _ _ _",
+            "window moved with-id status=captured -> moved _ _",
         ))
         .unwrap_err();
         assert_eq!(error.code, "E129");
-        assert!(error.message.contains("expects 2 payloads"));
+        assert!(error.message.contains("expects 3 payloads"));
 
         let error = analyze(&source.replace(
-            "window resized -> resized _ _",
-            "window resized -> resized 1.0 2.0",
+            "window resized with-id -> resized _ _ _",
+            "window resized with-id -> resized 1.0 2.0 3.0",
         ))
         .unwrap_err();
         assert_eq!(error.code, "E127");
+
+        let error = analyze(&source.replace(
+            "window frame when listen_frames -> frame",
+            "window frame with-id when listen_frames -> frame _",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E084");
+        assert!(error.message.contains("does not expose a window ID"));
     }
 
     #[test]
@@ -8908,6 +8922,14 @@ view
                 .unwrap_err();
         assert_eq!(error.code, "E190");
         assert!(error.message.contains("canvas events accept"));
+
+        let error = analyze(&source.replace(
+            "event keyboard press -> key _",
+            "event window focused with-id -> key _",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E190");
+        assert!(error.message.contains("`with-id` options"));
 
         let error = analyze(&source.replace("after=16ms", "after=0ms")).unwrap_err();
         assert_eq!(error.code, "E084");

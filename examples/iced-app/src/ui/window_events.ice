@@ -8,44 +8,46 @@ theme
 
 state
   listen_frames = true
+  last_window:window-id? = none
 
 on frame
 
-on opened(x, y, width, height)
+on opened(id, x, y, width, height)
 
-on closed
+on closed(id)
 
-on moved(x, y)
+on moved(id, x, y)
 
-on resized(width, height)
+on resized(id, width, height)
 
-on rescaled(scale)
+on rescaled(id, scale)
 
-on close_requested
+on close_requested(id)
 
-on focused
+on focused(id)
+  last_window = some(id)
 
-on unfocused
+on unfocused(id)
 
-on file_hovered(path)
+on file_hovered(id, path)
 
-on file_dropped(path)
+on file_dropped(id, path)
 
-on files_hovered_left
+on files_hovered_left(id)
 
 subscribe
   window frame when listen_frames -> frame
-  window opened -> opened _ _ _ _
-  window closed -> closed
-  window moved status=captured -> moved _ _
-  window resized -> resized _ _
-  window rescaled -> rescaled _
-  window close-request -> close_requested
-  window focused -> focused
-  window unfocused -> unfocused
-  window file-hovered -> file_hovered _
-  window file-dropped -> file_dropped _
-  window files-hovered-left -> files_hovered_left
+  window opened with-id -> opened _ _ _ _ _
+  window closed with-id -> closed _
+  window moved with-id status=captured -> moved _ _ _
+  window resized with-id -> resized _ _ _
+  window rescaled with-id -> rescaled _ _
+  window close-request with-id -> close_requested _
+  window focused with-id -> focused _
+  window unfocused with-id -> unfocused _
+  window file-hovered with-id -> file_hovered _ _
+  window file-dropped with-id -> file_dropped _ _
+  window files-hovered-left with-id -> files_hovered_left _
 
 view
   text "Window events compile fixture"
