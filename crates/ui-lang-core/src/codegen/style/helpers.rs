@@ -1,0 +1,241 @@
+use super::*;
+
+pub(in crate::codegen) fn text_shaping_code(shaping: TextShaping) -> &'static str {
+    match shaping {
+        TextShaping::Auto => "Auto",
+        TextShaping::Basic => "Basic",
+        TextShaping::Advanced => "Advanced",
+    }
+}
+
+pub(in crate::codegen) fn text_wrapping_code(wrapping: TextWrapping) -> &'static str {
+    match wrapping {
+        TextWrapping::None => "None",
+        TextWrapping::Word => "Word",
+        TextWrapping::Glyph => "Glyph",
+        TextWrapping::WordOrGlyph => "WordOrGlyph",
+    }
+}
+
+pub(in crate::codegen) fn font_preset_code(
+    font: &FontPreset,
+    document: &Document,
+) -> Result<String, Error> {
+    match font {
+        FontPreset::Default => Ok("::iced::Font::DEFAULT".into()),
+        FontPreset::Monospace => Ok("::iced::Font::MONOSPACE".into()),
+        FontPreset::Named(name) => document
+            .fonts
+            .iter()
+            .find(|font| font.name == *name)
+            .map(font_decl_code)
+            .ok_or_else(|| Error::new("E171", &Span::line(1), format!("unknown font `{name}`"))),
+    }
+}
+
+pub(in crate::codegen) fn font_decl_code(font: &FontDecl) -> String {
+    let family = match &font.family {
+        FontFamily::Named(name) => format!("::iced::font::Family::Name({})", rust_string(name)),
+        FontFamily::Serif => "::iced::font::Family::Serif".into(),
+        FontFamily::SansSerif => "::iced::font::Family::SansSerif".into(),
+        FontFamily::Cursive => "::iced::font::Family::Cursive".into(),
+        FontFamily::Fantasy => "::iced::font::Family::Fantasy".into(),
+        FontFamily::Monospace => "::iced::font::Family::Monospace".into(),
+    };
+    let weight = match font.weight {
+        FontWeight::Thin => "Thin",
+        FontWeight::ExtraLight => "ExtraLight",
+        FontWeight::Light => "Light",
+        FontWeight::Normal => "Normal",
+        FontWeight::Medium => "Medium",
+        FontWeight::Semibold => "Semibold",
+        FontWeight::Bold => "Bold",
+        FontWeight::ExtraBold => "ExtraBold",
+        FontWeight::Black => "Black",
+    };
+    let stretch = match font.stretch {
+        FontStretch::UltraCondensed => "UltraCondensed",
+        FontStretch::ExtraCondensed => "ExtraCondensed",
+        FontStretch::Condensed => "Condensed",
+        FontStretch::SemiCondensed => "SemiCondensed",
+        FontStretch::Normal => "Normal",
+        FontStretch::SemiExpanded => "SemiExpanded",
+        FontStretch::Expanded => "Expanded",
+        FontStretch::ExtraExpanded => "ExtraExpanded",
+        FontStretch::UltraExpanded => "UltraExpanded",
+    };
+    let style = match font.style {
+        FontStyle::Normal => "Normal",
+        FontStyle::Italic => "Italic",
+        FontStyle::Oblique => "Oblique",
+    };
+    format!(
+        "::iced::Font {{ family: {family}, weight: ::iced::font::Weight::{weight}, stretch: ::iced::font::Stretch::{stretch}, style: ::iced::font::Style::{style} }}"
+    )
+}
+
+pub(in crate::codegen) fn text_alignment_code(alignment: TextAlignment) -> &'static str {
+    match alignment {
+        TextAlignment::Default => "Default",
+        TextAlignment::Left => "Left",
+        TextAlignment::Center => "Center",
+        TextAlignment::Right => "Right",
+        TextAlignment::Justified => "Justified",
+    }
+}
+
+pub(in crate::codegen) fn mouse_interaction_code(interaction: MouseInteraction) -> &'static str {
+    match interaction {
+        MouseInteraction::None => "None",
+        MouseInteraction::Hidden => "Hidden",
+        MouseInteraction::Idle => "Idle",
+        MouseInteraction::ContextMenu => "ContextMenu",
+        MouseInteraction::Help => "Help",
+        MouseInteraction::Pointer => "Pointer",
+        MouseInteraction::Progress => "Progress",
+        MouseInteraction::Wait => "Wait",
+        MouseInteraction::Cell => "Cell",
+        MouseInteraction::Crosshair => "Crosshair",
+        MouseInteraction::Text => "Text",
+        MouseInteraction::Alias => "Alias",
+        MouseInteraction::Copy => "Copy",
+        MouseInteraction::Move => "Move",
+        MouseInteraction::NoDrop => "NoDrop",
+        MouseInteraction::NotAllowed => "NotAllowed",
+        MouseInteraction::Grab => "Grab",
+        MouseInteraction::Grabbing => "Grabbing",
+        MouseInteraction::ResizingHorizontally => "ResizingHorizontally",
+        MouseInteraction::ResizingVertically => "ResizingVertically",
+        MouseInteraction::ResizingDiagonallyUp => "ResizingDiagonallyUp",
+        MouseInteraction::ResizingDiagonallyDown => "ResizingDiagonallyDown",
+        MouseInteraction::ResizingColumn => "ResizingColumn",
+        MouseInteraction::ResizingRow => "ResizingRow",
+        MouseInteraction::AllScroll => "AllScroll",
+        MouseInteraction::ZoomIn => "ZoomIn",
+        MouseInteraction::ZoomOut => "ZoomOut",
+    }
+}
+
+pub(in crate::codegen) fn binding_variant(binding: &str) -> String {
+    format!("__Bind{}", pascal(binding))
+}
+
+pub(in crate::codegen) fn editor_variant(binding: &str) -> String {
+    format!("__Edit{}", pascal(binding))
+}
+
+pub(in crate::codegen) fn controlled_state_name(
+    code: &str,
+    widget: &str,
+    span: &Span,
+) -> Result<String, Error> {
+    let Some(name) = code.strip_prefix("self.") else {
+        return Err(Error::new(
+            "E139",
+            span,
+            format!("{widget} binding must resolve to an app state"),
+        ));
+    };
+    if name.contains('.') {
+        return Err(Error::new(
+            "E139",
+            span,
+            format!("{widget} binding must resolve to one app state"),
+        ));
+    }
+    Ok(name.to_owned())
+}
+
+pub(in crate::codegen) fn id_code(
+    id: &Id,
+    scope: &str,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<String, Error> {
+    if let Some(key) = &id.key {
+        Ok(format!(
+            "format!(\"{{}}/{}({{}})\", {scope}, {})",
+            id.name,
+            expr_code(key, env, document, ValueMode::Borrowed)?
+        ))
+    } else {
+        Ok(format!("format!(\"{{}}/{}\", {scope})", id.name))
+    }
+}
+
+pub(in crate::codegen) fn widget_target_code(
+    target: &WidgetTarget,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<String, Error> {
+    if target.segments.iter().all(|segment| segment.key.is_none()) {
+        return Ok(format!(
+            "::iced::widget::Id::new({})",
+            rust_string(&format!(
+                "{}/{}",
+                document.app,
+                target
+                    .segments
+                    .iter()
+                    .map(|segment| segment.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join("/")
+            ))
+        ));
+    }
+    let mut scope = rust_string(&document.app);
+    for segment in &target.segments {
+        scope = id_code(segment, &scope, env, document)?;
+    }
+    Ok(format!("::iced::widget::Id::from({scope})"))
+}
+
+pub(in crate::codegen) fn widget_selector_code(
+    selector: &WidgetSelector,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<(String, Option<&'static str>), Error> {
+    match selector {
+        WidgetSelector::Id(target) => Ok((
+            format!(
+                "::iced::widget::selector::id({})",
+                widget_target_code(target, env, document)?
+            ),
+            Some("__ice_widget_target_from_target"),
+        )),
+        WidgetSelector::Text(value) => Ok((
+            expr_code(value, env, document, ValueMode::Owned)?,
+            Some("__ice_widget_target_from_text"),
+        )),
+        WidgetSelector::Point { x, y } => Ok((
+            format!(
+                "::iced::Point::new(({}) as f32, ({}) as f32)",
+                expr_code(x, env, document, ValueMode::Owned)?,
+                expr_code(y, env, document, ValueMode::Owned)?
+            ),
+            Some("__ice_widget_target_from_target"),
+        )),
+        WidgetSelector::Focused => Ok((
+            "::iced::widget::selector::is_focused()".into(),
+            Some("__ice_widget_target_from_target"),
+        )),
+        WidgetSelector::Extern { function, args } => {
+            let function = document
+                .functions
+                .iter()
+                .find(|item| item.name == *function && item.kind == ExternKind::Selector)
+                .expect("checker validates selectors");
+            Ok((
+                format!(
+                    "{}({})",
+                    function.rust_path,
+                    args.iter()
+                        .map(|arg| expr_code(arg, env, document, ValueMode::Owned))
+                        .collect::<Result<Vec<_>, _>>()?
+                        .join(", ")
+                ),
+                None,
+            ))
+        }
+    }
+}

@@ -1,0 +1,170 @@
+use super::*;
+
+#[allow(clippy::too_many_arguments)]
+pub(in crate::codegen) fn render_container(
+    options: &ContainerOptions,
+    id: &Option<Id>,
+    styles: &[String],
+    content: &ViewNode,
+    document: &Document,
+    message: &str,
+    env: &HashMap<String, Binding>,
+    scope: &str,
+    slot: Option<&SlotContext>,
+) -> Result<String, Error> {
+    let child_scope = id.as_ref().map_or_else(
+        || Ok(scope.to_owned()),
+        |id| id_code(id, scope, env, document),
+    )?;
+    let content = render_node(content, document, message, env, &child_scope, slot)?;
+    let style = Style::parse(styles, document);
+    let mut code = String::from("::iced::widget::container(__container_content)");
+    if let Some(id) = id {
+        write!(
+            code,
+            ".id(::iced::widget::Id::from({}))",
+            id_code(id, scope, env, document)?
+        )
+        .unwrap();
+    }
+    if let Some(padding) = style.padding_code() {
+        write!(code, ".padding({padding})").unwrap();
+    }
+    append_size(&mut code, &style);
+    if let Some(max_width) = style.max_width {
+        write!(code, ".max_width({max_width})").unwrap();
+    }
+    if let Some(padding) = typed_padding_code(&options.padding, env, document)? {
+        write!(code, ".padding({padding})").unwrap();
+    }
+    if let Some(width) = &options.width {
+        write!(code, ".width({})", length_code(width, env, document)?).unwrap();
+    }
+    if let Some(height) = &options.height {
+        write!(code, ".height({})", length_code(height, env, document)?).unwrap();
+    }
+    for (method, value) in [
+        ("max_width", &options.max_width),
+        ("max_height", &options.max_height),
+    ] {
+        if let Some(value) = value {
+            write!(
+                code,
+                ".{method}({} as f32)",
+                expr_code(value, env, document, ValueMode::Owned)?
+            )
+            .unwrap();
+        }
+    }
+    if let Some(align) = options.align_x {
+        let align = match align {
+            FlexAlignment::Start => "Left",
+            FlexAlignment::Center => "Center",
+            FlexAlignment::End => "Right",
+        };
+        write!(code, ".align_x(::iced::alignment::Horizontal::{align})").unwrap();
+    }
+    if let Some(align) = options.align_y {
+        let align = match align {
+            FlexAlignment::Start => "Top",
+            FlexAlignment::Center => "Center",
+            FlexAlignment::End => "Bottom",
+        };
+        write!(code, ".align_y(::iced::alignment::Vertical::{align})").unwrap();
+    }
+    if let Some(clip) = &options.clip {
+        write!(
+            code,
+            ".clip({})",
+            expr_code(clip, env, document, ValueMode::Owned)?
+        )
+        .unwrap();
+    }
+    if let Some(surface) = container_surface_style_value(
+        &style,
+        &options.style,
+        options.custom_style.as_ref(),
+        env,
+        document,
+    )? {
+        write!(code, ".style(move |__theme| {surface})").unwrap();
+    }
+    let code = if style.self_center {
+        format!("::iced::widget::container({code}).width(::iced::Fill).center_x(::iced::Fill)")
+    } else {
+        code
+    };
+    Ok(format!(
+        "{{ let __container_content: ::iced::Element<'_, {message}> = {content}; {code}.into() }}"
+    ))
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(in crate::codegen) fn render_overlay(
+    options: &OverlayOptions,
+    content: &ViewNode,
+    layer: &ViewNode,
+    document: &Document,
+    message: &str,
+    env: &HashMap<String, Binding>,
+    scope: &str,
+    slot: Option<&SlotContext>,
+) -> Result<String, Error> {
+    let content = render_node(content, document, message, env, scope, slot)?;
+    let layer = render_node(layer, document, message, env, scope, slot)?;
+    let visible = expr_code(&options.visible, env, document, ValueMode::Owned)?;
+    let padding = expr_code(&options.padding, env, document, ValueMode::Owned)?;
+    let backdrop = theme_color(document, &options.backdrop);
+    let dismiss = options.dismiss.as_ref().map_or_else(
+        || Ok(format!("{message}::__ExternNoop")),
+        |route| route_code(route, "", env, document, message),
+    )?;
+    let align_x = match options.align_x {
+        FlexAlignment::Start => "Left",
+        FlexAlignment::Center => "Center",
+        FlexAlignment::End => "Right",
+    };
+    let align_y = match options.align_y {
+        FlexAlignment::Start => "Top",
+        FlexAlignment::Center => "Center",
+        FlexAlignment::End => "Bottom",
+    };
+    let noop = format!("{message}::__ExternNoop");
+    Ok(format!(
+        "{{ let __overlay_base: ::iced::Element<'_, {message}> = {content}; if {visible} {{ let __overlay_layer: ::iced::Element<'_, {message}> = {layer}; let __overlay_backdrop = ::iced::widget::container(::iced::widget::space()).width(::iced::Fill).height(::iced::Fill).style(|_| ::iced::widget::container::Style {{ background: ::std::option::Option::Some(::iced::Background::Color({backdrop})), ..::iced::widget::container::Style::default() }}); let __overlay_backdrop: ::iced::Element<'_, {message}> = ::iced::widget::mouse_area(__overlay_backdrop).on_press({dismiss}).on_release({noop}).on_right_press({noop}).on_right_release({noop}).on_middle_press({noop}).on_middle_release({noop}).on_scroll(|_| {noop}).into(); let __overlay_panel = ::iced::widget::mouse_area(__overlay_layer).on_press({noop}).on_release({noop}).on_right_press({noop}).on_right_release({noop}).on_middle_press({noop}).on_middle_release({noop}).on_scroll(|_| {noop}); let __overlay_panel: ::iced::Element<'_, {message}> = ::iced::widget::container(__overlay_panel).width(::iced::Fill).height(::iced::Fill).padding({padding} as f32).align_x(::iced::alignment::Horizontal::{align_x}).align_y(::iced::alignment::Vertical::{align_y}).into(); let __overlay_surface: ::iced::Element<'_, {message}> = ::iced::widget::Stack::new().width(::iced::Fill).height(::iced::Fill).push(__overlay_backdrop).push(__overlay_panel).into(); ::iced::widget::Stack::new().width(::iced::Fill).height(::iced::Fill).push(__overlay_base).push(::iced::widget::float(__overlay_surface).translate(|_, _| ::iced::Vector::new(::core::f32::EPSILON, 0.0))).into() }} else {{ __overlay_base }} }}"
+    ))
+}
+#[allow(clippy::too_many_arguments)]
+pub(in crate::codegen) fn render_rich_text(
+    options: &TextOptions,
+    color: &Option<String>,
+    spans: &[RichSpan],
+    styles: &[String],
+    route: &Option<Route>,
+    document: &Document,
+    message: &str,
+    env: &HashMap<String, Binding>,
+) -> Result<String, Error> {
+    let spans = spans
+        .iter()
+        .map(|item| render_rich_span(item, document, env))
+        .collect::<Result<Vec<_>, _>>()?
+        .join(", ");
+    let style = Style::parse(styles, document);
+    let mut code = String::from("::iced::widget::rich_text(__rich_spans)");
+    append_text_options(&mut code, options, &style, env, document)?;
+    if let Some(color) = color.as_ref().or(style.text_color.as_ref()) {
+        write!(code, ".color({})", theme_color(document, color)).unwrap();
+    }
+    if let Some(route) = route {
+        write!(
+            code,
+            ".on_link_click(move |__link| {})",
+            route_code(route, "__link", env, document, message)?
+        )
+        .unwrap();
+    }
+    Ok(format!(
+        "{{ let __rich_spans: ::std::vec::Vec<::iced::widget::text::Span<'_, ::std::string::String>> = ::std::vec![{spans}]; {code}.into() }}"
+    ))
+}

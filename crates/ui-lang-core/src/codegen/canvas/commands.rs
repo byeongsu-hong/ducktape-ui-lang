@@ -1,0 +1,379 @@
+use super::*;
+
+pub(in crate::codegen) fn canvas_commands_code(
+    commands: &[CanvasCommand],
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<String, Error> {
+    let mut code = String::new();
+    for command in commands {
+        match command {
+            CanvasCommand::Rectangle {
+                x,
+                y,
+                width,
+                height,
+                radius,
+                paint,
+                ..
+            } => {
+                let point = canvas_point_code(x, y, env, document)?;
+                let size = canvas_size_code(width, height, env, document)?;
+                if canvas_radius_is_empty(radius) {
+                    if let Some(fill) = &paint.fill {
+                        write!(
+                            code,
+                            " __frame.fill_rectangle({point}, {size}, {});",
+                            canvas_fill_code(fill, paint.fill_rule, env, document)?
+                        )
+                        .unwrap();
+                    }
+                    if let Some(stroke) = &paint.stroke {
+                        write!(
+                            code,
+                            " __frame.stroke_rectangle({point}, {size}, {});",
+                            canvas_stroke_code(stroke, env, document)?
+                        )
+                        .unwrap();
+                    }
+                } else {
+                    let radius = canvas_radius_code(radius, env, document)?;
+                    write!(
+                        code,
+                        " {{ let __path = ::iced::widget::canvas::Path::rounded_rectangle({point}, {size}, {radius}); {} }}",
+                        canvas_paint_code(paint, "&__path", env, document)?
+                    )
+                    .unwrap();
+                }
+            }
+            CanvasCommand::Circle {
+                x,
+                y,
+                radius,
+                paint,
+                ..
+            } => {
+                let point = canvas_point_code(x, y, env, document)?;
+                let radius = canvas_expr_code(radius, env, document)?;
+                write!(
+                    code,
+                    " {{ let __path = ::iced::widget::canvas::Path::circle({point}, {radius} as f32); {} }}",
+                    canvas_paint_code(paint, "&__path", env, document)?
+                )
+                .unwrap();
+            }
+            CanvasCommand::Line {
+                x1,
+                y1,
+                x2,
+                y2,
+                stroke,
+                ..
+            } => {
+                let from = canvas_point_code(x1, y1, env, document)?;
+                let to = canvas_point_code(x2, y2, env, document)?;
+                write!(
+                    code,
+                    " {{ let __path = ::iced::widget::canvas::Path::line({from}, {to}); __frame.stroke(&__path, {}); }}",
+                    canvas_stroke_code(stroke, env, document)?
+                )
+                .unwrap();
+            }
+            CanvasCommand::Text {
+                value,
+                x,
+                y,
+                max_width,
+                color,
+                size,
+                line_height,
+                font,
+                align_x,
+                align_y,
+                shaping,
+                span,
+            } => {
+                let ty = expr_type(
+                    value,
+                    &env.iter()
+                        .map(|(name, binding)| (name.clone(), binding.ty.clone()))
+                        .collect(),
+                    document,
+                    span,
+                )?;
+                let value = expr_code(value, env, document, ValueMode::Owned)?;
+                let content = if ty == Type::Str {
+                    value
+                } else {
+                    format!("::std::format!(\"{{}}\", {value})")
+                };
+                let position = canvas_point_code(x, y, env, document)?;
+                let max_width = max_width
+                    .as_ref()
+                    .map(|value| canvas_expr_code(value, env, document))
+                    .transpose()?
+                    .map_or_else(|| "f32::INFINITY".into(), |value| format!("{value} as f32"));
+                let color = color.as_ref().map_or_else(
+                    || theme_color(document, "foreground"),
+                    |color| theme_color(document, color),
+                );
+                let size = size
+                    .as_ref()
+                    .map(|value| canvas_expr_code(value, env, document))
+                    .transpose()?
+                    .unwrap_or_else(|| "16.0".into());
+                let line_height = match line_height {
+                    Some(TextLineHeight::Relative(value)) => format!(
+                        "::iced::widget::text::LineHeight::Relative({} as f32)",
+                        canvas_expr_code(value, env, document)?
+                    ),
+                    Some(TextLineHeight::Absolute(value)) => format!(
+                        "::iced::widget::text::LineHeight::Absolute(::iced::Pixels({} as f32))",
+                        canvas_expr_code(value, env, document)?
+                    ),
+                    None => "::iced::widget::text::LineHeight::default()".into(),
+                };
+                let font = font
+                    .as_ref()
+                    .map(|font| font_preset_code(font, document))
+                    .transpose()?
+                    .unwrap_or_else(|| "::iced::Font::DEFAULT".into());
+                let align_x = align_x.map_or("Default", |value| text_alignment_code(value));
+                let align_y = match align_y {
+                    None | Some(VerticalAlignment::Top) => "Top",
+                    Some(VerticalAlignment::Center) => "Center",
+                    Some(VerticalAlignment::Bottom) => "Bottom",
+                };
+                let shaping = shaping.map_or("Auto", text_shaping_code);
+                write!(
+                    code,
+                    " __frame.fill_text(::iced::widget::canvas::Text {{ content: {content}, position: {position}, max_width: {max_width}, color: {color}, size: ::iced::Pixels({size} as f32), line_height: {line_height}, font: {font}, align_x: ::iced::widget::text::Alignment::{align_x}, align_y: ::iced::alignment::Vertical::{align_y}, shaping: ::iced::widget::text::Shaping::{shaping} }});"
+                )
+                .unwrap();
+            }
+            CanvasCommand::Image {
+                source,
+                x,
+                y,
+                width,
+                height,
+                filter,
+                rotation,
+                opacity,
+                snap,
+                radius,
+                span,
+            } => {
+                let source_ty = expr_type(
+                    source,
+                    &env.iter()
+                        .map(|(name, binding)| (name.clone(), binding.ty.clone()))
+                        .collect(),
+                    document,
+                    span,
+                )?;
+                let source = expr_code(source, env, document, ValueMode::Owned)?;
+                let handle = if source_ty == Type::Str {
+                    format!("::iced::widget::image::Handle::from_path({source})")
+                } else {
+                    source
+                };
+                let filter = match filter {
+                    ImageFilter::Linear => "Linear",
+                    ImageFilter::Nearest => "Nearest",
+                };
+                write!(
+                    code,
+                    " __frame.draw_image(::iced::Rectangle::new({}, {}), ::iced::widget::canvas::Image {{ handle: {handle}, filter_method: ::iced::widget::image::FilterMethod::{filter}, rotation: ::iced::Radians({} as f32), border_radius: {}, opacity: {} as f32, snap: {} }});",
+                    canvas_point_code(x, y, env, document)?,
+                    canvas_size_code(width, height, env, document)?,
+                    canvas_expr_code(rotation, env, document)?,
+                    canvas_radius_code(radius, env, document)?,
+                    canvas_expr_code(opacity, env, document)?,
+                    canvas_expr_code(snap, env, document)?
+                )
+                .unwrap();
+            }
+            CanvasCommand::Svg {
+                source,
+                memory,
+                x,
+                y,
+                width,
+                height,
+                color,
+                rotation,
+                opacity,
+                span,
+            } => {
+                let source_ty = expr_type(
+                    source,
+                    &env.iter()
+                        .map(|(name, binding)| (name.clone(), binding.ty.clone()))
+                        .collect(),
+                    document,
+                    span,
+                )?;
+                let source = expr_code(source, env, document, ValueMode::Owned)?;
+                let handle = if *memory && source_ty == Type::Bytes {
+                    format!("::iced::advanced::svg::Handle::from_memory({source})")
+                } else if *memory {
+                    format!("::iced::advanced::svg::Handle::from_memory(({source}).into_bytes())")
+                } else {
+                    format!("::iced::advanced::svg::Handle::from_path({source})")
+                };
+                let color = color.as_ref().map_or_else(
+                    || "::std::option::Option::None".into(),
+                    |color| {
+                        format!(
+                            "::std::option::Option::Some({})",
+                            theme_color(document, color)
+                        )
+                    },
+                );
+                write!(
+                    code,
+                    " __frame.draw_svg(::iced::Rectangle::new({}, {}), ::iced::advanced::svg::Svg {{ handle: {handle}, color: {color}, rotation: ::iced::Radians({} as f32), opacity: {} as f32 }});",
+                    canvas_point_code(x, y, env, document)?,
+                    canvas_size_code(width, height, env, document)?,
+                    canvas_expr_code(rotation, env, document)?,
+                    canvas_expr_code(opacity, env, document)?
+                )
+                .unwrap();
+            }
+            CanvasCommand::Path {
+                segments, paint, ..
+            } => {
+                let path = canvas_path_code(segments, env, document)?;
+                write!(
+                    code,
+                    " {{ let __path = {path}; {} }}",
+                    canvas_paint_code(paint, "&__path", env, document)?
+                )
+                .unwrap();
+            }
+            CanvasCommand::Group {
+                transform,
+                commands,
+                ..
+            } => {
+                let inner = canvas_commands_code(commands, env, document)?;
+                let mut body = String::new();
+                if transform.x.is_some() || transform.y.is_some() {
+                    let x = transform
+                        .x
+                        .as_ref()
+                        .map(|value| canvas_expr_code(value, env, document))
+                        .transpose()?
+                        .unwrap_or_else(|| "0.0".into());
+                    let y = transform
+                        .y
+                        .as_ref()
+                        .map(|value| canvas_expr_code(value, env, document))
+                        .transpose()?
+                        .unwrap_or_else(|| "0.0".into());
+                    write!(
+                        body,
+                        " __frame.translate(::iced::Vector::new({x} as f32, {y} as f32));"
+                    )
+                    .unwrap();
+                }
+                if let Some(value) = &transform.rotate {
+                    write!(
+                        body,
+                        " __frame.rotate({} as f32);",
+                        canvas_expr_code(value, env, document)?
+                    )
+                    .unwrap();
+                }
+                if let Some(value) = &transform.scale {
+                    write!(
+                        body,
+                        " __frame.scale({} as f32);",
+                        canvas_expr_code(value, env, document)?
+                    )
+                    .unwrap();
+                }
+                if transform.scale_x.is_some() || transform.scale_y.is_some() {
+                    let x = transform
+                        .scale_x
+                        .as_ref()
+                        .map(|value| canvas_expr_code(value, env, document))
+                        .transpose()?
+                        .unwrap_or_else(|| "1.0".into());
+                    let y = transform
+                        .scale_y
+                        .as_ref()
+                        .map(|value| canvas_expr_code(value, env, document))
+                        .transpose()?
+                        .unwrap_or_else(|| "1.0".into());
+                    write!(
+                        body,
+                        " __frame.scale_nonuniform(::iced::Vector::new({x} as f32, {y} as f32));"
+                    )
+                    .unwrap();
+                }
+                if let Some([x, y, width, height]) = &transform.clip {
+                    let point = canvas_point_code(x, y, env, document)?;
+                    let size = canvas_size_code(width, height, env, document)?;
+                    write!(
+                        body,
+                        " __frame.with_clip(::iced::Rectangle {{ x: {point}.x, y: {point}.y, width: {size}.width, height: {size}.height }}, |__frame| {{ {inner} }});"
+                    )
+                    .unwrap();
+                } else {
+                    body.push_str(&inner);
+                }
+                write!(code, " __frame.with_save(|__frame| {{ {body} }});").unwrap();
+            }
+            CanvasCommand::If {
+                condition,
+                commands,
+                ..
+            } => {
+                let condition = expr_code(condition, env, document, ValueMode::Owned)?;
+                write!(
+                    code,
+                    " if {condition} {{ {} }}",
+                    canvas_commands_code(commands, env, document)?
+                )
+                .unwrap();
+            }
+            CanvasCommand::For {
+                item,
+                items,
+                commands,
+                span,
+            } => {
+                let Type::List(inner) = expr_type(
+                    items,
+                    &env.iter()
+                        .map(|(name, binding)| (name.clone(), binding.ty.clone()))
+                        .collect(),
+                    document,
+                    span,
+                )?
+                else {
+                    return Err(Error::new("E190", span, "canvas for expects a list"));
+                };
+                let items = expr_code(items, env, document, ValueMode::Borrowed)?;
+                let mut child_env = env.clone();
+                child_env.insert(
+                    item.clone(),
+                    Binding {
+                        code: item.clone(),
+                        ty: *inner,
+                        local: false,
+                    },
+                );
+                write!(
+                    code,
+                    " for {item} in {items}.iter() {{ {} }}",
+                    canvas_commands_code(commands, &child_env, document)?
+                )
+                .unwrap();
+            }
+        }
+    }
+    Ok(code)
+}

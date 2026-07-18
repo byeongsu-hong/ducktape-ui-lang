@@ -1,0 +1,589 @@
+use super::*;
+
+#[test]
+fn lowers_typed_iced_extern_boundaries() {
+    let source = r#"app Interop
+extern crate::backend
+  Failure(code:i64)
+  component native_meter(value:f64) -> f64
+  component passive() -> unit
+  shader native_shader(value:f64) -> bool
+  shader passive_shader() -> unit
+  task focus_next() -> unit
+  task save() -> i64 ! Failure
+  subscription events() -> bool
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  amount = 1.0
+  count = 0
+  seen = false
+on changed(next)
+  amount = next
+on focused
+on focus
+  task focus_next() -> focused
+on save
+  task save() -> saved _ | failed _
+on saved(next)
+  count = next
+on failed(error)
+  count = error.code
+on event(next)
+  seen = next
+on shaded(next)
+  seen = next
+subscribe
+  events() -> event _
+view
+  col
+    extern native_meter(amount) -> changed _
+    extern passive()
+    shader native_shader(amount) width=fill height=64.0 -> shaded _
+    shader passive_shader()
+    button "Focus" -> focus
+    button "Save" -> save
+"#;
+    let generated = compile(source, "interop.ice").unwrap();
+    assert!(generated.contains("::iced::Element<'static, f64>"));
+    assert!(generated.contains("::iced::Task<()>"));
+    assert!(generated.contains("::iced::Subscription<bool>"));
+    assert!(generated.contains("fn __ui_lang_check_shader_native_shader"));
+    assert!(generated.contains("::iced::widget::shader::Program<bool>"));
+    assert!(
+        generated
+            .contains("::iced::widget::Shader::new(crate::backend::native_shader(self.amount))")
+    );
+    assert!(generated.contains(".width(::iced::Fill).height(64.0 as f32)"));
+    assert!(generated.contains(".subscription(Self::__subscription)"));
+    assert!(generated.contains("native_meter(self.amount).map"));
+    assert!(generated.contains("passive().map(move |__value| __InteropMessage::__ExternNoop)"));
+    assert!(generated.contains("focus_next().map(|value| __InteropMessage::Focused)"));
+    assert!(generated.contains("save().map(|result| match result"));
+    assert!(generated.contains("Result::Err(error) => __InteropMessage::Failed(error)"));
+}
+
+#[test]
+fn lowers_native_keyboard_subscriptions() {
+    let source = example!("keyboard_values.ice");
+    let generated = compile(source, "keyboard_values.ice").unwrap();
+    assert!(generated.contains("struct __IceKeyPress"));
+    assert!(generated.contains("struct __IceKeyRelease"));
+    assert!(generated.contains("key: ::iced::keyboard::Key"));
+    assert!(generated.contains("physical_key: ::iced::keyboard::key::Physical"));
+    assert!(generated.contains("modifiers: ::iced::keyboard::Modifiers"));
+    assert!(generated.contains("::iced::keyboard::listen().filter_map"));
+    assert!(generated.contains("::iced::keyboard::Event::KeyPressed"));
+    assert!(generated.contains("::iced::keyboard::Event::KeyReleased"));
+    assert!(generated.contains("::iced::keyboard::Event::ModifiersChanged"));
+    assert!(generated.contains("::iced::keyboard::key::Named::Enter"));
+    assert!(generated.contains("::iced::keyboard::key::NativeCode::Windows(42u16)"));
+    assert!(generated.contains("<u32>::try_from(42).ok().map"));
+    assert!(generated.contains("::iced::keyboard::Location::Standard"));
+    assert!(generated.contains("::iced::keyboard::Modifiers::SHIFT"));
+    assert!(generated.contains("::iced::keyboard::Modifiers::COMMAND"));
+    assert!(generated.contains(".to_latin(event.physical_key)"));
+    assert!(generated.contains("::iced::keyboard::Key::Character(value)"));
+    assert!(generated.contains("::iced::keyboard::key::Physical::Code(value)"));
+    assert!(generated.contains("fn __ui_lang_check_sync_keyboard_value"));
+}
+
+#[test]
+fn lowers_native_timer_subscription() {
+    let source = example!("timer.ice");
+    let generated = compile(source, "timer.ice").unwrap();
+    assert!(generated.contains("::iced::time::every(::std::time::Duration::from_millis(250))"));
+    assert!(generated.contains("if self.auto_refresh { ::iced::Subscription::batch(["));
+    assert!(generated.contains("]) } else { ::iced::Subscription::none() }"));
+    assert!(generated.contains("::iced::time::now().map"));
+    assert!(generated.contains("__TimerEventsMessage::Tick(__value)"));
+    assert!(generated.contains(
+            "::iced::time::repeat(crate::backend::refresh_time, ::std::time::Duration::from_millis(1000))"
+        ));
+    assert!(generated.contains(
+        ".filter_map(|__value| crate::backend::even_refresh(__value)).with(self.generation)"
+    ));
+    assert!(generated.contains(
+            ".filter_map(|__value| crate::backend::visible_pointer(__value.0, __value.1)).with(self.generation)"
+        ));
+    assert!(generated.contains(".filter_map(|_| crate::backend::allow_frame())"));
+    assert!(generated.contains("__TimerEventsMessage::Refreshed(__value.0, __value.1)"));
+}
+
+#[test]
+fn lowers_generic_event_values_to_all_native_listeners() {
+    let source = r#"app Events
+extern crate::backend
+  sync event_name(value:event) -> str
+  sync event_label(value:event) -> str?
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+on received(value)
+on labeled(value)
+on identified(id, value)
+subscribe
+  event -> received _
+  event filter=event_label status=any -> labeled _
+  event with-id status=ignored -> identified _ _
+  event raw status=captured -> received _
+  event raw with-id -> identified _ _
+view
+  text "Events"
+"#;
+    let generated = compile(source, "events.ice").unwrap();
+    assert!(generated.contains("fn __ui_lang_check_sync_event_name"));
+    assert!(generated.contains("arg0: ::iced::Event"));
+    assert!(generated.contains("::iced::event::listen().map"));
+    assert!(generated.contains("::iced::event::listen_with"));
+    assert!(generated.contains("::iced::event::listen_raw"));
+    assert!(generated.contains("::iced::event::Status::Ignored"));
+    assert!(generated.contains("::iced::event::Status::Captured"));
+    assert!(generated.contains("Some((__id, __event))"));
+    assert!(generated.contains("filter_map(|__value| crate::backend::event_label(__value))"));
+    assert!(generated.contains("__EventsMessage::Received(__value)"));
+    assert!(generated.contains("__EventsMessage::Identified(__value.0, __value.1)"));
+}
+
+#[test]
+fn lowers_a_condition_around_window_frames() {
+    let source = example!("window_events.ice");
+    let generated = compile(source, "window_events.ice").unwrap();
+    assert!(
+        generated.contains(
+            "if self.listen_frames { ::iced::Subscription::batch([::iced::window::frames()"
+        )
+    );
+    assert!(generated.contains("]) } else { ::iced::Subscription::none() }"));
+    assert!(generated.contains("::iced::Event::Window(__event)"));
+    assert!(generated.contains("::iced::event::Status::Captured"));
+    assert!(generated.contains("::iced::window::events().filter_map(|(__id, __event)|"));
+    assert!(generated.contains("::iced::event::listen_with(|__event, __status, __id|"));
+    assert!(generated.contains("(__id, __value.0, __value.1, __value.2, __value.3)"));
+    assert!(generated.contains(".map(|_| __id)"));
+    assert!(generated.contains(".map(|__value| (__id, __value))"));
+    assert!(generated.contains(
+        "__WindowEventsMessage::Opened(__value.0, __value.1, __value.2, __value.3, __value.4)"
+    ));
+
+    let legacy = source
+        .replace("on focused(id)\n  last_window = some(id)", "on focused")
+        .replace(
+            "window focused with-id -> focused _",
+            "window focused -> focused",
+        );
+    let generated = compile(&legacy, "window_events.ice").unwrap();
+    assert!(generated.contains("map(move |__value| __WindowEventsMessage::Focused)"));
+}
+
+#[test]
+fn lowers_all_native_input_method_subscriptions() {
+    let source = example!("input_method_events.ice");
+    let generated = compile(source, "input_method_events.ice").unwrap();
+    assert!(generated.contains("::iced::advanced::input_method::Event::Opened"));
+    assert!(generated.contains("::iced::advanced::input_method::Event::Preedit"));
+    assert!(generated.contains("::iced::advanced::input_method::Event::Commit"));
+    assert!(generated.contains("::iced::advanced::input_method::Event::Closed"));
+    assert!(generated.contains("i64::try_from(range.start)"));
+    assert!(generated.contains("|__event, _, _|"));
+}
+
+#[test]
+fn lowers_all_native_mouse_subscriptions() {
+    let source = example!("mouse_events.ice");
+    let generated = compile(source, "mouse_events.ice").unwrap();
+    assert!(generated.contains("::iced::event::listen_with"));
+    assert!(generated.contains("::iced::mouse::Event::CursorEntered"));
+    assert!(generated.contains("::iced::mouse::Event::CursorLeft"));
+    assert!(generated.contains("::iced::mouse::Event::CursorMoved"));
+    assert!(generated.contains("::iced::mouse::Event::ButtonPressed"));
+    assert!(generated.contains("::iced::mouse::Event::ButtonReleased"));
+    assert!(generated.contains("::iced::mouse::Event::WheelScrolled"));
+    assert!(generated.contains("::iced::mouse::ScrollDelta::Pixels"));
+    assert!(generated.contains("::std::option::Option::Some(button)"));
+    assert!(generated.contains("::iced::event::Status::Captured"));
+}
+
+#[test]
+fn lowers_all_native_touch_subscriptions() {
+    let source = example!("touch_events.ice");
+    let generated = compile(source, "touch_events.ice").unwrap();
+    assert!(generated.contains("::iced::touch::Event::FingerPressed"));
+    assert!(generated.contains("::iced::touch::Event::FingerMoved"));
+    assert!(generated.contains("::iced::touch::Event::FingerLifted"));
+    assert!(generated.contains("::iced::touch::Event::FingerLost"));
+    assert!(generated.contains("::std::option::Option::Some((id, position.x as f64"));
+    assert!(generated.contains("::iced::event::Status::Ignored"));
+}
+
+#[test]
+fn lowers_typed_pointer_values() {
+    let source = example!("pointer_values.ice");
+    let generated = compile(source, "pointer_values.ice").unwrap();
+    for expected in [
+        "Pressed(::iced::mouse::Button)",
+        "Touched(::iced::touch::Finger, f64, f64)",
+        "::iced::advanced::mouse::Click::new",
+        "::iced::mouse::Cursor::Available",
+        "::iced::mouse::Button::Other(9u16)",
+        "::iced::touch::Finger(18446744073709551615u64)",
+        ".position_over(self.bounds)",
+        "fn __ui_lang_check_sync_pointer_click",
+    ] {
+        assert!(generated.contains(expected), "missing {expected}");
+    }
+}
+
+#[test]
+fn lowers_native_transformations() {
+    let source = example!("transformation_values.ice");
+    let generated = compile(source, "transformation_values.ice").unwrap();
+    for expected in [
+        "identity: ::iced::Transformation",
+        "translation: ::iced::Vector",
+        "size_value: ::iced::Size",
+        "::iced::Transformation::orthographic(640u32, 480u32)",
+        "<u32>::try_from((-1))",
+        "::iced::Transformation::translate",
+        "::iced::Transformation::scale",
+        ".inverse()",
+        "::std::convert::Into::<[f32; 16]>::into",
+        "fn __ui_lang_check_sync_transformation_round_trip",
+    ] {
+        assert!(generated.contains(expected), "missing {expected}");
+    }
+}
+
+#[test]
+fn lowers_native_geometry_values() {
+    let source = example!("geometry_values.ice");
+    let generated = compile(source, "geometry_values.ice").unwrap();
+    for expected in [
+        "snapped_point: ::iced::Point<u32>",
+        "exact_bounds: ::iced::Rectangle<u32>",
+        "snapped_bounds: ::std::option::Option<::iced::Rectangle<u32>>",
+        "::iced::Point::ORIGIN",
+        ".distance(::iced::Point::new",
+        ".snap()",
+        "::iced::Vector::ZERO",
+        "::iced::Size::INFINITE",
+        ".rotate(::iced::Radians",
+        "::iced::Size::from((640u32, 480u32))",
+        "<u32>::try_from((-1))",
+        "::iced::Rectangle::with_vertices",
+        ".intersection(&(::iced::Rectangle",
+        "::iced::Padding { top:",
+        "(self.bounds).anchor(::iced::Size::new",
+        "::iced::alignment::Horizontal::Right",
+        "::iced::alignment::Vertical::Bottom",
+        "(2.0) as f32",
+        "fn __ui_lang_check_sync_geometry_round_trip",
+    ] {
+        assert!(generated.contains(expected), "missing {expected}");
+    }
+}
+
+#[test]
+fn lowers_native_padding_and_angles() {
+    let source = example!("padding_angles.ice");
+    let generated = compile(source, "padding_angles.ice").unwrap();
+    for expected in [
+        "pixel_value: ::iced::Pixels",
+        "direct_padding: ::iced::Padding",
+        "degree_value: ::iced::Degrees",
+        "radians_value: ::iced::Radians",
+        "::iced::Pixels::from(4294967295u32)",
+        ".ok().map(::iced::Pixels::from)",
+        "::iced::padding::all((5.0) as f32)",
+        "::iced::padding::right(::iced::Pixels",
+        "::iced::Padding::from([",
+        ".fit(::iced::Size::new",
+        "::iced::Degrees::RANGE.contains",
+        "::iced::Radians::RANGE.contains",
+        "::iced::Radians::from(::iced::Degrees",
+        ".to_distance(&(::iced::Rectangle",
+        " % ",
+        "(2.0) as f32 * ::iced::Radians",
+        ".rotate(self.radians_value)",
+        "fn __ui_lang_check_sync_unit_round_trip",
+    ] {
+        assert!(generated.contains(expected), "missing {expected}");
+    }
+}
+
+#[test]
+fn lowers_native_system_tasks_and_subscription() {
+    let source = r#"app Diagnostics
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  cpu = ""
+  mode = "none"
+on inspect
+  task system info -> inspected _
+on inspected(info)
+  cpu = info.cpu_brand
+on read_theme
+  task system theme -> theme_changed _
+on theme_changed(next)
+  mode = next
+subscribe
+  system theme -> theme_changed _
+view
+  text cpu
+"#;
+    let generated = compile(source, "diagnostics.ice").unwrap();
+    assert!(generated.contains("struct __IceSystemInfo"));
+    assert!(generated.contains("fn __ice_system_info(value: ::iced::system::Information)"));
+    assert!(generated.contains("::iced::system::information().map(__ice_system_info)"));
+    assert!(generated.contains("::iced::system::theme().map(__ice_system_theme)"));
+    assert!(generated.contains("::iced::system::theme_changes().map(__ice_system_theme)"));
+    assert!(generated.contains("self.cpu = info.cpu_brand.clone()"));
+}
+
+#[test]
+fn lowers_native_clipboard_tasks() {
+    let source = r#"app Clipboard
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  value:str? = none
+on read
+  task clipboard read -> read_done _
+on read_done(next)
+  value = next
+on read_primary
+  task clipboard read-primary -> read_done _
+on write
+  task clipboard write "copied"
+on write_primary
+  task clipboard write-primary "selected"
+view
+  text "Clipboard"
+"#;
+    let generated = compile(source, "clipboard.ice").unwrap();
+    assert!(generated.contains("::iced::clipboard::read().map"));
+    assert!(generated.contains("::iced::clipboard::read_primary().map"));
+    assert!(generated.contains("::iced::clipboard::write::<__ClipboardMessage>"));
+    assert!(generated.contains("::iced::clipboard::write_primary::<__ClipboardMessage>"));
+}
+
+#[test]
+fn lowers_native_runtime_font_loading() {
+    let source = r#"app Fonts
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  font_bytes:bytes = bytes(00 01)
+on load
+  task font load font_bytes -> loaded _
+on loaded(result)
+view
+  text "Fonts"
+"#;
+    let generated = compile(source, "fonts.ice").unwrap();
+    assert!(generated.contains("::iced::font::load(self.font_bytes.clone()).map"));
+    assert!(generated.contains("Result::Ok(value) => __FontsMessage::Loaded(value)"));
+    assert!(generated.contains("Result::Err(error) => match error {}"));
+}
+
+#[test]
+fn lowers_all_static_widget_operations() {
+    let source = r#"app Operations
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  value = ""
+on checked(value)
+on previous
+  task widget focus-previous
+on next
+  task widget focus-next
+on focus
+  task widget focus #field
+on check
+  task widget focused #field -> checked _
+on front
+  task widget cursor-front #field
+on end
+  task widget cursor-end #field
+on cursor
+  task widget cursor #field 2
+on all
+  task widget select-all #field
+on range
+  task widget select #field 1 3
+on snap
+  task widget snap #list 0.0 1.0
+on snap_end
+  task widget snap-end #list
+on scroll_to
+  task widget scroll-to #list 0.0 24.0
+on scroll_by
+  task widget scroll-by #list -4.0 8.0
+view
+  col
+    input "Value" #field <-> value
+    scroll #list
+      text "Content"
+"#;
+    let generated = compile(source, "operations.ice").unwrap();
+    for function in [
+        "focus_previous",
+        "focus_next",
+        "focus::<",
+        "is_focused",
+        "move_cursor_to_front",
+        "move_cursor_to_end",
+        "move_cursor_to::<",
+        "select_all",
+        "select_range",
+        "snap_to::<",
+        "snap_to_end",
+        "scroll_to::<",
+        "scroll_by::<",
+    ] {
+        assert!(generated.contains(function), "missing {function}");
+    }
+    assert!(generated.contains("Id::new(\"Operations/field\")"));
+    assert!(generated.contains("Id::new(\"Operations/list\")"));
+    assert!(generated.contains("RelativeOffset { x: (0.0) as f32, y: (1.0) as f32 }"));
+    assert!(generated.contains("AbsoluteOffset"));
+    assert!(generated.contains("(-4.0)"));
+}
+
+#[test]
+fn lowers_all_dynamic_widget_operations() {
+    let source = r#"app DynamicOperations
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  ids = [1, 2]
+  selected = 1
+  value = ""
+on checked(value)
+on focus
+  task widget focus #field(selected)
+on check
+  task widget focused #field(selected) -> checked _
+on front
+  task widget cursor-front #field(selected)
+on end
+  task widget cursor-end #field(selected)
+on cursor
+  task widget cursor #field(selected) 2
+on all
+  task widget select-all #field(selected)
+on range
+  task widget select #field(selected) 1 3
+on snap
+  task widget snap #list(selected) 0.0 1.0
+on snap_end
+  task widget snap-end #list(selected)
+on scroll_to
+  task widget scroll-to #list(selected) 0.0 24.0
+on scroll_by
+  task widget scroll-by #list(selected) -4.0 8.0
+view
+  col
+    for id in ids
+      input "Value" #field(id) <-> value
+      scroll #list(id)
+        text id
+"#;
+    let generated = compile(source, "dynamic_operations.ice").unwrap();
+    for function in [
+        "focus::<",
+        "is_focused",
+        "move_cursor_to_front",
+        "move_cursor_to_end",
+        "move_cursor_to::<",
+        "select_all",
+        "select_range",
+        "snap_to::<",
+        "snap_to_end",
+        "scroll_to::<",
+        "scroll_by::<",
+    ] {
+        assert!(generated.contains(function), "missing {function}");
+    }
+    assert!(
+        generated
+            .contains("Id::from(format!(\"{}/field({})\", \"DynamicOperations\", self.selected))")
+    );
+    assert!(
+        generated
+            .contains("Id::from(format!(\"{}/list({})\", \"DynamicOperations\", self.selected))")
+    );
+    assert!(generated.contains(
+        ".id(::iced::widget::Id::from(format!(\"{}/field({})\", \"DynamicOperations\", id)))"
+    ));
+    assert!(generated.contains(
+        ".id(::iced::widget::Id::from(format!(\"{}/list({})\", \"DynamicOperations\", id)))"
+    ));
+}
+
+#[test]
+fn lowers_scoped_widget_operations() {
+    let source = example!("scoped_widget_operations.ice");
+    let generated = compile(source, "scoped_widget_operations.ice").unwrap();
+
+    for id in [
+        "Id::new(\"ScopedOperations/Field/field\")",
+        "Id::new(\"ScopedOperations/frame/inner-frame/slot-field\")",
+        "Id::new(\"ScopedOperations/details/list\")",
+    ] {
+        assert!(generated.contains(id), "missing {id}");
+    }
+    for path in [
+        "format!(\"{}/field\", format!(\"{}/inner\", format!(\"{}/outer({})\", \"ScopedOperations\", self.selected)))",
+        "format!(\"{}/field\", format!(\"{}/key({})\", \"ScopedOperations\", self.selected))",
+        "format!(\"{}/filter\", format!(\"{}/header({})\", \"ScopedOperations\", self.column_index))",
+        "format!(\"{}/cell\", format!(\"{}/column({})\", format!(\"{}/row({})\", \"ScopedOperations\", self.row_index), self.column_index))",
+    ] {
+        assert!(generated.contains(path), "missing {path}");
+    }
+}
+
+#[test]
+fn lowers_widget_selectors() {
+    let source = example!("widget_selectors.ice");
+    let generated = compile(source, "widget_selectors.ice").unwrap();
+
+    for expected in [
+        "struct __IceWidgetTarget",
+        "fn __ice_widget_target_from_target",
+        "fn __ice_widget_target_from_text",
+        "::iced::widget::selector::find(::iced::widget::selector::id(",
+        "::iced::widget::selector::find(\"Search\".to_owned())",
+        "::iced::widget::selector::find(::iced::Point::new(",
+        "::iced::widget::selector::is_focused()",
+        "::iced::widget::selector::find_all(\"Search\".to_owned())",
+        "::iced::widget::selector::find_all(crate::backend::by_kind(",
+        "fn __ui_lang_check_selector_by_kind",
+        ".as_ref().map(|value| value.kind.clone())",
+        ".as_ref().map(|value| value.x.clone())",
+    ] {
+        assert!(generated.contains(expected), "missing {expected}");
+    }
+}

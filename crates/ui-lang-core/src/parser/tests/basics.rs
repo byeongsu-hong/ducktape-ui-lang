@@ -1,0 +1,127 @@
+use super::*;
+
+#[test]
+fn parses_compact_app() {
+    let document = parse(SOURCE).unwrap();
+    assert_eq!(document.app, "Demo");
+    assert_eq!(document.structs.len(), 1);
+    assert_eq!(document.handlers.len(), 3);
+    assert_eq!(document.qr_codes.len(), 1);
+    assert_eq!(
+        document.qr_codes[0].data,
+        QrPayload::Text("https://example.com/ice docs".into())
+    );
+}
+
+#[test]
+fn parses_all_native_time_operations() {
+    let source = example!("timer.ice");
+    let document = parse(source).unwrap();
+    assert_eq!(document.states[1].ty, Type::Option(Box::new(Type::Instant)));
+    assert!(matches!(
+        &document.handlers[0].statements[0],
+        Statement::Run { function, .. } if function == "__ice_time_now"
+    ));
+    assert!(matches!(
+        document.subscriptions[0].source,
+        SubscriptionSource::Every { milliseconds: 250 }
+    ));
+    assert!(matches!(
+        &document.subscriptions[1].source,
+        SubscriptionSource::Repeat {
+            function,
+            milliseconds: 1000
+        } if function == "refresh_time"
+    ));
+    assert_eq!(
+        document.subscriptions[1].filter.as_deref(),
+        Some("even_refresh")
+    );
+    assert!(matches!(
+        document.subscriptions[1].context,
+        Some(Expr::Path(ref path)) if path == &["generation"]
+    ));
+    assert_eq!(
+        document.subscriptions[2].filter.as_deref(),
+        Some("visible_pointer")
+    );
+    assert!(document.subscriptions[3].context.is_none());
+
+    let error =
+        parse(&source.replace("refresh_time() every", "refresh_time(1) every")).unwrap_err();
+    assert_eq!(error.code, "E084");
+    assert!(error.message.contains("cannot take arguments"));
+}
+
+#[test]
+fn parses_structured_task_groups() {
+    let source = SOURCE.replace(
+            "  run load() -> loaded _ | failed _",
+            "  parallel\n    run load() -> loaded _ | failed _\n    sequential\n      task clipboard read -> clipboard_read _\n      task system theme -> theme_read _",
+        );
+    let document = parse(&source).unwrap();
+    let Statement::TaskGroup {
+        kind, statements, ..
+    } = &document.handlers[0].statements[0]
+    else {
+        panic!("expected task group");
+    };
+    assert_eq!(*kind, TaskGroupKind::Parallel);
+    assert_eq!(statements.len(), 2);
+    assert!(matches!(
+        &statements[1],
+        Statement::TaskGroup {
+            kind: TaskGroupKind::Sequential,
+            statements,
+            ..
+        } if statements.len() == 2
+    ));
+
+    let error =
+        parse(&SOURCE.replace("  run load() -> loaded _ | failed _", "  parallel")).unwrap_err();
+    assert_eq!(error.code, "E050");
+    assert!(error.message.contains("at least one"));
+}
+
+#[test]
+fn parses_abortable_tasks_and_handles() {
+    let source = SOURCE
+        .replace(
+            "  query = \"\"",
+            "  query = \"\"\n  request:task-handle? = none",
+        )
+        .replace(
+            "  run load() -> loaded _ | failed _",
+            "  abortable request abort-on-drop\n    run load() -> loaded _ | failed _",
+        );
+    let document = parse(&source).unwrap();
+    assert_eq!(
+        document.states[2].ty,
+        Type::Option(Box::new(Type::TaskHandle))
+    );
+    assert!(matches!(
+        &document.handlers[0].statements[0],
+        Statement::Abortable {
+            handle,
+            abort_on_drop: true,
+            task,
+            ..
+        } if handle == "request" && matches!(task.as_ref(), Statement::Run { .. })
+    ));
+
+    let error = parse(&SOURCE.replace(
+        "  run load() -> loaded _ | failed _",
+        "  abortable request later\n    run load() -> loaded _ | failed _",
+    ))
+    .unwrap_err();
+    assert_eq!(error.code, "E050");
+    assert!(error.message.contains("abort-on-drop"));
+
+    let error = parse(&SOURCE.replace(
+            "  run load() -> loaded _ | failed _",
+            "  abortable request\n    run load() -> loaded _ | failed _\n    run load() -> loaded _ | failed _",
+        ))
+        .unwrap_err();
+    assert_eq!(error.code, "E050");
+    assert!(error.message.contains("exactly one"));
+}

@@ -4,6 +4,8 @@ mod codegen;
 mod format;
 mod parser;
 mod source;
+#[cfg(test)]
+mod test_support;
 
 pub use ast::*;
 pub use format::{format_fragment, format_source};

@@ -34,16 +34,3 @@ pub fn format_fragment(source: &str) -> String {
     }
     output
 }
-
-#[cfg(test)]
-mod tests {
-    use super::format_source;
-
-    #[test]
-    fn normalizes_indent_and_trailing_newline() {
-        let source = "app Demo\nextern crate::backend\n    Item(id:i64)\n    load() -> [Item] ! Item\ntheme\n    background #000000\n    foreground #ffffff\n    primary #333333\n    danger #ff0000\nstate\n    items:[Item] = []\non mount\n    run load() -> loaded _ | failed _\non loaded(next)\n    items = next\non failed(error)\n    items = []\nview\n    text len(items) @text-sm";
-        let formatted = format_source(source).unwrap();
-        assert!(formatted.contains("extern crate::backend\n  Item"));
-        assert!(formatted.ends_with('\n'));
-    }
-}

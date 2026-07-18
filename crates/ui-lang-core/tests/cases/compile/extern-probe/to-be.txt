@@ -1,0 +1,3 @@
+async fn __ui_lang_check_load
+crate::backend::load(arg0).await
+let task = (||

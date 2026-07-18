@@ -108,10 +108,7 @@ fn ice_files(root: &Path) -> Result<Vec<PathBuf>, String> {
             let entry = entry.map_err(|error| error.to_string())?;
             let path = entry.path();
             if path.is_dir() {
-                if !matches!(
-                    path.file_name().and_then(|name| name.to_str()),
-                    Some(".git" | "target")
-                ) {
+                if !ignored_dir(&path) {
                     visit(&path, output)?;
                 }
             } else if path.extension().and_then(|extension| extension.to_str()) == Some("ice") {
@@ -127,6 +124,18 @@ fn ice_files(root: &Path) -> Result<Vec<PathBuf>, String> {
     Ok(output)
 }
 
+fn ignored_dir(path: &Path) -> bool {
+    matches!(
+        path.file_name().and_then(|name| name.to_str()),
+        Some(".git" | ".worktree" | "target")
+    ) || (path.file_name().and_then(|name| name.to_str()) == Some("cases")
+        && path
+            .parent()
+            .and_then(Path::file_name)
+            .and_then(|name| name.to_str())
+            == Some("tests"))
+}
+
 fn cargo(args: &[&str]) -> Result<(), String> {
     let cargo = env::var("CARGO").unwrap_or_else(|_| "cargo".into());
     let status = Command::new(cargo)
@@ -137,5 +146,19 @@ fn cargo(args: &[&str]) -> Result<(), String> {
         Ok(())
     } else {
         Err(format!("cargo {} failed", args.join(" ")))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ignored_dir;
+    use std::path::Path;
+
+    #[test]
+    fn ignores_build_and_fixture_directories() {
+        assert!(ignored_dir(Path::new("target")));
+        assert!(ignored_dir(Path::new(".worktree")));
+        assert!(ignored_dir(Path::new("tests/cases")));
+        assert!(!ignored_dir(Path::new("src/cases")));
     }
 }

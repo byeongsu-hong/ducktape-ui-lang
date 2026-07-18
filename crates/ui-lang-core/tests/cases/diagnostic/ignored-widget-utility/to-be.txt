@@ -1,0 +1,2 @@
+E042
+utility `gap-4` has no effect on `text`

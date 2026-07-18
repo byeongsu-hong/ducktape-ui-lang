@@ -1,0 +1,175 @@
+use super::*;
+
+pub(in crate::parser) fn parse_view(line: &Line) -> Result<ViewNode, Error> {
+    if let Some(condition) = line.text.strip_prefix("if ") {
+        return Ok(ViewNode::If {
+            condition: parse_expr(condition, line)?,
+            children: line
+                .children
+                .iter()
+                .map(parse_view)
+                .collect::<Result<_, _>>()?,
+            span: Span::line(line.number),
+        });
+    }
+    if let Some(loop_source) = line.text.strip_prefix("for ") {
+        let Some((item, items)) = loop_source.split_once(" in ") else {
+            return Err(error("E060", line, "loops use `for item in items`"));
+        };
+        return Ok(ViewNode::For {
+            item: identifier(item.trim(), line)?,
+            items: parse_expr(items.trim(), line)?,
+            children: line
+                .children
+                .iter()
+                .map(parse_view)
+                .collect::<Result<_, _>>()?,
+            span: Span::line(line.number),
+        });
+    }
+
+    let (without_route, route_source) = split_top_marker(&line.text, "->")
+        .map_or((line.text.as_str(), None), |(left, right)| {
+            (left, Some(right))
+        });
+    let (core, styles) = split_style_utilities(without_route);
+    let parts = split_words(core);
+    let Some(kind) = parts.first().map(String::as_str) else {
+        return Err(error("E061", line, "empty view node"));
+    };
+    if route_source.is_some()
+        && !matches!(
+            kind,
+            "button"
+                | "checkbox"
+                | "toggler"
+                | "slider"
+                | "radio"
+                | "pick"
+                | "combo"
+                | "markdown"
+                | "rich-text"
+                | "editor"
+                | "extern"
+                | "themer"
+                | "shader"
+        )
+    {
+        return Err(error(
+            "E081",
+            line,
+            format!("`{kind}` does not emit a route payload"),
+        ));
+    }
+    let span = Span::line(line.number);
+
+    match kind {
+        "col" | "row" | "scroll" | "grid" | "stack" => {
+            let id = parts
+                .get(1)
+                .filter(|part| part.starts_with('#'))
+                .map(|part| parse_id(part, line))
+                .transpose()?;
+            let option_start = usize::from(id.is_some()) + 1;
+            let mut options = parse_layout_options(kind, &parts[option_start..], line)?;
+            let children = if kind == "scroll" {
+                let scroll = options.scroll.as_mut().expect("scroll options");
+                let mut content = Vec::new();
+                for child in &line.children {
+                    let parts = split_words(&child.text);
+                    if matches!(
+                        parts.first().map(String::as_str),
+                        Some("active" | "hovered" | "dragged")
+                    ) {
+                        scroll
+                            .styles
+                            .push(parse_scroll_status_style(&parts, child)?);
+                    } else {
+                        content.push(parse_view(child)?);
+                    }
+                }
+                if content.len() != 1 {
+                    return Err(error(
+                        "E062",
+                        line,
+                        "scroll must have exactly one content child beside status styles",
+                    ));
+                }
+                content
+            } else {
+                line.children
+                    .iter()
+                    .map(parse_view)
+                    .collect::<Result<_, _>>()?
+            };
+            Ok(ViewNode::Layout {
+                kind: match kind {
+                    "col" => Layout::Column,
+                    "row" => Layout::Row,
+                    "scroll" => Layout::Scroll,
+                    "grid" => Layout::Grid,
+                    _ => Layout::Stack,
+                },
+                options: Box::new(options),
+                id,
+                styles,
+                children,
+                span,
+            })
+        }
+        "text" => parse_text(&parts, styles, line),
+        "rich-text" => parse_rich_text(&parts, styles, route_source, line),
+        "container" => parse_container(&parts, styles, line),
+        "overlay" => parse_overlay(&parts, styles, line),
+        "pane-grid" => parse_pane_grid(&parts, styles, line),
+        "input" => parse_input(&parts, styles, line),
+        "button" => parse_button(&parts, styles, route_source, line),
+        "checkbox" => parse_checkbox(&parts, styles, route_source, line),
+        "toggler" => parse_toggler(&parts, styles, route_source, line),
+        "slider" => parse_slider(&parts, styles, route_source, line),
+        "progress" => parse_progress(&parts, styles, line),
+        "radio" => parse_radio(&parts, styles, route_source, line),
+        "pick" => parse_pick_list(&parts, styles, route_source, line),
+        "combo" => parse_combo_box(&parts, styles, route_source, line),
+        "rule" => parse_rule(&parts, styles, line),
+        "qr" => parse_qr_code(&parts, styles, line),
+        "space" => parse_space(&parts, styles, line),
+        "extern" => parse_extern_component(&parts, styles, route_source, line),
+        "themer" => parse_themer(&parts, styles, route_source, line),
+        "shader" => parse_shader(&parts, styles, route_source, line),
+        "image" | "svg" | "viewer" => parse_media(kind, &parts, styles, line),
+        "tooltip" => parse_tooltip(&parts, styles, line),
+        "mouse" => parse_mouse_area(&parts, styles, line),
+        "canvas" => parse_canvas(&parts, styles, line),
+        "theme" => parse_theme(&parts, styles, line),
+        "slot" => parse_slot(&parts, styles, line),
+        "keyed" => parse_keyed_column(&parts, styles, line),
+        "lazy" => parse_lazy(&parts, styles, line),
+        "markdown" => parse_markdown(&parts, styles, route_source, line),
+        "editor" => parse_text_editor(&parts, styles, route_source, line),
+        "table" => parse_table(&parts, styles, line),
+        "float" => parse_float(&parts, styles, line),
+        "pin" => parse_pin(&parts, styles, line),
+        "sensor" => parse_sensor(&parts, styles, line),
+        "responsive" => parse_responsive(&parts, styles, line),
+        _ if kind.chars().next().is_some_and(char::is_uppercase) => {
+            if !styles.is_empty() {
+                return Err(error(
+                    "E040",
+                    line,
+                    "component calls do not accept `@` utilities; style the component root",
+                ));
+            }
+            let (name, args, id) = parse_component_call(&parts, line)?;
+            let slots = parse_component_slots(&name, line)?;
+            Ok(ViewNode::Component {
+                name,
+                args,
+                id,
+                slots,
+                span,
+            })
+        }
+        _ => Err(error("E064", line, format!("unknown view node `{kind}`"))),
+    }
+}

@@ -63,15 +63,17 @@ cargo run -p iced-app
 The runnable task app is intentionally small and split by concern:
 
 ```text
-src/ui/
-├── tasks.ice                 app and view
-├── backend.ice               typed Rust boundary
-├── state.ice                 UI state
-├── theme.ice                 color tokens
-├── components/panel.ice      component with a structured child slot
-├── components/dialog.ice     React-like compound component family
-├── components/task_row.ice   reusable view
-└── handlers/tasks.ice        transitions and effects
+src/
+├── main.rs                   app entry point
+├── backend/                  production Rust boundary
+├── tests/                    example behavior tests by feature
+└── ui/
+    ├── tasks.ice             app and view
+    ├── backend.ice           typed Rust boundary declarations
+    ├── state.ice             UI state
+    ├── theme.ice             color tokens
+    ├── components/           reusable views
+    └── handlers/tasks.ice    transitions and effects
 ```
 
 [`showcase.ice`](examples/iced-app/src/ui/showcase.ice) is the separate
@@ -143,6 +145,19 @@ cargo check --workspace
 cargo clippy --workspace --all-targets --no-deps
 cargo fmt --all
 ```
+
+Core end-to-end cases use the built-in Rust test runner and paired fixture
+files under `crates/ui-lang-core/tests/cases`:
+
+```text
+cases/<suite>/<case>/
+├── as-is.ice   input
+└── to-be.*     exact formatted output or expected diagnostic/Rust fragments
+```
+
+The `format`, `diagnostic`, and `compile` suites are auto-discovered, so a new
+case needs no Rust test function. Focused AST and edge-case assertions remain
+next to their parser, checker, or code generator module.
 
 ## Status
 

@@ -1,0 +1,539 @@
+use super::*;
+
+pub(super) fn parse_extern_struct(line: &Line, namespace: &str) -> Result<ExternStruct, Error> {
+    ensure_leaf(line)?;
+    let (name, fields) = parse_signature(&line.text, line)?;
+    let mut parsed_fields = Vec::new();
+    if !fields.trim().is_empty() {
+        for field in split_top(&fields, ',') {
+            let Some((name, ty)) = field.split_once(':') else {
+                return Err(error("E020", line, "struct fields use `name:type`"));
+            };
+            parsed_fields.push((identifier(name.trim(), line)?, parse_type(ty.trim(), line)?));
+        }
+    }
+    Ok(ExternStruct {
+        rust_path: format!("{namespace}::{name}"),
+        name,
+        fields: parsed_fields,
+        span: Span::line(line.number),
+    })
+}
+
+pub(super) fn parse_extern_fn(
+    source: &str,
+    line: &Line,
+    namespace: &str,
+    kind: ExternKind,
+) -> Result<ExternFn, Error> {
+    ensure_leaf(line)?;
+    let close = matching_paren(source, line)?;
+    let name = identifier(source[..source.find('(').unwrap_or(0)].trim(), line)?;
+    let params_source = &source[source.find('(').unwrap_or(0) + 1..close];
+    let mut params = Vec::new();
+    if !params_source.trim().is_empty() {
+        for param in split_top(params_source, ',') {
+            let Some((name, ty)) = param.split_once(':') else {
+                return Err(error("E021", line, "function parameters use `name:type`"));
+            };
+            params.push((identifier(name.trim(), line)?, parse_type(ty.trim(), line)?));
+        }
+    }
+    let rest = source[close + 1..].trim();
+    let (progress, rest) = if kind == ExternKind::Sip {
+        let Some(rest) = rest.strip_prefix("progress=") else {
+            return Err(error(
+                "E022",
+                line,
+                "extern sips require `progress=ProgressType -> ReturnType`",
+            ));
+        };
+        let Some((progress, rest)) = split_top_marker(rest, "->") else {
+            return Err(error(
+                "E022",
+                line,
+                "extern sips require `progress=ProgressType -> ReturnType`",
+            ));
+        };
+        (Some(parse_type(progress.trim(), line)?), rest)
+    } else {
+        let Some(rest) = rest.strip_prefix("->") else {
+            return Err(error(
+                "E022",
+                line,
+                "extern functions require `-> ReturnType`",
+            ));
+        };
+        (None, rest)
+    };
+    let (output, error_ty) = match split_top_once(rest.trim(), '!') {
+        Some((output, error_ty)) => (
+            parse_type(output.trim(), line)?,
+            Some(parse_type(error_ty.trim(), line)?),
+        ),
+        None => (parse_type(rest.trim(), line)?, None),
+    };
+    if error_ty.is_some()
+        && matches!(
+            kind,
+            ExternKind::Component
+                | ExternKind::Shader
+                | ExternKind::Recipe
+                | ExternKind::Selector
+                | ExternKind::EventFilter
+                | ExternKind::Sync
+                | ExternKind::Subscription
+                | ExternKind::Themer
+                | ExternKind::Window
+                | ExternKind::MarkdownViewer
+                | ExternKind::EditorBinding
+                | ExternKind::EditorHighlighter
+                | ExternKind::EditorStyle
+                | ExternKind::TextStyle
+                | ExternKind::SliderStyle
+                | ExternKind::ProgressStyle
+                | ExternKind::ButtonStyle
+                | ExternKind::CheckboxStyle
+                | ExternKind::TogglerStyle
+                | ExternKind::RadioStyle
+                | ExternKind::ContainerStyle
+                | ExternKind::SvgStyle
+                | ExternKind::InputStyle
+                | ExternKind::ScrollStyle
+                | ExternKind::PickListStyle
+                | ExternKind::MenuStyle
+        )
+    {
+        return Err(error(
+            "E023",
+            line,
+            "extern components, shaders, recipes, event filters, sync functions, subscriptions, themers, window callbacks, markdown viewers, editor bindings/highlighters, and widget styles cannot declare an error type",
+        ));
+    }
+    Ok(ExternFn {
+        kind,
+        rust_path: format!("{namespace}::{name}"),
+        name,
+        params,
+        progress,
+        output,
+        error: error_ty,
+        span: Span::line(line.number),
+    })
+}
+
+pub(super) fn parse_subscription(line: &Line) -> Result<Subscription, Error> {
+    ensure_leaf(line)?;
+    let Some((call, route)) = split_top_marker(&line.text, "->") else {
+        return Err(error(
+            "E084",
+            line,
+            "subscription uses `name(args)`, `every duration`, `repeat name() every duration`, `run name(args)`, `recipe name(args)`, `events id using=filter`, `event [raw] [with-id]`, `input-method event`, `keyboard event`, `mouse event`, `touch event`, `window event`, or `system theme` before `-> handler _`",
+        ));
+    };
+    let call = call.trim();
+    let (call, condition) = split_top_marker(call, " when ")
+        .map_or((call, None), |(call, condition)| {
+            (call.trim(), Some(condition.trim()))
+        });
+    let (call, status) =
+        split_top_marker(call, " status=").map_or(Ok((call, None)), |(call, status)| {
+            let status = match status.trim() {
+                "any" => EventStatus::Any,
+                "captured" => EventStatus::Captured,
+                "ignored" => EventStatus::Ignored,
+                _ => {
+                    return Err(error(
+                        "E084",
+                        line,
+                        "subscription status must be any, captured, or ignored",
+                    ));
+                }
+            };
+            Ok((call.trim(), Some(status)))
+        })?;
+    let (call, filter) = split_top_marker(call, " filter=")
+        .map_or(Ok((call, None)), |(call, filter)| {
+            Ok((call.trim(), Some(identifier(filter.trim(), line)?)))
+        })?;
+    let (call, context) = split_top_marker(call, " with=")
+        .map_or((call, None), |(call, context)| {
+            (call.trim(), Some(context.trim()))
+        });
+    let mut window_id = false;
+    let source = if call == "system theme" {
+        SubscriptionSource::SystemTheme
+    } else if let Some(source) = call.strip_prefix("repeat ") {
+        let Some((call, duration)) = split_top_marker(source, " every ") else {
+            return Err(error(
+                "E084",
+                line,
+                "repeat uses `repeat name() every duration`",
+            ));
+        };
+        let (function, args) = parse_signature(call.trim(), line)?;
+        if !args.trim().is_empty() {
+            return Err(error(
+                "E084",
+                line,
+                "repeated async functions cannot take arguments",
+            ));
+        }
+        SubscriptionSource::Repeat {
+            function,
+            milliseconds: parse_duration(duration.trim(), line)?,
+        }
+    } else if let Some(duration) = call.strip_prefix("every ") {
+        SubscriptionSource::Every {
+            milliseconds: parse_duration(duration.trim(), line)?,
+        }
+    } else if let Some(call) = call.strip_prefix("run ") {
+        let (function, args) = parse_signature(call.trim(), line)?;
+        SubscriptionSource::Run {
+            function,
+            args: parse_expr_list(&args, line)?,
+        }
+    } else if let Some(call) = call.strip_prefix("recipe ") {
+        let (function, args) = parse_signature(call.trim(), line)?;
+        SubscriptionSource::Recipe {
+            function,
+            args: parse_expr_list(&args, line)?,
+        }
+    } else if let Some(source) = call.strip_prefix("events ") {
+        let Some((id, filter)) = split_top_marker(source, " using=") else {
+            return Err(error(
+                "E084",
+                line,
+                "raw events use `events identity using=event_filter`",
+            ));
+        };
+        SubscriptionSource::Events {
+            id: parse_expr(id.trim(), line)?,
+            filter: identifier(filter.trim(), line)?,
+        }
+    } else if matches!(
+        call,
+        "event" | "event with-id" | "event raw" | "event raw with-id"
+    ) {
+        window_id = call.ends_with("with-id");
+        SubscriptionSource::Event {
+            raw: call.starts_with("event raw"),
+        }
+    } else if call.starts_with("event ") {
+        return Err(error(
+            "E084",
+            line,
+            "generic event source uses `event [raw] [with-id]`",
+        ));
+    } else if let Some(event) = call.strip_prefix("input-method ") {
+        SubscriptionSource::InputMethod(match event.trim() {
+            "opened" => InputMethodEvent::Opened,
+            "preedit" => InputMethodEvent::Preedit,
+            "commit" => InputMethodEvent::Commit,
+            "closed" => InputMethodEvent::Closed,
+            _ => {
+                return Err(error(
+                    "E084",
+                    line,
+                    "input-method event must be opened, preedit, commit, or closed",
+                ));
+            }
+        })
+    } else if let Some(event) = call.strip_prefix("window ") {
+        let event = event.trim();
+        let event = event.strip_suffix(" with-id").map_or(event, |event| {
+            window_id = true;
+            event.trim()
+        });
+        SubscriptionSource::Window(match event {
+            "frame" => WindowEvent::Frame,
+            "opened" => WindowEvent::Opened,
+            "closed" => WindowEvent::Closed,
+            "moved" => WindowEvent::Moved,
+            "resized" => WindowEvent::Resized,
+            "rescaled" => WindowEvent::Rescaled,
+            "close-request" => WindowEvent::CloseRequested,
+            "focused" => WindowEvent::Focused,
+            "unfocused" => WindowEvent::Unfocused,
+            "file-hovered" => WindowEvent::FileHovered,
+            "file-dropped" => WindowEvent::FileDropped,
+            "files-hovered-left" => WindowEvent::FilesHoveredLeft,
+            _ => return Err(error("E084", line, "unknown window event")),
+        })
+    } else if let Some(event) = call.strip_prefix("keyboard ") {
+        SubscriptionSource::Keyboard(match event.trim() {
+            "press" => KeyboardEvent::Press,
+            "release" => KeyboardEvent::Release,
+            "modifiers" => KeyboardEvent::Modifiers,
+            _ => {
+                return Err(error(
+                    "E084",
+                    line,
+                    "keyboard event must be press, release, or modifiers",
+                ));
+            }
+        })
+    } else if let Some(event) = call.strip_prefix("mouse ") {
+        SubscriptionSource::Mouse(match event.trim() {
+            "entered" => MouseEvent::Entered,
+            "left" => MouseEvent::Left,
+            "moved" => MouseEvent::Moved,
+            "pressed" => MouseEvent::Pressed,
+            "released" => MouseEvent::Released,
+            "wheel" => MouseEvent::Wheel,
+            _ => {
+                return Err(error(
+                    "E084",
+                    line,
+                    "mouse event must be entered, left, moved, pressed, released, or wheel",
+                ));
+            }
+        })
+    } else if let Some(event) = call.strip_prefix("touch ") {
+        SubscriptionSource::Touch(match event.trim() {
+            "pressed" => TouchEvent::Pressed,
+            "moved" => TouchEvent::Moved,
+            "lifted" => TouchEvent::Lifted,
+            "lost" => TouchEvent::Lost,
+            _ => {
+                return Err(error(
+                    "E084",
+                    line,
+                    "touch event must be pressed, moved, lifted, or lost",
+                ));
+            }
+        })
+    } else {
+        let (function, args) = parse_signature(call, line)?;
+        SubscriptionSource::Extern {
+            function,
+            args: parse_expr_list(&args, line)?,
+        }
+    };
+    if window_id && matches!(&source, SubscriptionSource::Window(WindowEvent::Frame)) {
+        return Err(error(
+            "E084",
+            line,
+            "window frame does not expose a window ID",
+        ));
+    }
+    if status.is_some()
+        && !matches!(
+            &source,
+            SubscriptionSource::Event { .. }
+                | SubscriptionSource::InputMethod(_)
+                | SubscriptionSource::Keyboard(_)
+                | SubscriptionSource::Mouse(_)
+                | SubscriptionSource::Touch(_)
+                | SubscriptionSource::Window(
+                    WindowEvent::Opened
+                        | WindowEvent::Closed
+                        | WindowEvent::Moved
+                        | WindowEvent::Resized
+                        | WindowEvent::Rescaled
+                        | WindowEvent::CloseRequested
+                        | WindowEvent::Focused
+                        | WindowEvent::Unfocused
+                        | WindowEvent::FileHovered
+                        | WindowEvent::FileDropped
+                        | WindowEvent::FilesHoveredLeft
+                )
+        )
+    {
+        return Err(error(
+            "E084",
+            line,
+            "status filtering is only available on non-frame runtime events",
+        ));
+    }
+    Ok(Subscription {
+        source,
+        window_id,
+        context: context
+            .map(|context| parse_expr(context, line))
+            .transpose()?,
+        filter,
+        condition: condition
+            .map(|condition| parse_expr(condition, line))
+            .transpose()?,
+        status,
+        route: parse_route(route.trim(), line)?,
+        span: Span::line(line.number),
+    })
+}
+
+pub(super) fn parse_duration(source: &str, line: &Line) -> Result<u64, Error> {
+    let (number, multiplier) = source
+        .strip_suffix("ms")
+        .map(|number| (number, 1))
+        .or_else(|| source.strip_suffix('s').map(|number| (number, 1_000)))
+        .ok_or_else(|| {
+            error(
+                "E084",
+                line,
+                "duration must use `ms` or `s`, like `500ms` or `2s`",
+            )
+        })?;
+    let value = number
+        .parse::<u64>()
+        .ok()
+        .and_then(|number| number.checked_mul(multiplier))
+        .filter(|value| *value > 0)
+        .ok_or_else(|| error("E084", line, "duration must be a positive whole number"))?;
+    Ok(value)
+}
+
+pub(super) fn parse_state(line: &Line) -> Result<State, Error> {
+    ensure_leaf(line)?;
+    let Some((left, right)) = split_top_once(&line.text, '=') else {
+        return Err(error(
+            "E030",
+            line,
+            "state entries use `name[:type] = value`",
+        ));
+    };
+    let (name, declared) = match left.split_once(':') {
+        Some((name, ty)) => (
+            identifier(name.trim(), line)?,
+            Some(parse_type(ty.trim(), line)?),
+        ),
+        None => (identifier(left.trim(), line)?, None),
+    };
+    let initial = parse_expr(right.trim(), line)?;
+    let inferred = literal_type(&initial);
+    let ty = declared.or(inferred).ok_or_else(|| {
+        error("E031", line, "state type cannot be inferred")
+            .hint("write an explicit type, for example `items:[Item] = []`")
+    })?;
+    Ok(State {
+        name,
+        ty,
+        initial,
+        span: Span::line(line.number),
+    })
+}
+
+pub(super) fn parse_component(header: &str, line: &Line) -> Result<Component, Error> {
+    if line.children.len() != 1 {
+        return Err(error(
+            "E040",
+            line,
+            "component must have exactly one root node",
+        ));
+    }
+    let (name, params_source) = parse_component_signature(header, line)?;
+    let mut params = Vec::new();
+    if !params_source.trim().is_empty() {
+        for param in split_top(&params_source, ',') {
+            let Some((name, ty)) = param.split_once(':') else {
+                return Err(error(
+                    "E043",
+                    line,
+                    "component parameters require `name:type`",
+                ));
+            };
+            params.push((identifier(name.trim(), line)?, parse_type(ty.trim(), line)?));
+        }
+    }
+    Ok(Component {
+        name,
+        params,
+        root: parse_view(&line.children[0])?,
+        span: Span::line(line.number),
+    })
+}
+
+pub(super) fn parse_handler(header: &str, line: &Line) -> Result<Handler, Error> {
+    let header = header.trim();
+    let (name, params) = if header.contains('(') {
+        let (name, params) = parse_signature(header, line)?;
+        let params = split_top(&params, ',')
+            .into_iter()
+            .filter(|value| !value.trim().is_empty())
+            .map(|value| {
+                Ok(HandlerParam {
+                    name: identifier(value.trim(), line)?,
+                    ty: Type::Unknown,
+                })
+            })
+            .collect::<Result<Vec<_>, Error>>()?;
+        (name, params)
+    } else {
+        (identifier(header, line)?, Vec::new())
+    };
+    let statements = line
+        .children
+        .iter()
+        .map(parse_statement)
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(Handler {
+        name,
+        params,
+        statements,
+        span: Span::line(line.number),
+    })
+}
+
+pub(super) fn parse_route(source: &str, line: &Line) -> Result<Route, Error> {
+    let source = source.trim();
+    if let Some(open) = source.find('(') {
+        let close = matching_paren(source, line)?;
+        let handler = identifier(source[..open].trim(), line)?;
+        let args = split_top(&source[open + 1..close], ',')
+            .into_iter()
+            .filter(|part| !part.trim().is_empty())
+            .map(|part| {
+                if part.trim() == "_" {
+                    Ok(RouteArg::Payload)
+                } else {
+                    Ok(RouteArg::Expr(parse_expr(part.trim(), line)?))
+                }
+            })
+            .collect::<Result<_, Error>>()?;
+        return Ok(Route {
+            handler,
+            args,
+            span: Span::line(line.number),
+        });
+    }
+    let mut words = source.split_whitespace();
+    let handler = identifier(
+        words
+            .next()
+            .ok_or_else(|| error("E052", line, "empty route"))?,
+        line,
+    )?;
+    let args = words
+        .map(|word| {
+            if word == "_" {
+                Ok(RouteArg::Payload)
+            } else {
+                Ok(RouteArg::Expr(parse_expr(word, line)?))
+            }
+        })
+        .collect::<Result<_, Error>>()?;
+    Ok(Route {
+        handler,
+        args,
+        span: Span::line(line.number),
+    })
+}
+
+pub(super) fn parse_id(source: &str, line: &Line) -> Result<Id, Error> {
+    let source = source.strip_prefix('#').unwrap_or(source);
+    if let Some(open) = source.find('(') {
+        let close = matching_paren(source, line)?;
+        if close + 1 != source.len() {
+            return Err(error("E068", line, "unexpected text after dynamic id"));
+        }
+        Ok(Id {
+            name: kebab_identifier(&source[..open], line)?,
+            key: Some(parse_expr(&source[open + 1..close], line)?),
+        })
+    } else {
+        Ok(Id {
+            name: kebab_identifier(source, line)?,
+            key: None,
+        })
+    }
+}
