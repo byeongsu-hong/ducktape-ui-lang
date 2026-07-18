@@ -4058,6 +4058,7 @@ fn native_subscription_payloads(source: &SubscriptionSource) -> Option<Vec<Type>
         },
         SubscriptionSource::Repeat { .. }
         | SubscriptionSource::Run { .. }
+        | SubscriptionSource::Recipe { .. }
         | SubscriptionSource::Extern { .. } => return None,
     })
 }
@@ -4174,6 +4175,12 @@ fn infer_subscriptions(
                     || source.output.clone(),
                     |error| Type::Result(Box::new(source.output.clone()), Box::new(error.clone())),
                 )]
+            }
+            SubscriptionSource::Recipe { function, args } => {
+                let source =
+                    extern_function(document, function, ExternKind::Recipe, &subscription.span)?;
+                check_call_args(source, args, states, document, &subscription.span)?;
+                vec![source.output.clone()]
             }
             SubscriptionSource::Extern { function, args } => {
                 let source = extern_function(
@@ -5169,6 +5176,7 @@ fn extern_function<'a>(
                 ExternKind::Task => "task",
                 ExternKind::Stream => "stream",
                 ExternKind::Sip => "sip",
+                ExternKind::Recipe => "recipe",
                 ExternKind::Sync => "sync function",
                 ExternKind::Subscription => "subscription",
             };
@@ -6297,6 +6305,7 @@ extern crate::backend
   stream numbers(limit:i64) -> i64
   stream coordinates(value:f64) -> i64
   stream fallible() -> str ! AppError
+  recipe snapshot(value:i64) -> str
 theme
   background #000000
   foreground #ffffff
@@ -6316,6 +6325,7 @@ on observed(result)
 subscribe
   run fallible() -> observed _
   run numbers(count) -> number _
+  recipe snapshot(count) -> text _
 view
   text count
 "#;
@@ -6364,6 +6374,11 @@ view
         .unwrap_err();
         assert_eq!(error.code, "E129");
         assert!(error.message.contains("run data must be hashable"));
+
+        let error = analyze(&source.replace("recipe snapshot(count)", "recipe missing(count)"))
+            .unwrap_err();
+        assert_eq!(error.code, "E130");
+        assert!(error.message.contains("extern recipe"));
     }
 
     #[test]

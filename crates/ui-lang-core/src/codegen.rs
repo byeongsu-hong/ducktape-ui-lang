@@ -633,6 +633,12 @@ fn generate_extern_probes(out: &mut String, document: &Document) {
                     .rust(&document.structs)
             )
             .unwrap(),
+            ExternKind::Recipe => writeln!(
+                out,
+                "#[allow(dead_code)] fn __ui_lang_check_recipe_{}({params}) {{ let __recipe = {}({args}); fn __accept<R: ::iced::advanced::subscription::Recipe<Output = {output}>>(_: &R) {{}} __accept(&__recipe); }}",
+                item.name, item.rust_path
+            )
+            .unwrap(),
             ExternKind::Sync => writeln!(
                 out,
                 "#[allow(dead_code)] fn __ui_lang_check_sync_{}({params}) {{ let _: {output} = {}({args}); }}",
@@ -840,6 +846,7 @@ fn subscription_payload_arity(source: &SubscriptionSource) -> usize {
         SubscriptionSource::Every { .. }
         | SubscriptionSource::Repeat { .. }
         | SubscriptionSource::Run { .. }
+        | SubscriptionSource::Recipe { .. }
         | SubscriptionSource::Extern { .. }
         | SubscriptionSource::Keyboard(_)
         | SubscriptionSource::SystemTheme => 1,
@@ -1021,6 +1028,25 @@ fn generate_subscription(
                     };
                     writeln!(out, "::iced::Subscription::run_with({data}, |__data: &{data_type}| {}({builder_args})){transforms}.map(move |__value| {route}),", source.rust_path).unwrap();
                 }
+            }
+            SubscriptionSource::Recipe { function, args } => {
+                let source = document
+                    .functions
+                    .iter()
+                    .find(|item| item.name == *function && item.kind == ExternKind::Recipe)
+                    .ok_or_else(|| {
+                        Error::new(
+                            "E130",
+                            &subscription.span,
+                            format!("unknown subscription recipe `{function}`"),
+                        )
+                    })?;
+                let args = args
+                    .iter()
+                    .map(|arg| expr_code(arg, &env, document, ValueMode::Owned))
+                    .collect::<Result<Vec<_>, _>>()?
+                    .join(", ");
+                writeln!(out, "::iced::advanced::subscription::from_recipe({}({args})){transforms}.map(move |__value| {route}),", source.rust_path).unwrap();
             }
             SubscriptionSource::Extern { function, args } => {
                 let source = document
@@ -8902,6 +8928,7 @@ extern crate::backend
   stream numbers(limit:i64) -> i64
   stream range(start:i64, limit:i64) -> i64
   stream fallible() -> str ! AppError
+  recipe snapshot(id:i64) -> str
 theme
   background #000000
   foreground #ffffff
@@ -8919,6 +8946,7 @@ subscribe
   run fallible() -> observed _
   run numbers(3) -> number _
   run range(1, 3) -> number _
+  recipe snapshot(3) -> text _
 view
   text "Streams"
 "#;
@@ -8936,6 +8964,10 @@ view
         ));
         assert!(generated.contains(
             "Subscription::run_with((1, 3,), |__data: &(i64, i64,)| crate::backend::range(__data.0.clone(), __data.1.clone()))"
+        ));
+        assert!(generated.contains("fn __ui_lang_check_recipe_snapshot"));
+        assert!(generated.contains(
+            "advanced::subscription::from_recipe(crate::backend::snapshot(3)).map(move |__value| __StreamsMessage::Text(__value))"
         ));
     }
 
