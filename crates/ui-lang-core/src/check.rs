@@ -1535,6 +1535,11 @@ fn infer_view(
                 span,
             )?;
             check_bool_control_options(options, env, document, span)?;
+            if let Some(style) = &style.custom {
+                let function =
+                    extern_function(document, &style.function, ExternKind::RadioStyle, span)?;
+                check_call_args(function, &style.args, env, document, span)?;
+            }
             check_radio_styles(style, env, document, span)?;
             infer_route(route, Some(value_type), env, document, signatures)?;
             check_styles(styles, document, span, StyleTarget::Radio)?;
@@ -5536,6 +5541,7 @@ fn extern_function<'a>(
                 ExternKind::ButtonStyle => "button style",
                 ExternKind::CheckboxStyle => "checkbox style",
                 ExternKind::TogglerStyle => "toggler style",
+                ExternKind::RadioStyle => "radio style",
             };
             Error::new("E130", span, format!("unknown extern {label} `{name}`"))
         })
@@ -8633,6 +8639,7 @@ view
         let source = r#"app Choices
 extern crate::backend
   Item(id:i64)
+  radio-style dynamic_radio(highlight:bool)
 theme
   background #000000
   foreground #ffffff
@@ -8641,13 +8648,14 @@ theme
 state
   choice = "list"
   items:[Item] = []
+  highlight = false
 on changed(next)
   choice = next
 on float_changed(next)
 on item_changed(next)
 view
   col
-    radio "List" value="list" selected=(choice == "list") size=20.0 width=fill spacing=8.0 text-size=14.0 line-height=1.2 shaping=advanced wrapping=word-or-glyph font=mono -> changed _
+    radio "List" value="list" selected=(choice == "list") style=dynamic_radio(highlight) size=20.0 width=fill spacing=8.0 text-size=14.0 line-height=1.2 shaping=advanced wrapping=word-or-glyph font=mono -> changed _
       active selected background=linear(1.57, primary@0.0, background@1.0) dot=foreground border=primary border-width=2.0 text=foreground
       active unselected background=background dot=primary border=foreground text=foreground
       hovered selected background=primary dot=foreground border=foreground text=foreground
@@ -8674,6 +8682,21 @@ view
         let error = analyze(&source.replace("value=\"list\"", "value=[\"list\"]")).unwrap_err();
         assert_eq!(error.code, "E125");
         assert!(error.message.contains("radio values must be"));
+
+        let error = analyze(&source.replace("style=dynamic_radio(highlight)", "style=default"))
+            .unwrap_err();
+        assert_eq!(error.code, "E078");
+        assert!(error.message.contains("radio style must be"));
+
+        let error =
+            analyze(&source.replace("dynamic_radio(highlight)", "missing_radio(highlight)"))
+                .unwrap_err();
+        assert_eq!(error.code, "E130");
+        assert!(error.message.contains("radio style"));
+
+        let error =
+            analyze(&source.replace("dynamic_radio(highlight)", "dynamic_radio(1.0)")).unwrap_err();
+        assert_eq!(error.code, "E101");
 
         let error = analyze(&source.replace(
             "      active unselected background=background",
