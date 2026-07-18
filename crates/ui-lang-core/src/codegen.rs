@@ -2205,6 +2205,10 @@ fn task_source_code(
                             "::iced::font::load({bytes}).map(|result| match result {{ ::std::result::Result::Ok(value) => value, ::std::result::Result::Err(error) => match error {{}} }})"
                         ));
                     }
+                    "__ice_image_allocate" => {
+                        let handle = expr_code(&args[0], env, document, ValueMode::Owned)?;
+                        return Ok(format!("::iced::widget::image::allocate({handle})"));
+                    }
                     _ => {}
                 }
             }
@@ -2411,6 +2415,7 @@ fn generate_statements(
                             | "__ice_clipboard_read"
                             | "__ice_clipboard_read_primary"
                             | "__ice_font_load"
+                            | "__ice_image_allocate"
                     )
                 {
                     if function == "__ice_font_load" {
@@ -2419,6 +2424,25 @@ fn generate_statements(
                         writeln!(
                             out,
                             "{}::iced::font::load({bytes}).map(move |result| match result {{ ::std::result::Result::Ok(value) => {success_message}, ::std::result::Result::Err(error) => match error {{}} }}){}",
+                            if return_task { "return " } else { "" },
+                            if return_task { ";" } else { "" }
+                        )
+                        .unwrap();
+                        continue;
+                    }
+                    if function == "__ice_image_allocate" {
+                        let handle = expr_code(&args[0], env, document, ValueMode::Owned)?;
+                        let success_message = route_code(success, "value", env, document, message)?;
+                        let error_message = route_code(
+                            error.as_ref().expect("checker requires image error route"),
+                            "error",
+                            env,
+                            document,
+                            message,
+                        )?;
+                        writeln!(
+                            out,
+                            "{}::iced::widget::image::allocate({handle}).map(move |result| match result {{ ::std::result::Result::Ok(value) => {success_message}, ::std::result::Result::Err(error) => {error_message} }}){}",
                             if return_task { "return " } else { "" },
                             if return_task { ";" } else { "" }
                         )
@@ -7817,6 +7841,18 @@ fn native_field_projection(ty: &Type, field: &str, code: &str) -> Option<(String
         (Type::PointU32, "x" | "y") | (Type::RectangleU32, "x" | "y" | "width" | "height") => {
             (format!("({code}).{field} as i64"), Type::I64)
         }
+        (Type::SizeU32, "width" | "height") => (format!("({code}).{field} as i64"), Type::I64),
+        (Type::ImageAllocation, "handle") => (format!("({code}).handle().clone()"), Type::Image),
+        (Type::ImageAllocation, "size") => (format!("({code}).size()"), Type::SizeU32),
+        (Type::ImageError, "kind") => (
+            format!(
+                "match &({code}) {{ ::iced::widget::image::Error::Invalid(_) => \"invalid\", ::iced::widget::image::Error::Inaccessible(_) => \"inaccessible\", ::iced::widget::image::Error::Unsupported => \"unsupported\", ::iced::widget::image::Error::Empty => \"empty\", ::iced::widget::image::Error::OutOfMemory => \"out-of-memory\" }}.to_owned()"
+            ),
+            Type::Str,
+        ),
+        (Type::ImageError, "message") => {
+            (format!("::std::format!(\"{{}}\", &({code}))"), Type::Str)
+        }
         (Type::Point | Type::Vector | Type::Size, "values") => (
             format!(
                 "::std::convert::Into::<[f32; 2]>::into({code}).into_iter().map(f64::from).collect::<::std::vec::Vec<_>>()"
@@ -7969,6 +8005,7 @@ fn expr_code(
                     | Type::PointU32
                     | Type::Vector
                     | Type::Size
+                    | Type::SizeU32
                     | Type::Rectangle
                     | Type::RectangleU32
                     | Type::Transformation
@@ -7986,6 +8023,14 @@ fn expr_code(
             code
         }
         Expr::Call { name, args } => match name.as_str() {
+            "image.downgrade" => format!(
+                "({}).downgrade()",
+                expr_code(&args[0], env, document, ValueMode::Borrowed)?
+            ),
+            "image.upgrade" => format!(
+                "::iced::widget::image::Allocation::upgrade(&({}))",
+                expr_code(&args[0], env, document, ValueMode::Borrowed)?
+            ),
             "animation.value" => {
                 let animation = expr_code(&args[0], env, document, ValueMode::Borrowed)?;
                 if expr_type(&args[0], &env_types(env), document, &Span::line(1))?
@@ -11833,6 +11878,24 @@ fn pascal(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use crate::compile;
+
+    #[test]
+    fn lowers_native_image_allocation_and_retention() {
+        let source = include_str!("../../../examples/iced-app/src/ui/image_allocation.ice");
+        let generated = compile(source, "image_allocation.ice").unwrap();
+        for expected in [
+            "::iced::widget::image::allocate(self.handle.clone())",
+            "::iced::widget::image::Allocation",
+            "::std::sync::Weak<::iced::advanced::image::Memory>",
+            ".handle().clone()",
+            ".size()",
+            ".downgrade()",
+            "::iced::widget::image::Allocation::upgrade",
+            "::iced::widget::image::Error::OutOfMemory",
+        ] {
+            assert!(generated.contains(expected), "missing {expected}");
+        }
+    }
 
     #[test]
     fn lowers_native_animation_without_a_custom_runtime() {
