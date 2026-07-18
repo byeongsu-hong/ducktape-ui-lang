@@ -1,4 +1,4 @@
-# Ice Language Specification 1.12
+# Ice Language Specification 1.13
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 1.12 syntax.
+marked “planned” is a design constraint, not accepted 1.13 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 1.12.
+  block comments are not part of 1.13.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -169,6 +169,7 @@ extern_item    = struct_sig | function_sig | extern_component_sig
                | extern_radio_style_sig | extern_container_style_sig
                | extern_svg_style_sig | extern_input_style_sig
                | extern_scroll_style_sig
+               | extern_pick_list_style_sig | extern_menu_style_sig
 struct_sig     = PascalName "(" field_list? ")"
 field_list     = field ("," field)*
 field          = name ":" type
@@ -213,6 +214,10 @@ extern_input_style_sig
                = "input-style" name "(" field_list? ")"
 extern_scroll_style_sig
                = "scroll-style" name "(" field_list? ")"
+extern_pick_list_style_sig
+               = "pick-list-style" name "(" field_list? ")"
+extern_menu_style_sig
+               = "menu-style" name "(" field_list? ")"
 
 theme_decl     = "theme" INDENT color_entry+
 color_entry    = name color
@@ -667,6 +672,7 @@ pick_property  = "placeholder=" expr | "width=" length
                | ("text-size=" | "line-height=") expr
                | "shaping=" ("auto" | "basic" | "advanced")
                | "font=" font_ref | "open=" route | "close=" route
+               | ("style=" | "menu-style=") call
 pick_child     = pick_status | menu_style | pick_handle
 pick_status    = ("active" | "hovered" | "opened" | "opened-hovered")
                  pick_status_property*
@@ -700,6 +706,7 @@ combo_property = "width=" length | "menu-height=" length
                | "font=" font_ref
                | "input=" route | "hover=" route
                | "open=" route | "close=" route
+               | ("style=" | "menu-style=") call
 combo_child    = combo_status | menu_style | combo_icon
 combo_status   = ("active" | "hovered" | "focused"
                | "focused-hovered" | "disabled") combo_style_property*
@@ -955,7 +962,7 @@ maximum size. `icon-rgba` embeds a relative raw RGBA file without an image
 codec; width and height are positive integers, and generated Rust rejects a
 byte length other than `width × height × 4`. `cargo ice check` reports a
 mismatch at the icon declaration, and generated Rust repeats the check at
-compile time. Encoded icon formats remain outside 1.12.
+compile time. Encoded icon formats remain outside 1.13.
 
 Application boot presets are structured top-level declarations:
 
@@ -1228,9 +1235,12 @@ styles are structured children: `active`, `hovered`, `opened`, and
 `opened-hovered` cover the field statuses, while `menu` covers its overlay.
 Each starts from iced's status default and accepts checked solid/linear
 backgrounds, colors, border/per-corner radius, and menu shadow fields.
+`style=view_picker(loading)` and `menu-style=view_menu(loading)` may instead
+start from declared native callbacks; the structured status and menu fields
+remain final overrides.
 
 ```ice
-pick modes mode placeholder="Choose" font=ui shaping=advanced -> changed _
+pick modes mode placeholder="Choose" font=ui shaping=advanced style=view_picker(loading) menu-style=view_menu(loading) -> changed _
   active text=foreground placeholder=muted handle=primary background=surface border=border radius=6.0
   opened-hovered text=foreground background=background border=primary
   menu text=foreground selected-text=foreground selected-background=primary background=surface shadow=black/50 shadow-y=4.0
@@ -1254,9 +1264,12 @@ size, spacing, and side.
 The five `active`, `hovered`, `focused`, `focused-hovered`, and `disabled`
 lines start from iced's status default and expose every concrete input Style
 field. The shared `menu` line exposes every menu overlay Style field:
+`style=form_input(loading)` reuses the native `input-style` ABI, and
+`menu-style=view_menu(loading)` reuses the same menu callback as `pick`.
+Structured lines override both callback results.
 
 ```ice
-combo modes mode "Search views" font=ui shaping=advanced -> changed _
+combo modes mode "Search views" font=ui shaping=advanced style=form_input(loading) menu-style=view_menu(loading) -> changed _
   active background=surface border=border icon=primary placeholder=muted value=foreground selection=primary
   focused-hovered background=background border=primary border-width=2.0 radius=6.0
   menu text=foreground selected-text=foreground selected-background=primary background=surface shadow=black/50
@@ -1449,7 +1462,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 1.12 message payloads.
+`Clone` for 1.13 message payloads.
 
 Declared `sync` functions are checked, synchronous Rust calls available in
 Ice expressions. They are the small escape hatch for pure domain conversions
@@ -1467,7 +1480,7 @@ This declaration requires
 actual Rust signature. A sync function cannot declare `! Error` because it
 returns its value directly.
 
-Twenty-one typed iced adapters expose framework capabilities without embedding Rust
+Twenty-three typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
 
 ```ice
@@ -1490,6 +1503,8 @@ extern crate::backend
   svg-style status_svg(active:bool)
   input-style form_input(disabled:bool)
   scroll-style task_scroll(active:bool)
+  pick-list-style view_picker(active:bool)
+  menu-style view_menu(active:bool)
 ```
 
 Their Rust signatures are:
@@ -1513,6 +1528,8 @@ fn summary_container(theme: &iced::Theme, busy: bool) -> iced::widget::container
 fn status_svg(theme: &iced::Theme, status: iced::widget::svg::Status, active: bool) -> iced::widget::svg::Style;
 fn form_input(theme: &iced::Theme, status: iced::widget::text_input::Status, disabled: bool) -> iced::widget::text_input::Style;
 fn task_scroll(theme: &iced::Theme, status: iced::widget::scrollable::Status, active: bool) -> iced::widget::scrollable::Style;
+fn view_picker(theme: &iced::Theme, status: iced::widget::pick_list::Status, active: bool) -> iced::widget::pick_list::Style;
+fn view_menu(theme: &iced::Theme, active: bool) -> iced::overlay::menu::Style;
 ```
 
 An extern component receives owned props and returns a default-renderer
@@ -1546,7 +1563,9 @@ without a Status and returns its native surface Style. `svg-style` receives
 Theme and the idle/hovered SVG Status and returns the native SVG Style.
 `input-style` receives Theme and the current text-input Status and returns its
 native Style. `scroll-style` receives Theme and the complete scrollable Status
-and returns its native Style.
+and returns its native Style. `pick-list-style` does the same for pick-list
+Status. `menu-style` receives Theme without a Status and returns the shared
+pick-list/combo overlay menu Style.
 
 Generated probes type-check every declaration
 against the actual Rust item. Extern component, shader, recipe, event-filter,
@@ -1837,8 +1856,8 @@ The implemented native nodes are:
 | `slider` | `f64` value/range/default/normal+shift steps, direction-aware sizing, change/release routes and nested status styles |
 | `progress` | `f64` value/range, all length/girth variants, vertical axis, five presets, complete concrete style overrides and typed native runtime style callbacks |
 | `radio` | string label, bool/i64/f64/str/extern value route, bool selection, complete sizing/typography/font and selected-aware status styles |
-| `pick` | `[T]` options, `T?` selection, complete typography/handle/status/menu configuration, `T`-payload route |
-| `combo` | searchable/replaced `combo[T]` state, `T?` selection, complete typography/icon/input/menu styles and all routes |
+| `pick` | `[T]` options, `T?` selection, complete typography/handle/status/menu configuration, typed native field/menu style callbacks and `T`-payload route |
+| `combo` | searchable/replaced `combo[T]` state, `T?` selection, complete typography/icon/input/menu styles, typed native input/menu style callbacks and all routes |
 | `float` | one child with positive scale, bounds/viewport-aware x/y translation, shadow and per-corner shadow radius |
 | `pin` | one child with typed width/height and fixed x/y position |
 | `sensor` | one child with show/resize `(width, height)`, hide, key, anticipation and delay |
@@ -2502,7 +2521,7 @@ snap/end; and absolute scroll-to/scroll-by. Effects have no route and
 non-negative `i64`; relative offsets are `f64` in `0.0..=1.0`; absolute
 offsets are unrestricted `f64`. Targets must be real static IDs in the app
 scope. Repeated/component scopes and the feature-gated selector API remain
-outside 1.12.
+outside 1.13.
 
 Persistent pane grids expose their native layout-state operations directly in
 handlers:
@@ -2756,7 +2775,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 1.12 does not claim that remapping.
+extern line; 1.13 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -2777,12 +2796,12 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 1.12 native backend is enough for CRUD/settings-style screens, selection,
+The 1.13 native backend is enough for CRUD/settings-style screens, selection,
 media, hover overlays, declarative canvas geometry, and common pointer events,
 not all of iced. It still lacks direct syntax for arbitrary custom overlays,
 and custom widgets. [`COVERAGE.md`](COVERAGE.md) is the exact versioned ledger.
 
-The language must not grow one ad-hoc syntax form for every iced API. Twenty-one
+The language must not grow one ad-hoc syntax form for every iced API. Twenty-three
 typed Rust boundaries cover domain work, native elements and programs, runtime
 tasks and subscriptions, Markdown viewers, and native style callbacks without
 admitting arbitrary Rust into expressions or duplicating iced in the core

@@ -296,6 +296,28 @@ mod backend {
     }
 
     #[cfg(test)]
+    pub fn view_picker(
+        theme: &iced::Theme,
+        status: iced::widget::pick_list::Status,
+        active: bool,
+    ) -> iced::widget::pick_list::Style {
+        let mut style = iced::widget::pick_list::default(theme, status);
+        if active {
+            style.handle_color = theme.palette().primary;
+        }
+        style
+    }
+
+    #[cfg(test)]
+    pub fn view_menu(theme: &iced::Theme, active: bool) -> iced::overlay::menu::Style {
+        let mut style = iced::overlay::menu::default(theme);
+        if active {
+            style.selected_text_color = theme.palette().text;
+        }
+        style
+    }
+
+    #[cfg(test)]
     impl<'a> iced::widget::markdown::Viewer<'a, String> for DocsViewer {
         fn on_link_click(url: iced::widget::markdown::Uri) -> String {
             url

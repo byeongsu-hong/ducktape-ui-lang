@@ -149,6 +149,20 @@ pub fn parse(source: &str) -> Result<Document, Error> {
                         &path,
                         ExternKind::ScrollStyle,
                     )?);
+                } else if let Some(source) = item.text.strip_prefix("pick-list-style ") {
+                    functions.push(parse_extern_fn(
+                        &format!("{source} -> unit"),
+                        item,
+                        &path,
+                        ExternKind::PickListStyle,
+                    )?);
+                } else if let Some(source) = item.text.strip_prefix("menu-style ") {
+                    functions.push(parse_extern_fn(
+                        &format!("{source} -> unit"),
+                        item,
+                        &path,
+                        ExternKind::MenuStyle,
+                    )?);
                 } else if item.text.chars().next().is_some_and(char::is_uppercase) {
                     structs.push(parse_extern_struct(item, &path)?);
                 } else {
@@ -1082,6 +1096,8 @@ fn parse_extern_fn(
                 | ExternKind::SvgStyle
                 | ExternKind::InputStyle
                 | ExternKind::ScrollStyle
+                | ExternKind::PickListStyle
+                | ExternKind::MenuStyle
         )
     {
         return Err(error(
@@ -4113,6 +4129,25 @@ fn parse_combo_box(
             options.open = Some(parse_route(value, line)?);
         } else if let Some(value) = part.strip_prefix("close=") {
             options.close = Some(parse_route(value, line)?);
+        } else if let Some(value) = part.strip_prefix("style=") {
+            let (function, args) = parse_signature(value, line)
+                .map_err(|_| error("E088", line, "combo style must be a declared style call"))?;
+            options.custom_style = Some(ExternCall {
+                function,
+                args: parse_expr_list(&args, line)?,
+            });
+        } else if let Some(value) = part.strip_prefix("menu-style=") {
+            let (function, args) = parse_signature(value, line).map_err(|_| {
+                error(
+                    "E088",
+                    line,
+                    "combo menu style must be a declared style call",
+                )
+            })?;
+            options.custom_menu_style = Some(ExternCall {
+                function,
+                args: parse_expr_list(&args, line)?,
+            });
         } else {
             return Err(error(
                 "E088",
@@ -4331,6 +4366,25 @@ fn parse_pick_list(
             config.open = Some(parse_route(value, line)?);
         } else if let Some(value) = part.strip_prefix("close=") {
             config.close = Some(parse_route(value, line)?);
+        } else if let Some(value) = part.strip_prefix("style=") {
+            let (function, args) = parse_signature(value, line)
+                .map_err(|_| error("E087", line, "pick style must be a declared style call"))?;
+            config.custom_style = Some(ExternCall {
+                function,
+                args: parse_expr_list(&args, line)?,
+            });
+        } else if let Some(value) = part.strip_prefix("menu-style=") {
+            let (function, args) = parse_signature(value, line).map_err(|_| {
+                error(
+                    "E087",
+                    line,
+                    "pick menu style must be a declared style call",
+                )
+            })?;
+            config.custom_menu_style = Some(ExternCall {
+                function,
+                args: parse_expr_list(&args, line)?,
+            });
         } else {
             return Err(error(
                 "E087",

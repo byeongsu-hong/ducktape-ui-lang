@@ -1025,6 +1025,44 @@ fn generate_extern_probes(out: &mut String, document: &Document) {
                 )
                 .unwrap();
             }
+            ExternKind::PickListStyle => {
+                let params = if params.is_empty() {
+                    "theme: &::iced::Theme, status: ::iced::widget::pick_list::Status".into()
+                } else {
+                    format!(
+                        "theme: &::iced::Theme, status: ::iced::widget::pick_list::Status, {params}"
+                    )
+                };
+                let args = if args.is_empty() {
+                    "theme, status".into()
+                } else {
+                    format!("theme, status, {args}")
+                };
+                writeln!(
+                    out,
+                    "#[allow(dead_code)] fn __ui_lang_check_pick_list_style_{}({params}) {{ let _: ::iced::widget::pick_list::Style = {}({args}); }}",
+                    item.name, item.rust_path
+                )
+                .unwrap();
+            }
+            ExternKind::MenuStyle => {
+                let params = if params.is_empty() {
+                    "theme: &::iced::Theme".into()
+                } else {
+                    format!("theme: &::iced::Theme, {params}")
+                };
+                let args = if args.is_empty() {
+                    "theme".into()
+                } else {
+                    format!("theme, {args}")
+                };
+                writeln!(
+                    out,
+                    "#[allow(dead_code)] fn __ui_lang_check_menu_style_{}({params}) {{ let _: ::iced::overlay::menu::Style = {}({args}); }}",
+                    item.name, item.rust_path
+                )
+                .unwrap();
+            }
         }
     }
 }
@@ -3362,7 +3400,7 @@ fn render_node(
             }
             code.push_str(&text_input_style_code(
                 &options.style,
-                None,
+                options.custom_style.as_ref(),
                 None,
                 env,
                 document,
@@ -3371,6 +3409,7 @@ fn render_node(
             )?);
             code.push_str(&menu_style_code(
                 options.menu_style.as_deref(),
+                options.custom_menu_style.as_ref(),
                 env,
                 document,
             )?);
@@ -8936,6 +8975,29 @@ fn pick_list_style_code(
     env: &HashMap<String, Binding>,
     document: &Document,
 ) -> Result<String, Error> {
+    let custom = options
+        .custom_style
+        .as_ref()
+        .map(|style| {
+            let function = document
+                .functions
+                .iter()
+                .find(|item| item.name == style.function && item.kind == ExternKind::PickListStyle)
+                .expect("checker validates pick-list style");
+            let args = style
+                .args
+                .iter()
+                .map(|arg| expr_code(arg, env, document, ValueMode::Owned))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok::<_, Error>(format!(
+                "{}(__theme, __status{})",
+                function.rust_path,
+                args.iter()
+                    .map(|arg| format!(", {arg}"))
+                    .collect::<String>()
+            ))
+        })
+        .transpose()?;
     let overrides = [
         ("Active", &options.style.active),
         ("Hovered", &options.style.hovered),
@@ -8944,7 +9006,13 @@ fn pick_list_style_code(
     ];
     let mut code = String::new();
     if overrides.iter().any(|(_, style)| style.is_some()) {
-        code.push_str(".style(move |__theme, __status| { let mut __style = ::iced::widget::pick_list::default(__theme, __status); match __status {");
+        let base = custom
+            .unwrap_or_else(|| "::iced::widget::pick_list::default(__theme, __status)".to_owned());
+        write!(
+            code,
+            ".style(move |__theme, __status| {{ let mut __style = {base}; match __status {{"
+        )
+        .unwrap();
         for (status, style) in overrides {
             let Some(style) = style else { continue };
             write!(code, " ::iced::widget::pick_list::Status::{status} => {{").unwrap();
@@ -8968,9 +9036,12 @@ fn pick_list_style_code(
             code.push_str(" }");
         }
         code.push_str(" _ => {} } __style })");
+    } else if let Some(custom) = custom {
+        write!(code, ".style(move |__theme, __status| {custom})").unwrap();
     }
     code.push_str(&menu_style_code(
         options.menu_style.as_deref(),
+        options.custom_menu_style.as_ref(),
         env,
         document,
     )?);
@@ -8979,16 +9050,43 @@ fn pick_list_style_code(
 
 fn menu_style_code(
     style: Option<&MenuStyleOptions>,
+    custom: Option<&ExternCall>,
     env: &HashMap<String, Binding>,
     document: &Document,
 ) -> Result<String, Error> {
+    let custom = custom
+        .map(|style| {
+            let function = document
+                .functions
+                .iter()
+                .find(|item| item.name == style.function && item.kind == ExternKind::MenuStyle)
+                .expect("checker validates menu style");
+            let args = style
+                .args
+                .iter()
+                .map(|arg| expr_code(arg, env, document, ValueMode::Owned))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok::<_, Error>(format!(
+                "{}(__theme{})",
+                function.rust_path,
+                args.iter()
+                    .map(|arg| format!(", {arg}"))
+                    .collect::<String>()
+            ))
+        })
+        .transpose()?;
     let Some(style) = style else {
-        return Ok(String::new());
+        return Ok(custom
+            .map(|custom| format!(".menu_style(move |__theme| {custom})"))
+            .unwrap_or_default());
     };
+    let base = custom.unwrap_or_else(|| "::iced::overlay::menu::default(__theme)".to_owned());
     let mut code = String::new();
-    code.push_str(
-        ".menu_style(move |__theme| { let mut __style = ::iced::overlay::menu::default(__theme);",
-    );
+    write!(
+        code,
+        ".menu_style(move |__theme| {{ let mut __style = {base};"
+    )
+    .unwrap();
     append_select_surface_overrides(&mut code, &style.options, env, document, true)?;
     if let Some(color) = &style.selected_text_color {
         write!(
@@ -11019,6 +11117,9 @@ view
     #[test]
     fn lowers_list_literals_options_and_pick_lists() {
         let source = r#"app Selection
+extern crate::backend
+  pick-list-style dynamic_pick(busy:bool)
+  menu-style dynamic_menu(busy:bool)
 font ui family=sans
 theme
   background #000000
@@ -11026,6 +11127,7 @@ theme
   primary #333333
   danger #ff0000
 state
+  busy = false
   choices = ["List", "Board"]
   selected:str? = none
 on selected(next)
@@ -11033,7 +11135,7 @@ on selected(next)
 on opened
 on closed
 view
-  pick choices selected placeholder="Choose" width=fill menu-height=120.0 padding=8.0 text-size=14.0 line-height=1.2 shaping=advanced font=ui open=opened close=closed -> selected _
+  pick choices selected placeholder="Choose" width=fill menu-height=120.0 padding=8.0 text-size=14.0 line-height=1.2 shaping=advanced font=ui open=opened close=closed style=dynamic_pick(busy) menu-style=dynamic_menu(busy) -> selected _
     active text=foreground placeholder=danger handle=primary background=background border=foreground border-width=1.0 radius=4.0
     hovered text=foreground
     opened text=foreground
@@ -11060,17 +11162,39 @@ view
         );
         assert!(generated.contains(".text_shaping(::iced::widget::text::Shaping::Advanced)"));
         assert!(generated.contains("::iced::widget::pick_list::Handle::Dynamic"));
+        assert!(generated.contains(
+            "let mut __style = crate::backend::dynamic_pick(__theme, __status, self.busy); match __status"
+        ));
+        assert!(
+            generated
+                .contains("let mut __style = crate::backend::dynamic_menu(__theme, self.busy);")
+        );
+        assert!(generated.contains("fn __ui_lang_check_pick_list_style_dynamic_pick"));
+        assert!(generated.contains("fn __ui_lang_check_menu_style_dynamic_menu"));
         assert!(generated.contains("Status::Opened { is_hovered: false }"));
         assert!(generated.contains("Status::Opened { is_hovered: true }"));
         assert!(generated.contains(".menu_style(move |__theme|"));
         assert!(generated.contains("__style.selected_background"));
         assert!(generated.contains("__style.shadow.blur_radius = 4.0 as f32"));
         assert!(generated.contains("self.selected = ::std::option::Option::Some(next);"));
+        let defaults = compile(
+            &source.replace(
+                " style=dynamic_pick(busy) menu-style=dynamic_menu(busy)",
+                "",
+            ),
+            "selection.ice",
+        )
+        .unwrap();
+        assert!(defaults.contains("pick_list::default(__theme, __status)"));
+        assert!(defaults.contains("menu::default(__theme)"));
     }
 
     #[test]
     fn lowers_searchable_combo_boxes() {
         let source = r#"app Search
+extern crate::backend
+  input-style dynamic_input(busy:bool)
+  menu-style dynamic_menu(busy:bool)
 font ui family=sans
 theme
   background #000000
@@ -11078,6 +11202,7 @@ theme
   primary #333333
   danger #ff0000
 state
+  busy = false
   modes:combo[str] = ["List", "Board"]
   selected:str? = none
   query = ""
@@ -11091,7 +11216,7 @@ on closed
 on reset
   modes = ["Timeline"]
 view
-  combo modes selected "Search modes" width=fill menu-height=120.0 padding=8.0 text-size=14.0 line-height=1.2 shaping=advanced font=ui input=searched hover=hovered open=opened close=closed -> selected _
+  combo modes selected "Search modes" width=fill menu-height=120.0 padding=8.0 text-size=14.0 line-height=1.2 shaping=advanced font=ui input=searched hover=hovered open=opened close=closed style=dynamic_input(busy) menu-style=dynamic_menu(busy) -> selected _
     active background=background border=foreground border-width=1.0 radius=4.0 icon=primary placeholder=danger value=foreground selection=primary
     hovered background=background icon=foreground placeholder=danger value=foreground selection=primary
     focused background=background border=primary
@@ -11125,6 +11250,10 @@ view
         assert!(generated.contains("code_point: '⌕'"));
         assert!(generated.contains("Side::Right"));
         assert!(generated.contains(".input_style(move |__theme, __status|"));
+        assert!(generated.contains("crate::backend::dynamic_input(__theme, __status, self.busy)"));
+        assert!(generated.contains("crate::backend::dynamic_menu(__theme, self.busy)"));
+        assert!(generated.contains("fn __ui_lang_check_input_style_dynamic_input"));
+        assert!(generated.contains("fn __ui_lang_check_menu_style_dynamic_menu"));
         assert!(generated.contains("Status::Focused { is_hovered: true }"));
         assert!(generated.contains(".menu_style(move |__theme|"));
         assert!(generated.contains("__style.selected_background"));
