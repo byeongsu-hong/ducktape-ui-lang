@@ -855,3 +855,30 @@ view
     }
     assert!(!generated.contains("dispatch(__request).chain"));
 }
+
+#[test]
+fn snapshots_after_handlers_that_return_tasks_early() {
+    let source = r#"extern crate::backend
+  save() -> unit
+app Accessible
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+on press
+  return if false
+  run save() -> saved
+on saved
+view
+  button "Save" -> press
+"#;
+    let generated = compile(source, "accessible.ice").unwrap();
+
+    assert!(generated.contains("__AccessibleMessage::Press => (|| {"));
+    assert!(generated.contains("if false { return ::iced::Task::none(); }"));
+    assert!(generated.contains("return ::iced::Task::perform"));
+    assert!(generated.contains(
+        "::iced::Task::batch([__task, ::ui_lang_runtime::snapshot::<__AccessibleMessage>"
+    ));
+}

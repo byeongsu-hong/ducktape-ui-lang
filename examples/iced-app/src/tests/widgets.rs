@@ -19,7 +19,7 @@ mod dynamic_widget_operations {
             __DynamicOperationsMessage::ScrollTo,
             __DynamicOperationsMessage::ScrollBy,
         ] {
-            assert_eq!(app.__update(message).units(), 1);
+            assert_eq!(app.__update(message).units(), 2);
         }
     }
 }
@@ -40,7 +40,7 @@ mod scoped_widget_operations {
             __ScopedOperationsMessage::FocusCell,
             __ScopedOperationsMessage::SnapPane,
         ] {
-            assert_eq!(app.__update(message).units(), 1);
+            assert_eq!(app.__update(message).units(), 2);
         }
     }
 }
@@ -60,7 +60,7 @@ mod widget_selectors {
             __WidgetSelectorsMessage::FindAllText,
             __WidgetSelectorsMessage::FindCustom,
         ] {
-            assert_eq!(app.__update(message).units(), 1);
+            assert_eq!(app.__update(message).units(), 2);
         }
     }
 }

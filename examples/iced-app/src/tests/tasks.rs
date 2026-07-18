@@ -31,7 +31,7 @@ mod task_stream {
     #[test]
     fn constructs_both_native_stream_units() {
         let (mut app, _) = TaskStream::__boot();
-        assert_eq!(app.__update(__TaskStreamMessage::Start).units(), 2);
+        assert_eq!(app.__update(__TaskStreamMessage::Start).units(), 3);
         assert_eq!(app.__subscription().units(), 7);
     }
 }
@@ -43,7 +43,7 @@ mod task_sip {
     #[test]
     fn constructs_both_native_sipper_units() {
         let (mut app, _) = TaskSip::__boot();
-        assert_eq!(app.__update(__TaskSipMessage::Start).units(), 2);
+        assert_eq!(app.__update(__TaskSipMessage::Start).units(), 3);
     }
 }
 
@@ -54,7 +54,7 @@ mod task_flow {
     #[test]
     fn constructs_native_task_combinators() {
         let (mut app, _) = TaskFlow::__boot();
-        assert_eq!(app.__update(__TaskFlowMessage::Start).units(), 8);
+        assert_eq!(app.__update(__TaskFlowMessage::Start).units(), 9);
     }
 }
 
@@ -155,7 +155,7 @@ mod timer {
     fn constructs_all_native_time_operations() {
         let (mut app, _) = TimerEvents::__boot();
         assert_eq!(app.__subscription().units(), 6);
-        assert_eq!(app.__update(__TimerEventsMessage::Start).units(), 1);
+        assert_eq!(app.__update(__TimerEventsMessage::Start).units(), 2);
     }
 }
 
@@ -198,25 +198,42 @@ mod image_allocation {
 
         let (mut app, _) = ImageAllocation::__boot();
         let task = app.__update(__ImageAllocationMessage::Allocate);
-        assert_eq!(task.units(), 1);
+        assert_eq!(task.units(), 2);
         let mut stream = iced_runtime::task::into_stream(task).unwrap();
         let message = iced::futures::executor::block_on(async move {
-            let iced_runtime::Action::Image(iced_runtime::image::Action::Allocate(_, sender)) =
-                stream.next().await.unwrap()
-            else {
-                panic!("expected native image allocation action")
-            };
-            sender
-                .send(Err(iced::widget::image::Error::Unsupported))
-                .unwrap();
-            let iced_runtime::Action::Output(message) = stream.next().await.unwrap() else {
-                panic!("expected routed allocation error")
-            };
-            message
+            let mut sent_error = false;
+            let mut saw_accessibility_snapshot = false;
+            let mut routed_error = None;
+            for _ in 0..3 {
+                match stream.next().await.expect("batched task action") {
+                    iced_runtime::Action::Image(iced_runtime::image::Action::Allocate(
+                        _,
+                        sender,
+                    )) if !sent_error => {
+                        sender
+                            .send(Err(iced::widget::image::Error::Unsupported))
+                            .unwrap();
+                        sent_error = true;
+                    }
+                    iced_runtime::Action::Widget(_) if !saw_accessibility_snapshot => {
+                        saw_accessibility_snapshot = true;
+                    }
+                    iced_runtime::Action::Output(message)
+                        if sent_error && routed_error.is_none() =>
+                    {
+                        routed_error = Some(message);
+                    }
+                    _ => panic!("unexpected batched task action"),
+                }
+            }
+
+            assert!(sent_error);
+            assert!(saw_accessibility_snapshot);
+            routed_error.expect("routed allocation error")
         });
         assert_eq!(
             app.__update(__ImageAllocationMessage::AllocateFlow).units(),
-            1
+            2
         );
         let _ = app.__update(message);
         assert_eq!(app.error_kind, "unsupported");

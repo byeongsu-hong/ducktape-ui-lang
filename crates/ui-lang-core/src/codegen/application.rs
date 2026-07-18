@@ -286,7 +286,9 @@ pub(in crate::codegen) fn generate_update(
                     .join(", ")
             )
         };
-        writeln!(out, "{pattern} => {{").unwrap();
+        // Keep statement-level `return` inside this arm so every user update
+        // reaches the post-state accessibility snapshot below.
+        writeln!(out, "{pattern} => (|| {{").unwrap();
         let mut env = state_env(document, "self");
         for param in &handler.params {
             env.insert(
@@ -310,7 +312,7 @@ pub(in crate::codegen) fn generate_update(
         if !has_task {
             writeln!(out, "::iced::Task::none()").unwrap();
         }
-        writeln!(out, "}}").unwrap();
+        writeln!(out, "}})(),").unwrap();
     }
     for node in pane_grids(&document.view) {
         let ViewNode::PaneGrid { name, options, .. } = node else {

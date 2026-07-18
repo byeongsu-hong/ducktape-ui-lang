@@ -45,10 +45,10 @@ fn constructs_structured_boot_preset() {
 #[test]
 fn opens_and_targets_a_named_window() {
     let (mut app, _) = Tasks::__boot();
-    assert_eq!(app.__update(__TasksMessage::OpenChild).units(), 1);
+    assert_eq!(app.__update(__TasksMessage::OpenChild).units(), 2);
 
     let id = iced::window::Id::unique();
-    assert_eq!(app.__update(__TasksMessage::ChildOpened(id)).units(), 1);
+    assert_eq!(app.__update(__TasksMessage::ChildOpened(id)).units(), 2);
     assert_eq!(app.child_window, Some(id));
 
     assert_eq!(
@@ -62,10 +62,10 @@ fn opens_and_targets_a_named_window() {
 #[test]
 fn constructs_window_capture_queries() {
     let (mut app, _) = Tasks::__boot();
-    assert_eq!(app.__update(__TasksMessage::ReadRawWindowId).units(), 1);
-    assert_eq!(app.__update(__TasksMessage::CaptureWindow).units(), 1);
-    assert_eq!(app.__update(__TasksMessage::SetWindowIcon).units(), 1);
-    assert_eq!(app.__update(__TasksMessage::InspectWindowHandle).units(), 1);
+    assert_eq!(app.__update(__TasksMessage::ReadRawWindowId).units(), 2);
+    assert_eq!(app.__update(__TasksMessage::CaptureWindow).units(), 2);
+    assert_eq!(app.__update(__TasksMessage::SetWindowIcon).units(), 2);
+    assert_eq!(app.__update(__TasksMessage::InspectWindowHandle).units(), 2);
 
     let pixels = vec![255, 0, 0, 255, 0, 255, 0, 255];
     let _ = app.__update(__TasksMessage::WindowCaptured(pixels, 2, 1, 1.5));
