@@ -365,6 +365,7 @@ pub enum ExternKind {
     MarkdownViewer,
     ProgressStyle,
     ButtonStyle,
+    CheckboxStyle,
 }
 
 #[derive(Clone, Debug)]
@@ -1342,6 +1343,7 @@ pub struct BoolControlOptions {
 #[derive(Clone, Debug, Default)]
 pub struct CheckboxStyleSet {
     pub preset: CheckboxStylePreset,
+    pub custom: Option<ExternCall>,
     pub active_checked: Option<CheckboxStatusStyle>,
     pub active_unchecked: Option<CheckboxStatusStyle>,
     pub hovered_checked: Option<CheckboxStatusStyle>,

@@ -12,6 +12,7 @@ extern crate::backend
   markdown-viewer docs_viewer(prefix:str) -> str
   progress-style loading_progress(active:bool)
   button-style action_button(busy:bool)
+  checkbox-style task_checkbox(busy:bool)
   task copy_text(text:str) -> unit ! AppError
   subscription app_events() -> bool
 
@@ -78,7 +79,7 @@ state
 
 component TaskRow(task:Task, loading:bool)
   row #root @w-full items-center p-4 bg-surface border border-border rounded-lg
-    checkbox task.title checked=task.done disabled=loading size=18.0 width=fill spacing=8.0 text-size=14.0 line-height=1.2 shaping=auto wrapping=word-or-glyph font=default icon="✓" icon-size=12.0 icon-line-height=1.0 icon-shaping=basic -> toggle(task.id, _)
+    checkbox task.title checked=task.done disabled=loading style=task_checkbox(loading) size=18.0 width=fill spacing=8.0 text-size=14.0 line-height=1.2 shaping=auto wrapping=word-or-glyph font=default icon="✓" icon-size=12.0 icon-line-height=1.0 icon-shaping=basic -> toggle(task.id, _)
 
 on mount
   loading = true

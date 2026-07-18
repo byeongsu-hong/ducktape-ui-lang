@@ -887,6 +887,26 @@ fn generate_extern_probes(out: &mut String, document: &Document) {
                 )
                 .unwrap();
             }
+            ExternKind::CheckboxStyle => {
+                let params = if params.is_empty() {
+                    "theme: &::iced::Theme, status: ::iced::widget::checkbox::Status".into()
+                } else {
+                    format!(
+                        "theme: &::iced::Theme, status: ::iced::widget::checkbox::Status, {params}"
+                    )
+                };
+                let args = if args.is_empty() {
+                    "theme, status".into()
+                } else {
+                    format!("theme, status, {args}")
+                };
+                writeln!(
+                    out,
+                    "#[allow(dead_code)] fn __ui_lang_check_checkbox_style_{}({params}) {{ let _: ::iced::widget::checkbox::Style = {}({args}); }}",
+                    item.name, item.rust_path
+                )
+                .unwrap();
+            }
         }
     }
 }
@@ -8188,6 +8208,29 @@ fn checkbox_style_code(
     env: &HashMap<String, Binding>,
     document: &Document,
 ) -> Result<String, Error> {
+    let custom = styles
+        .custom
+        .as_ref()
+        .map(|style| {
+            let function = document
+                .functions
+                .iter()
+                .find(|item| item.name == style.function && item.kind == ExternKind::CheckboxStyle)
+                .expect("checker validates checkbox style");
+            let args = style
+                .args
+                .iter()
+                .map(|arg| expr_code(arg, env, document, ValueMode::Owned))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok::<_, Error>(format!(
+                "{}(__theme, __status{})",
+                function.rust_path,
+                args.iter()
+                    .map(|arg| format!(", {arg}"))
+                    .collect::<String>()
+            ))
+        })
+        .transpose()?;
     let preset = match styles.preset {
         CheckboxStylePreset::Primary => "primary",
         CheckboxStylePreset::Secondary => "secondary",
@@ -8203,16 +8246,19 @@ fn checkbox_style_code(
         ("Disabled", false, &styles.disabled_unchecked),
     ];
     if overrides.iter().all(|(_, _, style)| style.is_none()) {
-        return Ok(if styles.preset == CheckboxStylePreset::Primary {
+        return Ok(if let Some(custom) = custom {
+            format!(".style(move |__theme, __status| {custom})")
+        } else if styles.preset == CheckboxStylePreset::Primary {
             String::new()
         } else {
             format!(".style(::iced::widget::checkbox::{preset})")
         });
     }
 
-    let mut code = format!(
-        ".style(move |__theme, __status| {{ let mut __style = ::iced::widget::checkbox::{preset}(__theme, __status); match __status {{"
-    );
+    let base =
+        custom.unwrap_or_else(|| format!("::iced::widget::checkbox::{preset}(__theme, __status)"));
+    let mut code =
+        format!(".style(move |__theme, __status| {{ let mut __style = {base}; match __status {{");
     for (status, checked, style) in overrides {
         let Some(style) = style else { continue };
         write!(
@@ -10914,6 +10960,8 @@ view
     #[test]
     fn lowers_complete_boolean_control_styles_and_typography() {
         let source = r#"app Preferences
+extern crate::backend
+  checkbox-style dynamic_checkbox(disabled:bool)
 theme
   background #000000
   foreground #ffffff
@@ -10925,7 +10973,7 @@ on changed(next)
   enabled = next
 view
   col
-    checkbox "Checkbox" checked=enabled style=success size=20.0 width=fill spacing=8.0 text-size=14.0 line-height=1.2 shaping=advanced wrapping=word-or-glyph font=mono icon="✓" icon-size=12.0 icon-line-height=1.0 icon-shaping=basic -> changed _
+    checkbox "Checkbox" checked=enabled style=dynamic_checkbox(enabled) size=20.0 width=fill spacing=8.0 text-size=14.0 line-height=1.2 shaping=advanced wrapping=word-or-glyph font=mono icon="✓" icon-size=12.0 icon-line-height=1.0 icon-shaping=basic -> changed _
       active checked background=linear(1.57, primary@0.0, background@1.0) icon=foreground text=foreground border=primary border-width=1.0 radius=4.0 radius-tl=2.0 radius-tr=3.0 radius-br=5.0 radius-bl=6.0
       active unchecked background=background icon=primary text=foreground border=foreground
       hovered checked background=primary icon=foreground text=foreground border=primary
@@ -10948,7 +10996,10 @@ view
         assert!(generated.contains("checkbox::Icon"));
         assert!(generated.contains("code_point: '✓'"));
         assert!(generated.contains(".text_alignment(::iced::widget::text::Alignment::Right)"));
-        assert!(generated.contains("checkbox::success(__theme, __status)"));
+        assert!(
+            generated.contains("crate::backend::dynamic_checkbox(__theme, __status, self.enabled)")
+        );
+        assert!(generated.contains("fn __ui_lang_check_checkbox_style_dynamic_checkbox"));
         for (status, checked) in [
             ("Active", true),
             ("Active", false),
@@ -10968,7 +11019,10 @@ view
         assert!(generated.contains("top_left: 2.0 as f32"));
         for preset in ["primary", "secondary", "success", "danger"] {
             let generated = compile(
-                &source.replace("style=success", &format!("style={preset}")),
+                &source.replace(
+                    "style=dynamic_checkbox(enabled)",
+                    &format!("style={preset}"),
+                ),
                 "preferences.ice",
             )
             .unwrap();

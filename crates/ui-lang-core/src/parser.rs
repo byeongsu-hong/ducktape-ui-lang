@@ -100,6 +100,13 @@ pub fn parse(source: &str) -> Result<Document, Error> {
                         &path,
                         ExternKind::ButtonStyle,
                     )?);
+                } else if let Some(source) = item.text.strip_prefix("checkbox-style ") {
+                    functions.push(parse_extern_fn(
+                        &format!("{source} -> unit"),
+                        item,
+                        &path,
+                        ExternKind::CheckboxStyle,
+                    )?);
                 } else if item.text.chars().next().is_some_and(char::is_uppercase) {
                     structs.push(parse_extern_struct(item, &path)?);
                 } else {
@@ -1026,6 +1033,7 @@ fn parse_extern_fn(
                 | ExternKind::MarkdownViewer
                 | ExternKind::ProgressStyle
                 | ExternKind::ButtonStyle
+                | ExternKind::CheckboxStyle
         )
     {
         return Err(error(
@@ -6950,19 +6958,28 @@ fn parse_checkbox(
         } else if let Some(value) = part.strip_prefix("disabled=") {
             disabled = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else if let Some(value) = part.strip_prefix("style=") {
-            style.preset = match value {
-                "primary" => CheckboxStylePreset::Primary,
-                "secondary" => CheckboxStylePreset::Secondary,
-                "success" => CheckboxStylePreset::Success,
-                "danger" => CheckboxStylePreset::Danger,
-                _ => {
-                    return Err(error(
+            if let Some(preset) = match value {
+                "primary" => Some(CheckboxStylePreset::Primary),
+                "secondary" => Some(CheckboxStylePreset::Secondary),
+                "success" => Some(CheckboxStylePreset::Success),
+                "danger" => Some(CheckboxStylePreset::Danger),
+                _ => None,
+            } {
+                style.preset = preset;
+                style.custom = None;
+            } else {
+                let (function, args) = parse_signature(value, line).map_err(|_| {
+                    error(
                         "E067",
                         line,
-                        "checkbox style must be primary, secondary, success, or danger",
-                    ));
-                }
-            };
+                        "checkbox style must be a preset or declared style call",
+                    )
+                })?;
+                style.custom = Some(ExternCall {
+                    function,
+                    args: parse_expr_list(&args, line)?,
+                });
+            }
         } else if parse_bool_control_option(part, &mut options, false, true, line)? {
         } else {
             return Err(error(
