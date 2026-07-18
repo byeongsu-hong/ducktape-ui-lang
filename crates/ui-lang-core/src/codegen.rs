@@ -2690,6 +2690,18 @@ fn generate_statements(
             Statement::Abort { handle, .. } => {
                 writeln!(out, "if let ::std::option::Option::Some(__handle) = &{state}.{handle} {{ __handle.abort(); }}").unwrap();
             }
+            Statement::DebugStart { name, target, .. } => {
+                let name = expr_code(name, env, document, ValueMode::Owned)?;
+                writeln!(out, "if let ::std::option::Option::Some(__span) = {state}.{target}.take() {{ __span.finish(); }}").unwrap();
+                writeln!(
+                    out,
+                    "{state}.{target} = ::std::option::Option::Some(::iced::debug::time({name}));"
+                )
+                .unwrap();
+            }
+            Statement::DebugFinish { target, .. } => {
+                writeln!(out, "if let ::std::option::Option::Some(__span) = {state}.{target}.take() {{ __span.finish(); }}").unwrap();
+            }
             Statement::ClipboardWrite { primary, value, .. } => {
                 has_task = true;
                 let value = expr_code(value, env, document, ValueMode::Owned)?;
@@ -8023,6 +8035,15 @@ fn expr_code(
             code
         }
         Expr::Call { name, args } => match name.as_str() {
+            "debug.active" => format!(
+                "({}).is_some()",
+                expr_code(&args[0], env, document, ValueMode::Borrowed)?
+            ),
+            "debug.time_with" => format!(
+                "::iced::debug::time_with({}, || {})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, mode)?
+            ),
             "image.downgrade" => format!(
                 "({}).downgrade()",
                 expr_code(&args[0], env, document, ValueMode::Borrowed)?
@@ -11878,6 +11899,21 @@ fn pascal(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use crate::compile;
+
+    #[test]
+    fn lowers_native_debug_spans_and_timed_values() {
+        let source = include_str!("../../../examples/iced-app/src/ui/debug_timing.ice");
+        let generated = compile(source, "debug_timing.ice").unwrap();
+        for expected in [
+            "::std::option::Option<::iced::debug::Span>",
+            "::iced::debug::time(self.label.clone())",
+            "__span.finish()",
+            "(self.timer).is_some()",
+            "::iced::debug::time_with(\"compute\".to_owned(), || (self.value + 1))",
+        ] {
+            assert!(generated.contains(expected), "missing {expected}");
+        }
+    }
 
     #[test]
     fn lowers_native_image_allocation_and_retention() {

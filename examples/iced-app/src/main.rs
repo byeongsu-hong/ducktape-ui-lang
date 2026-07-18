@@ -1823,6 +1823,28 @@ mod image_allocation {
 }
 
 #[cfg(test)]
+mod debug_timing {
+    ui_lang::include_app!("src/ui/debug_timing.ice");
+
+    #[test]
+    fn owns_and_finishes_native_debug_spans() {
+        let (mut app, _) = DebugTiming::__boot();
+        assert!(app.timer.is_none());
+
+        let _ = app.__update(__DebugTimingMessage::Begin);
+        assert!(app.timer.is_some());
+        let _ = app.__update(__DebugTimingMessage::Begin);
+        assert!(app.timer.is_some());
+
+        let _ = app.__update(__DebugTimingMessage::Finish);
+        assert!(app.timer.is_none());
+        let _ = app.__update(__DebugTimingMessage::Compute);
+        assert_eq!(app.measured, 42);
+        let _ = app.__view();
+    }
+}
+
+#[cfg(test)]
 mod canvas_events {
     ui_lang::include_app!("src/ui/canvas_events.ice");
 

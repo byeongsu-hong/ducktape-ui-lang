@@ -34,7 +34,15 @@ pub fn check(document: &mut Document) -> Result<(), Error> {
         .collect::<Vec<_>>();
     for state in &document.states {
         let actual = expr_type(&state.initial, &HashMap::new(), document, &state.span)?;
-        if let Type::Combo(expected) = &state.ty {
+        if state.ty == Type::Option(Box::new(Type::DebugSpan))
+            && !matches!(state.initial, Expr::None)
+        {
+            return Err(Error::new(
+                "E103",
+                &state.span,
+                "debug span state must start as `none`",
+            ));
+        } else if let Type::Combo(expected) = &state.ty {
             let Type::List(actual) = actual else {
                 return Err(Error::new(
                     "E104",
@@ -907,33 +915,68 @@ fn check_declared_types(document: &Document) -> Result<(), Error> {
         .map(|item| item.name.as_str())
         .collect::<HashSet<_>>();
     let check = |ty: &Type, span: &Span| check_declared_type(ty, span, &known);
+    let reject_debug_span = |ty: &Type, span: &Span| {
+        if contains_debug_span(ty) {
+            Err(Error::new(
+                "E103",
+                span,
+                "debug-span is non-clone state and must be declared as `debug-span?` state",
+            ))
+        } else {
+            Ok(())
+        }
+    };
 
     for item in &document.structs {
         for (_, ty) in &item.fields {
+            reject_debug_span(ty, &item.span)?;
             check(ty, &item.span)?;
         }
     }
     for item in &document.functions {
         for (_, ty) in &item.params {
+            reject_debug_span(ty, &item.span)?;
             check(ty, &item.span)?;
         }
         if let Some(progress) = &item.progress {
+            reject_debug_span(progress, &item.span)?;
             check(progress, &item.span)?;
         }
+        reject_debug_span(&item.output, &item.span)?;
         check(&item.output, &item.span)?;
         if let Some(error) = &item.error {
+            reject_debug_span(error, &item.span)?;
             check(error, &item.span)?;
         }
     }
     for state in &document.states {
+        if contains_debug_span(&state.ty) && state.ty != Type::Option(Box::new(Type::DebugSpan)) {
+            return Err(Error::new(
+                "E103",
+                &state.span,
+                "debug span state must have type `debug-span?`",
+            ));
+        }
         check(&state.ty, &state.span)?;
     }
     for component in &document.components {
         for (_, ty) in &component.params {
+            reject_debug_span(ty, &component.span)?;
             check(ty, &component.span)?;
         }
     }
     Ok(())
+}
+
+fn contains_debug_span(ty: &Type) -> bool {
+    match ty {
+        Type::DebugSpan => true,
+        Type::List(inner) | Type::Option(inner) | Type::Combo(inner) | Type::Animation(inner) => {
+            contains_debug_span(inner)
+        }
+        Type::Result(output, error) => contains_debug_span(output) || contains_debug_span(error),
+        _ => false,
+    }
 }
 
 fn check_declared_type(ty: &Type, span: &Span, known: &HashSet<&str>) -> Result<(), Error> {
@@ -3810,6 +3853,7 @@ fn lazy_hashable(ty: &Type) -> bool {
         | Type::ImageAllocation
         | Type::ImageMemory
         | Type::ImageError
+        | Type::DebugSpan
         | Type::SizeU32
         | Type::Unit
         | Type::Unknown => false,
@@ -5869,6 +5913,13 @@ fn infer_route(
                 .ok_or_else(|| Error::new("E134", &route.span, "this route has no `_` payload"))?,
             RouteArg::Expr(expr) => expr_type(expr, env, document, &route.span)?,
         };
+        if contains_debug_span(&ty) {
+            return Err(Error::new(
+                "E135",
+                &route.span,
+                "debug spans cannot cross a handler route; use `debug.active(state)` for status",
+            ));
+        }
         if ty == Type::Unknown {
             continue;
         }
@@ -5942,6 +5993,13 @@ fn check_handler(
                 let expected = states.get(target).ok_or_else(|| {
                     Error::new("E140", span, format!("`{target}` is not writable state"))
                 })?;
+                if contains_debug_span(expected) {
+                    return Err(Error::new(
+                        "E144",
+                        span,
+                        "debug span state is owned by `debug start` and `debug finish`",
+                    ));
+                }
                 let actual = expr_type(value, &env, document, span)?;
                 if let Type::Combo(inner) = expected {
                     require_type(&actual, &Type::List(inner.clone()), span)?;
@@ -6105,6 +6163,13 @@ fn check_handler(
             }
             Statement::Abort { handle, span } => {
                 require_task_handle_state(handle, states, span)?;
+            }
+            Statement::DebugStart { name, target, span } => {
+                require_debug_span_state(target, states, span)?;
+                require_type(&expr_type(name, &env, document, span)?, &Type::Str, span)?;
+            }
+            Statement::DebugFinish { target, span } => {
+                require_debug_span_state(target, states, span)?;
             }
             Statement::ClipboardWrite { value, span, .. } => {
                 if index + 1 != handler.statements.len() {
@@ -6547,6 +6612,8 @@ fn invalid_task_producer(statement: &Statement) -> Option<&Span> {
         | Statement::ComboPush { .. }
         | Statement::ReturnIf { .. }
         | Statement::Abort { .. }
+        | Statement::DebugStart { .. }
+        | Statement::DebugFinish { .. }
         | Statement::PaneOperation { .. } => Some(statement_span(statement)),
     }
 }
@@ -6567,6 +6634,20 @@ fn require_task_handle_state(
     require_type(actual, &Type::Option(Box::new(Type::TaskHandle)), span)
 }
 
+fn require_debug_span_state(
+    target: &str,
+    states: &HashMap<String, Type>,
+    span: &Span,
+) -> Result<(), Error> {
+    let Some(actual) = states.get(target) else {
+        return Err(
+            Error::new("E144", span, format!("unknown debug span state `{target}`"))
+                .hint(format!("declare `{target}:debug-span? = none` in state")),
+        );
+    };
+    require_type(actual, &Type::Option(Box::new(Type::DebugSpan)), span)
+}
+
 fn statement_span(statement: &Statement) -> &Span {
     match statement {
         Statement::Assign { span, .. }
@@ -6580,6 +6661,8 @@ fn statement_span(statement: &Statement) -> &Span {
         | Statement::TaskGroup { span, .. }
         | Statement::Abortable { span, .. }
         | Statement::Abort { span, .. }
+        | Statement::DebugStart { span, .. }
+        | Statement::DebugFinish { span, .. }
         | Statement::ClipboardWrite { span, .. }
         | Statement::WidgetOperation { span, .. }
         | Statement::WindowOperation { span, .. }
@@ -7133,6 +7216,36 @@ pub(crate) fn expr_type(
             Ok(ty)
         }
         Expr::Call { name, args } => match name.as_str() {
+            "debug.active" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::Option(Box::new(Type::DebugSpan))],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::Bool)
+            }
+            "debug.time_with" => {
+                if args.len() != 2 {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        "debug.time_with expects a name and one value",
+                    ));
+                }
+                require_type(&expr_type(&args[0], env, document, span)?, &Type::Str, span)?;
+                let output = expr_type(&args[1], env, document, span)?;
+                if contains_debug_span(&output) {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        "debug.time_with cannot move debug span state",
+                    ));
+                }
+                Ok(output)
+            }
             "image.downgrade" => {
                 check_builtin_args(name, args, &[Type::ImageAllocation], env, document, span)?;
                 Ok(Type::ImageMemory)
@@ -8132,6 +8245,13 @@ pub(crate) fn expr_type(
                             "task handles are opaque; use `aborted(handle)`",
                         ));
                     }
+                    if contains_debug_span(&left) || contains_debug_span(&right) {
+                        return Err(Error::new(
+                            "E153",
+                            span,
+                            "debug spans are opaque; use `debug.active(state)`",
+                        ));
+                    }
                     if contains_mouse_click(&left) || contains_mouse_click(&right) {
                         return Err(Error::new(
                             "E153",
@@ -8662,6 +8782,49 @@ fn type_error(span: &Span, expected: &Type, actual: &Type) -> Error {
 #[cfg(test)]
 mod tests {
     use crate::{PaneConfiguration, Type, ViewNode, analyze};
+
+    #[test]
+    fn checks_owned_native_debug_timing_boundaries() {
+        let source = include_str!("../../../examples/iced-app/src/ui/debug_timing.ice");
+        analyze(source).unwrap();
+
+        let error = analyze(&source.replace("timer:debug-span?", "timer:str?")).unwrap_err();
+        assert_eq!(error.code, "E101");
+        assert!(error.message.contains("debug-span?"));
+
+        let error = analyze(&source.replace("label = \"interaction\"", "label = 1")).unwrap_err();
+        assert_eq!(error.code, "E101");
+        assert!(error.message.contains("expected `str`"));
+
+        let error =
+            analyze(&source.replace("timer:debug-span?", "timer:[debug-span]")).unwrap_err();
+        assert_eq!(error.code, "E103");
+        assert!(error.message.contains("must have type `debug-span?`"));
+
+        let error = analyze(&source.replace("debug finish timer", "timer = none")).unwrap_err();
+        assert_eq!(error.code, "E144");
+        assert!(error.message.contains("`debug start` and `debug finish`"));
+
+        let error = analyze(&source.replace("on begin", "on begin(span)").replace(
+            "button \"Begin\" -> begin",
+            "button \"Begin\" -> begin timer",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E135");
+        assert!(error.message.contains("cannot cross a handler route"));
+
+        let error = analyze(
+            &source
+                .replace("measured = 0", "measured = 0\n  active = false")
+                .replace(
+                    "measured = debug.time_with(\"compute\", value + 1)",
+                    "active = timer == none",
+                ),
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "E153");
+        assert!(error.message.contains("debug spans are opaque"));
+    }
 
     #[test]
     fn checks_native_image_allocation_results_and_errors() {
