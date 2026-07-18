@@ -835,6 +835,37 @@ fn generate_update(out: &mut String, document: &Document, message: &str) -> Resu
     Ok(())
 }
 
+fn subscription_payload_arity(source: &SubscriptionSource) -> usize {
+    match source {
+        SubscriptionSource::Every { .. }
+        | SubscriptionSource::Repeat { .. }
+        | SubscriptionSource::Extern { .. }
+        | SubscriptionSource::Keyboard(_)
+        | SubscriptionSource::SystemTheme => 1,
+        SubscriptionSource::InputMethod(InputMethodEvent::Opened | InputMethodEvent::Closed)
+        | SubscriptionSource::Mouse(MouseEvent::Entered | MouseEvent::Left)
+        | SubscriptionSource::Window(
+            WindowEvent::Frame
+            | WindowEvent::Closed
+            | WindowEvent::CloseRequested
+            | WindowEvent::Focused
+            | WindowEvent::Unfocused
+            | WindowEvent::FilesHoveredLeft,
+        ) => 0,
+        SubscriptionSource::InputMethod(InputMethodEvent::Commit)
+        | SubscriptionSource::Mouse(MouseEvent::Pressed | MouseEvent::Released)
+        | SubscriptionSource::Window(
+            WindowEvent::Rescaled | WindowEvent::FileHovered | WindowEvent::FileDropped,
+        ) => 1,
+        SubscriptionSource::Mouse(MouseEvent::Moved)
+        | SubscriptionSource::Window(WindowEvent::Moved | WindowEvent::Resized) => 2,
+        SubscriptionSource::InputMethod(InputMethodEvent::Preedit)
+        | SubscriptionSource::Mouse(MouseEvent::Wheel)
+        | SubscriptionSource::Touch(_) => 3,
+        SubscriptionSource::Window(WindowEvent::Opened) => 4,
+    }
+}
+
 fn generate_subscription(
     out: &mut String,
     document: &Document,
@@ -851,7 +882,72 @@ fn generate_subscription(
     .unwrap();
     writeln!(out, "::iced::Subscription::batch([").unwrap();
     for subscription in &document.subscriptions {
-        let route = route_code(&subscription.route, "__value", &env, document, message)?;
+        let source_arity = subscription_payload_arity(&subscription.source);
+        let filter = subscription
+            .filter
+            .as_ref()
+            .map(|filter| {
+                let function = document
+                    .functions
+                    .iter()
+                    .find(|item| item.name == *filter && item.kind == ExternKind::Sync)
+                    .ok_or_else(|| {
+                        Error::new(
+                            "E130",
+                            &subscription.span,
+                            format!("unknown subscription filter `{filter}`"),
+                        )
+                    })?;
+                let args = match source_arity {
+                    0 => String::new(),
+                    1 => "__value".into(),
+                    count => (0..count)
+                        .map(|index| format!("__value.{index}"))
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                };
+                Ok(format!(
+                    ".filter_map(|{}| {}({args}))",
+                    if source_arity == 0 { "_" } else { "__value" },
+                    function.rust_path
+                ))
+            })
+            .transpose()?
+            .unwrap_or_default();
+        let context = subscription
+            .context
+            .as_ref()
+            .map(|context| expr_code(context, &env, document, ValueMode::Owned))
+            .transpose()?
+            .map(|context| format!(".with({context})"))
+            .unwrap_or_default();
+        let output_arity = if subscription.filter.is_some() {
+            1
+        } else {
+            source_arity
+        };
+        let mut payloads = Vec::new();
+        if subscription.context.is_some() {
+            payloads.push("__value.0".to_owned());
+        }
+        match output_arity {
+            0 => {}
+            1 => payloads.push(if subscription.context.is_some() {
+                "__value.1".into()
+            } else {
+                "__value".into()
+            }),
+            count => payloads.extend((0..count).map(|index| {
+                if subscription.context.is_some() {
+                    format!("__value.1.{index}")
+                } else {
+                    format!("__value.{index}")
+                }
+            })),
+        }
+        let payloads = payloads.iter().map(String::as_str).collect::<Vec<_>>();
+        let route = ordered_route_code(&subscription.route, &payloads, &env, document, message)?;
+        let transforms = format!("{filter}{context}");
         let condition = subscription
             .condition
             .as_ref()
@@ -862,7 +958,7 @@ fn generate_subscription(
         }
         match &subscription.source {
             SubscriptionSource::Every { milliseconds } => {
-                writeln!(out, "::iced::time::every(::std::time::Duration::from_millis({milliseconds})).map(move |__value| {route}),").unwrap();
+                writeln!(out, "::iced::time::every(::std::time::Duration::from_millis({milliseconds})){transforms}.map(move |__value| {route}),").unwrap();
             }
             SubscriptionSource::Repeat {
                 function,
@@ -879,7 +975,7 @@ fn generate_subscription(
                             format!("unknown repeated async function `{function}`"),
                         )
                     })?;
-                writeln!(out, "::iced::time::repeat({}, ::std::time::Duration::from_millis({milliseconds})).map(move |__value| {route}),", source.rust_path).unwrap();
+                writeln!(out, "::iced::time::repeat({}, ::std::time::Duration::from_millis({milliseconds})){transforms}.map(move |__value| {route}),", source.rust_path).unwrap();
             }
             SubscriptionSource::Extern { function, args } => {
                 let source = document
@@ -900,7 +996,7 @@ fn generate_subscription(
                     .join(", ");
                 writeln!(
                     out,
-                    "{}({args}).map(move |__value| {route}),",
+                    "{}({args}){transforms}.map(move |__value| {route}),",
                     source.rust_path
                 )
                 .unwrap();
@@ -920,23 +1016,8 @@ fn generate_subscription(
                         "matches!(__event, ::iced::Event::InputMethod(::iced::advanced::input_method::Event::Closed)).then_some(())"
                     }
                 };
-                let message_code = match event {
-                    InputMethodEvent::Opened | InputMethodEvent::Closed => {
-                        route_code(&subscription.route, "", &env, document, message)?
-                    }
-                    InputMethodEvent::Preedit => ordered_route_code(
-                        &subscription.route,
-                        &["__value.0", "__value.1", "__value.2"],
-                        &env,
-                        document,
-                        message,
-                    )?,
-                    InputMethodEvent::Commit => {
-                        route_code(&subscription.route, "__value", &env, document, message)?
-                    }
-                };
                 let (filter, status) = event_status_filter(filter, subscription.status);
-                writeln!(out, "::iced::event::listen_with(|__event, {status}, _| {{ {filter} }}).map(move |__value| {message_code}),").unwrap();
+                writeln!(out, "::iced::event::listen_with(|__event, {status}, _| {{ {filter} }}){transforms}.map(move |__value| {route}),").unwrap();
             }
             SubscriptionSource::Keyboard(event) => {
                 let filter = match event {
@@ -955,9 +1036,9 @@ fn generate_subscription(
                         "match __event {{ ::iced::Event::Keyboard(__event) => {{ {filter} }}, _ => ::std::option::Option::None }}"
                     );
                     let (filter, status) = event_status_filter(&filter, subscription.status);
-                    writeln!(out, "::iced::event::listen_with(|__event, {status}, _| {{ {filter} }}).map(move |__value| {route}),").unwrap();
+                    writeln!(out, "::iced::event::listen_with(|__event, {status}, _| {{ {filter} }}){transforms}.map(move |__value| {route}),").unwrap();
                 } else {
-                    writeln!(out, "::iced::keyboard::listen().filter_map(|__event| {{ {filter} }}).map(move |__value| {route}),").unwrap();
+                    writeln!(out, "::iced::keyboard::listen().filter_map(|__event| {{ {filter} }}){transforms}.map(move |__value| {route}),").unwrap();
                 }
             }
             SubscriptionSource::Mouse(event) => {
@@ -981,33 +1062,11 @@ fn generate_subscription(
                         "match __event { ::iced::Event::Mouse(::iced::mouse::Event::WheelScrolled { delta }) => { let (x, y, pixels) = match delta { ::iced::mouse::ScrollDelta::Lines { x, y } => (x as f64, y as f64, false), ::iced::mouse::ScrollDelta::Pixels { x, y } => (x as f64, y as f64, true) }; ::std::option::Option::Some((x, y, pixels)) }, _ => ::std::option::Option::None }"
                     }
                 };
-                let message_code = match event {
-                    MouseEvent::Entered | MouseEvent::Left => {
-                        route_code(&subscription.route, "", &env, document, message)?
-                    }
-                    MouseEvent::Moved => ordered_route_code(
-                        &subscription.route,
-                        &["__value.0", "__value.1"],
-                        &env,
-                        document,
-                        message,
-                    )?,
-                    MouseEvent::Pressed | MouseEvent::Released => {
-                        route_code(&subscription.route, "__value", &env, document, message)?
-                    }
-                    MouseEvent::Wheel => ordered_route_code(
-                        &subscription.route,
-                        &["__value.0", "__value.1", "__value.2"],
-                        &env,
-                        document,
-                        message,
-                    )?,
-                };
                 let (filter, status) = event_status_filter(filter, subscription.status);
-                writeln!(out, "::iced::event::listen_with(|__event, {status}, _| {{ {filter} }}).map(move |__value| {message_code}),").unwrap();
+                writeln!(out, "::iced::event::listen_with(|__event, {status}, _| {{ {filter} }}){transforms}.map(move |__value| {route}),").unwrap();
             }
             SubscriptionSource::SystemTheme => {
-                writeln!(out, "::iced::system::theme_changes().map(__ice_system_theme).map(move |__value| {route}),").unwrap();
+                writeln!(out, "::iced::system::theme_changes().map(__ice_system_theme){transforms}.map(move |__value| {route}),").unwrap();
             }
             SubscriptionSource::Touch(event) => {
                 let variant = match event {
@@ -1019,23 +1078,14 @@ fn generate_subscription(
                 let filter = format!(
                     "match __event {{ ::iced::Event::Touch(::iced::touch::Event::{variant} {{ id, position }}) => ::std::option::Option::Some((id.0.to_string(), position.x as f64, position.y as f64)), _ => ::std::option::Option::None }}"
                 );
-                let message_code = ordered_route_code(
-                    &subscription.route,
-                    &["__value.0", "__value.1", "__value.2"],
-                    &env,
-                    document,
-                    message,
-                )?;
                 let (filter, status) = event_status_filter(&filter, subscription.status);
-                writeln!(out, "::iced::event::listen_with(|__event, {status}, _| {{ {filter} }}).map(move |__value| {message_code}),").unwrap();
+                writeln!(out, "::iced::event::listen_with(|__event, {status}, _| {{ {filter} }}){transforms}.map(move |__value| {route}),").unwrap();
             }
             SubscriptionSource::Window(event) => {
                 if *event == WindowEvent::Frame {
-                    let message_code =
-                        route_code(&subscription.route, "", &env, document, message)?;
                     writeln!(
                         out,
-                        "::iced::window::frames().map(move |_| {message_code}),"
+                        "::iced::window::frames(){transforms}.map(move |__value| {route}),"
                     )
                     .unwrap();
                     if condition.is_some() {
@@ -1079,41 +1129,14 @@ fn generate_subscription(
                     }
                     WindowEvent::Frame => unreachable!("handled above"),
                 };
-                let message_code = match event {
-                    WindowEvent::Opened => ordered_route_code(
-                        &subscription.route,
-                        &["__value.0", "__value.1", "__value.2", "__value.3"],
-                        &env,
-                        document,
-                        message,
-                    )?,
-                    WindowEvent::Moved | WindowEvent::Resized => ordered_route_code(
-                        &subscription.route,
-                        &["__value.0", "__value.1"],
-                        &env,
-                        document,
-                        message,
-                    )?,
-                    WindowEvent::Rescaled | WindowEvent::FileHovered | WindowEvent::FileDropped => {
-                        route_code(&subscription.route, "__value", &env, document, message)?
-                    }
-                    WindowEvent::Closed
-                    | WindowEvent::CloseRequested
-                    | WindowEvent::Focused
-                    | WindowEvent::Unfocused
-                    | WindowEvent::FilesHoveredLeft => {
-                        route_code(&subscription.route, "", &env, document, message)?
-                    }
-                    WindowEvent::Frame => unreachable!("handled above"),
-                };
                 if subscription.status.is_some() {
                     let filter = format!(
                         "match __event {{ ::iced::Event::Window(__event) => {{ {filter} }}, _ => ::std::option::Option::None }}"
                     );
                     let (filter, status) = event_status_filter(&filter, subscription.status);
-                    writeln!(out, "::iced::event::listen_with(|__event, {status}, _| {{ {filter} }}).map(move |__value| {message_code}),").unwrap();
+                    writeln!(out, "::iced::event::listen_with(|__event, {status}, _| {{ {filter} }}){transforms}.map(move |__value| {route}),").unwrap();
                 } else {
-                    writeln!(out, "::iced::window::events().filter_map(|(_, __event)| {{ {filter} }}).map(move |__value| {message_code}),").unwrap();
+                    writeln!(out, "::iced::window::events().filter_map(|(_, __event)| {{ {filter} }}){transforms}.map(move |__value| {route}),").unwrap();
                 }
             }
         }
@@ -6279,6 +6302,9 @@ fn ordered_route_code(
     message: &str,
 ) -> Result<String, Error> {
     let variant = pascal(&route.handler);
+    if route.args.is_empty() {
+        return Ok(format!("{message}::{variant}"));
+    }
     let mut payload = payloads.iter();
     let args = route
         .args
@@ -10338,6 +10364,14 @@ view
         assert!(generated.contains(
             "::iced::time::repeat(crate::backend::refresh_time, ::std::time::Duration::from_millis(1000))"
         ));
+        assert!(generated.contains(
+            ".filter_map(|__value| crate::backend::even_refresh(__value)).with(self.generation)"
+        ));
+        assert!(generated.contains(
+            ".filter_map(|__value| crate::backend::visible_pointer(__value.0, __value.1)).with(self.generation)"
+        ));
+        assert!(generated.contains(".filter_map(|_| crate::backend::allow_frame())"));
+        assert!(generated.contains("__TimerEventsMessage::Refreshed(__value.0, __value.1)"));
     }
 
     #[test]

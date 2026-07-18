@@ -702,6 +702,14 @@ fn parse_subscription(line: &Line) -> Result<Subscription, Error> {
             };
             Ok((call.trim(), Some(status)))
         })?;
+    let (call, filter) = split_top_marker(call, " filter=")
+        .map_or(Ok((call, None)), |(call, filter)| {
+            Ok((call.trim(), Some(identifier(filter.trim(), line)?)))
+        })?;
+    let (call, context) = split_top_marker(call, " with=")
+        .map_or((call, None), |(call, context)| {
+            (call.trim(), Some(context.trim()))
+        });
     let source = if call == "system theme" {
         SubscriptionSource::SystemTheme
     } else if let Some(source) = call.strip_prefix("repeat ") {
@@ -838,6 +846,10 @@ fn parse_subscription(line: &Line) -> Result<Subscription, Error> {
     }
     Ok(Subscription {
         source,
+        context: context
+            .map(|context| parse_expr(context, line))
+            .transpose()?,
+        filter,
         condition: condition
             .map(|condition| parse_expr(condition, line))
             .transpose()?,
@@ -7949,6 +7961,19 @@ view
                 milliseconds: 1000
             } if function == "refresh_time"
         ));
+        assert_eq!(
+            document.subscriptions[1].filter.as_deref(),
+            Some("even_refresh")
+        );
+        assert!(matches!(
+            document.subscriptions[1].context,
+            Some(Expr::Path(ref path)) if path == &["generation"]
+        ));
+        assert_eq!(
+            document.subscriptions[2].filter.as_deref(),
+            Some("visible_pointer")
+        );
+        assert!(document.subscriptions[3].context.is_none());
 
         let error =
             parse(&source.replace("refresh_time() every", "refresh_time(1) every")).unwrap_err();

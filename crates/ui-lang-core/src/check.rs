@@ -2491,17 +2491,7 @@ fn infer_view(
                         format!("duplicate canvas event `{name}`"),
                     ));
                 }
-                let payloads = ordered_subscription_payloads(&event.source).or_else(|| {
-                    Some(vec![match event.source {
-                        SubscriptionSource::Keyboard(KeyboardEvent::Press) => Type::KeyPress,
-                        SubscriptionSource::Keyboard(KeyboardEvent::Release) => Type::KeyRelease,
-                        SubscriptionSource::Keyboard(KeyboardEvent::Modifiers) => {
-                            Type::KeyModifiers
-                        }
-                        _ => return None,
-                    }])
-                });
-                let payloads = payloads.ok_or_else(|| {
+                let payloads = native_subscription_payloads(&event.source).ok_or_else(|| {
                     Error::new("E190", &event.span, "invalid canvas event source")
                 })?;
                 if !event.route_payload
@@ -2553,29 +2543,14 @@ fn infer_view(
                     continue;
                 };
                 if event.route_payload {
-                    if ordered_subscription_payloads(&event.source).is_some() {
-                        infer_ordered_payload_route(
-                            route,
-                            &payloads,
-                            env,
-                            document,
-                            signatures,
-                            "canvas event",
-                        )?;
-                    } else {
-                        if route
-                            .args
-                            .iter()
-                            .any(|arg| !matches!(arg, RouteArg::Payload))
-                        {
-                            return Err(Error::new(
-                                "E190",
-                                &event.span,
-                                "canvas keyboard event routes only accept `_`",
-                            ));
-                        }
-                        infer_route(route, payloads.first().cloned(), env, document, signatures)?;
-                    }
+                    infer_ordered_payload_route(
+                        route,
+                        &payloads,
+                        env,
+                        document,
+                        signatures,
+                        "canvas event",
+                    )?;
                 } else {
                     if route
                         .args
@@ -4041,9 +4016,9 @@ fn check_text_options(
     Ok(())
 }
 
-fn ordered_subscription_payloads(source: &SubscriptionSource) -> Option<Vec<Type>> {
+fn native_subscription_payloads(source: &SubscriptionSource) -> Option<Vec<Type>> {
     Some(match source {
-        SubscriptionSource::Every { .. } => return None,
+        SubscriptionSource::Every { .. } => vec![Type::Instant],
         SubscriptionSource::InputMethod(event) => match event {
             InputMethodEvent::Opened | InputMethodEvent::Closed => Vec::new(),
             InputMethodEvent::Preedit => vec![
@@ -4053,12 +4028,16 @@ fn ordered_subscription_payloads(source: &SubscriptionSource) -> Option<Vec<Type
             ],
             InputMethodEvent::Commit => vec![Type::Str],
         },
+        SubscriptionSource::Keyboard(KeyboardEvent::Press) => vec![Type::KeyPress],
+        SubscriptionSource::Keyboard(KeyboardEvent::Release) => vec![Type::KeyRelease],
+        SubscriptionSource::Keyboard(KeyboardEvent::Modifiers) => vec![Type::KeyModifiers],
         SubscriptionSource::Mouse(event) => match event {
             MouseEvent::Entered | MouseEvent::Left => Vec::new(),
             MouseEvent::Moved => vec![Type::F64, Type::F64],
             MouseEvent::Pressed | MouseEvent::Released => vec![Type::Str],
             MouseEvent::Wheel => vec![Type::F64, Type::F64, Type::Bool],
         },
+        SubscriptionSource::SystemTheme => vec![Type::Str],
         SubscriptionSource::Touch(_) => vec![Type::Str, Type::F64, Type::F64],
         SubscriptionSource::Window(event) => match event {
             WindowEvent::Frame
@@ -4077,7 +4056,7 @@ fn ordered_subscription_payloads(source: &SubscriptionSource) -> Option<Vec<Type
             WindowEvent::Rescaled => vec![Type::F64],
             WindowEvent::FileHovered | WindowEvent::FileDropped => vec![Type::Str],
         },
-        _ => return None,
+        SubscriptionSource::Repeat { .. } | SubscriptionSource::Extern { .. } => return None,
     })
 }
 
@@ -4162,35 +4141,15 @@ fn infer_subscriptions(
                 &subscription.span,
             )?;
         }
-        let ordered_payloads = ordered_subscription_payloads(&subscription.source);
-        if let Some(payloads) = ordered_payloads {
-            let label = match &subscription.source {
-                SubscriptionSource::InputMethod(_) => "input-method subscription",
-                SubscriptionSource::Mouse(_) => "mouse subscription",
-                SubscriptionSource::Touch(_) => "touch subscription",
-                SubscriptionSource::Window(_) => "window subscription",
-                _ => unreachable!("only ordered event sources reach this branch"),
-            };
-            infer_ordered_payload_route(
-                &subscription.route,
-                &payloads,
-                states,
-                document,
-                signatures,
-                label,
-            )?;
-            continue;
-        }
-        let output = match &subscription.source {
-            SubscriptionSource::Every { .. } => Type::Instant,
+        let mut payloads = match &subscription.source {
             SubscriptionSource::Repeat { function, .. } => {
                 let source =
                     extern_function(document, function, ExternKind::Future, &subscription.span)?;
                 check_call_args(source, &[], states, document, &subscription.span)?;
-                source.error.as_ref().map_or_else(
+                vec![source.error.as_ref().map_or_else(
                     || source.output.clone(),
                     |error| Type::Result(Box::new(source.output.clone()), Box::new(error.clone())),
-                )
+                )]
             }
             SubscriptionSource::Extern { function, args } => {
                 let source = extern_function(
@@ -4200,17 +4159,49 @@ fn infer_subscriptions(
                     &subscription.span,
                 )?;
                 check_call_args(source, args, states, document, &subscription.span)?;
-                source.output.clone()
+                vec![source.output.clone()]
             }
-            SubscriptionSource::InputMethod(_) => unreachable!("handled above"),
-            SubscriptionSource::Keyboard(KeyboardEvent::Press) => Type::KeyPress,
-            SubscriptionSource::Keyboard(KeyboardEvent::Release) => Type::KeyRelease,
-            SubscriptionSource::Keyboard(KeyboardEvent::Modifiers) => Type::KeyModifiers,
-            SubscriptionSource::Mouse(_) => unreachable!("handled above"),
-            SubscriptionSource::SystemTheme => Type::Str,
-            SubscriptionSource::Touch(_) => unreachable!("handled above"),
-            SubscriptionSource::Window(_) => unreachable!("handled above"),
+            source => native_subscription_payloads(source).expect("native subscription payloads"),
         };
+        if let Some(filter) = &subscription.filter {
+            let function = extern_function(document, filter, ExternKind::Sync, &subscription.span)?;
+            if function.params.len() != payloads.len() {
+                return Err(Error::new(
+                    "E142",
+                    &subscription.span,
+                    format!(
+                        "subscription filter `{filter}` expects {} payloads, got {}",
+                        function.params.len(),
+                        payloads.len()
+                    ),
+                ));
+            }
+            for (actual, (_, expected)) in payloads.iter().zip(&function.params) {
+                require_type(actual, expected, &subscription.span)?;
+            }
+            let Type::Option(output) = &function.output else {
+                return Err(Error::new(
+                    "E142",
+                    &subscription.span,
+                    format!("subscription filter `{filter}` must return an optional value"),
+                ));
+            };
+            payloads = vec![(**output).clone()];
+        }
+        if let Some(context) = &subscription.context {
+            let context = expr_type(context, states, document, &subscription.span)?;
+            if !lazy_hashable(&context) {
+                return Err(Error::new(
+                    "E129",
+                    &subscription.span,
+                    format!(
+                        "subscription context must be hashable, got `{}`",
+                        context.display()
+                    ),
+                ));
+            }
+            payloads.insert(0, context);
+        }
         if subscription
             .route
             .args
@@ -4223,13 +4214,18 @@ fn infer_subscriptions(
                 "subscription routes only accept `_`; read other state in the handler",
             ));
         }
-        infer_route(
-            &subscription.route,
-            Some(output),
-            states,
-            document,
-            signatures,
-        )?;
+        if subscription.route.args.is_empty() {
+            infer_route(&subscription.route, None, states, document, signatures)?;
+        } else {
+            infer_ordered_payload_route(
+                &subscription.route,
+                &payloads,
+                states,
+                document,
+                signatures,
+                "subscription",
+            )?;
+        }
     }
     Ok(())
 }
@@ -5929,6 +5925,10 @@ mod tests {
         let document = analyze(source).unwrap();
         assert_eq!(document.handlers[1].params[0].ty, Type::Instant);
         assert_eq!(document.handlers[2].params[0].ty, Type::I64);
+        assert_eq!(document.handlers[2].params[1].ty, Type::I64);
+        assert_eq!(document.handlers[3].params[0].ty, Type::I64);
+        assert_eq!(document.handlers[3].params[1].ty, Type::Str);
+        assert_eq!(document.handlers[4].params[0].ty, Type::Bool);
 
         let error = analyze(&source.replace(
             "every 250ms when auto_refresh -> tick _",
@@ -5963,6 +5963,26 @@ mod tests {
                 .message
                 .contains("only available on non-frame runtime events")
         );
+
+        let error = analyze(&source.replace(
+            "sync even_refresh(value:i64) -> i64?",
+            "sync even_refresh(value:i64, extra:i64) -> i64?",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E142");
+        assert!(error.message.contains("expects 2 payloads, got 1"));
+
+        let error = analyze(&source.replace(
+            "sync even_refresh(value:i64) -> i64?",
+            "sync even_refresh(value:i64) -> i64",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E142");
+        assert!(error.message.contains("must return an optional value"));
+
+        let error = analyze(&source.replace("with=generation", "with=1.5")).unwrap_err();
+        assert_eq!(error.code, "E129");
+        assert!(error.message.contains("context must be hashable"));
     }
 
     #[test]
@@ -6038,7 +6058,7 @@ mod tests {
             "mouse wheel -> wheel 1.0 2.0 true",
         ))
         .unwrap_err();
-        assert_eq!(error.code, "E129");
+        assert_eq!(error.code, "E127");
 
         let error =
             analyze(&source.replace("mouse left -> left", "mouse dragged -> left")).unwrap_err();
@@ -6109,7 +6129,7 @@ mod tests {
             "window resized -> resized 1.0 2.0",
         ))
         .unwrap_err();
-        assert_eq!(error.code, "E129");
+        assert_eq!(error.code, "E127");
     }
 
     #[test]

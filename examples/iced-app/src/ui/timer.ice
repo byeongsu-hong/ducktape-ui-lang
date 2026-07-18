@@ -1,5 +1,8 @@
 extern crate::backend
   refresh_time() -> i64
+  sync even_refresh(value:i64) -> i64?
+  sync visible_pointer(x:f64, y:f64) -> str?
+  sync allow_frame() -> bool?
 
 app TimerEvents
 
@@ -13,6 +16,9 @@ state
   auto_refresh = true
   last:instant? = none
   refreshes = 0
+  generation = 7
+  pointer = ""
+  frame_allowed = false
 
 on start
   task time now -> tick _
@@ -20,14 +26,23 @@ on start
 on tick(now)
   last = some(now)
 
-on refreshed(count)
+on refreshed(generation, count)
   refreshes = count
+
+on pointer_moved(generation, position)
+  pointer = position
+
+on frame(allowed)
+  frame_allowed = allowed
 
 subscribe
   every 250ms when auto_refresh -> tick _
-  repeat refresh_time() every 1s when auto_refresh -> refreshed _
+  repeat refresh_time() every 1s with=generation filter=even_refresh when auto_refresh -> refreshed _ _
+  mouse moved with=generation filter=visible_pointer -> pointer_moved _ _
+  window frame filter=allow_frame -> frame _
 
 view
   col
     button "Read time" -> start
     text refreshes
+    text pointer

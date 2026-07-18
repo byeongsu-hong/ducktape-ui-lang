@@ -1,4 +1,4 @@
-# Ice Language Specification 0.90
+# Ice Language Specification 0.91
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.90 syntax.
+marked “planned” is a design constraint, not accepted 0.91 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.90.
+  block comments are not part of 0.91.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -277,8 +277,8 @@ direction      = "north" | "south" | "east" | "west"
                | "north-east" | "north-west" | "south-east" | "south-west"
 
 subscribe_decl = "subscribe" INDENT subscription_use+
-subscription_use = subscription_source ("status=" event_status)?
-                   ("when" expr)? "->" route
+subscription_use = subscription_source ("with=" expr)? ("filter=" name)?
+                   ("status=" event_status)? ("when" expr)? "->" route
 subscription_source
                = call
                | "every" duration
@@ -823,7 +823,7 @@ default/centered/fixed position, visibility, resizability, close/minimize
 buttons, decorations, transparency, blur, level, and close-request behavior.
 Sizes, text size, and scale factor must be positive; minimum size cannot exceed
 maximum size. Window icons and platform-specific settings are not part of
-0.90.
+0.91.
 
 Media fixed lengths, rotation, opacity, scale, and radius are `f64`; rotation
 is radians and defaults to floating layout behavior, while `solid(angle)` makes
@@ -1242,7 +1242,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.90 message payloads.
+`Clone` for 0.91 message payloads.
 
 Declared `sync` functions are checked, synchronous Rust calls available in
 Ice expressions. They are the small escape hatch for pure domain conversions
@@ -2020,6 +2020,35 @@ raw window frames have no iced event status and reject it. For compatibility,
 an omitted keyboard status keeps iced's ignored-only listener while the other
 direct input sources keep their previous any-status behavior.
 
+Every native or extern source also supports iced's identity and output
+transforms:
+
+```ice
+extern crate::backend
+  sync visible_pointer(x:f64, y:f64) -> str?
+
+state
+  generation = 7
+
+on pointer_moved(generation, position)
+
+subscribe
+  mouse moved with=generation filter=visible_pointer -> pointer_moved _ _
+```
+
+`filter=` names a declared `sync` function and lowers to
+`Subscription::filter_map`. Its parameters exactly match the source payloads:
+no parameters for a payload-free event, one for a scalar source, and one per
+field for a multi-payload native event. It must return `T?`; after filtering,
+the route has one `T` payload. The generated closure captures nothing.
+
+`with=` lowers to `Subscription::with`, participates in the subscription's
+iced identity, and becomes the first route payload. It accepts Ice values with
+a statically hashable type; extern value types must additionally implement
+Rust's `Hash + Clone + Send + Sync + 'static` contract. Filtering happens
+before context is attached. Both modifiers are optional and routes may omit
+all `_` placeholders when their values are intentionally discarded.
+
 Ice covers all three public iced time operations with its native monotonic
 `instant` type:
 
@@ -2154,7 +2183,7 @@ snap/end; and absolute scroll-to/scroll-by. Effects have no route and
 non-negative `i64`; relative offsets are `f64` in `0.0..=1.0`; absolute
 offsets are unrestricted `f64`. Targets must be real static IDs in the app
 scope. Repeated/component scopes and the feature-gated selector API remain
-outside 0.90.
+outside 0.91.
 
 Persistent pane grids expose their native layout-state operations directly in
 handlers:
@@ -2201,7 +2230,7 @@ and constraints, resizability, maximize/minimize state, position and movement,
 all modes, decorations, user attention, focus, level, system menu, mouse
 passthrough, monitor size, and automatic tabbing. Positive sizes and bool
 arguments are checked before Rust generation. New-window IDs, open/oldest/latest,
-icons, raw handles, screenshots, and callbacks remain outside 0.90.
+icons, raw handles, screenshots, and callbacks remain outside 0.91.
 
 Every iced window event has a direct subscription form:
 
@@ -2354,7 +2383,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 0.90 does not claim that remapping.
+extern line; 0.91 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -2375,7 +2404,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 0.90 native backend is enough for CRUD/settings-style screens, selection,
+The 0.91 native backend is enough for CRUD/settings-style screens, selection,
 media, hover overlays, declarative canvas geometry, and common pointer events,
 not all of iced. It still lacks direct syntax for arbitrary custom overlays,
 multiple windows, and custom widgets. [`COVERAGE.md`](COVERAGE.md) is
