@@ -225,6 +225,18 @@ mod backend {
     }
 
     #[cfg(test)]
+    pub fn raw_event(event: iced::advanced::subscription::Event) -> Option<String> {
+        Some(match event {
+            iced::advanced::subscription::Event::Interaction { status, .. } => {
+                format!("{status:?}")
+            }
+            iced::advanced::subscription::Event::SystemThemeChanged(mode) => {
+                format!("{mode:?}")
+            }
+        })
+    }
+
+    #[cfg(test)]
     pub fn count_sip(limit: i64) -> impl iced::task::Sipper<i64, i64> + Send + 'static {
         iced::task::sipper(move |mut sender| async move {
             let limit = limit.max(0);
@@ -404,7 +416,7 @@ mod task_stream {
     fn constructs_both_native_stream_units() {
         let (mut app, _) = TaskStream::__boot();
         assert_eq!(app.__update(__TaskStreamMessage::Start).units(), 2);
-        assert_eq!(app.__subscription().units(), 4);
+        assert_eq!(app.__subscription().units(), 5);
     }
 }
 

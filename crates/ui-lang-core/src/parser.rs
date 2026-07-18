@@ -55,6 +55,16 @@ pub fn parse(source: &str) -> Result<Document, Error> {
                     functions.push(parse_extern_fn(source, item, &path, ExternKind::Sip)?);
                 } else if let Some(source) = item.text.strip_prefix("recipe ") {
                     functions.push(parse_extern_fn(source, item, &path, ExternKind::Recipe)?);
+                } else if let Some(source) = item.text.strip_prefix("event-filter ") {
+                    let function = parse_extern_fn(source, item, &path, ExternKind::EventFilter)?;
+                    if !function.params.is_empty() {
+                        return Err(error(
+                            "E022",
+                            item,
+                            "event filters receive the iced runtime event implicitly and declare no parameters",
+                        ));
+                    }
+                    functions.push(function);
                 } else if let Some(source) = item.text.strip_prefix("sync ") {
                     functions.push(parse_extern_fn(source, item, &path, ExternKind::Sync)?);
                 } else if let Some(source) = item.text.strip_prefix("subscription ") {
@@ -653,6 +663,7 @@ fn parse_extern_fn(
             ExternKind::Component
                 | ExternKind::Shader
                 | ExternKind::Recipe
+                | ExternKind::EventFilter
                 | ExternKind::Sync
                 | ExternKind::Subscription
         )
@@ -660,7 +671,7 @@ fn parse_extern_fn(
         return Err(error(
             "E023",
             line,
-            "extern components, shaders, recipes, sync functions, and subscriptions cannot declare an error type",
+            "extern components, shaders, recipes, event filters, sync functions, and subscriptions cannot declare an error type",
         ));
     }
     Ok(ExternFn {
@@ -681,7 +692,7 @@ fn parse_subscription(line: &Line) -> Result<Subscription, Error> {
         return Err(error(
             "E084",
             line,
-            "subscription uses `name(args)`, `every duration`, `repeat name() every duration`, `run name(args)`, `recipe name(args)`, `input-method event`, `keyboard event`, `mouse event`, `touch event`, `window event`, or `system theme` before `-> handler _`",
+            "subscription uses `name(args)`, `every duration`, `repeat name() every duration`, `run name(args)`, `recipe name(args)`, `events id using=filter`, `input-method event`, `keyboard event`, `mouse event`, `touch event`, `window event`, or `system theme` before `-> handler _`",
         ));
     };
     let call = call.trim();
@@ -750,6 +761,18 @@ fn parse_subscription(line: &Line) -> Result<Subscription, Error> {
         SubscriptionSource::Recipe {
             function,
             args: parse_expr_list(&args, line)?,
+        }
+    } else if let Some(source) = call.strip_prefix("events ") {
+        let Some((id, filter)) = split_top_marker(source, " using=") else {
+            return Err(error(
+                "E084",
+                line,
+                "raw events use `events identity using=event_filter`",
+            ));
+        };
+        SubscriptionSource::Events {
+            id: parse_expr(id.trim(), line)?,
+            filter: identifier(filter.trim(), line)?,
         }
     } else if let Some(event) = call.strip_prefix("input-method ") {
         SubscriptionSource::InputMethod(match event.trim() {
@@ -8078,6 +8101,7 @@ extern crate::backend
   stream range(start:i64, limit:i64) -> i64
   stream fallible() -> str ! AppError
   recipe snapshot(id:i64) -> str
+  event-filter raw_event() -> str
 theme
   background #000000
 on start
@@ -8093,6 +8117,7 @@ subscribe
   run numbers(3) -> number _
   run range(1, 3) -> number _
   recipe snapshot(3) -> text _
+  events 3 using=raw_event -> text _
 view
   text "Streams"
 "#;
@@ -8127,6 +8152,11 @@ view
             SubscriptionSource::Recipe { function, args }
                 if function == "snapshot" && args.len() == 1
         ));
+        assert!(matches!(
+            &document.subscriptions[4].source,
+            SubscriptionSource::Events { id: Expr::I64(3), filter }
+                if filter == "raw_event"
+        ));
 
         let error = parse(&source.replace(
             "recipe snapshot(id:i64) -> str",
@@ -8134,6 +8164,13 @@ view
         ))
         .unwrap_err();
         assert_eq!(error.code, "E023");
+
+        let error = parse(&source.replace(
+            "event-filter raw_event() -> str",
+            "event-filter raw_event(value:i64) -> str",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E022");
 
         let error = parse(&source.replace("stream numbers(3) -> number _", "stream numbers(3)"))
             .unwrap_err();

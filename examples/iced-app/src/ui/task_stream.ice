@@ -4,6 +4,7 @@ extern crate::backend
   stream range_stream(start:i64, limit:i64) -> i64
   stream fallible_stream() -> i64 ! AppError
   recipe counter_recipe(id:i64) -> i64
+  event-filter raw_event() -> str
 
 app TaskStream
 
@@ -18,6 +19,8 @@ state
   error = ""
   start = 10
   limit = 3
+  event_identity = 1
+  runtime_event = ""
 
 on start
   parallel
@@ -32,11 +35,15 @@ on failed(reason)
 
 on observed(result)
 
+on runtime_event_received(event)
+  runtime_event = event
+
 subscribe
   run fallible_stream() -> observed _
   run count_stream(limit) -> counted _
   run range_stream(start, limit) -> counted _
   recipe counter_recipe(start) -> counted _
+  events event_identity using=raw_event -> runtime_event_received _
 
 view
   col

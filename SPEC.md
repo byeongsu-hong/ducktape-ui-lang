@@ -1,4 +1,4 @@
-# Ice Language Specification 0.93
+# Ice Language Specification 0.94
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.93 syntax.
+marked “planned” is a design constraint, not accepted 0.94 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.93.
+  block comments are not part of 0.94.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -145,8 +145,8 @@ window_setting = ("size" | "min-size" | "max-size") number number
 extern_decl    = "extern" rust_path INDENT extern_item+
 extern_item    = struct_sig | function_sig | extern_component_sig
                | extern_shader_sig | extern_task_sig | extern_stream_sig
-               | extern_sip_sig | extern_recipe_sig | extern_sync_sig
-               | extern_subscription_sig
+               | extern_sip_sig | extern_recipe_sig | extern_event_filter_sig
+               | extern_sync_sig | extern_subscription_sig
 struct_sig     = PascalName "(" field_list? ")"
 field_list     = field ("," field)*
 field          = name ":" type
@@ -165,6 +165,7 @@ extern_stream_sig = "stream" name "(" field_list? ")" "->" type ("!" type)?
 extern_sip_sig = "sip" name "(" field_list? ")" "progress=" type
                  "->" type ("!" type)?
 extern_recipe_sig = "recipe" name "(" field_list? ")" "->" type
+extern_event_filter_sig = "event-filter" name "()" "->" type
 extern_sync_sig = "sync" name "(" field_list? ")" "->" type
 extern_subscription_sig
                = "subscription" name "(" field_list? ")" "->" type
@@ -287,6 +288,7 @@ subscription_source
                | "repeat" call "every" duration
                | "run" call
                | "recipe" call
+               | "events" expr "using=" name
                | "input-method" input_method_event
                | "keyboard" ("press" | "release" | "modifiers")
                | "mouse" mouse_event
@@ -827,7 +829,7 @@ default/centered/fixed position, visibility, resizability, close/minimize
 buttons, decorations, transparency, blur, level, and close-request behavior.
 Sizes, text size, and scale factor must be positive; minimum size cannot exceed
 maximum size. Window icons and platform-specific settings are not part of
-0.93.
+0.94.
 
 Media fixed lengths, rotation, opacity, scale, and radius are `f64`; rotation
 is radians and defaults to floating layout behavior, while `solid(angle)` makes
@@ -1246,7 +1248,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.93 message payloads.
+`Clone` for 0.94 message payloads.
 
 Declared `sync` functions are checked, synchronous Rust calls available in
 Ice expressions. They are the small escape hatch for pure domain conversions
@@ -1264,7 +1266,7 @@ This declaration requires
 actual Rust signature. A sync function cannot declare `! Error` because it
 returns its value directly.
 
-Seven typed iced adapters expose framework capabilities without embedding Rust
+Eight typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
 
 ```ice
@@ -1275,6 +1277,7 @@ extern crate::backend
   stream task_steps(count:i64) -> i64
   sip download(url:str) progress=f64 -> bytes ! AppError
   recipe events(channel:i64) -> str
+  event-filter runtime_event() -> str
   subscription app_events() -> bool
 ```
 
@@ -1287,6 +1290,7 @@ fn copy_text(text: String) -> iced::Task<()>;
 fn task_steps(count: i64) -> impl iced::futures::Stream<Item = i64> + Send + 'static;
 fn download(url: String) -> impl iced::task::Straw<Vec<u8>, f64, AppError> + Send + 'static;
 fn events(channel: i64) -> impl iced::advanced::subscription::Recipe<Output = String>;
+fn runtime_event(event: iced::advanced::subscription::Event) -> Option<String>;
 fn app_events() -> iced::Subscription<bool>;
 ```
 
@@ -1304,12 +1308,14 @@ A task returns `Task<Event>` or `Task<Result<Event, Error>>`. A stream returns
 any static `Stream<Item = Event>` or `Stream<Item = Result<Event, Error>>` that
 meets iced's platform send bound. A sip returns a static
 `Sipper<Output, Progress>` or `Straw<Output, Progress, Error>`. A subscription
-recipe factory returns a concrete `advanced::subscription::Recipe`, and a
-subscription adapter returns `Subscription<Event>`.
+recipe factory returns a concrete `advanced::subscription::Recipe`. An event
+filter receives iced's implicit runtime `Event` and optionally returns its
+declared payload. A subscription adapter returns `Subscription<Event>`.
 Generated probes type-check every declaration
-against the actual Rust item. Extern component, shader, recipe, and subscription
-declarations are infallible; errors are ordinary event payloads when an adapter
-needs them. Shader programs retain native control of `State`, `Primitive`, GPU
+against the actual Rust item. Extern component, shader, recipe, event-filter,
+and subscription declarations are infallible; errors are ordinary event
+payloads when an adapter needs them. Shader programs retain native control of
+`State`, `Primitive`, GPU
 pipeline/storage, event actions, redraws, capture, and mouse interaction. The
 consumer must enable iced's `wgpu` feature.
 
@@ -2093,6 +2099,28 @@ lowers directly to `advanced::subscription::from_recipe`. Ice owns only the
 route and optional transforms; Rust retains the recipe's identity hashing,
 runtime-event input, stream, and cancellation behavior.
 
+Raw runtime events can be narrowed by a typed Rust filter without exposing
+iced's large platform event enum in Ice:
+
+```ice
+extern crate::backend
+  event-filter runtime_event() -> str
+
+state
+  event_identity = 1
+
+subscribe
+  events event_identity using=runtime_event -> received _
+```
+
+The identity expression must be hashable. The declared function takes no Ice
+parameters because Rust receives one implicit
+`iced::advanced::subscription::Event` and returns `Option<T>`. Generated code
+uses a native `Recipe` over iced's `EventStream`, hashes both the filter type
+and identity, and forwards only `Some(T)`. This exposes interaction window IDs,
+dispatch status, all runtime event variants, and system-theme changes while
+preserving native cancellation.
+
 Ice covers all three public iced time operations with its native monotonic
 `instant` type:
 
@@ -2227,7 +2255,7 @@ snap/end; and absolute scroll-to/scroll-by. Effects have no route and
 non-negative `i64`; relative offsets are `f64` in `0.0..=1.0`; absolute
 offsets are unrestricted `f64`. Targets must be real static IDs in the app
 scope. Repeated/component scopes and the feature-gated selector API remain
-outside 0.93.
+outside 0.94.
 
 Persistent pane grids expose their native layout-state operations directly in
 handlers:
@@ -2274,7 +2302,7 @@ and constraints, resizability, maximize/minimize state, position and movement,
 all modes, decorations, user attention, focus, level, system menu, mouse
 passthrough, monitor size, and automatic tabbing. Positive sizes and bool
 arguments are checked before Rust generation. New-window IDs, open/oldest/latest,
-icons, raw handles, screenshots, and callbacks remain outside 0.93.
+icons, raw handles, screenshots, and callbacks remain outside 0.94.
 
 Every iced window event has a direct subscription form:
 
@@ -2427,7 +2455,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 0.93 does not claim that remapping.
+extern line; 0.94 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -2448,7 +2476,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 0.93 native backend is enough for CRUD/settings-style screens, selection,
+The 0.94 native backend is enough for CRUD/settings-style screens, selection,
 media, hover overlays, declarative canvas geometry, and common pointer events,
 not all of iced. It still lacks direct syntax for arbitrary custom overlays,
 multiple windows, and custom widgets. [`COVERAGE.md`](COVERAGE.md) is
