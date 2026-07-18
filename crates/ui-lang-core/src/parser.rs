@@ -121,6 +121,13 @@ pub fn parse(source: &str) -> Result<Document, Error> {
                         &path,
                         ExternKind::RadioStyle,
                     )?);
+                } else if let Some(source) = item.text.strip_prefix("container-style ") {
+                    functions.push(parse_extern_fn(
+                        &format!("{source} -> unit"),
+                        item,
+                        &path,
+                        ExternKind::ContainerStyle,
+                    )?);
                 } else if item.text.chars().next().is_some_and(char::is_uppercase) {
                     structs.push(parse_extern_struct(item, &path)?);
                 } else {
@@ -1050,6 +1057,7 @@ fn parse_extern_fn(
                 | ExternKind::CheckboxStyle
                 | ExternKind::TogglerStyle
                 | ExternKind::RadioStyle
+                | ExternKind::ContainerStyle
         )
     {
         return Err(error(
@@ -2474,6 +2482,18 @@ fn parse_container(parts: &[String], styles: Vec<String>, line: &Line) -> Result
             options.padding.bottom = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else if let Some(value) = part.strip_prefix("padding-left=") {
             options.padding.left = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("style=") {
+            let (function, args) = parse_signature(value, line).map_err(|_| {
+                error(
+                    "E184",
+                    line,
+                    "container style must be a declared style call",
+                )
+            })?;
+            options.custom_style = Some(ExternCall {
+                function,
+                args: parse_expr_list(&args, line)?,
+            });
         } else if parse_container_style_option(part, &mut options.style, line)? {
         } else {
             return Err(error(

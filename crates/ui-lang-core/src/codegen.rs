@@ -947,6 +947,24 @@ fn generate_extern_probes(out: &mut String, document: &Document) {
                 )
                 .unwrap();
             }
+            ExternKind::ContainerStyle => {
+                let params = if params.is_empty() {
+                    "theme: &::iced::Theme".into()
+                } else {
+                    format!("theme: &::iced::Theme, {params}")
+                };
+                let args = if args.is_empty() {
+                    "theme".into()
+                } else {
+                    format!("theme, {args}")
+                };
+                writeln!(
+                    out,
+                    "#[allow(dead_code)] fn __ui_lang_check_container_style_{}({params}) {{ let _: ::iced::widget::container::Style = {}({args}); }}",
+                    item.name, item.rust_path
+                )
+                .unwrap();
+            }
         }
     }
 }
@@ -4365,8 +4383,14 @@ fn render_container(
         )
         .unwrap();
     }
-    if let Some(surface) = container_surface_style_value(&style, &options.style, env, document)? {
-        write!(code, ".style(move |_| {surface})").unwrap();
+    if let Some(surface) = container_surface_style_value(
+        &style,
+        &options.style,
+        options.custom_style.as_ref(),
+        env,
+        document,
+    )? {
+        write!(code, ".style(move |__theme| {surface})").unwrap();
     }
     let code = if style.self_center {
         format!("::iced::widget::container({code}).width(::iced::Fill).center_x(::iced::Fill)")
@@ -4629,6 +4653,7 @@ fn render_pane_content(
     if let Some(style) = container_surface_style_value(
         &Style::parse(&pane.styles, document),
         &pane.style,
+        None,
         env,
         document,
     )? {
@@ -4672,6 +4697,7 @@ fn render_pane_content(
         if let Some(style) = container_surface_style_value(
             &Style::parse(&title.styles, document),
             &title.style,
+            None,
             env,
             document,
         )? {
@@ -7531,6 +7557,7 @@ fn background_code(
 fn container_surface_style_value(
     utilities: &Style,
     options: &ContainerStyleOptions,
+    custom: Option<&ExternCall>,
     env: &HashMap<String, Binding>,
     document: &Document,
 ) -> Result<Option<String>, Error> {
@@ -7548,13 +7575,43 @@ fn container_surface_style_value(
         || options.shadow_y.is_some()
         || options.shadow_blur.is_some()
         || options.pixel_snap.is_some();
-    if !has_typed_style {
-        return Ok(container_style_value(utilities, document));
+    let utility_style = container_style_value(utilities, document);
+    let custom_style = custom
+        .map(|style| {
+            let function = document
+                .functions
+                .iter()
+                .find(|item| item.name == style.function && item.kind == ExternKind::ContainerStyle)
+                .expect("checker validates container style");
+            let args = style
+                .args
+                .iter()
+                .map(|arg| expr_code(arg, env, document, ValueMode::Owned))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok::<_, Error>(format!(
+                "{}(__theme{})",
+                function.rust_path,
+                args.iter()
+                    .map(|arg| format!(", {arg}"))
+                    .collect::<String>()
+            ))
+        })
+        .transpose()?;
+    if !has_typed_style && custom_style.is_none() {
+        return Ok(utility_style);
+    }
+    if !has_typed_style && utility_style.is_none() {
+        return Ok(custom_style);
     }
 
-    let base = container_style_value(utilities, document)
+    let has_custom_style = custom_style.is_some();
+    let base = custom_style
+        .or_else(|| utility_style.clone())
         .unwrap_or_else(|| "::iced::widget::container::Style::default()".into());
     let mut code = format!("{{ let mut __style = {base};");
+    if has_custom_style {
+        append_container_utility_overrides(&mut code, utilities, document);
+    }
     append_surface_style_overrides(&mut code, options, env, document)?;
     if let Some(color) = &options.text_color {
         write!(
@@ -7566,6 +7623,39 @@ fn container_surface_style_value(
     }
     code.push_str(" __style }");
     Ok(Some(code))
+}
+
+fn append_container_utility_overrides(code: &mut String, style: &Style, document: &Document) {
+    if let Some(background) = &style.background {
+        write!(
+            code,
+            " __style.background = ::std::option::Option::Some({}.into());",
+            theme_color(document, background)
+        )
+        .unwrap();
+    }
+    if let Some(text) = &style.text_color {
+        write!(
+            code,
+            " __style.text_color = ::std::option::Option::Some({});",
+            theme_color(document, text)
+        )
+        .unwrap();
+    }
+    if let Some(border) = &style.border_color {
+        write!(
+            code,
+            " __style.border.color = {};",
+            theme_color(document, border)
+        )
+        .unwrap();
+    }
+    if style.border_width != 0 {
+        write!(code, " __style.border.width = {}.0;", style.border_width).unwrap();
+    }
+    if style.radius != 0 {
+        write!(code, " __style.border.radius = {}.0.into();", style.radius).unwrap();
+    }
 }
 
 fn append_surface_style_overrides(
@@ -10478,13 +10568,17 @@ view
     #[test]
     fn lowers_complete_container_layout() {
         let source = r#"app Boxed
+extern crate::backend
+  container-style dynamic_container(highlight:bool)
 theme
   background #000000
   foreground #ffffff
   primary #333333
   danger #ff0000
+state
+  highlight = false
 view
-  container #card width=fill height=80.0 max-width=640.0 max-height=120.0 align-x=center align-y=end clip=true padding=8.0 padding-left=12.0 background=linear(1.57, background@0.0, primary/25@1.0) text=foreground border=primary border-width=2.0 radius=4.0 radius-tl=1.0 radius-tr=2.0 radius-br=3.0 radius-bl=4.0 shadow=black/50 shadow-x=-1.0 shadow-y=2.0 shadow-blur=6.0 pixel-snap=true @w-full bg-background border border-foreground rounded-lg
+  container #card style=dynamic_container(highlight) width=fill height=80.0 max-width=640.0 max-height=120.0 align-x=center align-y=end clip=true padding=8.0 padding-left=12.0 background=linear(1.57, background@0.0, primary/25@1.0) text=foreground border=primary border-width=2.0 radius=4.0 radius-tl=1.0 radius-tr=2.0 radius-br=3.0 radius-bl=4.0 shadow=black/50 shadow-x=-1.0 shadow-y=2.0 shadow-blur=6.0 pixel-snap=true @w-full bg-background border border-foreground rounded-lg
     text "Card"
 "#;
         let generated = compile(source, "boxed.ice").unwrap();
@@ -10495,11 +10589,15 @@ view
         assert!(generated.contains(".align_x(::iced::alignment::Horizontal::Center)"));
         assert!(generated.contains(".align_y(::iced::alignment::Vertical::Bottom)"));
         assert!(generated.contains(".clip(true)"));
+        assert!(generated.contains("crate::backend::dynamic_container(__theme, self.highlight)"));
+        assert!(generated.contains("fn __ui_lang_check_container_style_dynamic_container"));
         assert!(generated.contains("::iced::widget::container::Style"));
         assert!(generated.contains("::iced::gradient::Linear::new(1.57 as f32)"));
         assert!(generated.contains("__style.border.radius"));
         assert!(generated.contains("__style.shadow.blur_radius = 6.0 as f32"));
         assert!(generated.contains("__style.snap = true"));
+        assert!(generated.contains("__style.border.width = 1.0;"));
+        assert!(generated.contains("__style.border.width = 2.0 as f32;"));
     }
 
     #[test]

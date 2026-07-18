@@ -368,6 +368,7 @@ pub enum ExternKind {
     CheckboxStyle,
     TogglerStyle,
     RadioStyle,
+    ContainerStyle,
 }
 
 #[derive(Clone, Debug)]
@@ -2126,6 +2127,7 @@ pub struct ContainerOptions {
     pub align_x: Option<FlexAlignment>,
     pub align_y: Option<FlexAlignment>,
     pub clip: Option<Expr>,
+    pub custom_style: Option<ExternCall>,
     pub style: ContainerStyleOptions,
 }
 

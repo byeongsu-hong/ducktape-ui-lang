@@ -15,6 +15,7 @@ extern crate::backend
   checkbox-style task_checkbox(busy:bool)
   toggler-style notification_toggler(busy:bool)
   radio-style view_radio(busy:bool)
+  container-style summary_container(busy:bool)
   task copy_text(text:str) -> unit ! AppError
   subscription app_events() -> bool
 
@@ -456,7 +457,7 @@ view
       col @w-full items-center p-6 bg-surface border border-border rounded-lg
         text "No tasks yet." @text-sm text-muted
 
-    container #summary width=fill height=80.0 max-width=720.0 max-height=120.0 align-x=center align-y=center clip=true padding=8.0 padding-left=12.0 background=linear(1.57, surface@0.0, background@1.0) text=muted border=primary border-width=1.0 radius=8.0 shadow=black/50 shadow-y=2.0 shadow-blur=6.0 pixel-snap=true @w-full bg-surface border border-border rounded-lg
+    container #summary style=summary_container(loading) width=fill height=80.0 max-width=720.0 max-height=120.0 align-x=center align-y=center clip=true padding=8.0 padding-left=12.0 background=linear(1.57, surface@0.0, background@1.0) text=muted border=primary border-width=1.0 radius=8.0 shadow=black/50 shadow-y=2.0 shadow-blur=6.0 pixel-snap=true @w-full bg-surface border border-border rounded-lg
       text "A native container owns one structured child tree." @text-sm text-muted
 
     rule horizontal thickness=1.0 style=weak fill=pad(12,4) color=border radius=2.0 snap=true
