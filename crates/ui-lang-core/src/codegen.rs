@@ -867,6 +867,26 @@ fn generate_extern_probes(out: &mut String, document: &Document) {
                 )
                 .unwrap();
             }
+            ExternKind::ButtonStyle => {
+                let params = if params.is_empty() {
+                    "theme: &::iced::Theme, status: ::iced::widget::button::Status".into()
+                } else {
+                    format!(
+                        "theme: &::iced::Theme, status: ::iced::widget::button::Status, {params}"
+                    )
+                };
+                let args = if args.is_empty() {
+                    "theme, status".into()
+                } else {
+                    format!("theme, status, {args}")
+                };
+                writeln!(
+                    out,
+                    "#[allow(dead_code)] fn __ui_lang_check_button_style_{}({params}) {{ let _: ::iced::widget::button::Style = {}({args}); }}",
+                    item.name, item.rust_path
+                )
+                .unwrap();
+            }
         }
     }
 }
@@ -9098,6 +9118,29 @@ fn button_style_code(
         || typed.hovered.is_some()
         || typed.pressed.is_some()
         || typed.disabled.is_some();
+    let custom = typed
+        .custom
+        .as_ref()
+        .map(|style| {
+            let function = document
+                .functions
+                .iter()
+                .find(|item| item.name == style.function && item.kind == ExternKind::ButtonStyle)
+                .expect("checker validates button style");
+            let args = style
+                .args
+                .iter()
+                .map(|arg| expr_code(arg, env, document, ValueMode::Owned))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok::<_, Error>(format!(
+                "{}(__theme, __status{})",
+                function.rust_path,
+                args.iter()
+                    .map(|arg| format!(", {arg}"))
+                    .collect::<String>()
+            ))
+        })
+        .transpose()?;
     let preset = match typed.preset {
         ButtonStylePreset::Primary => "primary",
         ButtonStylePreset::Secondary => "secondary",
@@ -9109,16 +9152,18 @@ fn button_style_code(
         ButtonStylePreset::Subtle => "subtle",
     };
     if !has_utilities && !has_typed {
-        return Ok(if typed.preset == ButtonStylePreset::Primary {
+        return Ok(if let Some(custom) = custom {
+            format!(".style(move |__theme, __status| {custom})")
+        } else if typed.preset == ButtonStylePreset::Primary {
             String::new()
         } else {
             format!(".style(::iced::widget::button::{preset})")
         });
     }
 
-    let mut code = format!(
-        ".style(move |__theme, __status| {{ let mut __style = ::iced::widget::button::{preset}(__theme, __status);"
-    );
+    let base =
+        custom.unwrap_or_else(|| format!("::iced::widget::button::{preset}(__theme, __status)"));
+    let mut code = format!(".style(move |__theme, __status| {{ let mut __style = {base};");
     if has_utilities {
         let normal = style
             .background
@@ -10810,6 +10855,8 @@ view
     #[test]
     fn lowers_button_children_and_typed_properties() {
         let source = r#"app Actions
+extern crate::backend
+  button-style dynamic_button(disabled:bool)
 theme
   background #000000
   foreground #ffffff
@@ -10819,7 +10866,7 @@ state
   disabled = false
 on pressed
 view
-  button #action disabled=disabled width=fill height=48.0 padding=8.0 clip=true style=secondary @bg-primary text-white rounded-lg disabled:opacity-50 -> pressed
+  button #action disabled=disabled width=fill height=48.0 padding=8.0 clip=true style=dynamic_button(disabled) @bg-primary text-white rounded-lg disabled:opacity-50 -> pressed
     row
       text "Save"
       text "⌘S"
@@ -10834,7 +10881,10 @@ view
         assert!(generated.contains(".width(::iced::Fill).height(48.0 as f32)"));
         assert!(generated.contains(".padding(8.0 as f32).clip(true)"));
         assert!(generated.contains(".on_press_maybe(if self.disabled"));
-        assert!(generated.contains("button::secondary(__theme, __status)"));
+        assert!(
+            generated.contains("crate::backend::dynamic_button(__theme, __status, self.disabled)")
+        );
+        assert!(generated.contains("fn __ui_lang_check_button_style_dynamic_button"));
         assert!(generated.contains("button::Status::Active =>"));
         assert!(generated.contains("button::Status::Hovered =>"));
         assert!(generated.contains("button::Status::Pressed =>"));
@@ -10853,7 +10903,7 @@ view
             "subtle",
         ] {
             let generated = compile(
-                &source.replace("style=secondary", &format!("style={preset}")),
+                &source.replace("style=dynamic_button(disabled)", &format!("style={preset}")),
                 "actions.ice",
             )
             .unwrap();

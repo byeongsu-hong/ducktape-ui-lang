@@ -1,4 +1,4 @@
-# Ice Language Specification 1.03
+# Ice Language Specification 1.04
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 1.03 syntax.
+marked “planned” is a design constraint, not accepted 1.04 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 1.03.
+  block comments are not part of 1.04.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -164,7 +164,7 @@ extern_item    = struct_sig | function_sig | extern_component_sig
                | extern_sip_sig | extern_recipe_sig | extern_event_filter_sig
                | extern_sync_sig | extern_subscription_sig
                | extern_window_sig | extern_markdown_viewer_sig
-               | extern_progress_style_sig
+               | extern_progress_style_sig | extern_button_style_sig
 struct_sig     = PascalName "(" field_list? ")"
 field_list     = field ("," field)*
 field          = name ":" type
@@ -193,6 +193,8 @@ extern_markdown_viewer_sig
                = "markdown-viewer" name "(" field_list? ")" "->" type
 extern_progress_style_sig
                = "progress-style" name "(" field_list? ")"
+extern_button_style_sig
+               = "button-style" name "(" field_list? ")"
 
 theme_decl     = "theme" INDENT color_entry+
 color_entry    = name color
@@ -560,8 +562,8 @@ button         = "button" (string | INDENT node) id? button_property*
                  styles? "->" route (INDENT button_status_style*)?
 button_property = "disabled=" expr | ("width=" | "height=") length
                 | ("padding=" | "clip=") expr
-                | "style=" ("primary" | "secondary" | "success" | "warning"
-                  | "danger" | "text" | "background" | "subtle")
+                | "style=" (("primary" | "secondary" | "success" | "warning"
+                  | "danger" | "text" | "background" | "subtle") | call)
 button_status_style = ("active" | "hovered" | "pressed" | "disabled")
                       surface_style_property*
 checkbox       = "checkbox" expr id? "checked=" expr bool_property*
@@ -931,7 +933,7 @@ maximum size. `icon-rgba` embeds a relative raw RGBA file without an image
 codec; width and height are positive integers, and generated Rust rejects a
 byte length other than `width × height × 4`. `cargo ice check` reports a
 mismatch at the icon declaration, and generated Rust repeats the check at
-compile time. Encoded icon formats remain outside 1.03.
+compile time. Encoded icon formats remain outside 1.04.
 
 Application boot presets are structured top-level declarations:
 
@@ -1059,6 +1061,12 @@ disabled routing, all eight iced presets, and checked style utilities. Optional
 concrete button style field with solid/linear backgrounds, text, per-corner
 border, shadow, and pixel snapping. A structured content node may appear beside
 these status lines.
+
+`style=action_button(loading)` may instead call a declared `button-style`.
+Its Rust function receives `&iced::Theme`, the current `button::Status`, then
+its declared owned arguments and returns `button::Style`. Ice installs it as
+the native runtime style callback; utilities and status lines still override
+that returned base style.
 
 `checkbox` and `toggler` share typed control size/width/spacing, text size and
 relative line height, shaping, wrapping, and default/mono font properties.
@@ -1396,7 +1404,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 1.03 message payloads.
+`Clone` for 1.04 message payloads.
 
 Declared `sync` functions are checked, synchronous Rust calls available in
 Ice expressions. They are the small escape hatch for pure domain conversions
@@ -1414,7 +1422,7 @@ This declaration requires
 actual Rust signature. A sync function cannot declare `! Error` because it
 returns its value directly.
 
-Thirteen typed iced adapters expose framework capabilities without embedding Rust
+Fourteen typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
 
 ```ice
@@ -1429,6 +1437,7 @@ extern crate::backend
   subscription app_events() -> bool
   markdown-viewer docs_viewer(prefix:str) -> str
   progress-style loading_progress(active:bool)
+  button-style action_button(busy:bool)
 ```
 
 Their Rust signatures are:
@@ -1444,6 +1453,7 @@ fn runtime_event(event: iced::advanced::subscription::Event) -> Option<String>;
 fn app_events() -> iced::Subscription<bool>;
 fn docs_viewer(prefix: String) -> impl for<'a> iced::widget::markdown::Viewer<'a, String>;
 fn loading_progress(theme: &iced::Theme, active: bool) -> iced::widget::progress_bar::Style;
+fn action_button(theme: &iced::Theme, status: iced::widget::button::Status, busy: bool) -> iced::widget::button::Style;
 ```
 
 An extern component receives owned props and returns a default-renderer
@@ -1470,11 +1480,13 @@ the checked route payload. The viewer owns customization of images, headings,
 paragraphs, code blocks, lists, quotes, rules, and tables. `progress-style`
 receives the current Theme implicitly and returns one native progress Style;
 generated code uses it directly as the widget's runtime style callback.
+`button-style` also receives the current button Status and returns its native
+Style.
 
 Generated probes type-check every declaration
 against the actual Rust item. Extern component, shader, recipe, event-filter,
-sync, subscription, window, Markdown viewer, and progress style declarations
-are infallible; errors are ordinary event payloads when an adapter needs them.
+sync, subscription, window, Markdown viewer, and widget style declarations are
+infallible; errors are ordinary event payloads when an adapter needs them.
 Shader programs retain native control of `State`, `Primitive`, GPU
 pipeline/storage, event actions, redraws, capture, and mouse interaction. The
 consumer must enable iced's `wgpu` feature.
@@ -1754,7 +1766,7 @@ The implemented native nodes are:
 | `rich-text` | zero or more structured spans with rich defaults, complete span highlights and optional string link events |
 | `pane-grid` | named pane trees backed by recursive persistent split state, structured title/full/compact controls, complete concrete state and surface styles with linear backgrounds, closed templates, dynamic opening, click, resize and drag/drop behavior |
 | `input` | required `str` binding; ID, hint, disabled/secure, submit/paste, every concrete builder setter, complete icon and all concrete status style fields |
-| `button` | string label or one child; optional ID/disabled, typed size/padding/clip, eight presets, complete status styles and required route |
+| `button` | string label or one child; optional ID/disabled, typed size/padding/clip, eight presets, complete status styles, typed native runtime style callbacks and required route |
 | `checkbox` | string label, bool value/route, disabled, sizing/typography/wrapping/font, custom icon, four presets and complete checked-aware status styles |
 | `toggler` | string label, bool value/route, disabled, sizing/typography/wrapping/font/alignment and complete checked-aware status styles |
 | `slider` | `f64` value/range/default/normal+shift steps, direction-aware sizing, change/release routes and nested status styles |
@@ -2416,7 +2428,7 @@ snap/end; and absolute scroll-to/scroll-by. Effects have no route and
 non-negative `i64`; relative offsets are `f64` in `0.0..=1.0`; absolute
 offsets are unrestricted `f64`. Targets must be real static IDs in the app
 scope. Repeated/component scopes and the feature-gated selector API remain
-outside 1.03.
+outside 1.04.
 
 Persistent pane grids expose their native layout-state operations directly in
 handlers:
@@ -2670,7 +2682,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 1.03 does not claim that remapping.
+extern line; 1.04 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -2691,7 +2703,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 1.03 native backend is enough for CRUD/settings-style screens, selection,
+The 1.04 native backend is enough for CRUD/settings-style screens, selection,
 media, hover overlays, declarative canvas geometry, and common pointer events,
 not all of iced. It still lacks direct syntax for arbitrary custom overlays,
 and custom widgets. [`COVERAGE.md`](COVERAGE.md) is the exact versioned ledger.

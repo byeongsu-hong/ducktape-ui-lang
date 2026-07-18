@@ -1286,6 +1286,11 @@ fn infer_view(
             if let Some(clip) = &options.clip {
                 require_type(&expr_type(clip, env, document, span)?, &Type::Bool, span)?;
             }
+            if let Some(style) = &options.style.custom {
+                let function =
+                    extern_function(document, &style.function, ExternKind::ButtonStyle, span)?;
+                check_call_args(function, &style.args, env, document, span)?;
+            }
             for status in [
                 &options.style.active,
                 &options.style.hovered,
@@ -5518,6 +5523,7 @@ fn extern_function<'a>(
                 ExternKind::Window => "window callback",
                 ExternKind::MarkdownViewer => "markdown viewer",
                 ExternKind::ProgressStyle => "progress style",
+                ExternKind::ButtonStyle => "button style",
             };
             Error::new("E130", span, format!("unknown extern {label} `{name}`"))
         })
@@ -8442,6 +8448,8 @@ view
     #[test]
     fn checks_button_child_and_typed_properties() {
         let source = r#"app Actions
+extern crate::backend
+  button-style dynamic_button(disabled:bool)
 theme
   background #000000
   foreground #ffffff
@@ -8451,7 +8459,7 @@ state
   disabled = false
 on pressed
 view
-  button #action disabled=disabled width=fill height=48.0 padding=8.0 clip=true style=secondary -> pressed
+  button #action disabled=disabled width=fill height=48.0 padding=8.0 clip=true style=dynamic_button(disabled) -> pressed
     row
       text "Save"
       text "⌘S"
@@ -8467,10 +8475,19 @@ view
         assert_eq!(error.code, "E129");
         assert!(error.message.contains("missing"));
 
-        let bad_preset = source.replace("style=secondary", "style=tertiary");
+        let bad_preset = source.replace("style=dynamic_button(disabled)", "style=tertiary");
         let error = analyze(&bad_preset).unwrap_err();
         assert_eq!(error.code, "E066");
         assert!(error.message.contains("button style must be"));
+
+        let unknown = source.replace("dynamic_button(disabled)", "missing(disabled)");
+        let error = analyze(&unknown).unwrap_err();
+        assert_eq!(error.code, "E130");
+        assert!(error.message.contains("button style"));
+
+        let wrong_arg = source.replace("dynamic_button(disabled)", "dynamic_button(1.0)");
+        let error = analyze(&wrong_arg).unwrap_err();
+        assert_eq!(error.code, "E101");
     }
 
     #[test]

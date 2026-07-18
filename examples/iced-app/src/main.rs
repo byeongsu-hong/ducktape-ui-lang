@@ -196,6 +196,19 @@ mod backend {
     }
 
     #[cfg(test)]
+    pub fn action_button(
+        theme: &iced::Theme,
+        status: iced::widget::button::Status,
+        busy: bool,
+    ) -> iced::widget::button::Style {
+        if busy {
+            iced::widget::button::secondary(theme, status)
+        } else {
+            iced::widget::button::primary(theme, status)
+        }
+    }
+
+    #[cfg(test)]
     impl<'a> iced::widget::markdown::Viewer<'a, String> for DocsViewer {
         fn on_link_click(url: iced::widget::markdown::Uri) -> String {
             url

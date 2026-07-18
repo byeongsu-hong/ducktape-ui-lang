@@ -11,6 +11,7 @@ extern crate::backend
   component native_help(active:bool) -> bool
   markdown-viewer docs_viewer(prefix:str) -> str
   progress-style loading_progress(active:bool)
+  button-style action_button(busy:bool)
   task copy_text(text:str) -> unit ! AppError
   subscription app_events() -> bool
 
@@ -438,7 +439,7 @@ view
         row @gap-2 items-center
           text "Copy" @text-sm text-foreground
           text "⌘C" @text-xs text-muted
-      button "Add" disabled=(loading || empty(trim(draft))) @px-4 py-3 bg-primary text-white rounded-lg hover:bg-primary/90 pressed:bg-primary/70 disabled:opacity-50 -> submit
+      button "Add" disabled=(loading || empty(trim(draft))) style=action_button(loading) @px-4 py-3 bg-primary text-white rounded-lg hover:bg-primary/90 pressed:bg-primary/70 disabled:opacity-50 -> submit
 
     if error != ""
       row @w-full items-center gap-4 p-4 bg-danger rounded-lg
