@@ -111,7 +111,6 @@ pub fn check(document: &mut Document) -> Result<(), Error> {
 fn check_app_settings(document: &Document, states: &HashMap<String, Type>) -> Result<(), Error> {
     for setting in [
         &document.settings.title,
-        &document.settings.theme,
         &document.settings.background,
         &document.settings.text_color,
     ]
@@ -123,6 +122,22 @@ fn check_app_settings(document: &Document, states: &HashMap<String, Type>) -> Re
             &Type::Str,
             &setting.span,
         )?;
+    }
+    if let Some(setting) = &document.settings.theme {
+        if let Expr::Call { name, args } = &setting.value
+            && let Some(factory) = document
+                .functions
+                .iter()
+                .find(|function| function.name == *name && function.kind == ExternKind::Theme)
+        {
+            check_call_args(factory, args, states, document, &setting.span)?;
+        } else {
+            require_type(
+                &expr_type(&setting.value, states, document, &setting.span)?,
+                &Type::Str,
+                &setting.span,
+            )?;
+        }
     }
     if let Some(setting) = &document.settings.scale_factor {
         require_type(
@@ -3335,12 +3350,18 @@ fn infer_view(
             }
         }
         ViewNode::Theme {
+            preset,
             text,
             background,
             content,
             span,
             ..
         } => {
+            if let ThemePreset::Factory(factory) = preset {
+                let function =
+                    extern_function(document, &factory.function, ExternKind::Theme, span)?;
+                check_call_args(function, &factory.args, env, document, span)?;
+            }
             if let Some(color) = text
                 && !valid_theme_color(color, document)
             {
@@ -6251,6 +6272,7 @@ fn extern_function<'a>(
                 ExternKind::EventFilter => "event filter",
                 ExternKind::Sync => "sync function",
                 ExternKind::Subscription => "subscription",
+                ExternKind::Theme => "theme factory",
                 ExternKind::Window => "window callback",
                 ExternKind::MarkdownViewer => "markdown viewer",
                 ExternKind::EditorBinding => "editor binding",
@@ -8201,6 +8223,34 @@ mod tests {
         let error = analyze(&source.replace("with=generation", "with=1.5")).unwrap_err();
         assert_eq!(error.code, "E129");
         assert!(error.message.contains("context must be hashable"));
+    }
+
+    #[test]
+    fn checks_native_theme_factories() {
+        let source = r#"extern crate::backend
+  theme native_theme(dark:bool)
+app Themes
+  theme native_theme(dark)
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  dark = true
+view
+  theme native_theme(!dark)
+    text "Nested"
+"#;
+        analyze(source).unwrap();
+
+        let error = analyze(&source.replace("native_theme(dark)", "native_theme(1)")).unwrap_err();
+        assert_eq!(error.code, "E101");
+        assert!(error.message.contains("expected `bool`"));
+
+        let error = analyze(&source.replace("native_theme(!dark)", "missing(!dark)")).unwrap_err();
+        assert_eq!(error.code, "E130");
+        assert!(error.message.contains("theme factory"));
     }
 
     #[test]

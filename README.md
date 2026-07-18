@@ -115,6 +115,8 @@ Key files:
   native pixels, padding, degrees, and radians through operations and externs;
 - [`task_map.ice`](examples/iced-app/src/ui/task_map.ice) executes native task
   output/optional mapping and fallible error preservation;
+- [`theme_factory.ice`](examples/iced-app/src/ui/theme_factory.ice) executes a
+  typed native Theme factory for app and nested custom themes;
 - [`main.rs`](examples/iced-app/src/main.rs) owns the Rust backend;
 - [`SPEC.md`](SPEC.md) defines the implemented language.
 
@@ -142,7 +144,7 @@ cargo fmt --all
 
 ## Status
 
-This is an executable v1.28 language slice, not yet a complete iced replacement.
+This is an executable v1.29 language slice, not yet a complete iced replacement.
 It implements typed extern data/actions, state, handlers, async tasks, pure
 components with named props, default children, named structural slots, and
 React-like qualified compound children, scoped IDs, relative
@@ -156,7 +158,8 @@ complete typed time, event status filtering, raw runtime-event filters, native s
 subscriptions and context/filter transforms, structured parallel/sequential
 tasks, structured boot presets, state-driven application title, theme, base
 style, and scale callbacks, checked application executors and codec-free
-RGBA window icons, named multi-window settings, typed window IDs, identified
+RGBA window icons, typed native `iced::Theme` factories with complete custom
+extended-palette logic, named multi-window settings, typed window IDs, identified
 window event subscriptions and directly targeted window tasks, runtime RGBA
 icon changes, structured platform-specific settings, a typed native-window
 callback boundary, lossless raw window IDs and RGBA screenshots, system and

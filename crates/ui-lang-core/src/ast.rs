@@ -425,6 +425,7 @@ pub enum ExternKind {
     EventFilter,
     Sync,
     Subscription,
+    Theme,
     Window,
     MarkdownViewer,
     EditorBinding,
@@ -1304,11 +1305,12 @@ pub struct TableColumn {
     pub span: Span,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub enum ThemePreset {
     Default,
     App,
     BuiltIn(String),
+    Factory(ExternCall),
 }
 
 pub(crate) const BUILT_IN_THEMES: &[&str] = &[

@@ -15,7 +15,7 @@ counts toward the row below.
 
 ## Typed system reachability
 
-Ice 1.28 has twenty-nine checked Rust boundaries:
+Ice 1.29 has thirty checked Rust boundaries:
 
 | Boundary | Rust ABI | Covers |
 | --- | --- | --- |
@@ -30,6 +30,7 @@ Ice 1.28 has twenty-nine checked Rust boundaries:
 | `event-filter name()` | `fn(subscription::Event) -> Option<Event>` | native raw runtime-event filtering with an explicit hashable identity, including interaction window IDs/status and system-theme changes |
 | `sync name(args)` | `fn(...) -> Output` | checked synchronous domain conversions usable in Ice expressions |
 | `subscription name(args)` | `fn(...) -> Subscription<Event>` | event, keyboard, mouse, window, system, channel, timer, stream, and custom subscription sources |
+| `theme name(args)` | `fn(...) -> iced::Theme` | native app and nested default-renderer themes, including `custom`, `custom_with_fn`, and complete palette/extended-palette logic |
 | `window name(args)` | `fn(&dyn iced::window::Window, ...) -> Output` | exact typed access to native window/display handles and other callback-only window behavior through `window::run` |
 | `markdown-viewer name(args)` | `fn(...) -> impl for<'a> markdown::Viewer<'a, Event>` | native custom rendering of every Markdown item through `view_with` while preserving checked link-event routing |
 | `editor-binding name(args)` | `fn(text_editor::KeyPress, ...) -> Option<text_editor::Binding<Event>>` | native custom key mapping across every built-in Binding plus typed custom application routes |
@@ -101,9 +102,9 @@ public behavior has direct documented Ice syntax and tests.
 | iced surface | Ice status | Current representation / missing work |
 | --- | --- | --- |
 | application settings | native | state-dependent title, all built-in/custom theme selection, base background/text style and guarded scale-factor callbacks; application ID, custom typed executor, ordered checked font byte preloads, default text size/font, antialiasing, vsync, codec-free checked RGBA icons, complete initial/named window settings including structured Linux, Windows, macOS, and Wasm fields, structured state/task boot presets and run |
-| `Theme` and styles | partial | checked color tokens and a Tailwind-like subset; native theme/style catalogs and custom closures missing |
+| `Theme` and styles | native | all 22 built-in default-renderer themes, generated app palettes, typed native factories including `custom`/`custom_with_fn` and complete extended-palette logic, app/nested selection, checked color tokens and utilities, complete widget-native catalogs, concrete style fields, and typed runtime callbacks |
 | `Task` | native | complete public `iced::Task` construction and composition through async/task/stream/sip externs, direct `done`/`none`, system/clipboard/font/widget/window tasks, `batch`, `chain`, abortable handles including abort-on-drop/query, `map`, output-dependent `then`, optional-or-result `and_then`, `map_err`, result-preserving `collect`, `discard`, and `units`; `future`/`stream` identity forms are represented by perform/run extern sources, and default/unit conversion by `none` |
-| `Subscription` | partial | typed arbitrary iced `Subscription` adapters, batching, checked conditional activation/status filters, direct every/repeat timers, native `listen`/`listen_with`/`listen_raw` generic events, input-method/keyboard/mouse/touch/window sources (with optional typed IDs on all eleven discrete window events) and system theme changes, native typed `run`/`run_with` workers, custom `Recipe` factories through `from_recipe`, raw `EventStream` filters with hashable identity, plus `with` identity context and noncapturing typed `filter_map` transforms on every source; direct recipe extraction remains runtime-only |
+| `Subscription` | native | complete application-facing construction and composition: typed arbitrary adapters, `none`, `batch`, checked conditional activation/status filters, direct every/repeat timers, native `listen`/`listen_with`/`listen_raw` generic events, input-method/keyboard/mouse/touch/window sources (with optional typed IDs on all eleven discrete window events) and system theme changes, typed `run`/`run_with` workers, custom `Recipe` factories through `from_recipe`, raw `EventStream` filters with hashable identity, `with` identity context, typed `map` routing, noncapturing typed `filter_map`, and `units`; advanced `into_recipes` is runtime-consumer plumbing rather than subscription construction or behavior |
 | widget operations | native | all 13 core focus/cursor/selection/scroll operations with checked static/dynamic identity paths through component, layout, slot, keyed, table and pane scopes, typed focus query, native `find`/`find-all` over ID, text, point and focused selectors with complete normalized target metadata, plus custom typed selector factories |
 | clipboard | native | standard and primary read/write tasks; reads preserve iced's optional string payload and writes are checked fire-and-forget effects |
 | fonts | native | ordered app-level relative font files are checked and embedded into iced's startup loader; runtime bytes lower to native `font::load`; every family/weight/stretch/style descriptor, checked named reference, application default and all widget font setters are covered |
@@ -128,8 +129,8 @@ work when an application intentionally depends on `iced_runtime`.
 
 ## Evidence rule
 
-A row moves to **native** only when every public behavior in the pinned iced
-surface has:
+A row moves to **native** only when every public application-facing behavior in
+the pinned iced surface has:
 
 1. documented Ice syntax and static types;
 2. parser and semantic-checker coverage, including invalid input;
