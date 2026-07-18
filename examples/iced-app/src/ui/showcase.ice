@@ -13,6 +13,7 @@ extern crate::backend
   progress-style loading_progress(active:bool)
   button-style action_button(busy:bool)
   checkbox-style task_checkbox(busy:bool)
+  toggler-style notification_toggler(busy:bool)
   task copy_text(text:str) -> unit ! AppError
   subscription app_events() -> bool
 
@@ -464,7 +465,7 @@ view
         text "Controls" width=fill height=30.0 size=18.0 line-height-px=22.0 font=default align-x=left align-y=center shaping=advanced wrapping=word @font-bold text-foreground
         theme tokyo-night text=white background=linear(1.57, background@0.0, surface@1.0)
           qr project_code total-size=112.0 cell=foreground background=surface
-        toggler "Notifications" checked=notifications size=20.0 width=fill spacing=8.0 text-size=14.0 line-height=1.2 shaping=auto wrapping=word font=default align=left -> notifications_changed _
+        toggler "Notifications" checked=notifications style=notification_toggler(loading) size=20.0 width=fill spacing=8.0 text-size=14.0 line-height=1.2 shaping=auto wrapping=word font=default align=left -> notifications_changed _
         slider volume min=0.0 max=100.0 step=5.0 default=50.0 shift-step=1.0 width=fill(2) height=20.0 release=volume_committed -> volume_changed _
           active rail-start=linear(0.0, primary@0.0, foreground@1.0) rail-end=linear(1.57, border@0.0, background@1.0) rail-width=4.0 rail-radius=2.0 handle=circle(7.0) handle-color=linear(0.785, primary@0.0, foreground@1.0)
           hovered rail-start=foreground rail-end=border rail-width=5.0 handle=rect(12) handle-color=foreground handle-radius=3.0

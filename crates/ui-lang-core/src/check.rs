@@ -1365,6 +1365,11 @@ fn infer_view(
                 )?;
             }
             check_bool_control_options(options, env, document, span)?;
+            if let Some(style) = &style.custom {
+                let function =
+                    extern_function(document, &style.function, ExternKind::TogglerStyle, span)?;
+                check_call_args(function, &style.args, env, document, span)?;
+            }
             check_toggler_styles(style, env, document, span)?;
             infer_route(route, Some(Type::Bool), env, document, signatures)?;
             check_styles(styles, document, span, StyleTarget::Toggler)?;
@@ -5530,6 +5535,7 @@ fn extern_function<'a>(
                 ExternKind::ProgressStyle => "progress style",
                 ExternKind::ButtonStyle => "button style",
                 ExternKind::CheckboxStyle => "checkbox style",
+                ExternKind::TogglerStyle => "toggler style",
             };
             Error::new("E130", span, format!("unknown extern {label} `{name}`"))
         })
@@ -8519,6 +8525,7 @@ view
         let source = r#"app Preferences
 extern crate::backend
   checkbox-style dynamic_checkbox(disabled:bool)
+  toggler-style dynamic_toggler(disabled:bool)
 theme
   background #000000
   foreground #ffffff
@@ -8537,7 +8544,7 @@ view
       hovered unchecked background=foreground icon=background text=primary border=primary
       disabled checked background=background icon=foreground text=foreground border=foreground
       disabled unchecked background=background icon=primary text=foreground border=primary
-    toggler "Toggler" checked=enabled size=20.0 width=fill spacing=8.0 text-size=14.0 line-height=1.2 shaping=auto wrapping=glyph font=default align=right -> changed _
+    toggler "Toggler" checked=enabled style=dynamic_toggler(enabled) size=20.0 width=fill spacing=8.0 text-size=14.0 line-height=1.2 shaping=auto wrapping=glyph font=default align=right -> changed _
       active checked background=linear(1.57, primary@0.0, background@1.0) background-border=primary background-border-width=1.0 foreground=linear(0.0, foreground@0.0, primary@1.0) foreground-border=foreground foreground-border-width=2.0 text=foreground radius=7.0 radius-tl=6.0 radius-tr=7.0 radius-br=8.0 radius-bl=9.0 padding-ratio=0.125
       active unchecked background=background foreground=foreground text=primary
       hovered checked background=primary foreground=foreground text=foreground
@@ -8569,6 +8576,21 @@ view
         assert!(error.message.contains("checkbox style"));
 
         let error = analyze(&source.replace("dynamic_checkbox(enabled)", "dynamic_checkbox(1.0)"))
+            .unwrap_err();
+        assert_eq!(error.code, "E101");
+
+        let error = analyze(&source.replace("style=dynamic_toggler(enabled)", "style=default"))
+            .unwrap_err();
+        assert_eq!(error.code, "E075");
+        assert!(error.message.contains("toggler style must be"));
+
+        let error =
+            analyze(&source.replace("dynamic_toggler(enabled)", "missing_toggler(enabled)"))
+                .unwrap_err();
+        assert_eq!(error.code, "E130");
+        assert!(error.message.contains("toggler style"));
+
+        let error = analyze(&source.replace("dynamic_toggler(enabled)", "dynamic_toggler(1.0)"))
             .unwrap_err();
         assert_eq!(error.code, "E101");
 
