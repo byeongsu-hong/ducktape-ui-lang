@@ -1,4 +1,4 @@
-# Ice Language Specification 1.52
+# Ice Language Specification 1.53
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 1.52 syntax.
+marked “planned” is a design constraint, not accepted 1.53 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 1.52.
+  block comments are not part of 1.53.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -186,7 +186,8 @@ extern_component_field = name ":" "&"? type
 type           = "bool" | "i64" | "f64" | "str" | "bytes" | "image"
                | "image-allocation" | "image-memory" | "image-error"
                | "debug-span"
-               | "markdown" | "editor" | "event" | "instant" | "window-id"
+               | "markdown" | "editor" | "event" | "event-status"
+               | "instant" | "window-id"
                | "key" | "physical-key" | "key-location" | "key-modifiers"
                | "pixels" | "padding" | "degrees" | "radians"
                | "rotation"
@@ -1047,7 +1048,7 @@ maximum size. `icon-rgba` embeds a relative raw RGBA file without an image
 codec; width and height are positive integers, and generated Rust rejects a
 byte length other than `width × height × 4`. `cargo ice check` reports a
 mismatch at the icon declaration, and generated Rust repeats the check at
-compile time. Encoded icon formats remain outside 1.52.
+compile time. Encoded icon formats remain outside 1.53.
 
 Use `daemon Name` instead of `app Name` for an iced daemon that starts without
 an initial window and remains alive after all windows close. A daemon rejects
@@ -1636,6 +1637,7 @@ button "Add" disabled=(loading || empty(trim(draft))) -> submit
 | `markdown` | `iced::widget::markdown::Content` |
 | `editor` | `iced::widget::text_editor::Content` |
 | `event` | `iced::Event` |
+| `event-status` | `iced::event::Status` |
 | `task-handle` | `iced::task::Handle` |
 | `Name` | the named struct in the extern namespace |
 | `unit` | `()` |
@@ -1662,7 +1664,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 1.52 message payloads.
+`Clone` for 1.53 message payloads.
 
 Declared `sync` functions are checked, synchronous Rust calls available in
 Ice expressions. They are the small escape hatch for pure domain conversions
@@ -3019,6 +3021,14 @@ because the native floating-point enum implements neither `Ord` nor `Hash`.
 Existing mouse-area, canvas, and subscription scroll routes keep their readable
 `x, y, pixels` payloads as destructuring sugar for the same native variants.
 
+`event_status.ignored/captured()` construct both native
+`iced::event::Status` variants. `event_status.merge(left, right)` preserves the
+native rule that `Captured` takes precedence, and `.kind` exposes `ignored` or
+`captured`. Values support native equality and exact typed extern passage.
+Ordering and lazy identity are rejected because the native enum implements
+neither `Ord` nor `Hash`. Existing subscription status filters remain readable
+keyword sugar for the same two statuses.
+
 `window_direction.north/south/east/west/north_east/north_west/south_east/
 south_west()` construct every native resize direction.
 `window_level.default/normal/always_on_bottom/always_on_top()`,
@@ -3744,7 +3754,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 1.52 does not claim that remapping.
+extern line; 1.53 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -3765,7 +3775,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 1.52 native backend covers both windowed applications and windowless
+The 1.53 native backend covers both windowed applications and windowless
 daemons alongside CRUD/settings-style screens, selection, media, hover
 overlays, declarative canvas geometry, and pointer events. Borrowed custom
 widgets and an application-wide renderer type remain the escape hatch for
@@ -3814,6 +3824,11 @@ Both native scroll delta variants, exact coordinates, projections, equality,
 and typed extern passage are exercised by the split
 [`examples/iced-app/src/ui/scroll_delta.ice`](examples/iced-app/src/ui/scroll_delta.ice)
 and [`examples/iced-app/src/scroll_delta.rs`](examples/iced-app/src/scroll_delta.rs)
+fixture.
+Both native event statuses, all merge combinations, kind projection, equality,
+and typed extern passage are exercised by the split
+[`examples/iced-app/src/ui/event_status.ice`](examples/iced-app/src/ui/event_status.ice)
+and [`examples/iced-app/src/event_status.rs`](examples/iced-app/src/event_status.rs)
 fixture.
 Every native window direction, level, mode, and user-attention variant, their
 kind projections and exact trait boundaries, and typed extern passage are

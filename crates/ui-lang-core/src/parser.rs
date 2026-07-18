@@ -8626,6 +8626,7 @@ fn parse_type(source: &str, line: &Line) -> Result<Type, Error> {
         "markdown" => Type::Markdown,
         "editor" => Type::Editor,
         "event" => Type::Event,
+        "event-status" => Type::EventStatus,
         "key" => Type::Key,
         "physical-key" => Type::PhysicalKey,
         "key-location" => Type::KeyLocation,
@@ -9420,6 +9421,19 @@ mod tests {
         assert!(matches!(
             &document.handlers[0].statements[2],
             Statement::Assign { value: Expr::Call { name, .. }, .. } if name == "window_position.specific"
+        ));
+    }
+
+    #[test]
+    fn parses_first_class_native_event_status() {
+        let source = include_str!("../../../examples/iced-app/src/ui/event_status.ice");
+        let document = parse(source).unwrap();
+        assert_eq!(document.functions[0].params[0].1, Type::EventStatus);
+        assert_eq!(document.functions[0].output, Type::EventStatus);
+        assert_eq!(document.states[0].ty, Type::EventStatus);
+        assert!(matches!(
+            &document.handlers[0].statements[3],
+            Statement::Assign { value: Expr::Call { name, .. }, .. } if name == "event_status.merge"
         ));
     }
 

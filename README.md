@@ -112,6 +112,8 @@ Key files:
   preserves every native mouse interaction and passes typed values to widgets;
 - [`scroll_delta.ice`](examples/iced-app/src/ui/scroll_delta.ice) preserves both
   native scroll delta variants, coordinates, and Rust extern passage;
+- [`event_status.ice`](examples/iced-app/src/ui/event_status.ice) preserves both
+  native event statuses, merge precedence, and Rust extern passage;
 - [`window_values.ice`](examples/iced-app/src/ui/window_values.ice) preserves
   native direction, level, mode, and user-attention enums;
 - [`window_position.ice`](examples/iced-app/src/ui/window_position.ice)
@@ -170,8 +172,9 @@ Key files:
   [`mouse_interaction.rs`](examples/iced-app/src/mouse_interaction.rs), plus
   [`scroll_delta.rs`](examples/iced-app/src/scroll_delta.rs) and
   [`window_values.rs`](examples/iced-app/src/window_values.rs), plus
-  [`window_position.rs`](examples/iced-app/src/window_position.rs), instead of
-  growing a monolithic entry point;
+  [`window_position.rs`](examples/iced-app/src/window_position.rs) and
+  [`event_status.rs`](examples/iced-app/src/event_status.rs), instead of growing
+  a monolithic entry point;
 - [`SPEC.md`](SPEC.md) defines the implemented language.
 
 ## Tooling
@@ -198,7 +201,7 @@ cargo fmt --all
 
 ## Status
 
-This is an executable v1.52 language slice, not yet a complete iced replacement.
+This is an executable v1.53 language slice, not yet a complete iced replacement.
 It implements typed extern data/actions, state, handlers, async tasks, pure
 components with named props, default children, named structural slots, and
 React-like qualified compound children, scoped IDs, relative

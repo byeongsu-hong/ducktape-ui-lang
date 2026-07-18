@@ -8032,6 +8032,12 @@ fn native_field_projection(ty: &Type, field: &str, code: &str) -> Option<(String
             ),
             Type::F64,
         ),
+        (Type::EventStatus, "kind") => (
+            format!(
+                "match ({code}) {{ ::iced::event::Status::Ignored => \"ignored\", ::iced::event::Status::Captured => \"captured\" }}.to_owned()"
+            ),
+            Type::Str,
+        ),
         (Type::WindowPosition, "kind") => (
             format!(
                 "match ({code}) {{ ::iced::window::Position::Default => \"default\", ::iced::window::Position::Centered => \"centered\", ::iced::window::Position::Specific(_) => \"specific\", ::iced::window::Position::SpecificWith(_) => \"specific-with\" }}.to_owned()"
@@ -8283,6 +8289,7 @@ fn expr_code(
                     | Type::FontStyle
                     | Type::MouseInteraction
                     | Type::ScrollDelta
+                    | Type::EventStatus
                     | Type::Length
                     | Type::Alignment
                     | Type::HorizontalAlignment
@@ -8580,6 +8587,13 @@ fn expr_code(
                 } else {
                     "Pixels"
                 },
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "event_status.ignored" => "::iced::event::Status::Ignored".into(),
+            "event_status.captured" => "::iced::event::Status::Captured".into(),
+            "event_status.merge" => format!(
+                "({}).merge({})",
                 expr_code(&args[0], env, document, ValueMode::Owned)?,
                 expr_code(&args[1], env, document, ValueMode::Owned)?
             ),
@@ -13015,6 +13029,22 @@ mod tests {
             "::iced::window::Position::Specific(_) => \"specific\"",
             "::iced::window::Position::SpecificWith(_) => \"specific-with\"",
             "::iced::window::Position::Specific(__value) => ::std::option::Option::Some(__value)",
+        ] {
+            assert!(generated.contains(expected), "missing {expected}");
+        }
+    }
+
+    #[test]
+    fn lowers_every_native_event_status_operation() {
+        let source = include_str!("../../../examples/iced-app/src/ui/event_status.ice");
+        let generated = compile(source, "event_status.ice").unwrap();
+        for expected in [
+            "::iced::event::Status::Ignored",
+            "::iced::event::Status::Captured",
+            "crate::backend::status_round_trip(::iced::event::Status::Captured)",
+            "(self.ignored).merge(self.captured)",
+            "::iced::event::Status::Ignored => \"ignored\"",
+            "::iced::event::Status::Captured => \"captured\"",
         ] {
             assert!(generated.contains(expected), "missing {expected}");
         }

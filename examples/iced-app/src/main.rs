@@ -11,6 +11,8 @@ mod color;
 #[cfg(test)]
 mod content_fit;
 #[cfg(test)]
+mod event_status;
+#[cfg(test)]
 mod font_values;
 #[cfg(test)]
 mod length;
@@ -142,6 +144,9 @@ mod backend {
 
     #[cfg(test)]
     pub use crate::content_fit::content_fit_round_trip;
+
+    #[cfg(test)]
+    pub use crate::event_status::status_round_trip;
 
     #[cfg(test)]
     pub use crate::font_values::{
