@@ -15,7 +15,7 @@ counts toward the row below.
 
 ## Typed system reachability
 
-Ice 1.29 has thirty checked Rust boundaries:
+Ice 1.30 has thirty-one checked Rust boundaries:
 
 | Boundary | Rust ABI | Covers |
 | --- | --- | --- |
@@ -31,6 +31,7 @@ Ice 1.29 has thirty checked Rust boundaries:
 | `sync name(args)` | `fn(...) -> Output` | checked synchronous domain conversions usable in Ice expressions |
 | `subscription name(args)` | `fn(...) -> Subscription<Event>` | event, keyboard, mouse, window, system, channel, timer, stream, and custom subscription sources |
 | `theme name(args)` | `fn(...) -> iced::Theme` | native app and nested default-renderer themes, including `custom`, `custom_with_fn`, and complete palette/extended-palette logic |
+| `themer name(args) -> Event` | factory returning `Option<Theme>`, `Element<'static, Event, Theme>`, and optional Theme-dependent text/background callbacks | native alternate `Theme: Base` subtrees inside the default-Theme app, including `Themer::new`, default Theme fallback, event mapping, `text_color`, and `background` |
 | `window name(args)` | `fn(&dyn iced::window::Window, ...) -> Output` | exact typed access to native window/display handles and other callback-only window behavior through `window::run` |
 | `markdown-viewer name(args)` | `fn(...) -> impl for<'a> markdown::Viewer<'a, Event>` | native custom rendering of every Markdown item through `view_with` while preserving checked link-event routing |
 | `editor-binding name(args)` | `fn(text_editor::KeyPress, ...) -> Option<text_editor::Binding<Event>>` | native custom key mapping across every built-in Binding plus typed custom application routes |
@@ -93,7 +94,7 @@ public behavior has direct documented Ice syntax and tests.
 | `text` | native | native string/numeric text plus structured rich spans; complete Text/Rich bounds, size, relative/absolute line height, font, alignment, wrapping and color, plus Text shaping and Rich str link events; every concrete Span field including solid/linear highlight background, border/per-corner radius/padding/underline/strike; typed theme-aware runtime callbacks cover the default Theme's advanced classes |
 | `text_editor` | native | app-owned direct or component-prop content, generated action application, every concrete builder setter, all five built-in themes, typed arbitrary native Highlighter adapters, complete native key bindings with custom routed payloads, every concrete Style field across all statuses, and typed Theme/Status callbacks covering advanced classes |
 | `text_input` | native | app-owned direct or component-prop binding, ID, every concrete builder setter, complete custom icon, every concrete Style field across active/hovered/focused/focused-hovered/disabled statuses, and typed theme/status-aware runtime callbacks covering the default Theme's advanced classes |
-| `themer` | partial | native default/app/all 22 built-in themes, checked default text color and solid/linear background; arbitrary alternate Theme types missing |
+| `themer` | native | default/app/all 22 built-in and arbitrary typed `Theme: Base` subtrees; checked default text color and solid/linear background plus typed alternate-Theme text/background callbacks cover the complete public builder behavior |
 | `toggler` | native | native label/value/disabled event, size/width/spacing, text typography/wrapping/alignment and complete font descriptors; every concrete Style field across active/hovered/disabled checked and unchecked statuses, plus typed theme/status-aware runtime callbacks covering the default Theme's advanced classes |
 | `tooltip` | native | native two-child content, all positions, gap, padding, viewport snap, delay, nine container presets, every concrete container Style field, and checked `container-style` callbacks covering the default Theme's advanced classes |
 
@@ -119,7 +120,7 @@ public behavior has direct documented Ice syntax and tests.
 | `Padding` | native | zero/default, uniform/per-side/axis constructors, f32/u16-equivalent scalar and axis conversions, exact Pixels conversion, every side and x/y projection, all six native builder methods, `fit`, Size conversion, Rectangle expansion/shrinking, equality, and typed extern passage cover the complete public behavior |
 | `Degrees` / `Radians` | native | numeric construction and f64 projection, equality/order including native angle-left scalar comparison, full range constants and containment, Degrees scaling, exact Degrees-to-Radians conversion, PI/display, every native Radians mixed arithmetic form including remainder and reverse scalar multiplication, both `to_distance` points, geometry rotation/vertex integration, and typed extern passage cover the complete public behavior |
 | `Transformation` | native | identity/default, orthographic, translate, scale, inverse, scale/translation inspection, composition, lossless matrix conversion, equality, typed extern passage, and native application to every supported geometry and pointer value cover the complete public behavior |
-| custom widget | partial | typed owned `Element<'static, Event>` adapter; borrowed elements and custom Theme/Renderer missing |
+| custom widget | partial | typed owned `Element<'static, Event>` adapter plus owned alternate-Theme subtrees; borrowed elements and custom Renderer remain |
 | custom renderer | missing | renderer/graphics backend escape hatch |
 
 The free `iced_runtime::task` constructors such as `oneshot`, `channel`,

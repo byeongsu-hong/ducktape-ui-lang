@@ -426,6 +426,7 @@ pub enum ExternKind {
     Sync,
     Subscription,
     Theme,
+    Themer,
     Window,
     MarkdownViewer,
     EditorBinding,
@@ -1129,6 +1130,12 @@ pub enum ViewNode {
         span: Span,
     },
     ExternComponent {
+        function: String,
+        args: Vec<Expr>,
+        route: Option<Route>,
+        span: Span,
+    },
+    Themer {
         function: String,
         args: Vec<Expr>,
         route: Option<Route>,

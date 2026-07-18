@@ -890,6 +890,12 @@ fn generate_extern_probes(out: &mut String, document: &Document) {
                 item.name, item.rust_path
             )
             .unwrap(),
+            ExternKind::Themer => writeln!(
+                out,
+                "#[allow(dead_code)] fn __ui_lang_check_themer_{}({params}) {{ let (__theme, __content, __text_color, __background) = {}({args}); fn __accept<T: ::iced::theme::Base>(_: &::std::option::Option<T>, _: &::iced::Element<'static, {output}, T>, _: &::std::option::Option<fn(&T) -> ::iced::Color>, _: &::std::option::Option<fn(&T) -> ::iced::Background>) {{}} __accept(&__theme, &__content, &__text_color, &__background); }}",
+                item.name, item.rust_path
+            )
+            .unwrap(),
             ExternKind::Window => {
                 let params = if params.is_empty() {
                     "window: &dyn ::iced::window::Window".into()
@@ -3828,6 +3834,35 @@ fn render_node(
             Ok(format!(
                 "{}({args}).map(move |__value| {mapped}).into()",
                 component.rust_path
+            ))
+        }
+        ViewNode::Themer {
+            function,
+            args,
+            route,
+            span,
+        } => {
+            let themer = document
+                .functions
+                .iter()
+                .find(|item| item.name == *function && item.kind == ExternKind::Themer)
+                .ok_or_else(|| {
+                    Error::new("E130", span, format!("unknown extern themer `{function}`"))
+                })?;
+            let args = args
+                .iter()
+                .map(|arg| expr_code(arg, env, document, ValueMode::Owned))
+                .collect::<Result<Vec<_>, _>>()?
+                .join(", ");
+            let mapped = if let Some(route) = route {
+                route_code(route, "__value", env, document, message)?
+            } else {
+                format!("{message}::__ExternNoop")
+            };
+            Ok(format!(
+                "{{ let (__theme, __content, __text_color, __background) = {}({args}); let mut __themer = ::iced::widget::themer(__theme, __content); if let ::std::option::Option::Some(__text_color) = __text_color {{ __themer = __themer.text_color(__text_color); }} if let ::std::option::Option::Some(__background) = __background {{ __themer = __themer.background(__background); }} let __themed: ::iced::Element<'_, {}> = __themer.into(); __themed.map(move |__value| {mapped}).into() }}",
+                themer.rust_path,
+                themer.output.rust(&document.structs)
             ))
         }
         ViewNode::Shader {
@@ -8565,6 +8600,7 @@ fn needs_extern_noop(document: &Document) -> bool {
     fn contains(node: &ViewNode) -> bool {
         match node {
             ViewNode::ExternComponent { route: None, .. }
+            | ViewNode::Themer { route: None, .. }
             | ViewNode::Shader { route: None, .. } => true,
             ViewNode::Layout { children, .. }
             | ViewNode::If { children, .. }
@@ -11637,6 +11673,37 @@ view
         assert!(generated.contains(
             "themer(::std::option::Option::Some(crate::backend::native_theme((!self.dark)))"
         ));
+    }
+
+    #[test]
+    fn lowers_alternate_theme_subtrees() {
+        let source = r#"extern crate::backend
+  themer alternate_panel(active:bool) -> bool
+app Themes
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  active = true
+on changed(value)
+  active = value
+view
+  themer alternate_panel(active) -> changed _
+"#;
+        let generated = compile(source, "themer.ice").unwrap();
+        assert!(generated.contains(
+            "fn __ui_lang_check_themer_alternate_panel(arg0: bool) { let (__theme, __content, __text_color, __background) = crate::backend::alternate_panel(arg0); fn __accept<T: ::iced::theme::Base>(_: &::std::option::Option<T>, _: &::iced::Element<'static, bool, T>"
+        ));
+        assert!(
+            generated.contains("let mut __themer = ::iced::widget::themer(__theme, __content)")
+        );
+        assert!(generated.contains("__themer = __themer.text_color(__text_color)"));
+        assert!(generated.contains("__themer = __themer.background(__background)"));
+        assert!(
+            generated.contains("__themed.map(move |__value| __ThemesMessage::Changed(__value))")
+        );
     }
 
     #[test]

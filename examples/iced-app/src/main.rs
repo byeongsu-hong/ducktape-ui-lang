@@ -104,6 +104,81 @@ mod backend {
     }
 
     #[cfg(test)]
+    #[derive(Clone)]
+    pub struct AlternateTheme {
+        active: bool,
+    }
+
+    #[cfg(test)]
+    impl iced::theme::Base for AlternateTheme {
+        fn default(preference: iced::theme::Mode) -> Self {
+            Self {
+                active: preference == iced::theme::Mode::Dark,
+            }
+        }
+
+        fn mode(&self) -> iced::theme::Mode {
+            if self.active {
+                iced::theme::Mode::Dark
+            } else {
+                iced::theme::Mode::Light
+            }
+        }
+
+        fn base(&self) -> iced::theme::Style {
+            iced::theme::Style {
+                background_color: if self.active {
+                    iced::Color::BLACK
+                } else {
+                    iced::Color::WHITE
+                },
+                text_color: if self.active {
+                    iced::Color::WHITE
+                } else {
+                    iced::Color::BLACK
+                },
+            }
+        }
+
+        fn palette(&self) -> Option<iced::theme::Palette> {
+            None
+        }
+
+        fn name(&self) -> &str {
+            if self.active {
+                "Alternate dark"
+            } else {
+                "Alternate light"
+            }
+        }
+    }
+
+    #[cfg(test)]
+    #[allow(clippy::type_complexity)]
+    pub fn alternate_panel(
+        active: bool,
+    ) -> (
+        Option<AlternateTheme>,
+        iced::Element<'static, (), AlternateTheme>,
+        Option<fn(&AlternateTheme) -> iced::Color>,
+        Option<fn(&AlternateTheme) -> iced::Background>,
+    ) {
+        let content = iced::widget::Space::new().width(24).height(24).into();
+        (
+            active.then_some(AlternateTheme { active }),
+            content,
+            active.then_some(
+                (|theme| iced::theme::Base::base(theme).text_color)
+                    as fn(&AlternateTheme) -> iced::Color,
+            ),
+            active.then_some(
+                (|theme| iced::theme::Base::base(theme).background_color.into())
+                    as fn(&AlternateTheme) -> iced::Background,
+            ),
+        )
+    }
+
+    #[cfg(test)]
     #[derive(Clone, Debug, PartialEq)]
     pub struct NetworkError {
         pub message: String,
@@ -1419,6 +1494,27 @@ mod theme_factory {
 
         app.dark = false;
         assert_eq!(app.__theme().to_string(), "Native light");
+        let _ = app.__view();
+    }
+}
+
+#[cfg(test)]
+mod alternate_theme {
+    ui_lang::include_app!("src/ui/alternate_theme.ice");
+
+    #[test]
+    fn constructs_an_alternate_theme_subtree() {
+        let (mut app, _) = AlternateThemeApp::__boot();
+        let (theme, _, text_color, background) = crate::backend::alternate_panel(true);
+        let theme = theme.unwrap();
+        assert_eq!(iced::theme::Base::name(&theme), "Alternate dark");
+        assert_eq!(text_color.unwrap()(&theme), iced::Color::WHITE);
+        assert_eq!(background.unwrap()(&theme), iced::Color::BLACK.into());
+        let _ = app.__view();
+
+        app.active = false;
+        let (theme, _, text_color, background) = crate::backend::alternate_panel(false);
+        assert!(theme.is_none() && text_color.is_none() && background.is_none());
         let _ = app.__view();
     }
 }
