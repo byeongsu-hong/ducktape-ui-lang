@@ -15,7 +15,7 @@ counts toward the row below.
 
 ## Typed system reachability
 
-Ice 1.10 has nineteen checked Rust boundaries:
+Ice 1.11 has twenty checked Rust boundaries:
 
 | Boundary | Rust ABI | Covers |
 | --- | --- | --- |
@@ -38,6 +38,7 @@ Ice 1.10 has nineteen checked Rust boundaries:
 | `radio-style name(args)` | `fn(&Theme, radio::Status, ...) -> radio::Style` | native selection/status-aware runtime radio style callbacks, equivalent to the default Theme's advanced class representation |
 | `container-style name(args)` | `fn(&Theme, ...) -> container::Style` | native theme-aware runtime container style callbacks, equivalent to the default Theme's advanced class representation |
 | `svg-style name(args)` | `fn(&Theme, svg::Status, ...) -> svg::Style` | native theme/status-aware runtime SVG style callbacks, equivalent to the default Theme's advanced class representation |
+| `input-style name(args)` | `fn(&Theme, text_input::Status, ...) -> text_input::Style` | native theme/status-aware runtime text-input style callbacks, equivalent to the default Theme's advanced class representation |
 
 Generated probes verify the concrete Rust signatures. Reachability is not the
 same as native coverage: a row stays partial or missing until its complete
@@ -81,7 +82,7 @@ public behavior has direct documented Ice syntax and tests.
 | `table` | native | typed cloned rows, arbitrary header/cell subtrees, automatic row/column identity scopes, all table width/padding/separator setters and all column width/alignment setters |
 | `text` | partial | native string/numeric text plus structured rich spans; Rich bounds, size, relative/absolute line height, font, alignment, wrapping, color and str link events; every concrete Span field including solid/linear highlight background, border/per-corner radius/padding/underline/strike; arbitrary style classes remain |
 | `text_editor` | partial | owned/replaced app state, generated action application, every concrete builder setter except custom key binding/highlighter, all five built-in highlight themes, and every concrete Style field across active/hovered/focused/focused-hovered/disabled statuses; component-owned bindings and advanced classes remain |
-| `text_input` | partial | native binding, ID, every concrete builder setter, complete custom icon, and every concrete Style field across active/hovered/focused/focused-hovered/disabled statuses; advanced classes remain |
+| `text_input` | native | native binding, ID, every concrete builder setter, complete custom icon, every concrete Style field across active/hovered/focused/focused-hovered/disabled statuses, and typed theme/status-aware runtime callbacks covering the default Theme's advanced classes |
 | `themer` | partial | native default/app/all 22 built-in themes, checked default text color and solid/linear background; arbitrary alternate Theme types missing |
 | `toggler` | native | native label/value/disabled event, size/width/spacing, text typography/wrapping/alignment and complete font descriptors; every concrete Style field across active/hovered/disabled checked and unchecked statuses, plus typed theme/status-aware runtime callbacks covering the default Theme's advanced classes |
 | `tooltip` | native | native two-child content, all positions, gap, padding, viewport snap, delay, nine container presets, every concrete container Style field, and checked `container-style` callbacks covering the default Theme's advanced classes |

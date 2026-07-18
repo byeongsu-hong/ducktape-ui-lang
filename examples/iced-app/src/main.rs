@@ -270,6 +270,19 @@ mod backend {
     }
 
     #[cfg(test)]
+    pub fn form_input(
+        theme: &iced::Theme,
+        status: iced::widget::text_input::Status,
+        disabled: bool,
+    ) -> iced::widget::text_input::Style {
+        let mut style = iced::widget::text_input::default(theme, status);
+        if disabled {
+            style.value = theme.palette().text;
+        }
+        style
+    }
+
+    #[cfg(test)]
     impl<'a> iced::widget::markdown::Viewer<'a, String> for DocsViewer {
         fn on_link_click(url: iced::widget::markdown::Uri) -> String {
             url

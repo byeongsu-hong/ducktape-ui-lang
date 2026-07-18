@@ -985,6 +985,26 @@ fn generate_extern_probes(out: &mut String, document: &Document) {
                 )
                 .unwrap();
             }
+            ExternKind::InputStyle => {
+                let params = if params.is_empty() {
+                    "theme: &::iced::Theme, status: ::iced::widget::text_input::Status".into()
+                } else {
+                    format!(
+                        "theme: &::iced::Theme, status: ::iced::widget::text_input::Status, {params}"
+                    )
+                };
+                let args = if args.is_empty() {
+                    "theme, status".into()
+                } else {
+                    format!("theme, status, {args}")
+                };
+                writeln!(
+                    out,
+                    "#[allow(dead_code)] fn __ui_lang_check_input_style_{}({params}) {{ let _: ::iced::widget::text_input::Style = {}({args}); }}",
+                    item.name, item.rust_path
+                )
+                .unwrap();
+            }
         }
     }
 }
@@ -2891,9 +2911,10 @@ fn render_node(
                     write!(input, ".on_paste(move |__value| {paste})").unwrap();
                 }
             }
-            input.push_str(&input_style_code(&style, document));
             input.push_str(&text_input_style_code(
                 &options.style,
+                options.custom_style.as_ref(),
+                Some(&style),
                 env,
                 document,
                 "style",
@@ -3321,6 +3342,8 @@ fn render_node(
             }
             code.push_str(&text_input_style_code(
                 &options.style,
+                None,
+                None,
                 env,
                 document,
                 "input_style",
@@ -4336,6 +4359,8 @@ fn render_node(
             }
             code.push_str(&text_input_style_code(
                 &options.style,
+                None,
+                None,
                 env,
                 document,
                 "style",
@@ -9048,11 +9073,41 @@ fn text_input_icon_code(
 
 fn text_input_style_code(
     styles: &TextInputStyleSet,
+    custom: Option<&ExternCall>,
+    utilities: Option<&Style>,
     env: &HashMap<String, Binding>,
     document: &Document,
     method: &str,
     widget: &str,
 ) -> Result<String, Error> {
+    let custom = custom
+        .map(|style| {
+            let function = document
+                .functions
+                .iter()
+                .find(|item| item.name == style.function && item.kind == ExternKind::InputStyle)
+                .expect("checker validates input style");
+            let args = style
+                .args
+                .iter()
+                .map(|arg| expr_code(arg, env, document, ValueMode::Owned))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok::<_, Error>(format!(
+                "{}(__theme, __status{})",
+                function.rust_path,
+                args.iter()
+                    .map(|arg| format!(", {arg}"))
+                    .collect::<String>()
+            ))
+        })
+        .transpose()?;
+    let has_utilities = utilities.is_some_and(|style| {
+        style.background.is_some()
+            || style.border_color.is_some()
+            || style.border_width != 0
+            || style.radius != 0
+            || style.focus_border_color.is_some()
+    });
     let overrides = [
         ("Active", &styles.active),
         ("Hovered", &styles.hovered),
@@ -9060,19 +9115,58 @@ fn text_input_style_code(
         ("Focused { is_hovered: true }", &styles.focused_hovered),
         ("Disabled", &styles.disabled),
     ];
-    if overrides.iter().all(|(_, style)| style.is_none()) {
-        return Ok(String::new());
+    let has_overrides = overrides.iter().any(|(_, style)| style.is_some());
+    if !has_overrides && !has_utilities {
+        return Ok(custom
+            .map(|custom| format!(".{method}(move |__theme, __status| {custom})"))
+            .unwrap_or_default());
     }
-    let mut code = format!(
-        ".{method}(move |__theme, __status| {{ let mut __style = ::iced::widget::{widget}::default(__theme, __status); match __status {{"
-    );
-    for (status, style) in overrides {
-        let Some(style) = style else { continue };
-        write!(code, " ::iced::widget::{widget}::Status::{status} => {{").unwrap();
-        append_text_input_style_overrides(&mut code, style, env, document)?;
-        code.push_str(" }");
+    let base =
+        custom.unwrap_or_else(|| format!("::iced::widget::{widget}::default(__theme, __status)"));
+    let mut code = format!(".{method}(move |__theme, __status| {{ let mut __style = {base};");
+    if let Some(style) = utilities.filter(|_| has_utilities) {
+        if let Some(background) = &style.background {
+            write!(
+                code,
+                " __style.background = {}.into();",
+                theme_color(document, background)
+            )
+            .unwrap();
+        }
+        if let Some(border) = &style.border_color {
+            write!(
+                code,
+                " __style.border.color = {};",
+                theme_color(document, border)
+            )
+            .unwrap();
+        }
+        if style.border_width != 0 {
+            write!(code, " __style.border.width = {}.0;", style.border_width).unwrap();
+        }
+        if style.radius != 0 {
+            write!(code, " __style.border.radius = {}.0.into();", style.radius).unwrap();
+        }
+        if let Some(focus) = &style.focus_border_color {
+            write!(
+                code,
+                " if matches!(__status, ::iced::widget::text_input::Status::Focused {{ .. }}) {{ __style.border.color = {}; }}",
+                theme_color(document, focus)
+            )
+            .unwrap();
+        }
     }
-    code.push_str(" _ => {} } __style })");
+    if has_overrides {
+        code.push_str(" match __status {");
+        for (status, style) in overrides {
+            let Some(style) = style else { continue };
+            write!(code, " ::iced::widget::{widget}::Status::{status} => {{").unwrap();
+            append_text_input_style_overrides(&mut code, style, env, document)?;
+            code.push_str(" }");
+        }
+        code.push_str(" _ => {} }");
+    }
+    code.push_str(" __style })");
     Ok(code)
 }
 
@@ -9560,38 +9654,6 @@ fn button_style_code(
     }
     code.push_str(" __style })");
     Ok(code)
-}
-
-fn input_style_code(style: &Style, document: &Document) -> String {
-    if style.background.is_none()
-        && style.border_width == 0
-        && style.radius == 0
-        && style.focus_border_color.is_none()
-    {
-        return String::new();
-    }
-    let background = style
-        .background
-        .as_ref()
-        .map(|color| theme_color(document, color))
-        .unwrap_or_else(|| theme_color(document, "background"));
-    let border = style
-        .border_color
-        .as_ref()
-        .map(|color| theme_color(document, color))
-        .unwrap_or_else(|| "::iced::Color::TRANSPARENT".into());
-    let focus = style
-        .focus_border_color
-        .as_ref()
-        .map(|color| theme_color(document, color))
-        .unwrap_or_else(|| border.clone());
-    let foreground = theme_color(document, "foreground");
-    let muted = theme_color(document, "muted");
-    let primary = theme_color(document, "primary");
-    format!(
-        ".style(|_, status| ::iced::widget::text_input::Style {{ background: {background}.into(), border: ::iced::Border {{ color: if matches!(status, ::iced::widget::text_input::Status::Focused {{ .. }}) {{ {focus} }} else {{ {border} }}, width: {}.0, radius: {}.0.into() }}, icon: {foreground}, placeholder: {muted}, value: {foreground}, selection: {primary} }})",
-        style.border_width, style.radius
-    )
 }
 
 fn theme_color(document: &Document, token: &str) -> String {
@@ -11154,6 +11216,8 @@ view
     #[test]
     fn lowers_extended_text_input_behavior() {
         let source = r#"app Form
+extern crate::backend
+  input-style dynamic_input(disabled:bool)
 font ui family=sans
 theme
   background #000000
@@ -11168,7 +11232,7 @@ on submitted
 on pasted(next)
   value = next
 view
-  input "Secret" #secret <-> value hint="Paste token" disabled=disabled secure=secure submit=submitted paste=pasted width=240.0 padding=8.0 text-size=14.0 line-height=1.2 align=center font=mono
+  input "Secret" #secret <-> value hint="Paste token" disabled=disabled secure=secure submit=submitted paste=pasted width=240.0 padding=8.0 text-size=14.0 line-height=1.2 align=center font=mono style=dynamic_input(disabled) @bg-background border border-primary rounded-lg focus:border-danger
     active background=background border=foreground border-width=1.0 radius=4.0 icon=primary placeholder=danger value=foreground selection=primary
     hovered background=background icon=foreground placeholder=danger value=foreground selection=primary
     focused background=background border=primary
@@ -11186,11 +11250,27 @@ view
         assert!(generated.contains("family: ::iced::font::Family::SansSerif"));
         assert!(generated.contains("Side::Right"));
         assert!(generated.contains(".style(move |__theme, __status|"));
+        assert!(
+            generated.contains("crate::backend::dynamic_input(__theme, __status, self.disabled)")
+        );
+        assert!(generated.contains("fn __ui_lang_check_input_style_dynamic_input"));
+        let custom = generated
+            .find("crate::backend::dynamic_input(__theme, __status, self.disabled)")
+            .unwrap();
+        let utility = custom + generated[custom..].find(" __style.background =").unwrap();
+        let statuses = utility + generated[utility..].find(" match __status").unwrap();
+        assert!(custom < utility && utility < statuses);
         assert!(generated.contains("Status::Focused { is_hovered: true }"));
         assert!(generated.contains("__style.placeholder ="));
         assert!(generated.contains("__style.selection ="));
         assert!(generated.contains(".on_submit_maybe(if self.disabled"));
         assert!(generated.contains(".on_paste_maybe(if self.disabled"));
+        let default_input = compile(
+            &source.replace(" style=dynamic_input(disabled)", ""),
+            "form.ice",
+        )
+        .unwrap();
+        assert!(default_input.contains("text_input::default(__theme, __status)"));
     }
 
     #[test]
