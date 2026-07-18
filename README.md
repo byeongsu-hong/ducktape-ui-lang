@@ -131,6 +131,8 @@ Key files:
   native borders and every radius constructor, builder, conversion, and field;
 - [`background_gradient.ice`](examples/iced-app/src/ui/background_gradient.ice)
   preserves native backgrounds, gradients, linear fills, and color stops;
+- [`font_values.ice`](examples/iced-app/src/ui/font_values.ice) preserves native
+  fonts and every family, weight, stretch, and style descriptor;
 - [`animation.ice`](examples/iced-app/src/ui/animation.ice) declares native
   boolean/numeric animation state with checked easing, timing, projection, and
   active-frame driving;
@@ -146,8 +148,8 @@ Key files:
   subtree using a different Rust Theme type;
 - [`native_overlay.ice`](examples/iced-app/src/ui/native_overlay.ice) proves the
   typed Element escape hatch with a custom indexed Overlay;
-- [`main.rs`](examples/iced-app/src/main.rs) owns the Rust backend; new fixture
-  harnesses stay in dedicated modules such as
+- [`main.rs`](examples/iced-app/src/main.rs) only wires the app and re-exports
+  fixture backends; every new harness stays in a dedicated module such as
   [`rotation.rs`](examples/iced-app/src/rotation.rs) and
   [`content_fit.rs`](examples/iced-app/src/content_fit.rs), with new surfaces
   such as [`color.rs`](examples/iced-app/src/color.rs) and
@@ -155,8 +157,9 @@ Key files:
   [`alignment.rs`](examples/iced-app/src/alignment.rs) and
   [`shadow.rs`](examples/iced-app/src/shadow.rs), with larger surfaces such as
   [`border_radius.rs`](examples/iced-app/src/border_radius.rs) and
-  [`background_gradient.rs`](examples/iced-app/src/background_gradient.rs),
-  instead of growing it;
+  [`background_gradient.rs`](examples/iced-app/src/background_gradient.rs), or
+  [`font_values.rs`](examples/iced-app/src/font_values.rs), instead of growing a
+  monolithic entry point;
 - [`SPEC.md`](SPEC.md) defines the implemented language.
 
 ## Tooling
@@ -183,7 +186,7 @@ cargo fmt --all
 
 ## Status
 
-This is an executable v1.47 language slice, not yet a complete iced replacement.
+This is an executable v1.48 language slice, not yet a complete iced replacement.
 It implements typed extern data/actions, state, handlers, async tasks, pure
 components with named props, default children, named structural slots, and
 React-like qualified compound children, scoped IDs, relative
