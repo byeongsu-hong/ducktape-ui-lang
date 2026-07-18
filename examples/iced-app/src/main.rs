@@ -193,6 +193,19 @@ mod backend {
     }
 
     #[cfg(test)]
+    pub fn volume_slider(
+        theme: &iced::Theme,
+        status: iced::widget::slider::Status,
+        busy: bool,
+    ) -> iced::widget::slider::Style {
+        let mut style = iced::widget::slider::default(theme, status);
+        if busy {
+            style.handle.border_color = theme.palette().danger;
+        }
+        style
+    }
+
+    #[cfg(test)]
     pub fn loading_progress(
         theme: &iced::Theme,
         active: bool,

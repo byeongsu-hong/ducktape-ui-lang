@@ -867,6 +867,26 @@ fn generate_extern_probes(out: &mut String, document: &Document) {
                 )
                 .unwrap();
             }
+            ExternKind::SliderStyle => {
+                let params = if params.is_empty() {
+                    "theme: &::iced::Theme, status: ::iced::widget::slider::Status".into()
+                } else {
+                    format!(
+                        "theme: &::iced::Theme, status: ::iced::widget::slider::Status, {params}"
+                    )
+                };
+                let args = if args.is_empty() {
+                    "theme, status".into()
+                } else {
+                    format!("theme, status, {args}")
+                };
+                writeln!(
+                    out,
+                    "#[allow(dead_code)] fn __ui_lang_check_slider_style_{}({params}) {{ let _: ::iced::widget::slider::Style = {}({args}); }}",
+                    item.name, item.rust_path
+                )
+                .unwrap();
+            }
             ExternKind::ProgressStyle => {
                 let params = if params.is_empty() {
                     "theme: &::iced::Theme".into()
@@ -7954,11 +7974,43 @@ fn append_slider_styles(
     env: &HashMap<String, Binding>,
     document: &Document,
 ) -> Result<(), Error> {
+    let custom = styles
+        .custom
+        .as_ref()
+        .map(|style| {
+            let function = document
+                .functions
+                .iter()
+                .find(|item| item.name == style.function && item.kind == ExternKind::SliderStyle)
+                .expect("checker validates slider style");
+            let args = style
+                .args
+                .iter()
+                .map(|arg| expr_code(arg, env, document, ValueMode::Owned))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok::<_, Error>(format!(
+                "{}(__theme, __status{})",
+                function.rust_path,
+                args.iter()
+                    .map(|arg| format!(", {arg}"))
+                    .collect::<String>()
+            ))
+        })
+        .transpose()?;
     if styles.active.is_none() && styles.hovered.is_none() && styles.dragged.is_none() {
+        if let Some(custom) = custom {
+            write!(code, ".style(move |__theme, __status| {custom})").unwrap();
+        }
         return Ok(());
     }
     let complete = styles.active.is_some() && styles.hovered.is_some() && styles.dragged.is_some();
-    code.push_str(".style(move |__theme, __status| { let mut __style = ::iced::widget::slider::default(__theme, __status); match __status {");
+    let base =
+        custom.unwrap_or_else(|| "::iced::widget::slider::default(__theme, __status)".to_owned());
+    write!(
+        code,
+        ".style(move |__theme, __status| {{ let mut __style = {base}; match __status {{"
+    )
+    .unwrap();
     for (status, style) in [
         ("Active", &styles.active),
         ("Hovered", &styles.hovered),
@@ -10749,6 +10801,7 @@ view
     fn lowers_complex_native_controls() {
         let source = r#"app Controls
 extern crate::backend
+  slider-style dynamic_slider(active:bool)
   progress-style dynamic_progress(active:bool)
   radio-style dynamic_radio(highlight:bool)
 theme
@@ -10771,11 +10824,11 @@ view
   col
     grid columns=2 width=640.0 spacing=12.0 height=aspect(16.0,9.0) @gap-2
       toggler "Enabled" checked=enabled -> enabled_changed _
-      slider amount min=0.0 max=100.0 step=0.5 default=50.0 shift-step=0.1 vertical width=20.0 height=fill(2) release=released -> amount_changed _
+      slider amount min=0.0 max=100.0 step=0.5 default=50.0 shift-step=0.1 vertical width=20.0 height=fill(2) style=dynamic_slider(enabled) release=released -> amount_changed _
         active rail-start=linear(0.0, primary@0.0, danger@1.0) rail-end=linear(1.57, background@0.0, primary/25@1.0) rail-width=4.0 rail-border=transparent rail-border-width=1.0 rail-radius=2.0 rail-radius-tl=1.0 handle=circle(7.0) handle-color=linear(0.785, primary@0.0, foreground@1.0) handle-border=foreground handle-border-width=1.0
         hovered rail-start=foreground rail-end=background handle=rect(12) handle-color=foreground handle-radius=3.0 handle-radius-tl=1.0
         dragged rail-start=danger handle=circle(8.0) handle-color=danger
-      slider amount min=0.0 max=100.0 step=1.0 width=fill height=18.0 -> amount_changed _
+      slider amount min=0.0 max=100.0 step=1.0 width=fill height=18.0 style=dynamic_slider(enabled) -> amount_changed _
       progress amount vertical length=fill(2) girth=20.0 style=dynamic_progress(enabled) background=linear(1.57, background@0.0, primary/25@1.0) bar=linear(0.0, primary/75@0.0, danger@1.0) border=foreground border-width=1.0 radius=4.0 radius-tl=2.0
       progress amount style=success
       progress amount style=warning
@@ -10808,6 +10861,13 @@ view
         assert!(generated.contains("::iced::widget::slider"));
         assert!(generated.contains(".width(::iced::Fill).height(18.0 as f32)"));
         assert!(generated.contains(".style(move |__theme, __status|"));
+        assert!(generated.contains("fn __ui_lang_check_slider_style_dynamic_slider"));
+        assert_eq!(
+            generated
+                .matches("crate::backend::dynamic_slider(__theme, __status, self.enabled)")
+                .count(),
+            2
+        );
         assert!(generated.contains("slider::Status::Active"));
         assert!(generated.contains("slider::Status::Hovered"));
         assert!(generated.contains("slider::Status::Dragged"));

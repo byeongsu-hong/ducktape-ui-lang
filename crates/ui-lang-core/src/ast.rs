@@ -364,6 +364,7 @@ pub enum ExternKind {
     Window,
     MarkdownViewer,
     TextStyle,
+    SliderStyle,
     ProgressStyle,
     ButtonStyle,
     CheckboxStyle,
@@ -1495,6 +1496,7 @@ pub struct SliderOptions {
 
 #[derive(Clone, Debug, Default)]
 pub struct SliderStyleSet {
+    pub custom: Option<ExternCall>,
     pub active: Option<SliderStyle>,
     pub hovered: Option<SliderStyle>,
     pub dragged: Option<SliderStyle>,
