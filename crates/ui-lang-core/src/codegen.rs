@@ -4233,11 +4233,14 @@ fn render_node(
                 write!(code, ".content_fit(::iced::ContentFit::{fit})").unwrap();
             }
             if let Some(rotation) = &options.rotation {
+                let rotation_type = expr_type(rotation, &env_types(env), document, span)?;
                 let rotation = expr_code(rotation, env, document, ValueMode::Owned)?;
                 write!(
                     code,
                     ".rotation({})",
-                    if options.rotation_solid {
+                    if rotation_type == Type::Rotation {
+                        rotation
+                    } else if options.rotation_solid {
                         format!("::iced::Rotation::Solid(::iced::Radians({rotation} as f32))")
                     } else {
                         format!("{rotation} as f32")
@@ -7865,6 +7868,14 @@ fn native_field_projection(ty: &Type, field: &str, code: &str) -> Option<(String
         (Type::ImageError, "message") => {
             (format!("::std::format!(\"{{}}\", &({code}))"), Type::Str)
         }
+        (Type::Rotation, "radians") => (format!("({code}).radians()"), Type::Radians),
+        (Type::Rotation, "degrees") => (format!("({code}).degrees()"), Type::Degrees),
+        (Type::Rotation, "kind") => (
+            format!(
+                "match ({code}) {{ ::iced::Rotation::Floating(_) => \"floating\", ::iced::Rotation::Solid(_) => \"solid\" }}.to_owned()"
+            ),
+            Type::Str,
+        ),
         (Type::Point | Type::Vector | Type::Size, "values") => (
             format!(
                 "::std::convert::Into::<[f32; 2]>::into({code}).into_iter().map(f64::from).collect::<::std::vec::Vec<_>>()"
@@ -8013,6 +8024,7 @@ fn expr_code(
                     | Type::Padding
                     | Type::Degrees
                     | Type::Radians
+                    | Type::Rotation
                     | Type::Point
                     | Type::PointU32
                     | Type::Vector
@@ -8035,6 +8047,29 @@ fn expr_code(
             code
         }
         Expr::Call { name, args } => match name.as_str() {
+            "rotation.default" => "::iced::Rotation::default()".into(),
+            "rotation.floating" => format!(
+                "::iced::Rotation::Floating({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "rotation.solid" => format!(
+                "::iced::Rotation::Solid({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "rotation.from" => format!(
+                "::iced::Rotation::from({} as f32)",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "rotation.with_radians" => format!(
+                "{{ let mut __rotation = {}; *__rotation.radians_mut() = {}; __rotation }}",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "rotation.apply" => format!(
+                "({}).apply({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
             "debug.active" => format!(
                 "({}).is_some()",
                 expr_code(&args[0], env, document, ValueMode::Borrowed)?
@@ -11899,6 +11934,26 @@ fn pascal(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use crate::compile;
+
+    #[test]
+    fn lowers_every_native_rotation_operation() {
+        let source = include_str!("../../../examples/iced-app/src/ui/rotation.ice");
+        let generated = compile(source, "rotation.ice").unwrap();
+        for expected in [
+            "::iced::Rotation::default()",
+            "::iced::Rotation::Floating(::iced::Radians((0.25) as f32))",
+            "::iced::Rotation::Solid(::iced::Radians((0.5) as f32))",
+            "*__rotation.radians_mut() = ::iced::Radians((0.75) as f32)",
+            "::iced::Rotation::from(0.2 as f32)",
+            ".apply(::iced::Size::new((10.0) as f32, (20.0) as f32))",
+            ".radians()",
+            ".degrees()",
+            ".rotation(self.solid_rotation)",
+            ".rotation(self.adjusted_rotation)",
+        ] {
+            assert!(generated.contains(expected), "missing {expected}");
+        }
+    }
 
     #[test]
     fn lowers_native_debug_spans_and_timed_values() {

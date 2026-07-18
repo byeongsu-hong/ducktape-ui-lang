@@ -3155,8 +3155,17 @@ fn infer_view(
                     require_literal_range(value, 0.0, None, "media size", span)?;
                 }
             }
+            if let Some(rotation) = &options.rotation {
+                let actual = expr_type(rotation, env, document, span)?;
+                if !matches!(actual, Type::F64 | Type::Rotation) {
+                    return Err(Error::new(
+                        "E101",
+                        span,
+                        format!("expected `f64` or `rotation`, got `{}`", actual.display()),
+                    ));
+                }
+            }
             for (value, label, min, max) in [
-                (&options.rotation, "rotation", None, None),
                 (&options.opacity, "opacity", Some(0.0), Some(1.0)),
                 (&options.scale, "scale", Some(f64::EPSILON), None),
                 (&options.radius, "radius", Some(0.0), None),
@@ -3837,6 +3846,7 @@ fn lazy_hashable(ty: &Type) -> bool {
         | Type::Padding
         | Type::Degrees
         | Type::Radians
+        | Type::Rotation
         | Type::Point
         | Type::PointU32
         | Type::Vector
@@ -7216,6 +7226,40 @@ pub(crate) fn expr_type(
             Ok(ty)
         }
         Expr::Call { name, args } => match name.as_str() {
+            "rotation.default" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::Rotation)
+            }
+            "rotation.floating" | "rotation.solid" => {
+                check_builtin_args(name, args, &[Type::Radians], env, document, span)?;
+                Ok(Type::Rotation)
+            }
+            "rotation.from" => {
+                check_builtin_args(name, args, &[Type::F64], env, document, span)?;
+                Ok(Type::Rotation)
+            }
+            "rotation.with_radians" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::Rotation, Type::Radians],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::Rotation)
+            }
+            "rotation.apply" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::Rotation, Type::Size],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::Size)
+            }
             "debug.active" => {
                 check_builtin_args(
                     name,
@@ -8405,6 +8449,12 @@ fn field_type(ty: &Type, field: &str, document: &Document, span: &Span) -> Resul
             "display" => Some(Type::Str),
             _ => None,
         },
+        Type::Rotation => match field {
+            "radians" => Some(Type::Radians),
+            "degrees" => Some(Type::Degrees),
+            "kind" => Some(Type::Str),
+            _ => None,
+        },
         Type::Point => match field {
             "x" | "y" => Some(Type::F64),
             "values" => Some(Type::List(Box::new(Type::F64))),
@@ -8782,6 +8832,23 @@ fn type_error(span: &Span, expected: &Type, actual: &Type) -> Error {
 #[cfg(test)]
 mod tests {
     use crate::{PaneConfiguration, Type, ViewNode, analyze};
+
+    #[test]
+    fn checks_native_rotation_values_and_widgets() {
+        let source = include_str!("../../../examples/iced-app/src/ui/rotation.ice");
+        analyze(source).unwrap();
+
+        let error =
+            analyze(&source.replace("rotation.solid(radians(0.5))", "rotation.solid(true)"))
+                .unwrap_err();
+        assert_eq!(error.code, "E101");
+        assert!(error.message.contains("expected `radians`"));
+
+        let error =
+            analyze(&source.replace("rotation=solid_rotation", "rotation=true")).unwrap_err();
+        assert_eq!(error.code, "E101");
+        assert!(error.message.contains("expected `f64` or `rotation`"));
+    }
 
     #[test]
     fn checks_owned_native_debug_timing_boundaries() {
