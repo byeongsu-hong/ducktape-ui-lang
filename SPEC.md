@@ -1,4 +1,4 @@
-# Ice Language Specification 1.31
+# Ice Language Specification 1.32
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 1.31 syntax.
+marked “planned” is a design constraint, not accepted 1.32 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 1.31.
+  block comments are not part of 1.32.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -349,7 +349,7 @@ widget_target_segment = kebab_name | component_name | name "(" expr ")"
 pane_operation = "maximize" name | "restore" | "maximized"
                | "adjacent" name pane_edge
                | "swap" name name | "close" name
-               | "move" name pane_edge | "resize" expr
+               | "move" name pane_edge | "resize" (name expr | expr)
                | "drop" name name ("center" | pane_edge)
                | "split" name name ("horizontal" | "vertical")
                  ("ratio=" expr)?
@@ -471,7 +471,7 @@ pane_region_style_property
                  | "radius-tr=" | "radius-br=" | "radius-bl=") expr
 pane_line_style_property = "color=" name ("/" u8)? | "width=" expr
 pane_configuration = pane_view
-                   | "split" pane_axis ("ratio=" number)?
+                   | "split" name? pane_axis ("ratio=" number)?
                      INDENT pane_configuration pane_configuration
 pane_view      = "pane" name surface_style_property* styles?
                  INDENT (node | pane_section+)
@@ -1003,7 +1003,7 @@ maximum size. `icon-rgba` embeds a relative raw RGBA file without an image
 codec; width and height are positive integers, and generated Rust rejects a
 byte length other than `width × height × 4`. `cargo ice check` reports a
 mismatch at the icon declaration, and generated Rust repeats the check at
-compile time. Encoded icon formats remain outside 1.31.
+compile time. Encoded icon formats remain outside 1.32.
 
 Application boot presets are structured top-level declarations:
 
@@ -1554,7 +1554,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 1.31 message payloads.
+`Clone` for 1.32 message payloads.
 
 Declared `sync` functions are checked, synchronous Rust calls available in
 Ice expressions. They are the small escape hatch for pure domain conversions
@@ -2151,10 +2151,10 @@ For an arbitrary initial layout, nest binary split nodes. A root-level
 
 ```ice
 pane-grid #workspace width=fill height=fill
-  split vertical ratio=0.7
+  split workspace_root vertical ratio=0.7
     pane files
       FileList
-    split horizontal ratio=0.6
+    split editor_stack horizontal ratio=0.6
       pane editor
         Editor
       pane terminal
@@ -2994,6 +2994,7 @@ pane #workspace restore
 pane #workspace swap tasks details
 pane #workspace move details left
 pane #workspace resize 0.6
+pane #workspace resize editor_stack 0.55
 pane #workspace drop details tasks center
 pane #workspace split details preview horizontal ratio=0.4
 pane #workspace close details
@@ -3004,10 +3005,13 @@ pane #workspace adjacent tasks right -> pane_observed _
 Grid and pane names are checked against the static app view. Effects mutate the
 compiler-owned `pane_grid::State` synchronously and do not accept routes.
 `maximized` and `adjacent` are final handler queries and emit `str?`, because
-there may be no maximized or adjacent pane. `resize` targets the root split and
-accepts a checked `f64` in `0.0..=1.0`. `drop` accepts `center` or an edge
-region. `split` opens a declared closed pane beside an open target with the
-requested axis and ratio; asking to open an already-open pane is a no-op.
+there may be no maximized or adjacent pane. `resize ratio` targets the root
+split. A nested `split name axis` declaration gives that native split a stable
+checked identity, and `resize name ratio` keeps targeting that split while it
+remains in the layout. Ratios are checked `f64` values in `0.0..=1.0`. `drop`
+accepts `center` or an edge region. `split` opens a declared closed pane beside
+an open target with the requested axis and ratio; asking to open an already-open
+pane is a no-op.
 
 Window tasks can open named templates and retain iced's typed window ID in
 ordinary Ice state:
@@ -3260,7 +3264,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 1.31 does not claim that remapping.
+extern line; 1.32 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -3281,7 +3285,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 1.31 native backend is enough for CRUD/settings-style screens, selection,
+The 1.32 native backend is enough for CRUD/settings-style screens, selection,
 media, hover overlays, declarative canvas geometry, and common pointer events,
 not all of iced. It still lacks borrowed custom widgets and a custom renderer
 boundary. [`COVERAGE.md`](COVERAGE.md) is the exact versioned ledger.

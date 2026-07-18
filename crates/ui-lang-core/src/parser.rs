@@ -2055,8 +2055,14 @@ fn parse_pane_operation(source: &str, line: &Line) -> Result<Statement, Error> {
             pane: pane(2)?,
             edge: edge(3)?,
         },
-        Some("resize") if parts.len() == 3 => PaneOperation::Resize {
-            ratio: parse_expr(strip_wrapping_parens(&parts[2]), line)?,
+        Some("resize") if (3..=4).contains(&parts.len()) => PaneOperation::Resize {
+            split: (parts.len() == 4)
+                .then(|| identifier(&parts[2], line))
+                .transpose()?,
+            ratio: parse_expr(
+                strip_wrapping_parens(&parts[if parts.len() == 4 { 3 } else { 2 }]),
+                line,
+            )?,
         },
         Some("drop") if parts.len() == 5 => PaneOperation::Drop {
             pane: pane(2)?,
@@ -3106,6 +3112,7 @@ fn parse_pane_title(
 fn parse_pane_configuration(
     line: &Line,
     names: &mut std::collections::HashSet<String>,
+    splits: &mut std::collections::HashSet<String>,
     panes: &mut Vec<PaneView>,
 ) -> Result<PaneConfiguration, Error> {
     let (core, styles) = split_style_utilities(&line.text);
@@ -3119,22 +3126,42 @@ fn parse_pane_configuration(
             names,
             panes,
         )?)),
-        Some("split") if (2..=3).contains(&parts.len()) => {
+        Some("split") if (2..=4).contains(&parts.len()) => {
             if !styles.is_empty() {
                 return Err(error("E187", line, "nested pane split does not accept `@`"));
             }
-            let axis = match parts[1].as_str() {
-                "horizontal" => PaneAxis::Horizontal,
-                "vertical" => PaneAxis::Vertical,
+            let (name, axis_index) = if matches!(parts[1].as_str(), "horizontal" | "vertical") {
+                (None, 1)
+            } else {
+                let name = identifier(&parts[1], line)?;
+                if !splits.insert(name.clone()) {
+                    return Err(error(
+                        "E187",
+                        line,
+                        format!("duplicate pane split `{name}`"),
+                    ));
+                }
+                (Some(name), 2)
+            };
+            let axis = match parts.get(axis_index).map(String::as_str) {
+                Some("horizontal") => PaneAxis::Horizontal,
+                Some("vertical") => PaneAxis::Vertical,
                 _ => {
                     return Err(error(
                         "E187",
                         line,
-                        "nested pane split must be horizontal or vertical",
+                        "nested pane split uses `split [name] horizontal|vertical ratio=value`",
                     ));
                 }
             };
-            let ratio = parts.get(2).map_or(Ok(0.5), |part| {
+            if parts.len() > axis_index + 2 {
+                return Err(error(
+                    "E187",
+                    line,
+                    "nested pane split uses `split [name] horizontal|vertical ratio=value`",
+                ));
+            }
+            let ratio = parts.get(axis_index + 1).map_or(Ok(0.5), |part| {
                 parse_pane_ratio(
                     part.strip_prefix("ratio=").ok_or_else(|| {
                         error("E187", line, "nested pane split ratio uses `ratio=value`")
@@ -3150,16 +3177,27 @@ fn parse_pane_configuration(
                 ));
             }
             Ok(PaneConfiguration::Split {
+                name,
                 axis,
                 ratio,
-                a: Box::new(parse_pane_configuration(&line.children[0], names, panes)?),
-                b: Box::new(parse_pane_configuration(&line.children[1], names, panes)?),
+                a: Box::new(parse_pane_configuration(
+                    &line.children[0],
+                    names,
+                    splits,
+                    panes,
+                )?),
+                b: Box::new(parse_pane_configuration(
+                    &line.children[1],
+                    names,
+                    splits,
+                    panes,
+                )?),
             })
         }
         _ => Err(error(
             "E187",
             line,
-            "pane configuration uses `pane name` or `split axis ratio=value`",
+            "pane configuration uses `pane name` or `split [name] axis ratio=value`",
         )),
     }
 }
@@ -3260,6 +3298,7 @@ fn parse_pane_grid(parts: &[String], styles: Vec<String>, line: &Line) -> Result
         line.children.as_slice()
     };
     let mut names = std::collections::HashSet::new();
+    let mut splits = std::collections::HashSet::new();
     let mut panes = Vec::new();
     let configuration = if let Some(axis) = legacy_axis {
         if children.len() < 2 {
@@ -3270,8 +3309,8 @@ fn parse_pane_grid(parts: &[String], styles: Vec<String>, line: &Line) -> Result
             ));
         }
         let open = &children[..2];
-        let a = parse_pane_configuration(&open[0], &mut names, &mut panes)?;
-        let b = parse_pane_configuration(&open[1], &mut names, &mut panes)?;
+        let a = parse_pane_configuration(&open[0], &mut names, &mut splits, &mut panes)?;
+        let b = parse_pane_configuration(&open[1], &mut names, &mut splits, &mut panes)?;
         if !matches!(&a, PaneConfiguration::Pane(_)) || !matches!(&b, PaneConfiguration::Pane(_)) {
             return Err(error(
                 "E187",
@@ -3283,6 +3322,7 @@ fn parse_pane_grid(parts: &[String], styles: Vec<String>, line: &Line) -> Result
             parse_closed_pane(pane, &mut names, &mut panes)?;
         }
         PaneConfiguration::Split {
+            name: None,
             axis,
             ratio: legacy_ratio,
             a: Box::new(a),
@@ -3303,7 +3343,8 @@ fn parse_pane_grid(parts: &[String], styles: Vec<String>, line: &Line) -> Result
                 "pane-grid requires an initial pane or split configuration",
             )
         })?;
-        let configuration = parse_pane_configuration(configuration, &mut names, &mut panes)?;
+        let configuration =
+            parse_pane_configuration(configuration, &mut names, &mut splits, &mut panes)?;
         for pane in closed {
             parse_closed_pane(pane, &mut names, &mut panes)?;
         }

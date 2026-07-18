@@ -29,7 +29,12 @@ pub fn generate(document: &Document, source_path: &str) -> Result<String, Error>
         .unwrap();
     }
     for node in pane_grids(&document.view) {
-        let ViewNode::PaneGrid { name, .. } = node else {
+        let ViewNode::PaneGrid {
+            name,
+            configuration,
+            ..
+        } = node
+        else {
             unreachable!()
         };
         writeln!(
@@ -38,6 +43,14 @@ pub fn generate(document: &Document, source_path: &str) -> Result<String, Error>
             pane_field(name)
         )
         .unwrap();
+        if pane_split_slots(configuration).iter().any(Option::is_some) {
+            writeln!(
+                out,
+                "pub(crate) {}: ::std::collections::BTreeMap<&'static str, ::iced::widget::pane_grid::Split>,",
+                pane_splits_field(name)
+            )
+            .unwrap();
+        }
     }
     for state in &document.states {
         writeln!(
@@ -1323,7 +1336,44 @@ fn generate_theme(out: &mut String, document: &Document) -> Result<(), Error> {
 }
 
 fn generate_boot(out: &mut String, document: &Document, message: &str) -> Result<(), Error> {
-    writeln!(out, "fn __state() -> Self {{\nSelf {{").unwrap();
+    writeln!(out, "fn __state() -> Self {{").unwrap();
+    for node in pane_grids(&document.view) {
+        let ViewNode::PaneGrid {
+            name,
+            configuration,
+            ..
+        } = node
+        else {
+            unreachable!()
+        };
+        let field = pane_field(name);
+        writeln!(
+            out,
+            "let {field} = ::iced::widget::pane_grid::State::with_configuration({});",
+            pane_configuration_code(configuration)
+        )
+        .unwrap();
+        let slots = pane_split_slots(configuration);
+        if slots.iter().any(Option::is_some) {
+            let slots = slots
+                .iter()
+                .map(|name| {
+                    name.map_or_else(
+                        || "::std::option::Option::None".into(),
+                        |name| format!("::std::option::Option::Some({})", rust_string(name)),
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            writeln!(
+                out,
+                "let {} = [{slots}].into_iter().zip({field}.layout().splits().copied()).filter_map(|(__name, __split)| __name.map(|__name| (__name, __split))).collect();",
+                pane_splits_field(name)
+            )
+            .unwrap();
+        }
+    }
+    writeln!(out, "Self {{").unwrap();
     for qr in &document.qr_codes {
         writeln!(out, "{}: {},", qr.name, qr_data_code(qr)).unwrap();
     }
@@ -1345,13 +1395,10 @@ fn generate_boot(out: &mut String, document: &Document, message: &str) -> Result
         else {
             unreachable!()
         };
-        writeln!(
-            out,
-            "{}: ::iced::widget::pane_grid::State::with_configuration({}),",
-            pane_field(name),
-            pane_configuration_code(configuration)
-        )
-        .unwrap();
+        writeln!(out, "{},", pane_field(name)).unwrap();
+        if pane_split_slots(configuration).iter().any(Option::is_some) {
+            writeln!(out, "{},", pane_splits_field(name)).unwrap();
+        }
     }
     writeln!(
         out,
@@ -2627,12 +2674,24 @@ fn generate_statements(
                         edge(side)
                     )
                     .unwrap(),
-                    PaneOperation::Resize { ratio } => writeln!(
-                        out,
-                        "{{ let __split = {state}.{field}.layout().splits().next().copied(); if let ::std::option::Option::Some(__split) = __split {{ {state}.{field}.resize(__split, ({}) as f32); }} }}",
-                        expr_code(ratio, env, document, ValueMode::Owned)?
-                    )
-                    .unwrap(),
+                    PaneOperation::Resize { split, ratio } => {
+                        let split = split.as_ref().map_or_else(
+                            || format!("{state}.{field}.layout().splits().next().copied()"),
+                            |name| {
+                                format!(
+                                    "{state}.{}.get({}).copied()",
+                                    pane_splits_field(grid),
+                                    rust_string(name)
+                                )
+                            },
+                        );
+                        writeln!(
+                            out,
+                            "{{ let __split = {split}; if let ::std::option::Option::Some(__split) = __split {{ {state}.{field}.resize(__split, ({}) as f32); }} }}",
+                            expr_code(ratio, env, document, ValueMode::Owned)?
+                        )
+                        .unwrap();
+                    }
                     PaneOperation::Drop {
                         pane: name,
                         target,
@@ -8409,13 +8468,33 @@ fn pane_field(name: &str) -> String {
     format!("__pane_{name}")
 }
 
+fn pane_splits_field(name: &str) -> String {
+    format!("__pane_{name}_splits")
+}
+
+fn pane_split_slots(configuration: &PaneConfiguration) -> Vec<Option<&str>> {
+    fn collect<'a>(configuration: &'a PaneConfiguration, output: &mut Vec<Option<&'a str>>) {
+        if let PaneConfiguration::Split { name, a, b, .. } = configuration {
+            output.push(name.as_deref());
+            collect(b, output);
+            collect(a, output);
+        }
+    }
+
+    let mut output = Vec::new();
+    collect(configuration, &mut output);
+    output
+}
+
 fn pane_configuration_code(configuration: &PaneConfiguration) -> String {
     match configuration {
         PaneConfiguration::Pane(name) => format!(
             "::iced::widget::pane_grid::Configuration::Pane({})",
             rust_string(name)
         ),
-        PaneConfiguration::Split { axis, ratio, a, b } => {
+        PaneConfiguration::Split {
+            axis, ratio, a, b, ..
+        } => {
             let axis = match axis {
                 PaneAxis::Horizontal => "Horizontal",
                 PaneAxis::Vertical => "Vertical",
@@ -12344,12 +12423,14 @@ theme
   danger #ff0000
 on open_preview
   pane #work split editor preview horizontal ratio=0.4
+on resize_editor_stack
+  pane #work resize editor_stack 0.55
 view
   pane-grid #work width=fill height=fill
-    split vertical ratio=0.7
+    split workspace_root vertical ratio=0.7
       pane files
         text "Files"
-      split horizontal ratio=0.6
+      split editor_stack horizontal ratio=0.6
         pane editor
           text "Editor"
         pane terminal
@@ -12368,6 +12449,11 @@ view
         assert!(!generated.contains("Configuration::Pane(\"preview\")"));
         assert!(generated.contains("\"preview\" =>"));
         assert!(generated.contains(".split(::iced::widget::pane_grid::Axis::Horizontal"));
+        assert!(generated.contains("__pane_work_splits: ::std::collections::BTreeMap"));
+        assert!(generated.contains("Option::Some(\"workspace_root\")"));
+        assert!(generated.contains("Option::Some(\"editor_stack\")"));
+        assert!(generated.contains("self.__pane_work_splits.get(\"editor_stack\").copied()"));
+        assert!(generated.contains("self.__pane_work.resize(__split, (0.55) as f32)"));
     }
 
     #[test]

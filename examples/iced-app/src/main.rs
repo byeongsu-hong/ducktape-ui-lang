@@ -1015,6 +1015,21 @@ mod showcase {
         assert_eq!(app.__update(__ShowcaseMessage::ExtendMarkdown).units(), 0);
         assert_eq!(app.help_images, ["asset://ice"]);
     }
+
+    #[test]
+    fn resizes_a_named_nested_pane_split() {
+        let (mut app, _) = Showcase::__boot();
+        let split = app.__pane_nested_workspace_splits["editor_stack"];
+
+        let _ = app.__update(__ShowcaseMessage::ResizeNestedEditor);
+
+        let regions = app.__pane_nested_workspace.layout().split_regions(
+            0.0,
+            0.0,
+            iced::Size::new(100.0, 100.0),
+        );
+        assert_eq!(regions[&split].2, 0.45);
+    }
 }
 
 #[cfg(test)]
