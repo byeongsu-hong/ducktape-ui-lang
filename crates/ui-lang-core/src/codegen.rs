@@ -107,6 +107,7 @@ pub fn generate(document: &Document, source_path: &str) -> Result<String, Error>
 
     generate_extern_probes(&mut out, document);
     writeln!(out, "impl {} {{", document.app).unwrap();
+    generate_named_windows(&mut out, document, source_path);
     writeln!(out, "pub fn run() -> ::iced::Result {{").unwrap();
     let subscription = if document.subscriptions.is_empty() {
         ""
@@ -217,6 +218,24 @@ fn window_settings_code(settings: Option<&WindowSettings>, source_path: &str) ->
     let Some(settings) = settings else {
         return String::new();
     };
+    format!(
+        ".window({})",
+        window_settings_value_code(settings, source_path)
+    )
+}
+
+fn generate_named_windows(out: &mut String, document: &Document, source_path: &str) {
+    for (index, window) in document.settings.windows.iter().enumerate() {
+        writeln!(
+            out,
+            "fn __window_{index}() -> ::iced::window::Settings {{ {} }}",
+            window_settings_value_code(&window.settings, source_path)
+        )
+        .unwrap();
+    }
+}
+
+fn window_settings_value_code(settings: &WindowSettings, source_path: &str) -> String {
     let mut fields = String::new();
     let size =
         |(width, height): (f64, f64)| format!("::iced::Size::new({width} as f32, {height} as f32)");
@@ -288,7 +307,7 @@ fn window_settings_code(settings: Option<&WindowSettings>, source_path: &str) ->
         )
         .unwrap();
     }
-    format!(".window(::iced::window::Settings {{ {fields} ..::std::default::Default::default() }})")
+    format!("::iced::window::Settings {{ {fields} ..::std::default::Default::default() }}")
 }
 
 fn generate_keyboard_types(out: &mut String, document: &Document) {
@@ -2045,10 +2064,17 @@ fn generate_statements(
                 }
             }
             Statement::WindowOperation {
-                operation, route, ..
+                operation,
+                target,
+                route,
+                ..
             } => {
                 has_task = true;
-                let id = "__window";
+                let target = target
+                    .as_ref()
+                    .map(|target| expr_code(target, env, document, ValueMode::Owned))
+                    .transpose()?;
+                let id = target.as_deref().unwrap_or("__window");
                 let value = |value: &Expr, cast: &str| {
                     Ok::<_, Error>(format!(
                         "({}) as {cast}",
@@ -2072,6 +2098,35 @@ fn generate_statements(
                 };
                 let bool_value = |value: &Expr| expr_code(value, env, document, ValueMode::Owned);
                 let task = match operation {
+                    WindowOperation::Open(name) => {
+                        let settings = name.as_ref().map_or_else(
+                            || "::std::default::Default::default()".into(),
+                            |name| {
+                                let index = document
+                                    .settings
+                                    .windows
+                                    .iter()
+                                    .position(|window| window.name == *name)
+                                    .expect("checker validates named windows");
+                                format!("Self::__window_{index}()")
+                            },
+                        );
+                        let route = route.as_ref().expect("checker requires window route");
+                        let message_code = route_code(route, "value", env, document, message)?;
+                        format!(
+                            "{{ let (_, __task) = ::iced::window::open({settings}); __task.map(move |value| {message_code}) }}"
+                        )
+                    }
+                    WindowOperation::Oldest | WindowOperation::Latest => {
+                        let function = if matches!(operation, WindowOperation::Oldest) {
+                            "oldest"
+                        } else {
+                            "latest"
+                        };
+                        let route = route.as_ref().expect("checker requires window route");
+                        let message_code = route_code(route, "value", env, document, message)?;
+                        format!("::iced::window::{function}().map(move |value| {message_code})")
+                    }
                     WindowOperation::Close => {
                         format!("::iced::window::close::<{message}>({id})")
                     }
@@ -2240,7 +2295,14 @@ fn generate_statements(
                         bool_value(enabled)?
                     ),
                 };
-                let task = if matches!(operation, WindowOperation::AutomaticTabbing(_)) {
+                let task = if target.is_some()
+                    || matches!(
+                        operation,
+                        WindowOperation::Open(_)
+                            | WindowOperation::Oldest
+                            | WindowOperation::Latest
+                            | WindowOperation::AutomaticTabbing(_)
+                    ) {
                     task
                 } else {
                     format!("::iced::window::oldest().and_then(move |__window| {task})")
@@ -10810,6 +10872,9 @@ view
     #[test]
     fn checks_and_lowers_main_window_tasks() {
         let source = r#"app WindowTasks
+  window child
+    size 640 480
+    position centered
 theme
   background #000000
   foreground #ffffff
@@ -10822,6 +10887,19 @@ on optional_bool_read(value)
 on optional_pair_read(x, y)
 on scale_read(value)
 on mode_read(value)
+on opened(id)
+  task window size target=id -> size_read _ _
+on selected(id)
+on close_target(id)
+  task window close target=id
+on open_child
+  task window open child -> opened _
+on open_default
+  task window open -> close_target _
+on read_oldest
+  task window oldest -> selected _
+on read_latest
+  task window latest -> selected _
 on close_window
   task window close
 on drag_window
@@ -10885,6 +10963,9 @@ view
 "#;
         let generated = compile(source, "window_tasks.ice").unwrap();
         for function in [
+            "window::open",
+            "window::oldest",
+            "window::latest",
             "window::close",
             "window::drag",
             "window::drag_resize",
@@ -10916,10 +10997,16 @@ view
         ] {
             assert!(generated.contains(function), "missing {function}");
         }
+        assert!(generated.contains("fn __window_0() -> ::iced::window::Settings"));
+        assert!(generated.contains("size: ::iced::Size::new(640 as f32, 480 as f32)"));
+        assert!(generated.contains("::iced::window::open(Self::__window_0())"));
+        assert!(generated.contains("::iced::window::open(::std::default::Default::default())"));
+        assert!(generated.contains("::iced::window::size(id).map"));
+        assert!(generated.contains("::iced::window::close::<__WindowTasksMessage>(id)"));
         assert!(generated.contains("window::oldest().and_then"));
 
         let error = compile(
-            &source.replace("task window close", "task window close -> closed"),
+            &source.replacen("task window close\n", "task window close -> closed\n", 1),
             "window_tasks.ice",
         )
         .unwrap_err();
@@ -10938,6 +11025,27 @@ view
         )
         .unwrap_err();
         assert_eq!(error.code, "E129");
+
+        let error = compile(
+            &source.replace("task window open child", "task window open missing"),
+            "window_tasks.ice",
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "E173");
+
+        let error = compile(
+            &source.replace("task window oldest", "task window oldest target=id"),
+            "window_tasks.ice",
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "E173");
+
+        let error = compile(
+            &source.replace("task window size target=id", "task window size target=true"),
+            "window_tasks.ice",
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "E101");
     }
 
     #[test]

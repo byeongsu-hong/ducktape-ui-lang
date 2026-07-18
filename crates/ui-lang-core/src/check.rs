@@ -2769,7 +2769,13 @@ fn infer_view(
 
 fn lazy_hashable(ty: &Type) -> bool {
     match ty {
-        Type::Bool | Type::I64 | Type::Str | Type::Bytes | Type::Instant | Type::Named(_) => true,
+        Type::Bool
+        | Type::I64
+        | Type::Str
+        | Type::Bytes
+        | Type::Instant
+        | Type::WindowId
+        | Type::Named(_) => true,
         Type::List(inner) | Type::Option(inner) => lazy_hashable(inner),
         Type::Result(output, error) => lazy_hashable(output) && lazy_hashable(error),
         Type::F64
@@ -4358,6 +4364,20 @@ fn infer_runs(
         } = statement
         {
             match operation {
+                WindowOperation::Open(_) => infer_route(
+                    route,
+                    Some(Type::WindowId),
+                    &unknown_env,
+                    document,
+                    signatures,
+                )?,
+                WindowOperation::Oldest | WindowOperation::Latest => infer_route(
+                    route,
+                    Some(Type::Option(Box::new(Type::WindowId))),
+                    &unknown_env,
+                    document,
+                    signatures,
+                )?,
                 WindowOperation::Size => infer_ordered_payload_route(
                     route,
                     &[Type::F64, Type::F64],
@@ -5025,6 +5045,7 @@ fn check_handler(
             }
             Statement::WindowOperation {
                 operation,
+                target,
                 route,
                 span,
             } => {
@@ -5037,7 +5058,10 @@ fn check_handler(
                 }
                 let query = matches!(
                     operation,
-                    WindowOperation::Size
+                    WindowOperation::Open(_)
+                        | WindowOperation::Oldest
+                        | WindowOperation::Latest
+                        | WindowOperation::Size
                         | WindowOperation::IsMaximized
                         | WindowOperation::IsMinimized
                         | WindowOperation::Position
@@ -5045,6 +5069,39 @@ fn check_handler(
                         | WindowOperation::Mode
                         | WindowOperation::MonitorSize
                 );
+                if let WindowOperation::Open(Some(name)) = operation
+                    && !document
+                        .settings
+                        .windows
+                        .iter()
+                        .any(|window| window.name == *name)
+                {
+                    return Err(Error::new(
+                        "E173",
+                        span,
+                        format!("unknown app window `{name}`"),
+                    ));
+                }
+                if let Some(target) = target {
+                    if matches!(
+                        operation,
+                        WindowOperation::Open(_)
+                            | WindowOperation::Oldest
+                            | WindowOperation::Latest
+                            | WindowOperation::AutomaticTabbing(_)
+                    ) {
+                        return Err(Error::new(
+                            "E173",
+                            span,
+                            "this window task does not accept `target=`",
+                        ));
+                    }
+                    require_type(
+                        &expr_type(target, &env, document, span)?,
+                        &Type::WindowId,
+                        span,
+                    )?;
+                }
                 match (query, route) {
                     (true, None) => {
                         return Err(Error::new("E173", span, "window query requires a route"));

@@ -237,6 +237,21 @@ fn parse_app_settings(line: &Line) -> Result<AppSettings, Error> {
             settings.window = Some(parse_window_settings(item)?);
             continue;
         }
+        if let Some(name) = item.text.strip_prefix("window ") {
+            let name = identifier(name.trim(), item)?;
+            if settings.windows.iter().any(|window| window.name == name) {
+                return Err(error(
+                    "E014",
+                    item,
+                    format!("duplicate app window `{name}`"),
+                ));
+            }
+            settings.windows.push(NamedWindow {
+                name,
+                settings: parse_window_settings(item)?,
+            });
+            continue;
+        }
         ensure_leaf(item)?;
         let Some((name, value)) = item.text.split_once(char::is_whitespace) else {
             return Err(error(
@@ -1732,6 +1747,11 @@ fn parse_widget_operation(source: &str, line: &Line) -> Result<Statement, Error>
 fn parse_window_operation(source: &str, line: &Line) -> Result<Statement, Error> {
     let (source, route) = split_top_marker(source, "->")
         .map_or((source, None), |(source, route)| (source, Some(route)));
+    let (source, target) = split_top_marker(source, " target=")
+        .map_or((source, None), |(source, target)| {
+            (source, Some(parse_expr(target.trim(), line)))
+        });
+    let target = target.transpose()?;
     let parts = split_words(source);
     let expr = |index: usize| {
         parse_expr(
@@ -1753,6 +1773,12 @@ fn parse_window_operation(source: &str, line: &Line) -> Result<Statement, Error>
         )),
     };
     let operation = match parts.first().map(String::as_str) {
+        Some("open") if parts.len() == 1 => WindowOperation::Open(None),
+        Some("open") if parts.len() == 2 => {
+            WindowOperation::Open(Some(identifier(&parts[1], line)?))
+        }
+        Some("oldest") if parts.len() == 1 => WindowOperation::Oldest,
+        Some("latest") if parts.len() == 1 => WindowOperation::Latest,
         Some("close") if parts.len() == 1 => WindowOperation::Close,
         Some("drag") if parts.len() == 1 => WindowOperation::Drag,
         Some("drag-resize") if parts.len() == 2 => {
@@ -1835,6 +1861,7 @@ fn parse_window_operation(source: &str, line: &Line) -> Result<Statement, Error>
     };
     Ok(Statement::WindowOperation {
         operation,
+        target,
         route: route
             .map(|route| parse_route(route.trim(), line))
             .transpose()?,
@@ -7463,6 +7490,7 @@ fn parse_type(source: &str, line: &Line) -> Result<Type, Error> {
         "markdown" => Type::Markdown,
         "editor" => Type::Editor,
         "instant" => Type::Instant,
+        "window-id" => Type::WindowId,
         "task-handle" => Type::TaskHandle,
         "unit" => Type::Unit,
         value if value.chars().next().is_some_and(char::is_uppercase) => {
@@ -8477,7 +8505,10 @@ view
     max-size 1920 1080
     position centered
     level always-on-top
-    visible true"#,
+    visible true
+  window child
+    size 640 480
+    position centered"#,
         );
         let document = parse(&source).unwrap();
         assert_eq!(document.settings.title.as_deref(), Some("Configured"));
@@ -8497,6 +8528,20 @@ view
             (icon.path.as_str(), icon.width, icon.height, icon.byte_len),
             ("assets/app.rgba", 2, 1, 8)
         );
+        assert_eq!(document.settings.windows.len(), 1);
+        assert_eq!(document.settings.windows[0].name, "child");
+        assert_eq!(
+            document.settings.windows[0].settings.size,
+            Some((640.0, 480.0))
+        );
+
+        let duplicate_window = source.replace(
+            "  window child\n    size 640 480\n    position centered",
+            "  window child\n    size 640 480\n    position centered\n  window child\n    size 320 240",
+        );
+        let error = parse(&duplicate_window).unwrap_err();
+        assert_eq!(error.code, "E014");
+        assert!(error.message.contains("duplicate app window"));
 
         let error = parse(&source.replace("min-size 480 360", "min-size 2000 360")).unwrap_err();
         assert_eq!(error.code, "E015");

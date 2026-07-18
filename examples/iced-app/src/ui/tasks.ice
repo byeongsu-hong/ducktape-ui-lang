@@ -11,6 +11,10 @@ app Tasks
     size 960 720
     min-size 480 360
     position centered
+  window child
+    size 640 480
+    min-size 320 240
+    position centered
 
 use "backend.ice"
 use "theme.ice"
@@ -43,6 +47,11 @@ view
             disabled checked background=surface foreground=muted text=muted
             disabled unchecked background=background foreground=muted text=muted
           button "About" style=text -> open_about
+          button "New window" style=secondary -> open_child
+          text "Child:" @text-sm text-muted
+          text child_width @text-sm text-muted
+          text "×" @text-sm text-muted
+          text child_height @text-sm text-muted
 
         row @w-full items-center gap-3
           input "New task" <-> draft hint="What needs doing?" disabled=loading submit=submit @w-full px-4 py-3 bg-surface border border-border rounded-lg

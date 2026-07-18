@@ -354,7 +354,7 @@ fn main() -> iced::Result {
 
 #[cfg(test)]
 mod application {
-    use super::Tasks;
+    use super::{__TasksMessage, Tasks};
 
     #[test]
     fn constructs_structured_boot_preset() {
@@ -366,6 +366,23 @@ mod application {
         assert_eq!(app.draft, "Preset task");
         assert!(app.loading);
         assert_eq!(task.units(), 1);
+    }
+
+    #[test]
+    fn opens_and_targets_a_named_window() {
+        let (mut app, _) = Tasks::__boot();
+        assert_eq!(app.__update(__TasksMessage::OpenChild).units(), 1);
+
+        let id = iced::window::Id::unique();
+        assert_eq!(app.__update(__TasksMessage::ChildOpened(id)).units(), 1);
+        assert_eq!(app.child_window, Some(id));
+
+        assert_eq!(
+            app.__update(__TasksMessage::ChildSized(640.0, 480.0))
+                .units(),
+            0
+        );
+        assert_eq!((app.child_width, app.child_height), (640.0, 480.0));
     }
 }
 

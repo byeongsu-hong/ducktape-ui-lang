@@ -91,7 +91,7 @@ cell subtrees, an automatically bound syntax-highlighted text editor, and
 structured keyboard press/release/modifier subscriptions.
 It also exercises native system information/theme tasks and theme-change
 subscriptions, standard/primary clipboard reads and writes, and every checked
-main-window effect/query task. Compile fixtures cover every native window,
+window effect/query task. Compile fixtures cover every native window,
 mouse, touch, input-method, and timer subscription without adding continuous
 event loops to the demo, plus structured parallel and sequential native task
 composition, abortable task handles, typed native task streams, synchronous
@@ -130,7 +130,7 @@ cargo fmt --all
 
 ## Status
 
-This is an executable v0.96 language slice, not yet a complete iced replacement.
+This is an executable v0.97 language slice, not yet a complete iced replacement.
 It implements typed extern data/actions, state, handlers, async tasks, pure
 components with named props, default children, named structural slots, and
 React-like qualified compound children, scoped IDs, relative
@@ -142,7 +142,8 @@ direct typed keyboard, mouse, touch, input-method, complete typed time, event
 status filtering, raw runtime-event filters, native stream/custom-recipe
 subscriptions and context/filter transforms, structured parallel/sequential
 tasks, structured boot presets, checked application executors and codec-free
-RGBA window icons, system and clipboard operations, native task cancellation,
+RGBA window icons, named multi-window settings, typed window IDs and directly
+targeted window tasks, system and clipboard operations, native task cancellation,
 typed repeated task streams, typed progress-and-completion sippers,
 output-dependent typed task flows, and iced code generation, including native
 `done`/`none` sources, `map-error`, and fallible `collect`, plus checked startup
@@ -159,7 +160,8 @@ share named iced cache groups while retaining checked dependency invalidation.
 Their typed local state and structured event directives cover every iced event
 family plus publish/capture, immediate or scheduled redraw, and state-dependent
 cursor interaction.
-The main window also has checked runtime effect and query tasks.
+Windows also have checked runtime open, selection, targeted effect, and query
+tasks.
 Native containers expose their complete concrete layout and surface style APIs,
 including linear backgrounds, per-corner borders, shadows, and pixel snapping.
 Tooltip, progress, and stateful slider surfaces accept checked linear backgrounds.

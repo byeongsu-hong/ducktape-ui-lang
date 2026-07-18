@@ -1,4 +1,4 @@
-# Ice Language Specification 0.96
+# Ice Language Specification 0.97
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.96 syntax.
+marked “planned” is a design constraint, not accepted 0.97 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.96.
+  block comments are not part of 0.97.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -137,7 +137,7 @@ app_setting    = "title" string | "id" string | "font" string
                | ("default-text-size" | "scale-factor") number
                | ("antialiasing" | "vsync") bool
                | window_decl
-window_decl    = "window" INDENT window_setting*
+window_decl    = "window" name? INDENT window_setting*
 window_setting = ("size" | "min-size" | "max-size") number number
                | "icon-rgba" string u32 u32
                | "position" ("default" | "centered" | number number)
@@ -155,7 +155,8 @@ struct_sig     = PascalName "(" field_list? ")"
 field_list     = field ("," field)*
 field          = name ":" type
 type           = "bool" | "i64" | "f64" | "str" | "bytes" | "image"
-               | "markdown" | "editor" | "instant" | "task-handle" | "unit"
+               | "markdown" | "editor" | "instant" | "window-id"
+               | "task-handle" | "unit"
                | PascalName
                | "[" type "]" | type "?" | "result[" type "," type "]"
                | "combo[" type "]"
@@ -224,7 +225,7 @@ statement      = name "=" expr
                | "task font load" expr "->" route
                | "task widget" widget_operation ("->" route)?
                | "pane" "#" name pane_operation ("->" route)?
-               | "task window" window_operation ("->" route)?
+               | window_task
 task_group     = ("parallel" | "sequential") INDENT task_member+
 abortable_task = "abortable" name ("abort-on-drop")? INDENT task_member
 sip_task       = "sip" call INDENT sip_route+
@@ -258,7 +259,7 @@ native_task    = "task time now" "->" route
                | "task font load" expr "->" route
                | "task widget" widget_operation ("->" route)?
                | "pane" "#" name pane_operation ("->" route)?
-               | "task window" window_operation ("->" route)?
+               | window_task
 widget_operation = "focus-previous" | "focus-next"
                  | ("focus" | "focused" | "cursor-front" | "cursor-end"
                    | "select-all" | "snap-end") id
@@ -273,7 +274,9 @@ pane_operation = "maximize" name | "restore" | "maximized"
                | "split" name name ("horizontal" | "vertical")
                  ("ratio=" expr)?
 pane_edge      = "top" | "left" | "right" | "bottom"
-window_operation = "close" | "drag" | "toggle-maximize" | "toggle-decorations"
+window_task    = "task window" window_operation ("target=" expr)? ("->" route)?
+window_operation = "open" name? | "oldest" | "latest"
+                 | "close" | "drag" | "toggle-maximize" | "toggle-decorations"
                  | "focus" | "system-menu"
                  | "drag-resize" direction
                  | ("resize" | "move") expr expr
@@ -828,6 +831,10 @@ app Tasks
     max-size 1920 1080
     position centered
     level normal
+  window child
+    size 640 480
+    min-size 320 240
+    position centered
 ```
 
 The application values lower to iced `Settings` and builder configuration.
@@ -838,7 +845,10 @@ Each `font` path is relative to the root `.ice` file, must name an existing
 file during `cargo ice check`, and lowers to iced's startup
 `.font(include_bytes!(...))` builder. Repeating the same path is rejected;
 different files may be loaded in declaration order.
-The window block covers every cross-platform `window::Settings` field:
+The unnamed `window` block configures the initial window. A named block such
+as `window child` declares a checked settings template that `task window open`
+can instantiate; names must be unique. Both forms cover every cross-platform
+`window::Settings` field:
 initial/minimum/maximum size, maximized/fullscreen state,
 default/centered/fixed position, visibility, resizability, close/minimize
 buttons, decorations, transparency, blur, level, and close-request behavior.
@@ -848,7 +858,7 @@ codec; width and height are positive integers, and generated Rust rejects a
 byte length other than `width × height × 4`. `cargo ice check` reports a
 mismatch at the icon declaration, and generated Rust repeats the check at
 compile time. Encoded icon formats and platform-specific settings are not part
-of 0.96.
+of 0.97.
 
 Application boot presets are structured top-level declarations:
 
@@ -1259,6 +1269,7 @@ button "Add" disabled=(loading || empty(trim(draft))) -> submit
 | `result[T,E]` | `Result<T, E>` |
 | `combo[T]` | `iced::widget::combo_box::State<T>` |
 | `instant` | `iced::time::Instant` |
+| `window-id` | `iced::window::Id` |
 | `markdown` | `iced::widget::markdown::Content` |
 | `editor` | `iced::widget::text_editor::Content` |
 | `task-handle` | `iced::task::Handle` |
@@ -1287,7 +1298,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.96 message payloads.
+`Clone` for 0.97 message payloads.
 
 Declared `sync` functions are checked, synchronous Rust calls available in
 Ice expressions. They are the small escape hatch for pure domain conversions
@@ -2294,7 +2305,7 @@ snap/end; and absolute scroll-to/scroll-by. Effects have no route and
 non-negative `i64`; relative offsets are `f64` in `0.0..=1.0`; absolute
 offsets are unrestricted `f64`. Targets must be real static IDs in the app
 scope. Repeated/component scopes and the feature-gated selector API remain
-outside 0.96.
+outside 0.97.
 
 Persistent pane grids expose their native layout-state operations directly in
 handlers:
@@ -2320,29 +2331,43 @@ accepts a checked `f64` in `0.0..=1.0`. `drop` accepts `center` or an edge
 region. `split` opens a declared closed pane beside an open target with the
 requested axis and ratio; asking to open an already-open pane is a no-op.
 
-Main-window tasks resolve iced's oldest (initial) window ID without leaking its
-Rust type:
+Window tasks can open named templates and retain iced's typed window ID in
+ordinary Ice state:
 
 ```ice
-task window resize 960.0 720.0
-task window size -> window_size _ _
-task window maximized -> maximized_changed _
-task window position -> window_position _ _
-task window set-mode fullscreen
-task window attention informational
-task window monitor-size -> monitor_size _ _
+state
+  child:window-id? = none
+
+on open_child
+  task window open child -> child_opened _
+
+on child_opened(id)
+  child = some(id)
+  task window size target=id -> window_size _ _
+
+on find_oldest
+  task window oldest -> oldest_found _
+
+on find_latest
+  task window latest -> latest_found _
 ```
 
-Effects have no route and queries require one. `size` emits two `f64` values;
-`maximized` emits `bool`; `minimized` emits `bool?`; `position` and
+`open` emits `window-id`; `oldest` and `latest` emit `window-id?`. They require
+routes and do not accept `target=`. All per-window effects and queries accept an
+optional `target=window-id`; without it they retain the convenient behavior of
+resolving iced's oldest initial window. Automatic tabbing is application-wide
+and does not accept a target.
+
+Other effects have no route and queries require one. `size` emits two `f64`
+values; `maximized` emits `bool`; `minimized` emits `bool?`; `position` and
 `monitor-size` each emit two `f64?` values; `scale-factor` emits `f64`; and
 `mode` emits `str`. Ice covers close, drag and all resize directions, resize
 and constraints, resizability, maximize/minimize state, position and movement,
 all modes, decorations, user attention, focus, level, system menu, mouse
-passthrough, monitor size, and automatic tabbing. Positive sizes and bool
-arguments are checked before Rust generation. New-window IDs, open/oldest/latest,
-runtime icon changes, raw handles, screenshots, and callbacks remain outside
-0.96.
+passthrough, monitor size, and automatic tabbing. Positive sizes, bool
+arguments, and target IDs are checked before Rust generation. Runtime icon
+changes, raw handles, screenshots, callbacks, and platform settings remain
+outside 0.97.
 
 Every iced window event has a direct subscription form:
 
@@ -2359,9 +2384,9 @@ subscribe
 `opened` emits optional x/y followed by width/height; moved and resized emit
 two `f64` values; rescaled emits `f64`; file paths emit `str`; and frame,
 closed, close-request, focused, unfocused, and files-hovered-left have no
-payload. Routes accept only the exact number of `_` payloads. These sources
-cover the current single-window model; window IDs become part of the payload
-when multi-window support is added.
+payload. Routes accept only the exact number of `_` payloads. These sources are
+application-wide and currently omit the originating window ID. Use a typed raw
+event filter when that identity is required.
 
 Every iced mouse event also has a direct subscription form:
 
@@ -2495,7 +2520,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 0.96 does not claim that remapping.
+extern line; 0.97 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -2516,10 +2541,10 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 0.96 native backend is enough for CRUD/settings-style screens, selection,
+The 0.97 native backend is enough for CRUD/settings-style screens, selection,
 media, hover overlays, declarative canvas geometry, and common pointer events,
 not all of iced. It still lacks direct syntax for arbitrary custom overlays,
-multiple windows, and custom widgets. [`COVERAGE.md`](COVERAGE.md) is
+window-specific event IDs, and custom widgets. [`COVERAGE.md`](COVERAGE.md) is
 the exact versioned ledger.
 
 The language must not grow one ad-hoc syntax form for every iced API. The next
