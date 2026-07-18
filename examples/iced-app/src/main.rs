@@ -209,6 +209,19 @@ mod backend {
     }
 
     #[cfg(test)]
+    pub fn task_checkbox(
+        theme: &iced::Theme,
+        status: iced::widget::checkbox::Status,
+        busy: bool,
+    ) -> iced::widget::checkbox::Style {
+        if busy {
+            iced::widget::checkbox::secondary(theme, status)
+        } else {
+            iced::widget::checkbox::primary(theme, status)
+        }
+    }
+
+    #[cfg(test)]
     impl<'a> iced::widget::markdown::Viewer<'a, String> for DocsViewer {
         fn on_link_click(url: iced::widget::markdown::Uri) -> String {
             url

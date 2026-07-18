@@ -1336,6 +1336,11 @@ fn infer_view(
                 )?;
             }
             check_bool_control_options(options, env, document, span)?;
+            if let Some(style) = &style.custom {
+                let function =
+                    extern_function(document, &style.function, ExternKind::CheckboxStyle, span)?;
+                check_call_args(function, &style.args, env, document, span)?;
+            }
             check_checkbox_styles(style, env, document, span)?;
             infer_route(route, Some(Type::Bool), env, document, signatures)?;
             check_styles(styles, document, span, StyleTarget::Checkbox)?;
@@ -5524,6 +5529,7 @@ fn extern_function<'a>(
                 ExternKind::MarkdownViewer => "markdown viewer",
                 ExternKind::ProgressStyle => "progress style",
                 ExternKind::ButtonStyle => "button style",
+                ExternKind::CheckboxStyle => "checkbox style",
             };
             Error::new("E130", span, format!("unknown extern {label} `{name}`"))
         })
@@ -8511,6 +8517,8 @@ view
     #[test]
     fn checks_complete_boolean_control_styles_and_typography() {
         let source = r#"app Preferences
+extern crate::backend
+  checkbox-style dynamic_checkbox(disabled:bool)
 theme
   background #000000
   foreground #ffffff
@@ -8522,7 +8530,7 @@ on changed(next)
   enabled = next
 view
   col
-    checkbox "Checkbox" checked=enabled style=success size=20.0 width=fill spacing=8.0 text-size=14.0 line-height=1.2 shaping=advanced wrapping=word-or-glyph font=mono icon="✓" icon-size=12.0 icon-line-height=1.0 icon-shaping=basic -> changed _
+    checkbox "Checkbox" checked=enabled style=dynamic_checkbox(enabled) size=20.0 width=fill spacing=8.0 text-size=14.0 line-height=1.2 shaping=advanced wrapping=word-or-glyph font=mono icon="✓" icon-size=12.0 icon-line-height=1.0 icon-shaping=basic -> changed _
       active checked background=linear(1.57, primary@0.0, background@1.0) icon=foreground text=foreground border=primary border-width=1.0 radius=4.0 radius-tl=2.0 radius-tr=3.0 radius-br=5.0 radius-bl=6.0
       active unchecked background=background icon=primary text=foreground border=foreground
       hovered checked background=primary icon=foreground text=foreground border=primary
@@ -8549,9 +8557,20 @@ view
         assert_eq!(error.code, "E128");
         assert!(error.message.contains("checkbox style metric"));
 
-        let error = analyze(&source.replace("style=success", "style=warning")).unwrap_err();
+        let error = analyze(&source.replace("style=dynamic_checkbox(enabled)", "style=warning"))
+            .unwrap_err();
         assert_eq!(error.code, "E067");
         assert!(error.message.contains("checkbox style must be"));
+
+        let error =
+            analyze(&source.replace("dynamic_checkbox(enabled)", "missing_checkbox(enabled)"))
+                .unwrap_err();
+        assert_eq!(error.code, "E130");
+        assert!(error.message.contains("checkbox style"));
+
+        let error = analyze(&source.replace("dynamic_checkbox(enabled)", "dynamic_checkbox(1.0)"))
+            .unwrap_err();
+        assert_eq!(error.code, "E101");
 
         let error = analyze(&source.replace(
             "      active unchecked background=background",

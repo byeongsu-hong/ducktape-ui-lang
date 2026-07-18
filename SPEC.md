@@ -1,4 +1,4 @@
-# Ice Language Specification 1.04
+# Ice Language Specification 1.05
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 1.04 syntax.
+marked “planned” is a design constraint, not accepted 1.05 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 1.04.
+  block comments are not part of 1.05.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -195,6 +195,8 @@ extern_progress_style_sig
                = "progress-style" name "(" field_list? ")"
 extern_button_style_sig
                = "button-style" name "(" field_list? ")"
+extern_checkbox_style_sig
+               = "checkbox-style" name "(" field_list? ")"
 
 theme_decl     = "theme" INDENT color_entry+
 color_entry    = name color
@@ -933,7 +935,7 @@ maximum size. `icon-rgba` embeds a relative raw RGBA file without an image
 codec; width and height are positive integers, and generated Rust rejects a
 byte length other than `width × height × 4`. `cargo ice check` reports a
 mismatch at the icon declaration, and generated Rust repeats the check at
-compile time. Encoded icon formats remain outside 1.04.
+compile time. Encoded icon formats remain outside 1.05.
 
 Application boot presets are structured top-level declarations:
 
@@ -1084,6 +1086,11 @@ checkbox "Complete" checked=done style=success -> changed _
   disabled checked background=surface icon=muted text=muted border=border
   disabled unchecked background=background icon=muted text=muted border=border
 ```
+
+`style=task_checkbox(loading)` may instead call a declared `checkbox-style`.
+Its Rust function receives `&iced::Theme`, the current `checkbox::Status`, then
+its declared owned arguments and returns `checkbox::Style`. Status lines still
+override the returned base style.
 
 Each line starts from the selected preset for that exact status and overrides
 any listed solid/linear background, icon/text color, or border color, width, and
@@ -1404,7 +1411,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 1.04 message payloads.
+`Clone` for 1.05 message payloads.
 
 Declared `sync` functions are checked, synchronous Rust calls available in
 Ice expressions. They are the small escape hatch for pure domain conversions
@@ -1422,7 +1429,7 @@ This declaration requires
 actual Rust signature. A sync function cannot declare `! Error` because it
 returns its value directly.
 
-Fourteen typed iced adapters expose framework capabilities without embedding Rust
+Fifteen typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
 
 ```ice
@@ -1438,6 +1445,7 @@ extern crate::backend
   markdown-viewer docs_viewer(prefix:str) -> str
   progress-style loading_progress(active:bool)
   button-style action_button(busy:bool)
+  checkbox-style task_checkbox(busy:bool)
 ```
 
 Their Rust signatures are:
@@ -1454,6 +1462,7 @@ fn app_events() -> iced::Subscription<bool>;
 fn docs_viewer(prefix: String) -> impl for<'a> iced::widget::markdown::Viewer<'a, String>;
 fn loading_progress(theme: &iced::Theme, active: bool) -> iced::widget::progress_bar::Style;
 fn action_button(theme: &iced::Theme, status: iced::widget::button::Status, busy: bool) -> iced::widget::button::Style;
+fn task_checkbox(theme: &iced::Theme, status: iced::widget::checkbox::Status, busy: bool) -> iced::widget::checkbox::Style;
 ```
 
 An extern component receives owned props and returns a default-renderer
@@ -1481,7 +1490,7 @@ paragraphs, code blocks, lists, quotes, rules, and tables. `progress-style`
 receives the current Theme implicitly and returns one native progress Style;
 generated code uses it directly as the widget's runtime style callback.
 `button-style` also receives the current button Status and returns its native
-Style.
+Style. `checkbox-style` does the same for the current checkbox Status.
 
 Generated probes type-check every declaration
 against the actual Rust item. Extern component, shader, recipe, event-filter,
@@ -2428,7 +2437,7 @@ snap/end; and absolute scroll-to/scroll-by. Effects have no route and
 non-negative `i64`; relative offsets are `f64` in `0.0..=1.0`; absolute
 offsets are unrestricted `f64`. Targets must be real static IDs in the app
 scope. Repeated/component scopes and the feature-gated selector API remain
-outside 1.04.
+outside 1.05.
 
 Persistent pane grids expose their native layout-state operations directly in
 handlers:
@@ -2682,7 +2691,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 1.04 does not claim that remapping.
+extern line; 1.05 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -2703,17 +2712,16 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 1.04 native backend is enough for CRUD/settings-style screens, selection,
+The 1.05 native backend is enough for CRUD/settings-style screens, selection,
 media, hover overlays, declarative canvas geometry, and common pointer events,
 not all of iced. It still lacks direct syntax for arbitrary custom overlays,
 and custom widgets. [`COVERAGE.md`](COVERAGE.md) is the exact versioned ledger.
 
-The language must not grow one ad-hoc syntax form for every iced API. Eleven typed
-Rust boundaries cover async functions, components, shaders, tasks, streams,
-sippers, recipes, raw event filters, synchronous conversions, subscriptions,
-and native window callbacks without admitting arbitrary Rust into expressions
-or duplicating iced in the core grammar. Direct native syntax remains
-preferable for common UI concepts.
+The language must not grow one ad-hoc syntax form for every iced API. Fifteen
+typed Rust boundaries cover domain work, native elements and programs, runtime
+tasks and subscriptions, Markdown viewers, and native style callbacks without
+admitting arbitrary Rust into expressions or duplicating iced in the core
+grammar. Direct native syntax remains preferable for common UI concepts.
 
 Native language coverage and system coverage are therefore separate:
 
