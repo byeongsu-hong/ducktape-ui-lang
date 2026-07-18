@@ -114,6 +114,8 @@ Key files:
   native scroll delta variants, coordinates, and Rust extern passage;
 - [`window_values.ice`](examples/iced-app/src/ui/window_values.ice) preserves
   native direction, level, mode, and user-attention enums;
+- [`window_position.ice`](examples/iced-app/src/ui/window_position.ice)
+  preserves every native position variant, including callback positioning;
 - [`transformation_values.ice`](examples/iced-app/src/ui/transformation_values.ice)
   composes and applies native iced geometry transformations;
 - [`geometry_values.ice`](examples/iced-app/src/ui/geometry_values.ice)
@@ -167,7 +169,8 @@ Key files:
   [`font_values.rs`](examples/iced-app/src/font_values.rs) and
   [`mouse_interaction.rs`](examples/iced-app/src/mouse_interaction.rs), plus
   [`scroll_delta.rs`](examples/iced-app/src/scroll_delta.rs) and
-  [`window_values.rs`](examples/iced-app/src/window_values.rs), instead of
+  [`window_values.rs`](examples/iced-app/src/window_values.rs), plus
+  [`window_position.rs`](examples/iced-app/src/window_position.rs), instead of
   growing a monolithic entry point;
 - [`SPEC.md`](SPEC.md) defines the implemented language.
 
@@ -195,7 +198,7 @@ cargo fmt --all
 
 ## Status
 
-This is an executable v1.51 language slice, not yet a complete iced replacement.
+This is an executable v1.52 language slice, not yet a complete iced replacement.
 It implements typed extern data/actions, state, handlers, async tasks, pure
 components with named props, default children, named structural slots, and
 React-like qualified compound children, scoped IDs, relative

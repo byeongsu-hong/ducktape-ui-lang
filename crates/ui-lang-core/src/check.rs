@@ -3857,6 +3857,7 @@ fn lazy_hashable(ty: &Type) -> bool {
         | Type::MouseCursor
         | Type::MouseClick
         | Type::SystemInfo
+        | Type::WindowPosition
         | Type::WindowDirection
         | Type::WindowLevel
         | Type::WindowMode
@@ -7684,6 +7685,14 @@ pub(crate) fn expr_type(
                 check_builtin_args(name, args, &[], env, document, span)?;
                 Ok(Type::WindowAttention)
             }
+            "window_position.default" | "window_position.centered" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::WindowPosition)
+            }
+            "window_position.specific" => {
+                check_builtin_args(name, args, &[Type::Point], env, document, span)?;
+                Ok(Type::WindowPosition)
+            }
             "length.fill" | "length.shrink" => {
                 check_builtin_args(name, args, &[], env, document, span)?;
                 Ok(Type::Length)
@@ -9036,9 +9045,13 @@ pub(crate) fn expr_type(
                             "mouse-click values are opaque; compare their kind or position",
                         ));
                     }
-                    if matches!(left, Type::WindowDirection | Type::WindowAttention)
-                        || matches!(right, Type::WindowDirection | Type::WindowAttention)
-                    {
+                    if matches!(
+                        left,
+                        Type::WindowPosition | Type::WindowDirection | Type::WindowAttention
+                    ) || matches!(
+                        right,
+                        Type::WindowPosition | Type::WindowDirection | Type::WindowAttention
+                    ) {
                         return Err(Error::new(
                             "E153",
                             span,
@@ -9269,6 +9282,11 @@ fn field_type(ty: &Type, field: &str, document: &Document, span: &Span) -> Resul
         Type::ScrollDelta => match field {
             "kind" => Some(Type::Str),
             "x" | "y" => Some(Type::F64),
+            _ => None,
+        },
+        Type::WindowPosition => match field {
+            "kind" => Some(Type::Str),
+            "point" => Some(Type::Option(Box::new(Type::Point))),
             _ => None,
         },
         Type::WindowDirection | Type::WindowLevel | Type::WindowMode | Type::WindowAttention => {
@@ -9849,6 +9867,37 @@ mod tests {
         let error = analyze(&source.replace(
             "    button \"Inspect\" -> inspect",
             "    lazy returned_mode as cached\n      text cached.kind",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E139");
+        assert!(error.message.contains("does not implement stable hashing"));
+    }
+
+    #[test]
+    fn checks_native_window_position_and_callback_boundary() {
+        let source = include_str!("../../../examples/iced-app/src/ui/window_position.ice");
+        analyze(source).unwrap();
+
+        let error = analyze(&source.replace(
+            "window_position.specific(point(24.0, -12.0))",
+            "window_position.specific(true)",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E101");
+        assert!(error.message.contains("expected `point`"));
+
+        let error = analyze(&source.replace(
+            "default_kind = default_position.kind",
+            "default_kind = returned == specific_position",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E153");
+        assert!(error.message.contains("window-position"));
+        assert!(error.message.contains("do not support comparisons"));
+
+        let error = analyze(&source.replace(
+            "    button \"Inspect\" -> inspect",
+            "    lazy responsive as cached\n      text cached.kind",
         ))
         .unwrap_err();
         assert_eq!(error.code, "E139");

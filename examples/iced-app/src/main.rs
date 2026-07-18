@@ -23,6 +23,8 @@ mod scroll_delta;
 #[cfg(test)]
 mod shadow;
 #[cfg(test)]
+mod window_position;
+#[cfg(test)]
 mod window_values;
 
 mod backend {
@@ -165,6 +167,9 @@ mod backend {
     pub use crate::window_values::{
         attention_round_trip, direction_round_trip, level_round_trip, mode_round_trip,
     };
+
+    #[cfg(test)]
+    pub use crate::window_position::{position_round_trip, responsive_position};
 
     #[cfg(test)]
     pub fn elastic(value: f64) -> f64 {
