@@ -3191,18 +3191,28 @@ fn generate_statements(
                     }
                     WindowOperation::Screenshot => {
                         let route = route.as_ref().expect("checker requires window route");
-                        let message_code = ordered_route_code(
-                            route,
-                            &[
-                                "value.rgba.to_vec()",
-                                "value.size.width as i64",
-                                "value.size.height as i64",
-                                "value.scale_factor as f64",
-                            ],
-                            env,
-                            document,
-                            message,
-                        )?;
+                        let message_code = if route
+                            .args
+                            .iter()
+                            .filter(|arg| matches!(arg, RouteArg::Payload))
+                            .count()
+                            == 1
+                        {
+                            route_code(route, "value", env, document, message)?
+                        } else {
+                            ordered_route_code(
+                                route,
+                                &[
+                                    "value.rgba.to_vec()",
+                                    "value.size.width as i64",
+                                    "value.size.height as i64",
+                                    "value.scale_factor as f64",
+                                ],
+                                env,
+                                document,
+                                message,
+                            )?
+                        };
                         format!("::iced::window::screenshot({id}).map(move |value| {message_code})")
                     }
                     WindowOperation::MousePassthrough(enabled) => {
@@ -8093,6 +8103,14 @@ fn native_field_projection(ty: &Type, field: &str, code: &str) -> Option<(String
             Type::Option(Box::new(Type::Instant)),
         ),
         (Type::WindowId, "display") => (format!("({code}).to_string()"), Type::Str),
+        (Type::WindowScreenshot, "rgba") => (format!("({code}).rgba.to_vec()"), Type::Bytes),
+        (Type::WindowScreenshot, "size") => (format!("({code}).size"), Type::SizeU32),
+        (Type::WindowScreenshot, "scale_factor") => {
+            (format!("({code}).scale_factor as f64"), Type::F64)
+        }
+        (Type::WindowScreenshot, "debug") => {
+            (format!("::std::format!(\"{{:?}}\", &({code}))"), Type::Str)
+        }
         (Type::WindowPosition, "kind") => (
             format!(
                 "match ({code}) {{ ::iced::window::Position::Default => \"default\", ::iced::window::Position::Centered => \"centered\", ::iced::window::Position::Specific(_) => \"specific\", ::iced::window::Position::SpecificWith(_) => \"specific-with\" }}.to_owned()"
@@ -8674,6 +8692,35 @@ fn expr_code(
                 "({}).to_absolute({})",
                 expr_code(&args[0], env, document, ValueMode::Owned)?,
                 expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "screenshot.new" => format!(
+                "::iced::window::Screenshot::new({}, {}, ({}) as f32)",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?,
+                expr_code(&args[2], env, document, ValueMode::Owned)?
+            ),
+            "screenshot.crop" => format!(
+                "(&({})).crop({}).ok()",
+                expr_code(&args[0], env, document, ValueMode::Borrowed)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "screenshot.crop_error" => format!(
+                "match (&({})).crop({}) {{ ::std::result::Result::Ok(_) => ::std::option::Option::None, ::std::result::Result::Err(::iced::window::screenshot::CropError::Zero) => ::std::option::Option::Some(\"zero\".to_owned()), ::std::result::Result::Err(::iced::window::screenshot::CropError::OutOfBounds) => ::std::option::Option::Some(\"out-of-bounds\".to_owned()) }}",
+                expr_code(&args[0], env, document, ValueMode::Borrowed)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "screenshot.crop_error_message" => format!(
+                "(&({})).crop({}).err().map(|error| error.to_string())",
+                expr_code(&args[0], env, document, ValueMode::Borrowed)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "screenshot.as_bytes" => format!(
+                "::std::convert::AsRef::<[u8]>::as_ref(&({})).to_vec()",
+                expr_code(&args[0], env, document, ValueMode::Borrowed)?
+            ),
+            "screenshot.into_bytes" => format!(
+                "({}).rgba.to_vec()",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
             ),
             "interaction.default" => "::iced::mouse::Interaction::default()".into(),
             "interaction.none"
@@ -13270,6 +13317,30 @@ mod tests {
             "crate::backend::window_id_round_trip(self.first)",
             "(self.first).to_string()",
             "::iced::widget::lazy((self.first,",
+        ] {
+            assert!(generated.contains(expected), "missing {expected}");
+        }
+    }
+
+    #[test]
+    fn lowers_every_native_window_screenshot_operation() {
+        let source = include_str!("../../../examples/iced-app/src/ui/window_screenshot.ice");
+        let generated = compile(source, "window_screenshot.ice").unwrap();
+        for expected in [
+            "::iced::window::Screenshot::new(",
+            "crate::backend::screenshot_round_trip(self.sample.clone())",
+            "(&(self.sample)).crop(crate::backend::screenshot_crop_region()).ok()",
+            "::iced::window::screenshot(__window).map(move |value| __NativeWindowScreenshotMessage::NativeCaptured(value))",
+            "__NativeWindowScreenshotMessage::RgbaCaptured(value.rgba.to_vec(), value.size.width as i64, value.size.height as i64, value.scale_factor as f64)",
+            "::iced::window::screenshot::CropError::Zero",
+            "::iced::window::screenshot::CropError::OutOfBounds",
+            ".err().map(|error| error.to_string())",
+            "::std::convert::AsRef::<[u8]>::as_ref(&(self.returned)).to_vec()",
+            "(self.returned.clone()).rgba.to_vec()",
+            "(self.returned).rgba.to_vec()",
+            "(self.returned).size",
+            "(self.returned).scale_factor as f64",
+            "::std::format!(\"{:?}\", &(self.returned))",
         ] {
             assert!(generated.contains(expected), "missing {expected}");
         }
