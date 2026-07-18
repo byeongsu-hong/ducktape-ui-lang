@@ -63,8 +63,18 @@ pub fn check(document: &mut Document) -> Result<(), Error> {
         .collect();
 
     let mut ids = HashSet::new();
-    infer_view(&document.view, &states, document, &mut signatures, &mut ids)?;
-    let pane_grids = static_pane_grids(&document.view, &states, document)?;
+    let mut view_states = states.clone();
+    if document.daemon {
+        view_states.insert("window".into(), Type::WindowId);
+    }
+    infer_view(
+        &document.view,
+        &view_states,
+        document,
+        &mut signatures,
+        &mut ids,
+    )?;
+    let pane_grids = static_pane_grids(&document.view, &view_states, document)?;
     for component in &document.components {
         if let Some(span) = pane_grid_span(&component.root) {
             return Err(Error::new(
@@ -77,7 +87,7 @@ pub fn check(document: &mut Document) -> Result<(), Error> {
         let mut ids = HashSet::new();
         infer_view(&component.root, &env, document, &mut signatures, &mut ids)?;
     }
-    let operation_ids = widget_operation_ids(&document.view, &states, document)?;
+    let operation_ids = widget_operation_ids(&document.view, &view_states, document)?;
     controlled_state_bindings(document, false)?;
     controlled_state_bindings(document, true)?;
     infer_subscriptions(document, &states, &mut signatures)?;
@@ -109,16 +119,23 @@ pub fn check(document: &mut Document) -> Result<(), Error> {
 }
 
 fn check_app_settings(document: &Document, states: &HashMap<String, Type>) -> Result<(), Error> {
-    for setting in [
-        &document.settings.title,
-        &document.settings.background,
-        &document.settings.text_color,
-    ]
-    .into_iter()
-    .flatten()
+    let mut callback_states = states.clone();
+    if document.daemon {
+        callback_states.insert("window".into(), Type::WindowId);
+    }
+    for setting in [&document.settings.background, &document.settings.text_color]
+        .into_iter()
+        .flatten()
     {
         require_type(
             &expr_type(&setting.value, states, document, &setting.span)?,
+            &Type::Str,
+            &setting.span,
+        )?;
+    }
+    if let Some(setting) = &document.settings.title {
+        require_type(
+            &expr_type(&setting.value, &callback_states, document, &setting.span)?,
             &Type::Str,
             &setting.span,
         )?;
@@ -130,10 +147,10 @@ fn check_app_settings(document: &Document, states: &HashMap<String, Type>) -> Re
                 .iter()
                 .find(|function| function.name == *name && function.kind == ExternKind::Theme)
         {
-            check_call_args(factory, args, states, document, &setting.span)?;
+            check_call_args(factory, args, &callback_states, document, &setting.span)?;
         } else {
             require_type(
-                &expr_type(&setting.value, states, document, &setting.span)?,
+                &expr_type(&setting.value, &callback_states, document, &setting.span)?,
                 &Type::Str,
                 &setting.span,
             )?;
@@ -141,7 +158,7 @@ fn check_app_settings(document: &Document, states: &HashMap<String, Type>) -> Re
     }
     if let Some(setting) = &document.settings.scale_factor {
         require_type(
-            &expr_type(&setting.value, states, document, &setting.span)?,
+            &expr_type(&setting.value, &callback_states, document, &setting.span)?,
             &Type::F64,
             &setting.span,
         )?;
@@ -967,6 +984,12 @@ fn check_unique(document: &Document) -> Result<(), Error> {
         }
     }
     for state in &document.states {
+        if document.daemon && state.name == "window" {
+            return Err(
+                Error::new("E100", &state.span, "daemon state cannot be named `window`")
+                    .hint("`window` is the current window-id inside daemon views and callbacks"),
+            );
+        }
         if !fields.insert(&state.name) {
             return Err(Error::new(
                 "E100",
@@ -5900,6 +5923,15 @@ fn check_handler(
                     span,
                 )?;
             }
+            Statement::Exit { span } => {
+                if index + 1 != handler.statements.len() {
+                    return Err(Error::new(
+                        "E141",
+                        span,
+                        "exit must be the final statement in a handler",
+                    ));
+                }
+            }
             Statement::Run {
                 kind,
                 function,
@@ -6416,7 +6448,8 @@ fn check_structured_tasks(handler: &Handler) -> Result<(), Error> {
 
 fn invalid_task_producer(statement: &Statement) -> Option<&Span> {
     match statement {
-        Statement::Run { .. }
+        Statement::Exit { .. }
+        | Statement::Run { .. }
         | Statement::Sip { .. }
         | Statement::TaskFlow { .. }
         | Statement::ClipboardWrite { .. }
@@ -6461,6 +6494,7 @@ fn statement_span(statement: &Statement) -> &Span {
         | Statement::MarkdownAppend { span, .. }
         | Statement::ComboPush { span, .. }
         | Statement::ReturnIf { span, .. }
+        | Statement::Exit { span }
         | Statement::Run { span, .. }
         | Statement::Sip { span, .. }
         | Statement::TaskFlow { span, .. }
@@ -8395,6 +8429,62 @@ fn type_error(span: &Span, expected: &Type, actual: &Type) -> Error {
 #[cfg(test)]
 mod tests {
     use crate::{PaneConfiguration, Type, ViewNode, analyze};
+
+    #[test]
+    fn checks_exit_is_a_final_native_task() {
+        let source = r#"daemon Agent
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+on quit
+  exit
+  ready = true
+state
+  ready = false
+view
+  button "Quit" -> quit
+"#;
+        let error = analyze(source).unwrap_err();
+        assert_eq!(error.code, "E141");
+        assert!(error.message.contains("exit must be the final statement"));
+
+        analyze(&source.replace("  exit\n  ready = true", "  exit")).unwrap();
+    }
+
+    #[test]
+    fn exposes_the_current_window_only_to_daemon_views_and_callbacks() {
+        let source = r#"daemon Agent
+  title label(window)
+  scale-factor scale(window)
+extern crate::backend
+  sync label(id:window-id) -> str
+  sync scale(id:window-id) -> f64
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+component WindowBody(id:window-id)
+  text "Window"
+view
+  WindowBody id=window
+"#;
+        analyze(source).unwrap();
+
+        let error = analyze(&source.replace(
+            "component WindowBody(id:window-id)",
+            "state\n  window:window-id? = none\ncomponent WindowBody(id:window-id)",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E100");
+        assert!(error.message.contains("cannot be named `window`"));
+
+        let error = analyze(&source.replace("daemon Agent", "app Agent")).unwrap_err();
+        assert_eq!(error.code, "E150");
+        assert!(error.message.contains("unknown value `window`"));
+    }
 
     #[test]
     fn checks_native_timer_subscription() {

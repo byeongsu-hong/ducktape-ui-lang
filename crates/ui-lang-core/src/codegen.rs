@@ -163,7 +163,11 @@ pub fn generate(document: &Document, source_path: &str) -> Result<String, Error>
         .map_or("", |_| ".title(Self::__title)");
     let settings = app_settings_code(&document.settings);
     let fonts = font_assets_code(&document.settings, source_path);
-    let window = window_settings_code(document.settings.window.as_ref(), source_path);
+    let window = if document.daemon {
+        String::new()
+    } else {
+        window_settings_code(document.settings.window.as_ref(), source_path)
+    };
     let executor = document
         .settings
         .executor
@@ -197,7 +201,12 @@ pub fn generate(document: &Document, source_path: &str) -> Result<String, Error>
     } else {
         ""
     };
-    writeln!(out, "::iced::application(Self::__boot, Self::__update, Self::__view){title}{subscription}.theme(Self::__theme){style}{settings}{default_font}{fonts}{window}{scale_factor}{executor}{presets}.run()").unwrap();
+    let root = if document.daemon {
+        "::iced::daemon(Self::__boot, Self::__update, Self::__view)"
+    } else {
+        "::iced::application(Self::__boot, Self::__update, Self::__view)"
+    };
+    writeln!(out, "{root}{title}{subscription}.theme(Self::__theme){style}{settings}{default_font}{fonts}{window}{scale_factor}{executor}{presets}.run()").unwrap();
     writeln!(out, "}}").unwrap();
 
     generate_theme(&mut out, document)?;
@@ -1311,7 +1320,23 @@ fn generate_editor_binding_mapper(out: &mut String, document: &Document) {
 }
 
 fn generate_theme(out: &mut String, document: &Document) -> Result<(), Error> {
-    let env = state_env(document, "self");
+    let state_env = state_env(document, "self");
+    let mut callback_env = state_env.clone();
+    if document.daemon {
+        callback_env.insert(
+            "window".into(),
+            Binding {
+                code: "window".into(),
+                ty: Type::WindowId,
+                local: true,
+            },
+        );
+    }
+    let callback_arg = if document.daemon {
+        ", window: ::iced::window::Id"
+    } else {
+        ""
+    };
     let color = |name: &str, fallback: &str| {
         color_code(
             document
@@ -1336,7 +1361,7 @@ fn generate_theme(out: &mut String, document: &Document) -> Result<(), Error> {
     writeln!(out, "warning: {},", color("danger", "#c3423f")).unwrap();
     writeln!(out, "danger: {},", color("danger", "#c3423f")).unwrap();
     writeln!(out, "}})\n}}").unwrap();
-    writeln!(out, "fn __theme(&self) -> ::iced::Theme {{").unwrap();
+    writeln!(out, "fn __theme(&self{callback_arg}) -> ::iced::Theme {{").unwrap();
     if let Some(setting) = &document.settings.theme {
         if let Expr::Call { name, args } = &setting.value
             && document
@@ -1344,9 +1369,14 @@ fn generate_theme(out: &mut String, document: &Document) -> Result<(), Error> {
                 .iter()
                 .any(|function| function.name == *name && function.kind == ExternKind::Theme)
         {
-            writeln!(out, "{}", theme_factory_code(name, args, &env, document)?).unwrap();
+            writeln!(
+                out,
+                "{}",
+                theme_factory_code(name, args, &callback_env, document)?
+            )
+            .unwrap();
         } else {
-            let value = expr_code(&setting.value, &env, document, ValueMode::Owned)?;
+            let value = expr_code(&setting.value, &callback_env, document, ValueMode::Owned)?;
             writeln!(out, "match ({value}).as_str() {{").unwrap();
             writeln!(out, "\"app\" => Self::__app_theme(),").unwrap();
             writeln!(out, "\"default\" => <::iced::Theme as ::iced::theme::Base>::default(::iced::theme::Mode::None),").unwrap();
@@ -1360,10 +1390,10 @@ fn generate_theme(out: &mut String, document: &Document) -> Result<(), Error> {
     }
     writeln!(out, "}}").unwrap();
     if let Some(setting) = &document.settings.title {
-        let value = expr_code(&setting.value, &env, document, ValueMode::Owned)?;
+        let value = expr_code(&setting.value, &callback_env, document, ValueMode::Owned)?;
         writeln!(
             out,
-            "fn __title(&self) -> ::std::string::String {{ {value} }}"
+            "fn __title(&self{callback_arg}) -> ::std::string::String {{ {value} }}"
         )
         .unwrap();
     }
@@ -1374,17 +1404,17 @@ fn generate_theme(out: &mut String, document: &Document) -> Result<(), Error> {
             (&document.settings.text_color, "text_color"),
         ] {
             if let Some(setting) = setting {
-                let value = expr_code(&setting.value, &env, document, ValueMode::Owned)?;
+                let value = expr_code(&setting.value, &state_env, document, ValueMode::Owned)?;
                 writeln!(out, "__style.{field} = ({value}).parse::<::iced::Color>().unwrap_or(__style.{field});").unwrap();
             }
         }
         writeln!(out, "__style }}").unwrap();
     }
     if let Some(setting) = &document.settings.scale_factor {
-        let value = expr_code(&setting.value, &env, document, ValueMode::Owned)?;
+        let value = expr_code(&setting.value, &callback_env, document, ValueMode::Owned)?;
         writeln!(
             out,
-            "fn __scale_factor(&self) -> f32 {{ (({value}) as f32).max(f32::EPSILON) }}"
+            "fn __scale_factor(&self{callback_arg}) -> f32 {{ (({value}) as f32).max(f32::EPSILON) }}"
         )
         .unwrap();
     }
@@ -2078,7 +2108,17 @@ fn event_status_filter(filter: &str, status: Option<EventStatus>) -> (String, &'
 }
 
 fn generate_view(out: &mut String, document: &Document, message: &str) -> Result<(), Error> {
-    let env = state_env(document, "self");
+    let mut env = state_env(document, "self");
+    if document.daemon {
+        env.insert(
+            "window".into(),
+            Binding {
+                code: "window".into(),
+                ty: Type::WindowId,
+                local: true,
+            },
+        );
+    }
     let root = render_node(
         &document.view,
         document,
@@ -2087,9 +2127,14 @@ fn generate_view(out: &mut String, document: &Document, message: &str) -> Result
         &rust_string(&document.app),
         None,
     )?;
+    let window_arg = if document.daemon {
+        ", window: ::iced::window::Id"
+    } else {
+        ""
+    };
     writeln!(
         out,
-        "fn __view(&self) -> __IceElement<'_, {message}> {{ {root} }}"
+        "fn __view(&self{window_arg}) -> __IceElement<'_, {message}> {{ {root} }}"
     )
     .unwrap();
     Ok(())
@@ -2296,6 +2341,16 @@ fn generate_statements(
             Statement::ReturnIf { condition, .. } => {
                 let code = expr_code(condition, env, document, ValueMode::Owned)?;
                 writeln!(out, "if {code} {{ return ::iced::Task::none(); }}").unwrap();
+            }
+            Statement::Exit { .. } => {
+                has_task = true;
+                writeln!(
+                    out,
+                    "{}::iced::exit::<{message}>(){}",
+                    if return_task { "return " } else { "" },
+                    if return_task { ";" } else { "" }
+                )
+                .unwrap();
             }
             Statement::Run {
                 kind,
@@ -11584,6 +11639,56 @@ fn pascal(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use crate::compile;
+
+    #[test]
+    fn lowers_windowless_daemon_and_exit() {
+        let source = r#"daemon Agent
+  title label(window)
+  theme "dark"
+  scale-factor scale(window)
+  window dashboard
+    size 800 600
+extern crate::backend
+  sync label(id:window-id) -> str
+  sync scale(id:window-id) -> f64
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+on opened(id)
+on open
+  task window open dashboard -> opened _
+on quit
+  exit
+component AgentWindow(id:window-id)
+  col
+    text label(id)
+    button "Open" -> open
+    button "Quit" -> quit
+view
+  AgentWindow id=window
+"#;
+        let generated = compile(source, "agent.ice").unwrap();
+        assert!(generated.contains("::iced::daemon(Self::__boot, Self::__update, Self::__view)"));
+        assert!(generated.contains(".title(Self::__title)"));
+        assert!(generated.contains(".theme(Self::__theme)"));
+        assert!(generated.contains(".scale_factor(Self::__scale_factor)"));
+        assert!(
+            generated
+                .contains("fn __title(&self, window: ::iced::window::Id) -> ::std::string::String")
+        );
+        assert!(
+            generated.contains("fn __theme(&self, window: ::iced::window::Id) -> ::iced::Theme")
+        );
+        assert!(generated.contains("fn __scale_factor(&self, window: ::iced::window::Id) -> f32"));
+        assert!(generated.contains("fn __view(&self, window: ::iced::window::Id) -> __IceElement"));
+        assert!(generated.contains("crate::backend::label(window)"));
+        assert!(generated.contains("crate::backend::scale(window)"));
+        assert!(generated.contains("return ::iced::exit::<__AgentMessage>();"));
+        assert!(!generated.contains("::iced::application("));
+        assert!(!generated.contains(".window("));
+    }
 
     #[test]
     fn lowers_complete_common_application_and_window_settings() {

@@ -1,4 +1,4 @@
-# Ice Language Specification 1.35
+# Ice Language Specification 1.36
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 1.35 syntax.
+marked “planned” is a design constraint, not accepted 1.36 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 1.35.
+  block comments are not part of 1.36.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -96,7 +96,7 @@ an extern declaration is not reached at runtime.
 Top-level declarations are order-independent, but canonical source uses:
 
 ```text
-app
+app | daemon
 use
 extern
 theme
@@ -109,8 +109,8 @@ subscribe
 view
 ```
 
-An app source graph has exactly one `app` and one `view`, with at most one
-`extern` namespace. The root file declares the app and normally the view;
+An Ice source graph has exactly one `app` or `daemon` root and one `view`, with
+at most one `extern` namespace. The root file declares it and normally the view;
 imported fragments may hold any other top-level declarations. The graph may
 have multiple components and handlers. The view and each component have exactly
 one root node.
@@ -122,16 +122,16 @@ defined in section 6.
 
 ```text
 source_graph   = root_file imported_file*
-root_file      = (app_decl | use_decl | declaration)*
+root_file      = (root_decl | use_decl | declaration)*
 imported_file  = (use_decl | declaration)*
 use_decl       = "use" string
 declaration    = extern_decl | theme_decl | font_decl | qr_decl | state_decl
                | preset_decl | component_decl | handler_decl | subscribe_decl
                | view_decl
-document       = app_decl extern_decl? theme_decl qr_decl* state_decl? preset_decl*
+document       = root_decl extern_decl? theme_decl qr_decl* state_decl? preset_decl*
                  component_decl* handler_decl* subscribe_decl? view_decl
 
-app_decl       = "app" PascalName (INDENT app_setting*)?
+root_decl      = ("app" | "daemon") PascalName (INDENT app_setting*)?
 app_setting    = "title" expr | "theme" expr
                | ("background" | "text-color") expr
                | "id" string | "font" string
@@ -289,6 +289,7 @@ statement      = name "=" expr
                | "markdown" name "append" expr
                | "combo" name "push" expr
                | "return if" expr
+               | "exit"
                | task_group
                | abortable_task
                | "abort" name
@@ -326,6 +327,7 @@ flow_item      = "map" name "->" expr
                | "collect" | "discard"
                | ("done" | "error" | "units") "->" route
 task_member    = task_group | abortable_task
+               | "exit"
                | "run" call "->" route ("|" route)?
                | "task" call "->" route ("|" route)?
                | "stream" call "->" route ("|" route)?
@@ -1018,7 +1020,31 @@ maximum size. `icon-rgba` embeds a relative raw RGBA file without an image
 codec; width and height are positive integers, and generated Rust rejects a
 byte length other than `width × height × 4`. `cargo ice check` reports a
 mismatch at the icon declaration, and generated Rust repeats the check at
-compile time. Encoded icon formats remain outside 1.35.
+compile time. Encoded icon formats remain outside 1.36.
+
+Use `daemon Name` instead of `app Name` for an iced daemon that starts without
+an initial window and remains alive after all windows close. A daemon rejects
+the unnamed `window` block; declare named window templates and open them from
+`on mount` or another handler. The read-only `window:window-id` binding names
+the window currently being rendered and is available to the root view, title,
+theme, and scale-factor expressions. Pure components receive it explicitly as
+a typed prop. Standalone `exit` is a native `iced::exit()` task and must be the
+final statement in a handler (or a task-group member):
+
+```ice
+daemon BackgroundAgent
+  title daemon_title(window)
+  window dashboard
+
+on mount
+  task window open dashboard -> opened _
+
+on quit
+  exit
+
+view
+  AgentWindow id=window
+```
 
 Application boot presets are structured top-level declarations:
 
@@ -1569,7 +1595,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 1.35 message payloads.
+`Clone` for 1.36 message payloads.
 
 Declared `sync` functions are checked, synchronous Rust calls available in
 Ice expressions. They are the small escape hatch for pure domain conversions
@@ -3347,7 +3373,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 1.35 does not claim that remapping.
+extern line; 1.36 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -3363,16 +3389,17 @@ extern line; 1.35 does not claim that remapping.
 | `cargo ice expand FILE` | prints generated Rust for debugging |
 
 `cargo-ice` discovers `.ice` files recursively below the current directory,
-skips `.git` and `target`, analyzes files with a top-level `app` as roots, and
+skips `.git` and `target`, analyzes files with a top-level `app` or `daemon` as roots, and
 formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 1.35 native backend is enough for CRUD/settings-style screens, selection,
-media, hover overlays, declarative canvas geometry, and common pointer events,
-not all of iced. Borrowed custom widgets and an application-wide renderer type
-are supported; a windowless `iced::Daemon` root is the next uncovered runtime
-surface. [`COVERAGE.md`](COVERAGE.md) is the exact versioned ledger.
+The 1.36 native backend covers both windowed applications and windowless
+daemons alongside CRUD/settings-style screens, selection, media, hover
+overlays, declarative canvas geometry, and pointer events. Borrowed custom
+widgets and an application-wide renderer type remain the escape hatch for
+specialized native behavior. [`COVERAGE.md`](COVERAGE.md) is the exact
+versioned ledger.
 
 The language must not grow one ad-hoc syntax form for every iced API. Thirty-three
 typed Rust boundaries cover domain work, native elements and programs, runtime

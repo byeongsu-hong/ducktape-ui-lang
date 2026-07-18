@@ -150,7 +150,7 @@ cargo fmt --all
 
 ## Status
 
-This is an executable v1.35 language slice, not yet a complete iced replacement.
+This is an executable v1.36 language slice, not yet a complete iced replacement.
 It implements typed extern data/actions, state, handlers, async tasks, pure
 components with named props, default children, named structural slots, and
 React-like qualified compound children, scoped IDs, relative
@@ -163,7 +163,8 @@ geometry primitives, and transformation values and constructors, mouse, touch, i
 complete typed time, event status filtering, raw runtime-event filters, native stream/custom-recipe
 subscriptions and context/filter transforms, structured parallel/sequential
 tasks, structured boot presets, state-driven application title, theme, base
-style, and scale callbacks, checked application executors and codec-free
+style, and scale callbacks, native windowless `daemon` roots and explicit
+`exit`, checked application executors and codec-free
 RGBA window icons, typed native `iced::Theme` factories with complete custom
 extended-palette logic, typed alternate-Theme subtrees through native Themer,
 named multi-window settings, typed window IDs, identified

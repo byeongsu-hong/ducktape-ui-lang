@@ -22,6 +22,21 @@ mod backend {
     pub type AppRenderer = iced::Renderer;
 
     #[cfg(test)]
+    pub fn daemon_title(_: iced::window::Id) -> String {
+        "Background agent".into()
+    }
+
+    #[cfg(test)]
+    pub fn daemon_theme(_: iced::window::Id) -> iced::Theme {
+        iced::Theme::Dark
+    }
+
+    #[cfg(test)]
+    pub fn daemon_scale(_: iced::window::Id) -> f64 {
+        1.0
+    }
+
+    #[cfg(test)]
     pub fn keyboard_value(
         key: iced::keyboard::Key,
         _: iced::keyboard::key::Physical,
@@ -1721,5 +1736,22 @@ mod canvas_events {
     #[test]
     fn initializes() {
         let _ = CanvasEvents::__boot();
+    }
+}
+
+#[cfg(test)]
+mod daemon {
+    ui_lang::include_app!("src/ui/daemon.ice");
+
+    #[test]
+    fn constructs_window_open_and_exit_tasks() {
+        let (mut app, open) = BackgroundAgent::__boot();
+        let window = iced::window::Id::unique();
+        assert_eq!(open.units(), 1);
+        assert_eq!(app.__title(window), "Background agent");
+        assert_eq!(app.__theme(window), iced::Theme::Dark);
+        assert_eq!(app.__scale_factor(window), 1.0);
+        let _ = app.__view(window);
+        assert_eq!(app.__update(__BackgroundAgentMessage::Quit).units(), 1);
     }
 }
