@@ -8032,6 +8032,30 @@ fn native_field_projection(ty: &Type, field: &str, code: &str) -> Option<(String
             ),
             Type::F64,
         ),
+        (Type::WindowDirection, "kind") => (
+            format!(
+                "match ({code}) {{ ::iced::window::Direction::North => \"north\", ::iced::window::Direction::South => \"south\", ::iced::window::Direction::East => \"east\", ::iced::window::Direction::West => \"west\", ::iced::window::Direction::NorthEast => \"north-east\", ::iced::window::Direction::NorthWest => \"north-west\", ::iced::window::Direction::SouthEast => \"south-east\", ::iced::window::Direction::SouthWest => \"south-west\" }}.to_owned()"
+            ),
+            Type::Str,
+        ),
+        (Type::WindowLevel, "kind") => (
+            format!(
+                "match ({code}) {{ ::iced::window::Level::Normal => \"normal\", ::iced::window::Level::AlwaysOnBottom => \"always-on-bottom\", ::iced::window::Level::AlwaysOnTop => \"always-on-top\" }}.to_owned()"
+            ),
+            Type::Str,
+        ),
+        (Type::WindowMode, "kind") => (
+            format!(
+                "match ({code}) {{ ::iced::window::Mode::Windowed => \"windowed\", ::iced::window::Mode::Fullscreen => \"fullscreen\", ::iced::window::Mode::Hidden => \"hidden\" }}.to_owned()"
+            ),
+            Type::Str,
+        ),
+        (Type::WindowAttention, "kind") => (
+            format!(
+                "match ({code}) {{ ::iced::window::UserAttention::Critical => \"critical\", ::iced::window::UserAttention::Informational => \"informational\" }}.to_owned()"
+            ),
+            Type::Str,
+        ),
         (Type::Length, "fill_factor") => (format!("({code}).fill_factor() as i64"), Type::I64),
         (Type::Length, "is_fill") => (format!("({code}).is_fill()"), Type::Bool),
         (Type::Length, "kind") => (
@@ -8266,6 +8290,10 @@ fn expr_code(
                     | Type::MouseCursor
                     | Type::MouseClick
                     | Type::TouchFinger
+                    | Type::WindowDirection
+                    | Type::WindowLevel
+                    | Type::WindowMode
+                    | Type::WindowAttention
                     | Type::Unit
             )
                 || (binding.local && path.len() == 1)
@@ -8541,6 +8569,46 @@ fn expr_code(
                 },
                 expr_code(&args[0], env, document, ValueMode::Owned)?,
                 expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "window_direction.north"
+            | "window_direction.south"
+            | "window_direction.east"
+            | "window_direction.west"
+            | "window_direction.north_east"
+            | "window_direction.north_west"
+            | "window_direction.south_east"
+            | "window_direction.south_west" => format!(
+                "::iced::window::Direction::{}",
+                pascal(
+                    name.strip_prefix("window_direction.")
+                        .expect("checked prefix")
+                )
+            ),
+            "window_level.default" => "::iced::window::Level::default()".into(),
+            "window_level.normal"
+            | "window_level.always_on_bottom"
+            | "window_level.always_on_top" => format!(
+                "::iced::window::Level::{}",
+                pascal(
+                    name.strip_prefix("window_level.")
+                        .expect("checked prefix")
+                )
+            ),
+            "window_mode.windowed" | "window_mode.fullscreen" | "window_mode.hidden" => {
+                format!(
+                    "::iced::window::Mode::{}",
+                    pascal(
+                        name.strip_prefix("window_mode.")
+                            .expect("checked prefix")
+                    )
+                )
+            }
+            "window_attention.critical" | "window_attention.informational" => format!(
+                "::iced::window::UserAttention::{}",
+                pascal(
+                    name.strip_prefix("window_attention.")
+                        .expect("checked prefix")
+                )
             ),
             "length.fill" => "::iced::Length::Fill".into(),
             "length.shrink" => "::iced::Length::Shrink".into(),
@@ -12873,6 +12941,41 @@ mod tests {
             "::iced::mouse::ScrollDelta::Pixels { .. } => \"pixels\"",
             "::iced::mouse::ScrollDelta::Lines { x, .. } | ::iced::mouse::ScrollDelta::Pixels { x, .. } => x as f64",
             "::iced::mouse::ScrollDelta::Lines { y, .. } | ::iced::mouse::ScrollDelta::Pixels { y, .. } => y as f64",
+        ] {
+            assert!(generated.contains(expected), "missing {expected}");
+        }
+    }
+
+    #[test]
+    fn lowers_every_native_window_value() {
+        let source = include_str!("../../../examples/iced-app/src/ui/window_values.ice");
+        let generated = compile(source, "window_values.ice").unwrap();
+        for expected in [
+            "::iced::window::Direction::North",
+            "::iced::window::Direction::South",
+            "::iced::window::Direction::East",
+            "::iced::window::Direction::West",
+            "::iced::window::Direction::NorthEast",
+            "::iced::window::Direction::NorthWest",
+            "::iced::window::Direction::SouthEast",
+            "::iced::window::Direction::SouthWest",
+            "::iced::window::Level::default()",
+            "::iced::window::Level::Normal",
+            "::iced::window::Level::AlwaysOnBottom",
+            "::iced::window::Level::AlwaysOnTop",
+            "::iced::window::Mode::Windowed",
+            "::iced::window::Mode::Fullscreen",
+            "::iced::window::Mode::Hidden",
+            "::iced::window::UserAttention::Critical",
+            "::iced::window::UserAttention::Informational",
+            "crate::backend::direction_round_trip(::iced::window::Direction::SouthWest)",
+            "crate::backend::level_round_trip(::iced::window::Level::AlwaysOnTop)",
+            "crate::backend::mode_round_trip(::iced::window::Mode::Fullscreen)",
+            "crate::backend::attention_round_trip(::iced::window::UserAttention::Informational)",
+            "::iced::window::Direction::SouthWest => \"south-west\"",
+            "::iced::window::Level::AlwaysOnTop => \"always-on-top\"",
+            "::iced::window::Mode::Fullscreen => \"fullscreen\"",
+            "::iced::window::UserAttention::Informational => \"informational\"",
         ] {
             assert!(generated.contains(expected), "missing {expected}");
         }

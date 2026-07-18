@@ -8669,6 +8669,10 @@ fn parse_type(source: &str, line: &Line) -> Result<Type, Error> {
         "touch-finger" => Type::TouchFinger,
         "instant" => Type::Instant,
         "window-id" => Type::WindowId,
+        "window-direction" => Type::WindowDirection,
+        "window-level" => Type::WindowLevel,
+        "window-mode" => Type::WindowMode,
+        "window-attention" => Type::WindowAttention,
         "widget-id" => Type::WidgetId,
         "widget-target" => Type::WidgetTarget,
         "task-handle" => Type::TaskHandle,
@@ -9373,6 +9377,33 @@ mod tests {
         assert!(matches!(
             &document.handlers[0].statements[0],
             Statement::Assign { value: Expr::Call { name, .. }, .. } if name == "scroll.lines"
+        ));
+    }
+
+    #[test]
+    fn parses_first_class_native_window_values() {
+        let source = include_str!("../../../examples/iced-app/src/ui/window_values.ice");
+        let document = parse(source).unwrap();
+        for (function, expected) in document.functions.iter().zip([
+            Type::WindowDirection,
+            Type::WindowLevel,
+            Type::WindowMode,
+            Type::WindowAttention,
+        ]) {
+            assert_eq!(function.params[0].1, expected);
+            assert_eq!(function.output, expected);
+        }
+        assert_eq!(
+            document.states[0].ty,
+            Type::List(Box::new(Type::WindowDirection))
+        );
+        assert_eq!(document.states[7].ty, Type::WindowDirection);
+        assert!(matches!(
+            &document.handlers[0].statements[0],
+            Statement::Assign {
+                value: Expr::List(_),
+                ..
+            }
         ));
     }
 
