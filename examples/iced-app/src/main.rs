@@ -19,6 +19,8 @@ mod mouse_interaction;
 #[cfg(test)]
 mod rotation;
 #[cfg(test)]
+mod scroll_delta;
+#[cfg(test)]
 mod shadow;
 
 mod backend {
@@ -150,6 +152,9 @@ mod backend {
 
     #[cfg(test)]
     pub use crate::rotation::rotation_round_trip;
+
+    #[cfg(test)]
+    pub use crate::scroll_delta::scroll_delta_round_trip;
 
     #[cfg(test)]
     pub use crate::shadow::shadow_round_trip;

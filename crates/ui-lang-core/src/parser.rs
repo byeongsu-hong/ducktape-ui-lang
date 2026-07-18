@@ -8662,6 +8662,7 @@ fn parse_type(source: &str, line: &Line) -> Result<Type, Error> {
         "rectangle-u32" => Type::RectangleU32,
         "transformation" => Type::Transformation,
         "mouse-interaction" => Type::MouseInteraction,
+        "scroll-delta" => Type::ScrollDelta,
         "mouse-button" => Type::MouseButton,
         "mouse-cursor" => Type::MouseCursor,
         "mouse-click" => Type::MouseClick,
@@ -9359,6 +9360,19 @@ mod tests {
         assert!(matches!(
             &document.handlers[0].statements[0],
             Statement::Assign { value: Expr::Call { name, .. }, .. } if name == "interaction.default"
+        ));
+    }
+
+    #[test]
+    fn parses_first_class_native_scroll_delta() {
+        let source = include_str!("../../../examples/iced-app/src/ui/scroll_delta.ice");
+        let document = parse(source).unwrap();
+        assert_eq!(document.functions[0].params[0].1, Type::ScrollDelta);
+        assert_eq!(document.functions[0].output, Type::ScrollDelta);
+        assert_eq!(document.states[0].ty, Type::ScrollDelta);
+        assert!(matches!(
+            &document.handlers[0].statements[0],
+            Statement::Assign { value: Expr::Call { name, .. }, .. } if name == "scroll.lines"
         ));
     }
 

@@ -110,6 +110,8 @@ Key files:
   native pointer values through state, events, and Rust externs;
 - [`mouse_interaction.ice`](examples/iced-app/src/ui/mouse_interaction.ice)
   preserves every native mouse interaction and passes typed values to widgets;
+- [`scroll_delta.ice`](examples/iced-app/src/ui/scroll_delta.ice) preserves both
+  native scroll delta variants, coordinates, and Rust extern passage;
 - [`transformation_values.ice`](examples/iced-app/src/ui/transformation_values.ice)
   composes and applies native iced geometry transformations;
 - [`geometry_values.ice`](examples/iced-app/src/ui/geometry_values.ice)
@@ -161,8 +163,9 @@ Key files:
   [`border_radius.rs`](examples/iced-app/src/border_radius.rs) and
   [`background_gradient.rs`](examples/iced-app/src/background_gradient.rs), or
   [`font_values.rs`](examples/iced-app/src/font_values.rs) and
-  [`mouse_interaction.rs`](examples/iced-app/src/mouse_interaction.rs), instead
-  of growing a monolithic entry point;
+  [`mouse_interaction.rs`](examples/iced-app/src/mouse_interaction.rs), plus
+  [`scroll_delta.rs`](examples/iced-app/src/scroll_delta.rs), instead of growing
+  a monolithic entry point;
 - [`SPEC.md`](SPEC.md) defines the implemented language.
 
 ## Tooling
@@ -189,7 +192,7 @@ cargo fmt --all
 
 ## Status
 
-This is an executable v1.49 language slice, not yet a complete iced replacement.
+This is an executable v1.50 language slice, not yet a complete iced replacement.
 It implements typed extern data/actions, state, handlers, async tasks, pure
 components with named props, default children, named structural slots, and
 React-like qualified compound children, scoped IDs, relative
