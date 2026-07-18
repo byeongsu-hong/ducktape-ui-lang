@@ -15,7 +15,7 @@ counts toward the row below.
 
 ## Typed system reachability
 
-Ice 1.09 has nineteen checked Rust boundaries:
+Ice 1.10 has nineteen checked Rust boundaries:
 
 | Boundary | Rust ABI | Covers |
 | --- | --- | --- |
@@ -84,7 +84,7 @@ public behavior has direct documented Ice syntax and tests.
 | `text_input` | partial | native binding, ID, every concrete builder setter, complete custom icon, and every concrete Style field across active/hovered/focused/focused-hovered/disabled statuses; advanced classes remain |
 | `themer` | partial | native default/app/all 22 built-in themes, checked default text color and solid/linear background; arbitrary alternate Theme types missing |
 | `toggler` | native | native label/value/disabled event, size/width/spacing, text typography/wrapping/alignment and complete font descriptors; every concrete Style field across active/hovered/disabled checked and unchecked statuses, plus typed theme/status-aware runtime callbacks covering the default Theme's advanced classes |
-| `tooltip` | partial | native two-child content, all positions, gap, padding, viewport snap, delay, nine container presets, checked solid/linear background, text, border/per-corner radius, shadow and pixel snap; arbitrary runtime closures and advanced classes missing |
+| `tooltip` | native | native two-child content, all positions, gap, padding, viewport snap, delay, nine container presets, every concrete container Style field, and checked `container-style` callbacks covering the default Theme's advanced classes |
 
 ## Application and runtime
 

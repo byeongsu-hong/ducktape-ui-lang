@@ -7937,6 +7937,7 @@ fn append_tooltip_style(
         || options.radius_bottom_right.is_some()
         || options.radius_bottom_left.is_some();
     if options.style.is_none()
+        && options.custom_style.is_none()
         && options.background.is_none()
         && options.text_color.is_none()
         && options.border_color.is_none()
@@ -7950,22 +7951,44 @@ fn append_tooltip_style(
     {
         return Ok(());
     }
-    let preset = match options.style.unwrap_or(TooltipStyle::Transparent) {
-        TooltipStyle::Transparent => "transparent",
-        TooltipStyle::Rounded => "rounded_box",
-        TooltipStyle::Bordered => "bordered_box",
-        TooltipStyle::Dark => "dark",
-        TooltipStyle::Primary => "primary",
-        TooltipStyle::Secondary => "secondary",
-        TooltipStyle::Success => "success",
-        TooltipStyle::Warning => "warning",
-        TooltipStyle::Danger => "danger",
-    };
-    write!(
-        code,
-        ".style(move |__theme| {{ let mut __style = ::iced::widget::container::{preset}(__theme);"
-    )
-    .unwrap();
+    if let Some(style) = &options.custom_style {
+        let function = document
+            .functions
+            .iter()
+            .find(|item| item.name == style.function && item.kind == ExternKind::ContainerStyle)
+            .expect("checker validates tooltip container style");
+        let args = style
+            .args
+            .iter()
+            .map(|arg| expr_code(arg, env, document, ValueMode::Owned))
+            .collect::<Result<Vec<_>, _>>()?;
+        write!(
+            code,
+            ".style(move |__theme| {{ let mut __style = {}(__theme{});",
+            function.rust_path,
+            args.iter()
+                .map(|arg| format!(", {arg}"))
+                .collect::<String>()
+        )
+        .unwrap();
+    } else {
+        let preset = match options.style.unwrap_or(TooltipStyle::Transparent) {
+            TooltipStyle::Transparent => "transparent",
+            TooltipStyle::Rounded => "rounded_box",
+            TooltipStyle::Bordered => "bordered_box",
+            TooltipStyle::Dark => "dark",
+            TooltipStyle::Primary => "primary",
+            TooltipStyle::Secondary => "secondary",
+            TooltipStyle::Success => "success",
+            TooltipStyle::Warning => "warning",
+            TooltipStyle::Danger => "danger",
+        };
+        write!(
+            code,
+            ".style(move |__theme| {{ let mut __style = ::iced::widget::container::{preset}(__theme);"
+        )
+        .unwrap();
+    }
     if let Some(background) = &options.background {
         write!(
             code,
@@ -12140,6 +12163,7 @@ view
         let source = r#"app Media
 extern crate::backend
   svg-style dynamic_svg(active:bool)
+  container-style dynamic_tooltip(active:bool)
 theme
   background #000000
   foreground #ffffff
@@ -12164,7 +12188,7 @@ view
     svg "icon.svg" width=48.0 height=shrink fit=scale-down rotation=0.1 opacity=0.9 color=foreground hover=primary style=dynamic_svg(active)
     svg "<svg/>" memory width=16.0 color=foreground hover=none
     svg bytes(3c 73 76 67 2f 3e) memory width=16.0
-    tooltip position=cursor gap=2.0 padding=5.0 delay=100 snap=false style=success background=linear(1.57, background@0.0, primary/25@1.0) text=foreground border=primary/75 border-width=1.0 radius=5.0 radius-tl=2.0 shadow=black/50 shadow-x=-1.0 shadow-y=2.0 shadow-blur=8.0 pixel-snap=true
+    tooltip position=cursor gap=2.0 padding=5.0 delay=100 snap=false style=dynamic_tooltip(active) background=linear(1.57, background@0.0, primary/25@1.0) text=foreground border=primary/75 border-width=1.0 radius=5.0 radius-tl=2.0 shadow=black/50 shadow-x=-1.0 shadow-y=2.0 shadow-blur=8.0 pixel-snap=true
       mouse enter=entered exit=exited press=pressed move=moved scroll=scrolled cursor=pointer
         text "Hover"
       text "Tip"
@@ -12203,7 +12227,13 @@ view
         assert!(default_svg.contains("let mut __style = ::iced::widget::svg::Style::default()"));
         assert!(generated.contains("tooltip::Position::FollowCursor"));
         assert!(generated.contains(".delay(::std::time::Duration::from_millis(100 as u64))"));
-        assert!(generated.contains("container::success(__theme)"));
+        assert!(generated.contains("crate::backend::dynamic_tooltip(__theme, self.active)"));
+        let preset_tooltip = compile(
+            &source.replace("style=dynamic_tooltip(active)", "style=success"),
+            "media.ice",
+        )
+        .unwrap();
+        assert!(preset_tooltip.contains("container::success(__theme)"));
         assert!(generated.contains("__style.background = Some("));
         assert!(generated.contains("::iced::gradient::Linear::new(1.57 as f32)"));
         assert!(generated.contains("__style.border.radius"));

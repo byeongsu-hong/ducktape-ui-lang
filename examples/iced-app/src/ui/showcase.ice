@@ -487,7 +487,7 @@ view
           svg "examples/iced-app/assets/ice.svg" width=48.0 height=48.0 fit=contain opacity=0.9 color=foreground hover=primary style=status_svg(loading)
           svg "<svg xmlns='http://www.w3.org/2000/svg' width='1' height='1'><rect width='1' height='1'/></svg>" memory width=16.0 height=16.0 color=foreground hover=primary
           svg bytes(3c 73 76 67 2f 3e) memory width=16.0 height=16.0 color=foreground hover=primary
-          tooltip position=bottom gap=4.0 padding=8.0 delay=100 snap=true style=rounded background=linear(1.57, surface@0.0, background@1.0) text=foreground border=border border-width=1.0 radius=8.0 radius-tl=4.0 shadow=black/50 shadow-x=0.0 shadow-y=4.0 shadow-blur=12.0 pixel-snap=true
+          tooltip position=bottom gap=4.0 padding=8.0 delay=100 snap=true style=summary_container(loading) background=linear(1.57, surface@0.0, background@1.0) text=foreground border=border border-width=1.0 radius=8.0 radius-tl=4.0 shadow=black/50 shadow-x=0.0 shadow-y=4.0 shadow-blur=12.0 pixel-snap=true
             mouse enter=native_enter exit=native_exit press=native_press move=native_move scroll=native_scroll cursor=pointer
               text "Native pointer area" @text-sm text-foreground
             col @p-2 bg-surface rounded-md

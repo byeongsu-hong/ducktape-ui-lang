@@ -4788,6 +4788,7 @@ fn parse_tooltip(parts: &[String], styles: Vec<String>, line: &Line) -> Result<V
         delay_ms: Expr::I64(0),
         snap: Expr::Bool(true),
         style: None,
+        custom_style: None,
         background: None,
         text_color: None,
         border_color: None,
@@ -4828,24 +4829,32 @@ fn parse_tooltip(parts: &[String], styles: Vec<String>, line: &Line) -> Result<V
         } else if let Some(value) = part.strip_prefix("snap=") {
             options.snap = parse_expr(strip_wrapping_parens(value), line)?;
         } else if let Some(value) = part.strip_prefix("style=") {
-            options.style = Some(match value {
-                "transparent" => TooltipStyle::Transparent,
-                "rounded" => TooltipStyle::Rounded,
-                "bordered" => TooltipStyle::Bordered,
-                "dark" => TooltipStyle::Dark,
-                "primary" => TooltipStyle::Primary,
-                "secondary" => TooltipStyle::Secondary,
-                "success" => TooltipStyle::Success,
-                "warning" => TooltipStyle::Warning,
-                "danger" => TooltipStyle::Danger,
+            options.custom_style = None;
+            options.style = match value {
+                "transparent" => Some(TooltipStyle::Transparent),
+                "rounded" => Some(TooltipStyle::Rounded),
+                "bordered" => Some(TooltipStyle::Bordered),
+                "dark" => Some(TooltipStyle::Dark),
+                "primary" => Some(TooltipStyle::Primary),
+                "secondary" => Some(TooltipStyle::Secondary),
+                "success" => Some(TooltipStyle::Success),
+                "warning" => Some(TooltipStyle::Warning),
+                "danger" => Some(TooltipStyle::Danger),
                 _ => {
-                    return Err(error(
-                        "E086",
-                        line,
-                        "tooltip style must be transparent, rounded, bordered, dark, primary, secondary, success, warning, or danger",
-                    ));
+                    let (function, args) = parse_signature(value, line).map_err(|_| {
+                        error(
+                            "E086",
+                            line,
+                            "tooltip style must be a preset or declared container style call",
+                        )
+                    })?;
+                    options.custom_style = Some(ExternCall {
+                        function,
+                        args: parse_expr_list(&args, line)?,
+                    });
+                    None
                 }
-            });
+            };
         } else if let Some(value) = part.strip_prefix("background=") {
             options.background = Some(parse_background_value(value, line)?);
         } else if let Some(value) = part.strip_prefix("text=") {

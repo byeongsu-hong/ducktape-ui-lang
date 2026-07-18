@@ -1740,6 +1740,7 @@ pub struct TooltipOptions {
     pub delay_ms: Expr,
     pub snap: Expr,
     pub style: Option<TooltipStyle>,
+    pub custom_style: Option<ExternCall>,
     pub background: Option<BackgroundValue>,
     pub text_color: Option<String>,
     pub border_color: Option<String>,
