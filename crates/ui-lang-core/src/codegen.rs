@@ -8038,6 +8038,18 @@ fn native_field_projection(ty: &Type, field: &str, code: &str) -> Option<(String
             ),
             Type::Str,
         ),
+        (Type::RedrawRequest, "kind") => (
+            format!(
+                "match ({code}) {{ ::iced::window::RedrawRequest::NextFrame => \"next-frame\", ::iced::window::RedrawRequest::At(_) => \"at\", ::iced::window::RedrawRequest::Wait => \"wait\" }}.to_owned()"
+            ),
+            Type::Str,
+        ),
+        (Type::RedrawRequest, "instant") => (
+            format!(
+                "match ({code}) {{ ::iced::window::RedrawRequest::At(__value) => ::std::option::Option::Some(__value), _ => ::std::option::Option::None }}"
+            ),
+            Type::Option(Box::new(Type::Instant)),
+        ),
         (Type::WindowPosition, "kind") => (
             format!(
                 "match ({code}) {{ ::iced::window::Position::Default => \"default\", ::iced::window::Position::Centered => \"centered\", ::iced::window::Position::Specific(_) => \"specific\", ::iced::window::Position::SpecificWith(_) => \"specific-with\" }}.to_owned()"
@@ -8310,6 +8322,7 @@ fn expr_code(
                     | Type::MouseClick
                     | Type::TouchFinger
                     | Type::WindowPosition
+                    | Type::RedrawRequest
                     | Type::WindowDirection
                     | Type::WindowLevel
                     | Type::WindowMode
@@ -8596,6 +8609,12 @@ fn expr_code(
                 "({}).merge({})",
                 expr_code(&args[0], env, document, ValueMode::Owned)?,
                 expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "redraw_request.next_frame" => "::iced::window::RedrawRequest::NextFrame".into(),
+            "redraw_request.wait" => "::iced::window::RedrawRequest::Wait".into(),
+            "redraw_request.at" => format!(
+                "::iced::window::RedrawRequest::At({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
             ),
             "window_direction.north"
             | "window_direction.south"
@@ -13045,6 +13064,22 @@ mod tests {
             "(self.ignored).merge(self.captured)",
             "::iced::event::Status::Ignored => \"ignored\"",
             "::iced::event::Status::Captured => \"captured\"",
+        ] {
+            assert!(generated.contains(expected), "missing {expected}");
+        }
+    }
+
+    #[test]
+    fn lowers_every_native_redraw_request_operation() {
+        let source = include_str!("../../../examples/iced-app/src/ui/redraw_request.ice");
+        let generated = compile(source, "redraw_request.ice").unwrap();
+        for expected in [
+            "::iced::window::RedrawRequest::NextFrame",
+            "::iced::window::RedrawRequest::At(crate::backend::redraw_now())",
+            "::iced::window::RedrawRequest::Wait",
+            "crate::backend::redraw_round_trip(self.at)",
+            "::iced::window::RedrawRequest::At(_) => \"at\"",
+            "::iced::window::RedrawRequest::At(__value) => ::std::option::Option::Some(__value)",
         ] {
             assert!(generated.contains(expected), "missing {expected}");
         }

@@ -3859,6 +3859,7 @@ fn lazy_hashable(ty: &Type) -> bool {
         | Type::MouseClick
         | Type::SystemInfo
         | Type::WindowPosition
+        | Type::RedrawRequest
         | Type::WindowDirection
         | Type::WindowLevel
         | Type::WindowMode
@@ -7675,6 +7676,14 @@ pub(crate) fn expr_type(
                 )?;
                 Ok(Type::EventStatus)
             }
+            "redraw_request.next_frame" | "redraw_request.wait" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::RedrawRequest)
+            }
+            "redraw_request.at" => {
+                check_builtin_args(name, args, &[Type::Instant], env, document, span)?;
+                Ok(Type::RedrawRequest)
+            }
             "window_direction.north"
             | "window_direction.south"
             | "window_direction.east"
@@ -9305,6 +9314,11 @@ fn field_type(ty: &Type, field: &str, document: &Document, span: &Span) -> Resul
             "kind" => Some(Type::Str),
             _ => None,
         },
+        Type::RedrawRequest => match field {
+            "kind" => Some(Type::Str),
+            "instant" => Some(Type::Option(Box::new(Type::Instant))),
+            _ => None,
+        },
         Type::WindowPosition => match field {
             "kind" => Some(Type::Str),
             "point" => Some(Type::Option(Box::new(Type::Point))),
@@ -9945,6 +9959,26 @@ mod tests {
         .unwrap_err();
         assert_eq!(error.code, "E153");
         assert!(error.message.contains("does not accept `event-status`"));
+
+        let error = analyze(&source.replace(
+            "    button \"Inspect\" -> inspect",
+            "    lazy returned as cached\n      text cached.kind",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E139");
+        assert!(error.message.contains("does not implement stable hashing"));
+    }
+
+    #[test]
+    fn checks_native_redraw_request_values_and_traits() {
+        let source = include_str!("../../../examples/iced-app/src/ui/redraw_request.ice");
+        analyze(source).unwrap();
+
+        let error =
+            analyze(&source.replace("redraw_request.at(redraw_now())", "redraw_request.at(true)"))
+                .unwrap_err();
+        assert_eq!(error.code, "E101");
+        assert!(error.message.contains("expected `instant`"));
 
         let error = analyze(&source.replace(
             "    button \"Inspect\" -> inspect",
