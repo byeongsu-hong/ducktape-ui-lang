@@ -353,6 +353,23 @@ fn main() -> iced::Result {
 }
 
 #[cfg(test)]
+mod application {
+    use super::Tasks;
+
+    #[test]
+    fn constructs_structured_boot_preset() {
+        let (app, task) = Tasks::__preset_0();
+        assert!(!app.loading);
+        assert_eq!(task.units(), 0);
+
+        let (app, task) = Tasks::__preset_1();
+        assert_eq!(app.draft, "Preset task");
+        assert!(app.loading);
+        assert_eq!(task.units(), 1);
+    }
+}
+
+#[cfg(test)]
 mod showcase {
     ui_lang::include_app!("src/ui/showcase.ice");
 
