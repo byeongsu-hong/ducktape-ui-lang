@@ -357,6 +357,36 @@ mod application {
     use super::{__TasksMessage, Tasks};
 
     #[test]
+    fn resolves_application_callbacks_from_state() {
+        let (mut app, _) = Tasks::__boot();
+        assert_eq!(Tasks::__title(&app), "Ice Tasks");
+        assert_eq!(Tasks::__theme(&app), Tasks::__app_theme());
+
+        app.window_title = "Renamed".into();
+        app.app_theme = "dark".into();
+        app.app_background = "#123456".into();
+        app.app_text = "#abcdef".into();
+        app.ui_scale = 1.5;
+        let style = Tasks::__style(&app, &iced::Theme::Dark);
+        assert_eq!(Tasks::__title(&app), "Renamed");
+        assert_eq!(Tasks::__theme(&app), iced::Theme::Dark);
+        assert_eq!(style.background_color, "#123456".parse().unwrap());
+        assert_eq!(style.text_color, "#abcdef".parse().unwrap());
+        assert_eq!(Tasks::__scale_factor(&app), 1.5);
+
+        app.app_theme = "unknown".into();
+        app.app_background = "invalid".into();
+        let base = <iced::Theme as iced::theme::Base>::base(&iced::Theme::Dark);
+        assert_eq!(Tasks::__theme(&app), Tasks::__app_theme());
+        assert_eq!(
+            Tasks::__style(&app, &iced::Theme::Dark).background_color,
+            base.background_color
+        );
+        app.ui_scale = 0.0;
+        assert_eq!(Tasks::__scale_factor(&app), f32::EPSILON);
+    }
+
+    #[test]
     fn constructs_structured_boot_preset() {
         let (app, task) = Tasks::__preset_0();
         assert!(!app.loading);

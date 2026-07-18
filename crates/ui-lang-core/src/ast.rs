@@ -132,16 +132,25 @@ pub struct Preset {
 
 #[derive(Clone, Debug, Default)]
 pub struct AppSettings {
-    pub title: Option<String>,
+    pub title: Option<AppExpression>,
+    pub theme: Option<AppExpression>,
+    pub background: Option<AppExpression>,
+    pub text_color: Option<AppExpression>,
     pub id: Option<String>,
     pub executor: Option<String>,
     pub fonts: Vec<FontAsset>,
     pub default_text_size: Option<f64>,
     pub antialiasing: Option<bool>,
     pub vsync: Option<bool>,
-    pub scale_factor: Option<f64>,
+    pub scale_factor: Option<AppExpression>,
     pub window: Option<WindowSettings>,
     pub windows: Vec<NamedWindow>,
+}
+
+#[derive(Clone, Debug)]
+pub struct AppExpression {
+    pub value: Expr,
+    pub span: Span,
 }
 
 #[derive(Clone, Debug)]
@@ -1077,6 +1086,31 @@ pub enum ThemePreset {
     App,
     BuiltIn(String),
 }
+
+pub(crate) const BUILT_IN_THEMES: &[&str] = &[
+    "light",
+    "dark",
+    "dracula",
+    "nord",
+    "solarized-light",
+    "solarized-dark",
+    "gruvbox-light",
+    "gruvbox-dark",
+    "catppuccin-latte",
+    "catppuccin-frappe",
+    "catppuccin-macchiato",
+    "catppuccin-mocha",
+    "tokyo-night",
+    "tokyo-night-storm",
+    "tokyo-night-light",
+    "kanagawa-wave",
+    "kanagawa-dragon",
+    "kanagawa-lotus",
+    "moonfly",
+    "nightfly",
+    "oxocarbon",
+    "ferra",
+];
 
 #[derive(Clone, Debug)]
 pub enum ResponsiveContent {

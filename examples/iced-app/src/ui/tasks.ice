@@ -1,11 +1,14 @@
 app Tasks
-  title "Ice Tasks"
+  title window_title
+  theme app_theme
+  background app_background
+  text-color app_text
   id "dev.ducktape.ice.tasks"
   executor iced::executor::Default
   default-text-size 16
   antialiasing true
   vsync true
-  scale-factor 1
+  scale-factor ui_scale
   window
     icon-rgba "../../assets/app.rgba" 2 1
     size 960 720

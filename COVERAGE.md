@@ -15,7 +15,7 @@ counts toward the row below.
 
 ## Typed system reachability
 
-Ice 0.99 has nine checked Rust boundaries:
+Ice 1.00 has nine checked Rust boundaries:
 
 | Boundary | Rust ABI | Covers |
 | --- | --- | --- |
@@ -80,7 +80,7 @@ public behavior has direct documented Ice syntax and tests.
 
 | iced surface | Ice status | Current representation / missing work |
 | --- | --- | --- |
-| application settings | partial | static title, application ID, custom typed executor, ordered checked font byte preloads, default text size/font, antialiasing, vsync, scale factor, codec-free checked RGBA icons, named window templates, structured state/task boot presets, theme and run; state-dependent title/theme/style/scale-factor callbacks missing |
+| application settings | native | state-dependent title, all built-in/custom theme selection, base background/text style and guarded scale-factor callbacks; application ID, custom typed executor, ordered checked font byte preloads, default text size/font, antialiasing, vsync, codec-free checked RGBA icons, complete cross-platform initial/named window settings, structured state/task boot presets and run |
 | `Theme` and styles | partial | checked color tokens and a Tailwind-like subset; native theme/style catalogs and custom closures missing |
 | `Task` | partial | async/sync externs, typed arbitrary iced `Task` adapters, direct system/clipboard/font/widget/window tasks, nested batch/chain groups, complete abortable handles, repeated `run` streams, typed `sip`, and native typed flows with direct `done`/`none`, output-dependent `then`, optional-or-result `and_then`, `map_err`, result-preserving `collect`, `discard`, and `units`; low-level task-module `oneshot`/`channel`/blocking/effect constructors remain adapter-only |
 | `Subscription` | partial | typed arbitrary iced `Subscription` adapters, batching, checked conditional activation/status filters, direct every/repeat timers, input-method/keyboard/mouse/touch/window sources (with optional typed IDs on all eleven discrete window events) and system theme changes, native typed `run`/`run_with` workers, custom `Recipe` factories through `from_recipe`, raw `EventStream` filters with hashable identity, plus `with` identity context and noncapturing typed `filter_map` transforms on every source; direct recipe extraction remains runtime-only |

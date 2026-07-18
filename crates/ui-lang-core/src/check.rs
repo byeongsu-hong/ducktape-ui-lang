@@ -51,6 +51,7 @@ pub fn check(document: &mut Document) -> Result<(), Error> {
             }
         }
     }
+    check_app_settings(document, &states)?;
     for handler in document.handlers.iter().chain(&preset_handlers) {
         check_structured_tasks(handler)?;
     }
@@ -109,6 +110,72 @@ pub fn check(document: &mut Document) -> Result<(), Error> {
         check_handler(handler, &states, document, &operation_ids, &pane_grids)?;
     }
     Ok(())
+}
+
+fn check_app_settings(document: &Document, states: &HashMap<String, Type>) -> Result<(), Error> {
+    for setting in [
+        &document.settings.title,
+        &document.settings.theme,
+        &document.settings.background,
+        &document.settings.text_color,
+    ]
+    .into_iter()
+    .flatten()
+    {
+        require_type(
+            &expr_type(&setting.value, states, document, &setting.span)?,
+            &Type::Str,
+            &setting.span,
+        )?;
+    }
+    if let Some(setting) = &document.settings.scale_factor {
+        require_type(
+            &expr_type(&setting.value, states, document, &setting.span)?,
+            &Type::F64,
+            &setting.span,
+        )?;
+        if f64_literal(&setting.value).is_some_and(|value| value <= 0.0) {
+            return Err(Error::new(
+                "E015",
+                &setting.span,
+                "scale-factor must be greater than zero",
+            ));
+        }
+    }
+    if let Some(AppExpression {
+        value: Expr::Str(value),
+        span,
+    }) = &document.settings.theme
+        && value != "app"
+        && value != "default"
+        && !BUILT_IN_THEMES.contains(&value.as_str())
+    {
+        return Err(Error::new(
+            "E015",
+            span,
+            format!("unknown iced theme `{value}`"),
+        ));
+    }
+    for setting in [&document.settings.background, &document.settings.text_color]
+        .into_iter()
+        .flatten()
+    {
+        if let Expr::Str(value) = &setting.value
+            && !valid_app_color(value)
+        {
+            return Err(Error::new(
+                "E015",
+                &setting.span,
+                "application colors must be 3, 4, 6, or 8 digit hexadecimal strings",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn valid_app_color(value: &str) -> bool {
+    let hex = value.strip_prefix('#').unwrap_or(value);
+    matches!(hex.len(), 3 | 4 | 6 | 8) && hex.chars().all(|value| value.is_ascii_hexdigit())
 }
 
 fn static_widget_ids(root: &ViewNode) -> HashSet<String> {
