@@ -184,6 +184,15 @@ mod backend {
     }
 
     #[cfg(test)]
+    pub fn summary_text(theme: &iced::Theme, busy: bool) -> iced::widget::text::Style {
+        if busy {
+            iced::widget::text::warning(theme)
+        } else {
+            iced::widget::text::primary(theme)
+        }
+    }
+
+    #[cfg(test)]
     pub fn loading_progress(
         theme: &iced::Theme,
         active: bool,

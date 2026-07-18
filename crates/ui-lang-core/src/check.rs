@@ -4231,6 +4231,10 @@ fn check_text_options(
     span: &Span,
 ) -> Result<(), Error> {
     check_font(options.font.as_ref(), document, span)?;
+    if let Some(style) = &options.custom_style {
+        let function = extern_function(document, &style.function, ExternKind::TextStyle, span)?;
+        check_call_args(function, &style.args, env, document, span)?;
+    }
     for length in [&options.width, &options.height].into_iter().flatten() {
         if let LengthValue::Fixed(value) = length {
             require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
@@ -5601,6 +5605,7 @@ fn extern_function<'a>(
                 ExternKind::Subscription => "subscription",
                 ExternKind::Window => "window callback",
                 ExternKind::MarkdownViewer => "markdown viewer",
+                ExternKind::TextStyle => "text style",
                 ExternKind::ProgressStyle => "progress style",
                 ExternKind::ButtonStyle => "button style",
                 ExternKind::CheckboxStyle => "checkbox style",
@@ -8902,6 +8907,45 @@ view
         let error = analyze(&invalid).unwrap_err();
         assert_eq!(error.code, "E128");
         assert!(error.message.contains("text line height"));
+    }
+
+    #[test]
+    fn checks_native_text_style_callbacks() {
+        let source = r#"app Typography
+extern crate::backend
+  text-style dynamic_text(active:bool)
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  active = true
+view
+  col
+    text "Styled" style=dynamic_text(active)
+    rich-text style=dynamic_text(active)
+      span "Rich"
+"#;
+        analyze(source).unwrap();
+
+        let error =
+            analyze(&source.replace("dynamic_text(active)", "missing_text(active)")).unwrap_err();
+        assert_eq!(error.code, "E130");
+        assert!(error.message.contains("text style"));
+
+        let error =
+            analyze(&source.replace("dynamic_text(active)", "dynamic_text(1.0)")).unwrap_err();
+        assert_eq!(error.code, "E101");
+
+        let error = analyze(&source.replacen("style=dynamic_text(active)", "style=primary", 1))
+            .unwrap_err();
+        assert_eq!(error.code, "E063");
+
+        let rich_only = source.replacen("style=dynamic_text(active)", "", 1);
+        let error =
+            analyze(&rich_only.replace("style=dynamic_text(active)", "style=primary")).unwrap_err();
+        assert_eq!(error.code, "E186");
     }
 
     #[test]

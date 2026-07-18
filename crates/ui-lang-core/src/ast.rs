@@ -363,6 +363,7 @@ pub enum ExternKind {
     Subscription,
     Window,
     MarkdownViewer,
+    TextStyle,
     ProgressStyle,
     ButtonStyle,
     CheckboxStyle,
@@ -1249,6 +1250,7 @@ pub struct TextOptions {
     pub align_y: Option<VerticalAlignment>,
     pub shaping: Option<TextShaping>,
     pub wrapping: Option<TextWrapping>,
+    pub custom_style: Option<ExternCall>,
 }
 
 #[derive(Clone, Debug)]
