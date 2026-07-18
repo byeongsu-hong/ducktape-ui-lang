@@ -3857,6 +3857,10 @@ fn lazy_hashable(ty: &Type) -> bool {
         | Type::MouseCursor
         | Type::MouseClick
         | Type::SystemInfo
+        | Type::WindowDirection
+        | Type::WindowLevel
+        | Type::WindowMode
+        | Type::WindowAttention
         | Type::WidgetTarget
         | Type::TaskHandle
         | Type::Image
@@ -7654,6 +7658,32 @@ pub(crate) fn expr_type(
                 check_builtin_args(name, args, &[Type::F64, Type::F64], env, document, span)?;
                 Ok(Type::ScrollDelta)
             }
+            "window_direction.north"
+            | "window_direction.south"
+            | "window_direction.east"
+            | "window_direction.west"
+            | "window_direction.north_east"
+            | "window_direction.north_west"
+            | "window_direction.south_east"
+            | "window_direction.south_west" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::WindowDirection)
+            }
+            "window_level.default"
+            | "window_level.normal"
+            | "window_level.always_on_bottom"
+            | "window_level.always_on_top" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::WindowLevel)
+            }
+            "window_mode.windowed" | "window_mode.fullscreen" | "window_mode.hidden" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::WindowMode)
+            }
+            "window_attention.critical" | "window_attention.informational" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::WindowAttention)
+            }
             "length.fill" | "length.shrink" => {
                 check_builtin_args(name, args, &[], env, document, span)?;
                 Ok(Type::Length)
@@ -9006,6 +9036,15 @@ pub(crate) fn expr_type(
                             "mouse-click values are opaque; compare their kind or position",
                         ));
                     }
+                    if matches!(left, Type::WindowDirection | Type::WindowAttention)
+                        || matches!(right, Type::WindowDirection | Type::WindowAttention)
+                    {
+                        return Err(Error::new(
+                            "E153",
+                            span,
+                            format!("`{}` values do not support comparisons", left.display()),
+                        ));
+                    }
                     if !matches!(op, BinaryOp::Eq | BinaryOp::NotEq)
                         && matches!(
                             left,
@@ -9030,6 +9069,8 @@ pub(crate) fn expr_type(
                                 | Type::RectangleU32
                                 | Type::Transformation
                                 | Type::ScrollDelta
+                                | Type::WindowLevel
+                                | Type::WindowMode
                         )
                     {
                         return Err(Error::new(
@@ -9230,6 +9271,12 @@ fn field_type(ty: &Type, field: &str, document: &Document, span: &Span) -> Resul
             "x" | "y" => Some(Type::F64),
             _ => None,
         },
+        Type::WindowDirection | Type::WindowLevel | Type::WindowMode | Type::WindowAttention => {
+            match field {
+                "kind" => Some(Type::Str),
+                _ => None,
+            }
+        }
         Type::Length => match field {
             "fill_factor" => Some(Type::I64),
             "is_fill" => Some(Type::Bool),
@@ -9771,6 +9818,37 @@ mod tests {
         let error = analyze(&source.replace(
             "    button \"Inspect\" -> inspect",
             "    lazy returned as cached\n      text cached.kind",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E139");
+        assert!(error.message.contains("does not implement stable hashing"));
+    }
+
+    #[test]
+    fn checks_native_window_value_traits() {
+        let source = include_str!("../../../examples/iced-app/src/ui/window_values.ice");
+        analyze(source).unwrap();
+
+        let error = analyze(&source.replace(
+            "levels_equal = returned_level == window_level.always_on_top()",
+            "levels_equal = returned_direction == window_direction.south_west()",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E153");
+        assert!(error.message.contains("window-direction"));
+        assert!(error.message.contains("do not support comparisons"));
+
+        let error = analyze(&source.replace(
+            "levels_equal = returned_level == window_level.always_on_top()",
+            "levels_equal = returned_level < window_level.always_on_top()",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E153");
+        assert!(error.message.contains("does not accept `window-level`"));
+
+        let error = analyze(&source.replace(
+            "    button \"Inspect\" -> inspect",
+            "    lazy returned_mode as cached\n      text cached.kind",
         ))
         .unwrap_err();
         assert_eq!(error.code, "E139");

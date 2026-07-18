@@ -22,6 +22,8 @@ mod rotation;
 mod scroll_delta;
 #[cfg(test)]
 mod shadow;
+#[cfg(test)]
+mod window_values;
 
 mod backend {
     use std::sync::{LazyLock, Mutex, MutexGuard};
@@ -158,6 +160,11 @@ mod backend {
 
     #[cfg(test)]
     pub use crate::shadow::shadow_round_trip;
+
+    #[cfg(test)]
+    pub use crate::window_values::{
+        attention_round_trip, direction_round_trip, level_round_trip, mode_round_trip,
+    };
 
     #[cfg(test)]
     pub fn elastic(value: f64) -> f64 {
