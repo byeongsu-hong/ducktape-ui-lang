@@ -57,6 +57,7 @@ pub enum Type {
     ImageAllocation,
     ImageMemory,
     ImageError,
+    DebugSpan,
     List(Box<Type>),
     Option(Box<Type>),
     Result(Box<Type>, Box<Type>),
@@ -110,6 +111,7 @@ impl Type {
             Self::ImageAllocation => "::iced::widget::image::Allocation".into(),
             Self::ImageMemory => "::std::sync::Weak<::iced::advanced::image::Memory>".into(),
             Self::ImageError => "::iced::widget::image::Error".into(),
+            Self::DebugSpan => "::iced::debug::Span".into(),
             Self::List(inner) => format!("::std::vec::Vec<{}>", inner.rust(structs)),
             Self::Option(inner) => format!("::std::option::Option<{}>", inner.rust(structs)),
             Self::Result(output, error) => format!(
@@ -175,6 +177,7 @@ impl Type {
             Self::ImageAllocation => "image-allocation".into(),
             Self::ImageMemory => "image-memory".into(),
             Self::ImageError => "image-error".into(),
+            Self::DebugSpan => "debug-span".into(),
             Self::List(inner) => format!("[{}]", inner.display()),
             Self::Option(inner) => format!("{}?", inner.display()),
             Self::Result(output, error) => {
@@ -700,6 +703,15 @@ pub enum Statement {
     },
     Abort {
         handle: String,
+        span: Span,
+    },
+    DebugStart {
+        name: Expr,
+        target: String,
+        span: Span,
+    },
+    DebugFinish {
+        target: String,
         span: Span,
     },
     ClipboardWrite {

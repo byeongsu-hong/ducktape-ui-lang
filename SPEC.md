@@ -1,4 +1,4 @@
-# Ice Language Specification 1.38
+# Ice Language Specification 1.39
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 1.38 syntax.
+marked “planned” is a design constraint, not accepted 1.39 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 1.38.
+  block comments are not part of 1.39.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -185,6 +185,7 @@ extern_component_field_list
 extern_component_field = name ":" "&"? type
 type           = "bool" | "i64" | "f64" | "str" | "bytes" | "image"
                | "image-allocation" | "image-memory" | "image-error"
+               | "debug-span"
                | "markdown" | "editor" | "event" | "instant" | "window-id"
                | "key" | "physical-key" | "key-location" | "key-modifiers"
                | "pixels" | "padding" | "degrees" | "radians"
@@ -300,6 +301,8 @@ statement      = name "=" expr ("at" expr)?
                | task_group
                | abortable_task
                | "abort" name
+               | "debug start" expr "->" name
+               | "debug finish" name
                | "run" call "->" route ("|" route)?
                | "task" call "->" route ("|" route)?
                | "stream" call "->" route ("|" route)?
@@ -1030,7 +1033,7 @@ maximum size. `icon-rgba` embeds a relative raw RGBA file without an image
 codec; width and height are positive integers, and generated Rust rejects a
 byte length other than `width × height × 4`. `cargo ice check` reports a
 mismatch at the icon declaration, and generated Rust repeats the check at
-compile time. Encoded icon formats remain outside 1.38.
+compile time. Encoded icon formats remain outside 1.39.
 
 Use `daemon Name` instead of `app Name` for an iced daemon that starts without
 an initial window and remains alive after all windows close. A daemon rejects
@@ -1582,6 +1585,7 @@ button "Add" disabled=(loading || empty(trim(draft))) -> submit
 | `image-memory` | `Weak<iced::advanced::image::Memory>` |
 | `image-error` | `iced::widget::image::Error` |
 | `size-u32` | `iced::Size<u32>` |
+| `debug-span` | `iced::debug::Span`; only valid as optional owned state |
 | `instant` | `iced::time::Instant` |
 | `window-id` | `iced::window::Id` |
 | `markdown` | `iced::widget::markdown::Content` |
@@ -1613,7 +1617,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 1.38 message payloads.
+`Clone` for 1.39 message payloads.
 
 Declared `sync` functions are checked, synchronous Rust calls available in
 Ice expressions. They are the small escape hatch for pure domain conversions
@@ -1881,6 +1885,8 @@ The expression language contains:
   and `radians(value)`;
 - image allocation retention with `image.downgrade(allocation) -> image-memory`
   and `image.upgrade(memory) -> image-allocation?`;
+- debug timing with `debug.active(span_state) -> bool` and
+  `debug.time_with(name, value)`, preserving the value's checked type;
 - animation queries `animation.value(state)`,
   `animation.animating(state[, at])`,
   `animation.interpolate(bool_state, start, end[, at])` for matching `f64` or
@@ -1932,6 +1938,34 @@ value and exposes `.kind` (`invalid`, `inaccessible`, `unsupported`, `empty`,
 or `out-of-memory`) plus its display `.message`. Downgrade/upgrade expose the
 native weak-memory lifecycle. This task requires iced's `image` Cargo feature,
 not only `image-without-codecs`.
+
+Native debug spans have an explicit, ownership-safe state lifecycle:
+
+```ice
+state
+  timer:debug-span? = none
+  measured = 0
+
+on begin
+  debug start "interaction" -> timer
+
+on finish
+  debug finish timer
+
+on compute
+  measured = debug.time_with("compute", measured + 1)
+```
+
+`debug start` stores the exact `iced::debug::Span`; if the target already owns
+a span, it is finished before replacement. `debug finish` takes and finishes
+the span and is harmless when state is `none`. Because native spans are not
+cloneable, `debug-span` is accepted only as `debug-span?` state and cannot cross
+an extern, component, handler-message, collection, or ordinary assignment
+boundary. Use `debug.active(state)` to read whether a span is present.
+`debug.time_with` accepts a string name plus any non-span expression and returns
+the expression's exact type. These calls always compile; iced's `debug` Cargo
+feature activates reporting, while builds without it use iced's native no-op
+spans.
 
 There is no arbitrary Rust expression, method call, closure, general allocation
 API, or implicit truthiness. New operations either belong in a small universal builtin
@@ -3474,7 +3508,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 1.38 does not claim that remapping.
+extern line; 1.39 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -3495,7 +3529,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 1.38 native backend covers both windowed applications and windowless
+The 1.39 native backend covers both windowed applications and windowless
 daemons alongside CRUD/settings-style screens, selection, media, hover
 overlays, declarative canvas geometry, and pointer events. Borrowed custom
 widgets and an application-wide renderer type remain the escape hatch for

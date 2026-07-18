@@ -1761,6 +1761,33 @@ fn parse_statement(line: &Line) -> Result<Statement, Error> {
             span: Span::line(line.number),
         });
     }
+    if let Some(source) = line.text.strip_prefix("debug start ") {
+        let Some((name, target)) = split_top_marker(source, "->") else {
+            return Err(error(
+                "E050",
+                line,
+                "debug timing starts with `debug start name -> span_state`",
+            ));
+        };
+        return Ok(Statement::DebugStart {
+            name: parse_expr(name.trim(), line)?,
+            target: identifier(target.trim(), line)?,
+            span: Span::line(line.number),
+        });
+    }
+    if let Some(target) = line.text.strip_prefix("debug finish ") {
+        return Ok(Statement::DebugFinish {
+            target: identifier(target.trim(), line)?,
+            span: Span::line(line.number),
+        });
+    }
+    if line.text.starts_with("debug ") {
+        return Err(error(
+            "E050",
+            line,
+            "debug timing uses `debug start name -> span_state` or `debug finish span_state`",
+        ));
+    }
     if let Some(source) = line.text.strip_prefix("pane ") {
         return parse_pane_operation(source, line);
     }
@@ -8595,6 +8622,7 @@ fn parse_type(source: &str, line: &Line) -> Result<Type, Error> {
         "image-allocation" => Type::ImageAllocation,
         "image-memory" => Type::ImageMemory,
         "image-error" => Type::ImageError,
+        "debug-span" => Type::DebugSpan,
         "markdown" => Type::Markdown,
         "editor" => Type::Editor,
         "event" => Type::Event,
@@ -9216,6 +9244,24 @@ fn error(code: &'static str, line: &Line, message: impl Into<String>) -> Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_native_debug_timing_state_and_statements() {
+        let source = include_str!("../../../examples/iced-app/src/ui/debug_timing.ice");
+        let document = parse(source).unwrap();
+        assert_eq!(
+            document.states[0].ty,
+            Type::Option(Box::new(Type::DebugSpan))
+        );
+        assert!(matches!(
+            &document.handlers[0].statements[0],
+            Statement::DebugStart { target, .. } if target == "timer"
+        ));
+        assert!(matches!(
+            &document.handlers[1].statements[0],
+            Statement::DebugFinish { target, .. } if target == "timer"
+        ));
+    }
 
     #[test]
     fn parses_native_image_allocation_types_and_task() {
