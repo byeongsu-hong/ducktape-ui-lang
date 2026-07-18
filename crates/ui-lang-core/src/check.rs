@@ -4433,6 +4433,7 @@ fn infer_runs(
         if let Statement::WindowOperation {
             operation,
             route: Some(route),
+            span,
             ..
         } = statement
         {
@@ -4498,6 +4499,16 @@ fn infer_runs(
                 }
                 WindowOperation::Mode => {
                     infer_route(route, Some(Type::Str), &unknown_env, document, signatures)?
+                }
+                WindowOperation::Callback { function, .. } => {
+                    let callback = extern_function(document, function, ExternKind::Window, span)?;
+                    infer_route(
+                        route,
+                        Some(callback.output.clone()),
+                        &unknown_env,
+                        document,
+                        signatures,
+                    )?
                 }
                 _ => {}
             }
@@ -5154,6 +5165,7 @@ fn check_handler(
                         | WindowOperation::RawId
                         | WindowOperation::Screenshot
                         | WindowOperation::MonitorSize
+                        | WindowOperation::Callback { .. }
                 );
                 if let WindowOperation::Open(Some(name)) = operation
                     && !document
@@ -5226,6 +5238,53 @@ fn check_handler(
                 if let WindowOperation::Move(x, y) = operation {
                     require_type(&expr_type(x, &env, document, span)?, &Type::F64, span)?;
                     require_type(&expr_type(y, &env, document, span)?, &Type::F64, span)?;
+                }
+                if let WindowOperation::Icon {
+                    pixels,
+                    width,
+                    height,
+                } = operation
+                {
+                    require_type(
+                        &expr_type(pixels, &env, document, span)?,
+                        &Type::Bytes,
+                        span,
+                    )?;
+                    for (dimension, label) in
+                        [(width, "window icon width"), (height, "window icon height")]
+                    {
+                        require_type(
+                            &expr_type(dimension, &env, document, span)?,
+                            &Type::I64,
+                            span,
+                        )?;
+                        require_literal_range(dimension, 1.0, Some(u32::MAX as f64), label, span)?;
+                    }
+                    if let (Expr::I64(width), Expr::I64(height)) = (width, height)
+                        && (*width as u128) * (*height as u128) > u32::MAX as u128
+                    {
+                        return Err(Error::new(
+                            "E173",
+                            span,
+                            "window icon dimensions are too large",
+                        ));
+                    }
+                    if let (Expr::Bytes(pixels), Expr::I64(width), Expr::I64(height)) =
+                        (pixels, width, height)
+                    {
+                        let expected = (*width as u128) * (*height as u128) * 4;
+                        if expected != pixels.len() as u128 {
+                            return Err(Error::new(
+                                "E173",
+                                span,
+                                "window icon pixels must contain width × height × 4 bytes",
+                            ));
+                        }
+                    }
+                }
+                if let WindowOperation::Callback { function, args } = operation {
+                    let callback = extern_function(document, function, ExternKind::Window, span)?;
+                    check_call_args(callback, args, &env, document, span)?;
                 }
             }
         }
@@ -5364,6 +5423,7 @@ fn extern_function<'a>(
                 ExternKind::EventFilter => "event filter",
                 ExternKind::Sync => "sync function",
                 ExternKind::Subscription => "subscription",
+                ExternKind::Window => "window callback",
             };
             Error::new("E130", span, format!("unknown extern {label} `{name}`"))
         })

@@ -310,7 +310,99 @@ fn window_settings_value_code(settings: &WindowSettings, source_path: &str) -> S
         )
         .unwrap();
     }
+    if settings.linux.is_some()
+        || settings.windows.is_some()
+        || settings.macos.is_some()
+        || settings.wasm.is_some()
+    {
+        write!(
+            fields,
+            "platform_specific: {},",
+            window_platform_code(settings)
+        )
+        .unwrap();
+    }
     format!("::iced::window::Settings {{ {fields} ..::std::default::Default::default() }}")
+}
+
+fn window_platform_code(settings: &WindowSettings) -> String {
+    let mut linux = String::new();
+    if let Some(settings) = &settings.linux {
+        if let Some(value) = &settings.application_id {
+            write!(
+                linux,
+                "__platform.application_id = {}.to_owned();",
+                rust_string(value)
+            )
+            .unwrap();
+        }
+        if let Some(value) = settings.override_redirect {
+            write!(linux, "__platform.override_redirect = {value};").unwrap();
+        }
+    }
+
+    let mut windows = String::new();
+    if let Some(settings) = &settings.windows {
+        for (name, value) in [
+            ("drag_and_drop", settings.drag_and_drop),
+            ("skip_taskbar", settings.skip_taskbar),
+            ("undecorated_shadow", settings.undecorated_shadow),
+        ] {
+            if let Some(value) = value {
+                write!(windows, "__platform.{name} = {value};").unwrap();
+            }
+        }
+        if let Some(value) = settings.corner {
+            let value = match value {
+                WindowCorner::Default => "Default",
+                WindowCorner::DoNotRound => "DoNotRound",
+                WindowCorner::Round => "Round",
+                WindowCorner::RoundSmall => "RoundSmall",
+            };
+            write!(
+                windows,
+                "__platform.corner_preference = ::iced::window::settings::platform::CornerPreference::{value};"
+            )
+            .unwrap();
+        }
+    }
+
+    let mut macos = String::new();
+    if let Some(settings) = &settings.macos {
+        for (name, value) in [
+            ("title_hidden", settings.title_hidden),
+            ("titlebar_transparent", settings.titlebar_transparent),
+            ("fullsize_content_view", settings.fullsize_content_view),
+        ] {
+            if let Some(value) = value {
+                write!(macos, "__platform.{name} = {value};").unwrap();
+            }
+        }
+    }
+
+    let mut wasm = String::new();
+    if let Some(Some(target)) = settings
+        .wasm
+        .as_ref()
+        .and_then(|settings| settings.target.as_ref())
+    {
+        write!(
+            wasm,
+            "__platform.target = ::std::option::Option::Some({}.to_owned());",
+            rust_string(target)
+        )
+        .unwrap();
+    } else if settings
+        .wasm
+        .as_ref()
+        .is_some_and(|settings| settings.target == Some(None))
+    {
+        wasm.push_str("__platform.target = ::std::option::Option::None;");
+    }
+
+    format!(
+        "{{ #[cfg(target_os = \"linux\")] {{ #[allow(unused_mut)] let mut __platform: ::iced::window::settings::PlatformSpecific = ::std::default::Default::default(); {linux} __platform }} #[cfg(target_os = \"windows\")] {{ #[allow(unused_mut)] let mut __platform: ::iced::window::settings::PlatformSpecific = ::std::default::Default::default(); {windows} __platform }} #[cfg(target_os = \"macos\")] {{ #[allow(unused_mut)] let mut __platform: ::iced::window::settings::PlatformSpecific = ::std::default::Default::default(); {macos} __platform }} #[cfg(target_arch = \"wasm32\")] {{ #[allow(unused_mut)] let mut __platform: ::iced::window::settings::PlatformSpecific = ::std::default::Default::default(); {wasm} __platform }} #[cfg(not(any(target_os = \"linux\", target_os = \"windows\", target_os = \"macos\", target_arch = \"wasm32\")))] {{ ::std::default::Default::default() }} }}"
+    )
 }
 
 fn generate_keyboard_types(out: &mut String, document: &Document) {
@@ -733,6 +825,24 @@ fn generate_extern_probes(out: &mut String, document: &Document) {
                 item.name, item.rust_path
             )
             .unwrap(),
+            ExternKind::Window => {
+                let params = if params.is_empty() {
+                    "window: &dyn ::iced::window::Window".into()
+                } else {
+                    format!("window: &dyn ::iced::window::Window, {params}")
+                };
+                let args = if args.is_empty() {
+                    "window".into()
+                } else {
+                    format!("window, {args}")
+                };
+                writeln!(
+                    out,
+                    "#[allow(dead_code)] fn __ui_lang_check_window_{}({params}) {{ let _: {output} = {}({args}); }}",
+                    item.name, item.rust_path
+                )
+                .unwrap();
+            }
         }
     }
 }
@@ -2389,6 +2499,41 @@ fn generate_statements(
                         "::iced::window::allow_automatic_tabbing::<{message}>({})",
                         bool_value(enabled)?
                     ),
+                    WindowOperation::Icon {
+                        pixels,
+                        width,
+                        height,
+                    } => {
+                        let pixels = expr_code(pixels, env, document, ValueMode::Owned)?;
+                        let width = expr_code(width, env, document, ValueMode::Owned)?;
+                        let height = expr_code(height, env, document, ValueMode::Owned)?;
+                        format!(
+                            "{{ let __pixels = {pixels}; let __width = {width}; let __height = {height}; match (::std::primitive::u32::try_from(__width), ::std::primitive::u32::try_from(__height)) {{ (::std::result::Result::Ok(__width), ::std::result::Result::Ok(__height)) if __width > 0 && __height > 0 && __width.checked_mul(__height).is_some() => ::iced::window::icon::from_rgba(__pixels, __width, __height).map_or_else(|_| ::iced::Task::none(), |__icon| ::iced::window::set_icon::<{message}>({id}, __icon)), _ => ::iced::Task::none(), }} }}"
+                        )
+                    }
+                    WindowOperation::Callback { function, args } => {
+                        let callback = document
+                            .functions
+                            .iter()
+                            .find(|item| item.name == *function && item.kind == ExternKind::Window)
+                            .expect("checker validates window callback");
+                        let args = args
+                            .iter()
+                            .map(|arg| expr_code(arg, env, document, ValueMode::Owned))
+                            .collect::<Result<Vec<_>, _>>()?
+                            .join(", ");
+                        let args = if args.is_empty() {
+                            String::new()
+                        } else {
+                            format!(", {args}")
+                        };
+                        let route = route.as_ref().expect("checker requires window route");
+                        let message_code = route_code(route, "value", env, document, message)?;
+                        format!(
+                            "::iced::window::run({id}, move |__window| {}(__window{args})).map(move |value| {message_code})",
+                            callback.rust_path
+                        )
+                    }
                 };
                 let task = if target.is_some()
                     || matches!(
@@ -9057,6 +9202,20 @@ mod tests {
     blur true
     level always-on-top
     exit-on-close-request false
+    platform linux
+      application-id "dev.example.configured"
+      override-redirect true
+    platform windows
+      drag-and-drop false
+      skip-taskbar true
+      undecorated-shadow true
+      corner round-small
+    platform macos
+      title-hidden true
+      titlebar-transparent true
+      fullsize-content-view true
+    platform wasm
+      target none
 state
   ready = false
 extern crate::backend
@@ -9113,6 +9272,20 @@ view
             "__ICE_RGBA.len() == 8",
             "window::icon::from_rgba(__ICE_RGBA.to_vec(), 2, 1)",
             "exit_on_close_request: false",
+            "__platform.application_id = \"dev.example.configured\".to_owned()",
+            "__platform.override_redirect = true",
+            "__platform.drag_and_drop = false",
+            "__platform.skip_taskbar = true",
+            "__platform.undecorated_shadow = true",
+            "CornerPreference::RoundSmall",
+            "__platform.title_hidden = true",
+            "__platform.titlebar_transparent = true",
+            "__platform.fullsize_content_view = true",
+            "__platform.target = ::std::option::Option::None",
+            "#[cfg(target_os = \"linux\")]",
+            "#[cfg(target_os = \"windows\")]",
+            "#[cfg(target_os = \"macos\")]",
+            "#[cfg(target_arch = \"wasm32\")]",
             ".scale_factor(Self::__scale_factor)",
             "fn __scale_factor(&self) -> f32",
         ] {
@@ -11010,6 +11183,8 @@ view
   window child
     size 640 480
     position centered
+extern crate::backend
+  window describe_window(prefix:str) -> str
 theme
   background #000000
   foreground #ffffff
@@ -11023,6 +11198,7 @@ on optional_pair_read(x, y)
 on scale_read(value)
 on mode_read(value)
 on raw_id_read(value)
+on text_read(value)
 on screenshot_read(pixels, width, height, scale)
 on opened(id)
   task window size target=id -> size_read _ _
@@ -11099,6 +11275,10 @@ on read_monitor
   task window monitor-size -> optional_pair_read _ _
 on automatic_tabbing
   task window automatic-tabbing false
+on change_icon
+  task window icon bytes(ff 00 00 ff 00 ff 00 ff) 2 1
+on describe_window
+  task window describe_window("main") -> text_read _
 view
   text "Window"
 "#;
@@ -11137,6 +11317,8 @@ view
             "window::disable_mouse_passthrough",
             "window::monitor_size",
             "window::allow_automatic_tabbing",
+            "window::set_icon",
+            "window::run",
         ] {
             assert!(generated.contains(function), "missing {function}");
         }
@@ -11151,6 +11333,12 @@ view
         assert!(generated.contains("value.size.width as i64"));
         assert!(generated.contains("value.scale_factor as f64"));
         assert!(generated.contains("window::oldest().and_then"));
+        assert!(
+            generated.contains("crate::backend::describe_window(__window, \"main\".to_owned())")
+        );
+        assert!(generated.contains("fn __ui_lang_check_window_describe_window"));
+        assert!(generated.contains("window: &dyn ::iced::window::Window"));
+        assert!(generated.contains("__width.checked_mul(__height).is_some()"));
 
         let error = compile(
             &source.replacen("task window close\n", "task window close -> closed\n", 1),
@@ -11203,6 +11391,45 @@ view
         )
         .unwrap_err();
         assert_eq!(error.code, "E129");
+
+        let error = compile(
+            &source.replace(
+                "bytes(ff 00 00 ff 00 ff 00 ff) 2 1",
+                "bytes(ff 00 00 ff) 2 1",
+            ),
+            "window_tasks.ice",
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "E173");
+        assert!(error.message.contains("width × height × 4"));
+
+        let error = compile(
+            &source.replace(
+                "bytes(ff 00 00 ff 00 ff 00 ff) 2 1",
+                "bytes(ff 00 00 ff 00 ff 00 ff) 4294967295 2",
+            ),
+            "window_tasks.ice",
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "E173");
+        assert!(error.message.contains("dimensions are too large"));
+
+        let error = compile(
+            &source.replace("describe_window(\"main\")", "describe_window(true)"),
+            "window_tasks.ice",
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "E101");
+
+        let error = compile(
+            &source.replace(
+                "describe_window(\"main\") -> text_read _",
+                "missing(\"main\") -> text_read _",
+            ),
+            "window_tasks.ice",
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "E130");
     }
 
     #[test]

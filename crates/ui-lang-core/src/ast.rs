@@ -183,6 +183,44 @@ pub struct WindowSettings {
     pub level: Option<WindowLevel>,
     pub icon: Option<WindowIcon>,
     pub exit_on_close_request: Option<bool>,
+    pub linux: Option<LinuxWindowSettings>,
+    pub windows: Option<WindowsWindowSettings>,
+    pub macos: Option<MacosWindowSettings>,
+    pub wasm: Option<WasmWindowSettings>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct LinuxWindowSettings {
+    pub application_id: Option<String>,
+    pub override_redirect: Option<bool>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct WindowsWindowSettings {
+    pub drag_and_drop: Option<bool>,
+    pub skip_taskbar: Option<bool>,
+    pub undecorated_shadow: Option<bool>,
+    pub corner: Option<WindowCorner>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct MacosWindowSettings {
+    pub title_hidden: Option<bool>,
+    pub titlebar_transparent: Option<bool>,
+    pub fullsize_content_view: Option<bool>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct WasmWindowSettings {
+    pub target: Option<Option<String>>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum WindowCorner {
+    Default,
+    DoNotRound,
+    Round,
+    RoundSmall,
 }
 
 #[derive(Clone, Debug)]
@@ -323,6 +361,7 @@ pub enum ExternKind {
     EventFilter,
     Sync,
     Subscription,
+    Window,
 }
 
 #[derive(Clone, Debug)]
@@ -653,6 +692,15 @@ pub enum WindowOperation {
     MousePassthrough(Expr),
     MonitorSize,
     AutomaticTabbing(Expr),
+    Icon {
+        pixels: Expr,
+        width: Expr,
+        height: Expr,
+    },
+    Callback {
+        function: String,
+        args: Vec<Expr>,
+    },
 }
 
 #[derive(Clone, Copy, Debug)]

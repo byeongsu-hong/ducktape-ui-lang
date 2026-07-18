@@ -36,6 +36,15 @@ on child_sized(width, height)
 on read_raw_window_id
   task window raw-id -> raw_window_id_read _
 
+on set_window_icon
+  task window icon bytes(ff 00 00 ff 00 ff 00 ff) 2 1
+
+on inspect_window_handle
+  task window describe_window("main") -> window_handle_read _
+
+on window_handle_read(value)
+  raw_window_id = value
+
 on raw_window_id_read(value)
   raw_window_id = value
 

@@ -14,6 +14,20 @@ app Tasks
     size 960 720
     min-size 480 360
     position centered
+    platform linux
+      application-id "dev.ducktape.ice.tasks"
+      override-redirect false
+    platform windows
+      drag-and-drop true
+      skip-taskbar false
+      undecorated-shadow true
+      corner round-small
+    platform macos
+      title-hidden false
+      titlebar-transparent true
+      fullsize-content-view true
+    platform wasm
+      target "iced"
   window child
     size 640 480
     min-size 320 240
@@ -58,6 +72,8 @@ view
 
         row @w-full items-center gap-3
           button "Capture window" style=secondary -> capture_window
+          button "Change icon" style=subtle -> set_window_icon
+          button "Inspect handle" style=subtle -> inspect_window_handle
           button "Read raw ID" style=subtle -> read_raw_window_id
           text raw_window_id @text-sm text-muted
           if snapshot_ready
