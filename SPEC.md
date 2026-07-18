@@ -1,4 +1,4 @@
-# Ice Language Specification 1.11
+# Ice Language Specification 1.12
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 1.11 syntax.
+marked “planned” is a design constraint, not accepted 1.12 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 1.11.
+  block comments are not part of 1.12.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -168,6 +168,7 @@ extern_item    = struct_sig | function_sig | extern_component_sig
                | extern_checkbox_style_sig | extern_toggler_style_sig
                | extern_radio_style_sig | extern_container_style_sig
                | extern_svg_style_sig | extern_input_style_sig
+               | extern_scroll_style_sig
 struct_sig     = PascalName "(" field_list? ")"
 field_list     = field ("," field)*
 field          = name ":" type
@@ -210,6 +211,8 @@ extern_svg_style_sig
                = "svg-style" name "(" field_list? ")"
 extern_input_style_sig
                = "input-style" name "(" field_list? ")"
+extern_scroll_style_sig
+               = "scroll-style" name "(" field_list? ")"
 
 theme_decl     = "theme" INDENT color_entry+
 color_entry    = name color
@@ -525,6 +528,7 @@ scroll_property = "direction=" ("vertical" | "horizontal" | "both")
                   | "bar-spacing=") expr
                 | ("anchor-x=" | "anchor-y=") ("start" | "end")
                 | "auto=" expr | ("scroll=" | "viewport=") route
+                | "style=" call
 scroll_status  = ("active" | "hovered" | "dragged")
                  scroll_selector*
                  (INDENT scroll_style_section*)?
@@ -951,7 +955,7 @@ maximum size. `icon-rgba` embeds a relative raw RGBA file without an image
 codec; width and height are positive integers, and generated Rust rejects a
 byte length other than `width × height × 4`. `cargo ice check` reports a
 mismatch at the icon declaration, and generated Rust repeats the check at
-compile time. Encoded icon formats remain outside 1.11.
+compile time. Encoded icon formats remain outside 1.12.
 
 Application boot presets are structured top-level declarations:
 
@@ -1029,15 +1033,19 @@ x/y as four f64 payloads. `viewport=` is the complete alternative and receives
 viewport x/y/width/height, then content x/y/width/height. The two routes are
 mutually exclusive. Bare handler names receive every payload automatically.
 
+`style=task_scroll(loading)` may call a declared `scroll-style`. Its Rust
+function receives `&iced::Theme`, the current `scrollable::Status`, then its
+owned arguments and returns `scrollable::Style`.
+
 Optional `active`, `hovered`, and `dragged` lines expose every concrete
 scrollable Style field: its container, both rails and scrollers, corner gap,
 and auto-scroll overlay. Bool selectors match iced's horizontal/vertical
 hovered, dragged, and disabled status fields. Omitted selectors are wildcards;
-matching lines apply in source order, so a later specific line can refine a
-base style:
+matching lines apply in source order after the typed callback, so a later
+specific line can refine its base style:
 
 ```ice
-scroll direction=both viewport=viewport_changed
+scroll direction=both viewport=viewport_changed style=task_scroll(loading)
   col
     text "Scrollable"
   active
@@ -1441,7 +1449,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 1.11 message payloads.
+`Clone` for 1.12 message payloads.
 
 Declared `sync` functions are checked, synchronous Rust calls available in
 Ice expressions. They are the small escape hatch for pure domain conversions
@@ -1459,7 +1467,7 @@ This declaration requires
 actual Rust signature. A sync function cannot declare `! Error` because it
 returns its value directly.
 
-Twenty typed iced adapters expose framework capabilities without embedding Rust
+Twenty-one typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
 
 ```ice
@@ -1481,6 +1489,7 @@ extern crate::backend
   container-style summary_container(busy:bool)
   svg-style status_svg(active:bool)
   input-style form_input(disabled:bool)
+  scroll-style task_scroll(active:bool)
 ```
 
 Their Rust signatures are:
@@ -1503,6 +1512,7 @@ fn view_radio(theme: &iced::Theme, status: iced::widget::radio::Status, busy: bo
 fn summary_container(theme: &iced::Theme, busy: bool) -> iced::widget::container::Style;
 fn status_svg(theme: &iced::Theme, status: iced::widget::svg::Status, active: bool) -> iced::widget::svg::Style;
 fn form_input(theme: &iced::Theme, status: iced::widget::text_input::Status, disabled: bool) -> iced::widget::text_input::Style;
+fn task_scroll(theme: &iced::Theme, status: iced::widget::scrollable::Status, active: bool) -> iced::widget::scrollable::Style;
 ```
 
 An extern component receives owned props and returns a default-renderer
@@ -1535,7 +1545,8 @@ their selection-aware widget Status values. `container-style` receives Theme
 without a Status and returns its native surface Style. `svg-style` receives
 Theme and the idle/hovered SVG Status and returns the native SVG Style.
 `input-style` receives Theme and the current text-input Status and returns its
-native Style.
+native Style. `scroll-style` receives Theme and the complete scrollable Status
+and returns its native Style.
 
 Generated probes type-check every declaration
 against the actual Rust item. Extern component, shader, recipe, event-filter,
@@ -1811,7 +1822,7 @@ The implemented native nodes are:
 | --- | --- |
 | `col` | vertical children with full sizing, padding, spacing, alignment, clipping and wrapping behavior |
 | `row` | horizontal children with full sizing, padding, spacing, alignment, clipping and wrapping behavior |
-| `scroll` | one content child; complete direction/scrollbar/builders, every viewport getter and status selector, and every concrete Style field |
+| `scroll` | one content child; complete direction/scrollbar/builders, every viewport getter and status selector, every concrete Style field, and typed native runtime style callbacks |
 | `grid` | responsive children with pixel width/spacing, fixed columns or fluid max-cell width, and aspect-ratio or evenly distributed `Length` height |
 | `stack` | overlays children with typed width/height, optional clipping and `under=N` intrinsic-base control |
 | `container` | exactly one child with ID, all length bounds, max bounds, per-axis alignment, clipping, per-side padding, every concrete surface style field including linear backgrounds, and typed native runtime style callbacks |
@@ -2491,7 +2502,7 @@ snap/end; and absolute scroll-to/scroll-by. Effects have no route and
 non-negative `i64`; relative offsets are `f64` in `0.0..=1.0`; absolute
 offsets are unrestricted `f64`. Targets must be real static IDs in the app
 scope. Repeated/component scopes and the feature-gated selector API remain
-outside 1.11.
+outside 1.12.
 
 Persistent pane grids expose their native layout-state operations directly in
 handlers:
@@ -2745,7 +2756,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 1.11 does not claim that remapping.
+extern line; 1.12 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -2766,12 +2777,12 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 1.11 native backend is enough for CRUD/settings-style screens, selection,
+The 1.12 native backend is enough for CRUD/settings-style screens, selection,
 media, hover overlays, declarative canvas geometry, and common pointer events,
 not all of iced. It still lacks direct syntax for arbitrary custom overlays,
 and custom widgets. [`COVERAGE.md`](COVERAGE.md) is the exact versioned ledger.
 
-The language must not grow one ad-hoc syntax form for every iced API. Twenty
+The language must not grow one ad-hoc syntax form for every iced API. Twenty-one
 typed Rust boundaries cover domain work, native elements and programs, runtime
 tasks and subscriptions, Markdown viewers, and native style callbacks without
 admitting arbitrary Rust into expressions or duplicating iced in the core

@@ -1005,6 +1005,26 @@ fn generate_extern_probes(out: &mut String, document: &Document) {
                 )
                 .unwrap();
             }
+            ExternKind::ScrollStyle => {
+                let params = if params.is_empty() {
+                    "theme: &::iced::Theme, status: ::iced::widget::scrollable::Status".into()
+                } else {
+                    format!(
+                        "theme: &::iced::Theme, status: ::iced::widget::scrollable::Status, {params}"
+                    )
+                };
+                let args = if args.is_empty() {
+                    "theme, status".into()
+                } else {
+                    format!("theme, status, {args}")
+                };
+                writeln!(
+                    out,
+                    "#[allow(dead_code)] fn __ui_lang_check_scroll_style_{}({params}) {{ let _: ::iced::widget::scrollable::Style = {}({args}); }}",
+                    item.name, item.rust_path
+                )
+                .unwrap();
+            }
         }
     }
 }
@@ -5217,7 +5237,12 @@ fn render_layout(
             )
             .unwrap();
         }
-        code.push_str(&scroll_style_code(&scroll.styles, env, document)?);
+        code.push_str(&scroll_style_code(
+            &scroll.styles,
+            scroll.custom_style.as_ref(),
+            env,
+            document,
+        )?);
         append_size(&mut code, &style);
         if let Some(width) = &scroll.width {
             write!(code, ".width({})", length_code(width, env, document)?).unwrap();
@@ -5478,15 +5503,40 @@ fn scroll_bar_code(
 
 fn scroll_style_code(
     styles: &[ScrollStatusStyle],
+    custom: Option<&ExternCall>,
     env: &HashMap<String, Binding>,
     document: &Document,
 ) -> Result<String, Error> {
+    let custom = custom
+        .map(|style| {
+            let function = document
+                .functions
+                .iter()
+                .find(|item| item.name == style.function && item.kind == ExternKind::ScrollStyle)
+                .expect("checker validates scroll style");
+            let args = style
+                .args
+                .iter()
+                .map(|arg| expr_code(arg, env, document, ValueMode::Owned))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok::<_, Error>(format!(
+                "{}(__theme, __status{})",
+                function.rust_path,
+                args.iter()
+                    .map(|arg| format!(", {arg}"))
+                    .collect::<String>()
+            ))
+        })
+        .transpose()?;
     if styles.is_empty() {
-        return Ok(String::new());
+        return Ok(custom
+            .map(|custom| format!(".style(move |__theme, __status| {custom})"))
+            .unwrap_or_default());
     }
-    let mut code = String::from(
-        ".style(move |__theme, __status| { let mut __style = ::iced::widget::scrollable::default(__theme, __status); match __status {",
-    );
+    let base = custom
+        .unwrap_or_else(|| "::iced::widget::scrollable::default(__theme, __status)".to_owned());
+    let mut code =
+        format!(".style(move |__theme, __status| {{ let mut __style = {base}; match __status {{");
     for (status, pattern) in [
         (
             ScrollStatus::Active,
@@ -11153,12 +11203,15 @@ view
     #[test]
     fn lowers_configured_scrollables_and_viewport_events() {
         let source = r#"app Scrolling
+extern crate::backend
+  scroll-style dynamic_scroll(busy:bool)
 theme
   background #000000
   foreground #ffffff
   primary #333333
   danger #ff0000
 state
+  busy = false
   absolute_x = 0.0
   absolute_y = 0.0
   relative_x = 0.0
@@ -11171,9 +11224,9 @@ on scrolled(ax, ay, rx, ry)
 on viewport(ax, ay, reversed_x, reversed_y, rx, ry, bx, by, bw, bh, cx, cy, cw, ch)
 view
   col
-    scroll #feed direction=both width=fill height=200.0 bar=hidden bar-width=8.0 bar-margin=2.0 scroller-width=6.0 bar-spacing=4.0 anchor-x=end anchor-y=start auto=true scroll=scrolled
+    scroll #feed direction=both width=fill height=200.0 bar=hidden bar-width=8.0 bar-margin=2.0 scroller-width=6.0 bar-spacing=4.0 anchor-x=end anchor-y=start auto=true scroll=scrolled style=dynamic_scroll(busy)
       text "Legacy offsets"
-    scroll direction=both width=fill height=200.0 viewport=viewport
+    scroll direction=both width=fill height=200.0 viewport=viewport style=dynamic_scroll(busy)
       col
         text "Complete viewport"
       active horizontal-disabled=false vertical-disabled=false
@@ -11194,6 +11247,14 @@ view
         assert!(generated.contains("scrollable::Scrollbar::hidden().width(8.0 as f32)"));
         assert!(generated.contains(".anchor_x(::iced::widget::scrollable::Anchor::End)"));
         assert!(generated.contains(".auto_scroll(true)"));
+        assert!(generated.contains("crate::backend::dynamic_scroll(__theme, __status, self.busy)"));
+        assert!(generated.contains(
+            ".style(move |__theme, __status| crate::backend::dynamic_scroll(__theme, __status, self.busy))"
+        ));
+        assert!(generated.contains(
+            "let mut __style = crate::backend::dynamic_scroll(__theme, __status, self.busy); match __status"
+        ));
+        assert!(generated.contains("fn __ui_lang_check_scroll_style_dynamic_scroll"));
         assert!(generated.contains("let __absolute = __viewport.absolute_offset()"));
         assert!(generated.contains(
             "__ScrollingMessage::Scrolled(__absolute.x as f64, __absolute.y as f64, __relative.x as f64, __relative.y as f64)"
@@ -11211,6 +11272,12 @@ view
         assert!(generated.contains("let __style = &mut __style.auto_scroll"));
         assert!(generated.contains("__style.shadow.blur_radius = 4.0 as f32"));
         assert!(generated.contains("__style.auto_scroll.icon"));
+        let default_scroll = compile(
+            &source.replace(" style=dynamic_scroll(busy)", ""),
+            "scrolling.ice",
+        )
+        .unwrap();
+        assert!(default_scroll.contains("scrollable::default(__theme, __status)"));
     }
 
     #[test]
