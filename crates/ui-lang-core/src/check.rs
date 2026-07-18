@@ -3817,6 +3817,8 @@ fn lazy_hashable(ty: &Type) -> bool {
         | Type::Rotation
         | Type::Color
         | Type::Length
+        | Type::Border
+        | Type::Radius
         | Type::Shadow
         | Type::Point
         | Type::PointU32
@@ -7077,6 +7079,60 @@ fn check_u32_literal(name: &str, args: &[Expr], span: &Span) -> Result<u32, Erro
     })
 }
 
+fn check_u8_literal(name: &str, args: &[Expr], span: &Span) -> Result<u8, Error> {
+    let [Expr::I64(value)] = args else {
+        return Err(Error::new(
+            "E152",
+            span,
+            format!("{name} expects one integer literal"),
+        ));
+    };
+    u8::try_from(*value).map_err(|_| {
+        Error::new(
+            "E152",
+            span,
+            format!("{name} value must be in 0..={}", u8::MAX),
+        )
+    })
+}
+
+fn check_i32_literal(name: &str, args: &[Expr], span: &Span) -> Result<i32, Error> {
+    let value = match args {
+        [Expr::I64(value)] => *value,
+        [
+            Expr::Unary {
+                op: UnaryOp::Neg,
+                value,
+            },
+        ] => match value.as_ref() {
+            Expr::I64(value) => value.checked_neg().ok_or_else(|| {
+                Error::new("E152", span, format!("{name} integer literal is too small"))
+            })?,
+            _ => {
+                return Err(Error::new(
+                    "E152",
+                    span,
+                    format!("{name} expects one integer literal"),
+                ));
+            }
+        },
+        _ => {
+            return Err(Error::new(
+                "E152",
+                span,
+                format!("{name} expects one integer literal"),
+            ));
+        }
+    };
+    i32::try_from(value).map_err(|_| {
+        Error::new(
+            "E152",
+            span,
+            format!("{name} value must be in {}..={}", i32::MIN, i32::MAX),
+        )
+    })
+}
+
 fn check_u16_literal(name: &str, args: &[Expr], span: &Span) -> Result<u16, Error> {
     let [Expr::I64(value)] = args else {
         return Err(Error::new(
@@ -7133,6 +7189,24 @@ fn require_pixel_value(
             "E101",
             span,
             format!("expected `f64` or `pixels`, got `{}`", actual.display()),
+        ))
+    }
+}
+
+fn require_radius_value(
+    value: &Expr,
+    env: &HashMap<String, Type>,
+    document: &Document,
+    span: &Span,
+) -> Result<Type, Error> {
+    let actual = expr_type(value, env, document, span)?;
+    if matches!(actual, Type::F64 | Type::Radius) {
+        Ok(actual)
+    } else {
+        Err(Error::new(
+            "E101",
+            span,
+            format!("expected `f64` or `radius`, got `{}`", actual.display()),
         ))
     }
 }
@@ -7200,6 +7274,7 @@ fn arithmetic_type(left: &Type, op: BinaryOp, right: &Type) -> Option<Type> {
         )
         | (Type::Radians, BinaryOp::Mul | BinaryOp::Div, Type::F64)
         | (Type::F64, BinaryOp::Mul, Type::Radians) => Some(Type::Radians),
+        (Type::Radius, BinaryOp::Mul, Type::F64) => Some(Type::Radius),
         (Type::Point, BinaryOp::Add | BinaryOp::Sub, Type::Vector) => Some(Type::Point),
         (Type::Point, BinaryOp::Sub, Type::Point) => Some(Type::Vector),
         (Type::Vector, BinaryOp::Add | BinaryOp::Sub, Type::Vector) => Some(Type::Vector),
@@ -7435,6 +7510,172 @@ pub(crate) fn expr_type(
             "vertical.from_alignment" => {
                 check_builtin_args(name, args, &[Type::Alignment], env, document, span)?;
                 Ok(Type::VerticalAlignment)
+            }
+            "border.default" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::Border)
+            }
+            "border.new" => {
+                if args.len() != 3 {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        "border.new expects color, width, and radius",
+                    ));
+                }
+                require_type(
+                    &expr_type(&args[0], env, document, span)?,
+                    &Type::Color,
+                    span,
+                )?;
+                require_pixel_value(&args[1], env, document, span)?;
+                require_radius_value(&args[2], env, document, span)?;
+                Ok(Type::Border)
+            }
+            "border.color" => {
+                check_builtin_args(name, args, &[Type::Color], env, document, span)?;
+                Ok(Type::Border)
+            }
+            "border.width" => {
+                if args.len() != 1 {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        "border.width expects one pixel value",
+                    ));
+                }
+                require_pixel_value(&args[0], env, document, span)?;
+                Ok(Type::Border)
+            }
+            "border.rounded" => {
+                if args.len() != 1 {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        "border.rounded expects one radius value",
+                    ));
+                }
+                require_radius_value(&args[0], env, document, span)?;
+                Ok(Type::Border)
+            }
+            "border.with_color" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::Border, Type::Color],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::Border)
+            }
+            "border.with_width" => {
+                if args.len() != 2 {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        "border.with_width expects a border and pixel value",
+                    ));
+                }
+                require_type(
+                    &expr_type(&args[0], env, document, span)?,
+                    &Type::Border,
+                    span,
+                )?;
+                require_pixel_value(&args[1], env, document, span)?;
+                Ok(Type::Border)
+            }
+            "border.with_radius" => {
+                if args.len() != 2 {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        "border.with_radius expects a border and radius value",
+                    ));
+                }
+                require_type(
+                    &expr_type(&args[0], env, document, span)?,
+                    &Type::Border,
+                    span,
+                )?;
+                require_radius_value(&args[1], env, document, span)?;
+                Ok(Type::Border)
+            }
+            "radius" | "radius.new" => {
+                if args.len() != 1 {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        format!("{name} expects one pixel value"),
+                    ));
+                }
+                require_pixel_value(&args[0], env, document, span)?;
+                Ok(Type::Radius)
+            }
+            "radius.default" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::Radius)
+            }
+            "radius.top_left"
+            | "radius.top_right"
+            | "radius.bottom_right"
+            | "radius.bottom_left"
+            | "radius.top"
+            | "radius.bottom"
+            | "radius.left"
+            | "radius.right" => {
+                if args.len() != 1 {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        format!("{name} expects one pixel value"),
+                    ));
+                }
+                require_pixel_value(&args[0], env, document, span)?;
+                Ok(Type::Radius)
+            }
+            "radius.with_top_left"
+            | "radius.with_top_right"
+            | "radius.with_bottom_right"
+            | "radius.with_bottom_left"
+            | "radius.with_top"
+            | "radius.with_bottom"
+            | "radius.with_left"
+            | "radius.with_right" => {
+                if args.len() != 2 {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        format!("{name} expects a radius and pixel value"),
+                    ));
+                }
+                require_type(
+                    &expr_type(&args[0], env, document, span)?,
+                    &Type::Radius,
+                    span,
+                )?;
+                require_pixel_value(&args[1], env, document, span)?;
+                Ok(Type::Radius)
+            }
+            "radius.from_f64" => {
+                check_builtin_args(name, args, &[Type::F64], env, document, span)?;
+                Ok(Type::Radius)
+            }
+            "radius.from_u8" => {
+                check_u8_literal(name, args, span)?;
+                Ok(Type::Radius)
+            }
+            "radius.from_u32" => {
+                check_u32_literal(name, args, span)?;
+                Ok(Type::Radius)
+            }
+            "radius.from_i32" => {
+                check_i32_literal(name, args, span)?;
+                Ok(Type::Radius)
+            }
+            "radius.try_from_u8" | "radius.try_from_u32" | "radius.try_from_i32" => {
+                check_builtin_args(name, args, &[Type::I64], env, document, span)?;
+                Ok(Type::Option(Box::new(Type::Radius)))
             }
             "shadow.default" => {
                 check_builtin_args(name, args, &[], env, document, span)?;
@@ -8548,6 +8789,9 @@ pub(crate) fn expr_type(
                         && matches!(
                             left,
                             Type::Padding
+                                | Type::Border
+                                | Type::Radius
+                                | Type::Shadow
                                 | Type::Point
                                 | Type::PointU32
                                 | Type::Vector
@@ -8717,6 +8961,17 @@ fn field_type(ty: &Type, field: &str, document: &Document, span: &Span) -> Resul
         },
         Type::Alignment | Type::HorizontalAlignment | Type::VerticalAlignment => match field {
             "kind" => Some(Type::Str),
+            _ => None,
+        },
+        Type::Border => match field {
+            "color" => Some(Type::Color),
+            "width" => Some(Type::F64),
+            "radius" => Some(Type::Radius),
+            _ => None,
+        },
+        Type::Radius => match field {
+            "top_left" | "top_right" | "bottom_right" | "bottom_left" => Some(Type::F64),
+            "values" => Some(Type::List(Box::new(Type::F64))),
             _ => None,
         },
         Type::Shadow => match field {
@@ -9129,6 +9384,33 @@ mod tests {
         .unwrap_err();
         assert_eq!(error.code, "E101");
         assert!(error.message.contains("expected `color`"));
+    }
+
+    #[test]
+    fn checks_native_border_and_radius_values() {
+        let source = include_str!("../../../examples/iced-app/src/ui/border_radius.ice");
+        analyze(source).unwrap();
+
+        let error = analyze(&source.replace(
+            "border.new(color.rgba(0.1, 0.2, 0.3, 0.4), pixels(2.0), radius(3.0))",
+            "border.new(color.rgba(0.1, 0.2, 0.3, 0.4), true, radius(3.0))",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E101");
+        assert!(error.message.contains("expected `f64` or `pixels`"));
+
+        let error =
+            analyze(&source.replace("radius.from_u8(10)", "radius.from_u8(256)")).unwrap_err();
+        assert_eq!(error.code, "E152");
+        assert!(error.message.contains("0..=255"));
+
+        let error = analyze(&source.replace(
+            "radii_equal = built_radius == returned_radius",
+            "radii_equal = built_radius < returned_radius",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E153");
+        assert!(error.message.contains("does not accept `radius`"));
     }
 
     #[test]
