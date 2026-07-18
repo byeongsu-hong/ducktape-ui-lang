@@ -58,6 +58,8 @@ pub fn parse(source: &str) -> Result<Document, Error> {
                     functions.push(parse_extern_fn(source, item, &path, ExternKind::Sip)?);
                 } else if let Some(source) = item.text.strip_prefix("recipe ") {
                     functions.push(parse_extern_fn(source, item, &path, ExternKind::Recipe)?);
+                } else if let Some(source) = item.text.strip_prefix("selector ") {
+                    functions.push(parse_extern_fn(source, item, &path, ExternKind::Selector)?);
                 } else if let Some(source) = item.text.strip_prefix("event-filter ") {
                     let function = parse_extern_fn(source, item, &path, ExternKind::EventFilter)?;
                     if !function.params.is_empty() {
@@ -1119,6 +1121,7 @@ fn parse_extern_fn(
             ExternKind::Component
                 | ExternKind::Shader
                 | ExternKind::Recipe
+                | ExternKind::Selector
                 | ExternKind::EventFilter
                 | ExternKind::Sync
                 | ExternKind::Subscription
@@ -2091,47 +2094,63 @@ fn parse_widget_operation(source: &str, line: &Line) -> Result<Statement, Error>
             line,
         )
     };
-    let operation = match parts.first().map(String::as_str) {
-        Some("focus-previous") if parts.len() == 1 => WidgetOperation::FocusPrevious,
-        Some("focus-next") if parts.len() == 1 => WidgetOperation::FocusNext,
-        Some("focus") if parts.len() == 2 => WidgetOperation::Focus { target: target(1)? },
-        Some("focused") if parts.len() == 2 => WidgetOperation::Focused { target: target(1)? },
-        Some("cursor-front") if parts.len() == 2 => {
-            WidgetOperation::CursorFront { target: target(1)? }
+    let operation = if let Some(selector) = source.strip_prefix("find-all ") {
+        WidgetOperation::Find {
+            selector: parse_widget_selector(selector.trim(), line)?,
+            all: true,
         }
-        Some("cursor-end") if parts.len() == 2 => WidgetOperation::CursorEnd { target: target(1)? },
-        Some("cursor") if parts.len() == 3 => WidgetOperation::Cursor {
-            target: target(1)?,
-            position: expr(2)?,
-        },
-        Some("select-all") if parts.len() == 2 => WidgetOperation::SelectAll { target: target(1)? },
-        Some("select") if parts.len() == 4 => WidgetOperation::Select {
-            target: target(1)?,
-            start: expr(2)?,
-            end: expr(3)?,
-        },
-        Some("snap") if parts.len() == 4 => WidgetOperation::Snap {
-            target: target(1)?,
-            x: expr(2)?,
-            y: expr(3)?,
-        },
-        Some("snap-end") if parts.len() == 2 => WidgetOperation::SnapEnd { target: target(1)? },
-        Some("scroll-to") if parts.len() == 4 => WidgetOperation::ScrollTo {
-            target: target(1)?,
-            x: expr(2)?,
-            y: expr(3)?,
-        },
-        Some("scroll-by") if parts.len() == 4 => WidgetOperation::ScrollBy {
-            target: target(1)?,
-            x: expr(2)?,
-            y: expr(3)?,
-        },
-        _ => {
-            return Err(error(
-                "E052",
-                line,
-                "unknown widget operation or wrong arguments",
-            ));
+    } else if let Some(selector) = source.strip_prefix("find ") {
+        WidgetOperation::Find {
+            selector: parse_widget_selector(selector.trim(), line)?,
+            all: false,
+        }
+    } else {
+        match parts.first().map(String::as_str) {
+            Some("focus-previous") if parts.len() == 1 => WidgetOperation::FocusPrevious,
+            Some("focus-next") if parts.len() == 1 => WidgetOperation::FocusNext,
+            Some("focus") if parts.len() == 2 => WidgetOperation::Focus { target: target(1)? },
+            Some("focused") if parts.len() == 2 => WidgetOperation::Focused { target: target(1)? },
+            Some("cursor-front") if parts.len() == 2 => {
+                WidgetOperation::CursorFront { target: target(1)? }
+            }
+            Some("cursor-end") if parts.len() == 2 => {
+                WidgetOperation::CursorEnd { target: target(1)? }
+            }
+            Some("cursor") if parts.len() == 3 => WidgetOperation::Cursor {
+                target: target(1)?,
+                position: expr(2)?,
+            },
+            Some("select-all") if parts.len() == 2 => {
+                WidgetOperation::SelectAll { target: target(1)? }
+            }
+            Some("select") if parts.len() == 4 => WidgetOperation::Select {
+                target: target(1)?,
+                start: expr(2)?,
+                end: expr(3)?,
+            },
+            Some("snap") if parts.len() == 4 => WidgetOperation::Snap {
+                target: target(1)?,
+                x: expr(2)?,
+                y: expr(3)?,
+            },
+            Some("snap-end") if parts.len() == 2 => WidgetOperation::SnapEnd { target: target(1)? },
+            Some("scroll-to") if parts.len() == 4 => WidgetOperation::ScrollTo {
+                target: target(1)?,
+                x: expr(2)?,
+                y: expr(3)?,
+            },
+            Some("scroll-by") if parts.len() == 4 => WidgetOperation::ScrollBy {
+                target: target(1)?,
+                x: expr(2)?,
+                y: expr(3)?,
+            },
+            _ => {
+                return Err(error(
+                    "E052",
+                    line,
+                    "unknown widget operation or wrong arguments",
+                ));
+            }
         }
     };
     Ok(Statement::WidgetOperation {
@@ -2141,6 +2160,38 @@ fn parse_widget_operation(source: &str, line: &Line) -> Result<Statement, Error>
             .transpose()?,
         span: Span::line(line.number),
     })
+}
+
+fn parse_widget_selector(source: &str, line: &Line) -> Result<WidgetSelector, Error> {
+    if let Some(target) = source.strip_prefix("id ") {
+        Ok(WidgetSelector::Id(parse_widget_target(
+            target.trim(),
+            line,
+        )?))
+    } else if let Some(value) = source.strip_prefix("text ") {
+        Ok(WidgetSelector::Text(parse_expr(value.trim(), line)?))
+    } else if let Some(values) = source.strip_prefix("point ") {
+        let values = split_words(values);
+        if values.len() != 2 {
+            return Err(error(
+                "E052",
+                line,
+                "point selector requires x and y expressions",
+            ));
+        }
+        Ok(WidgetSelector::Point {
+            x: parse_expr(&values[0], line)?,
+            y: parse_expr(&values[1], line)?,
+        })
+    } else if source == "focused" {
+        Ok(WidgetSelector::Focused)
+    } else {
+        let (function, args) = parse_signature(source, line)?;
+        Ok(WidgetSelector::Extern {
+            function,
+            args: parse_expr_list(&args, line)?,
+        })
+    }
 }
 
 fn parse_widget_target(source: &str, line: &Line) -> Result<WidgetTarget, Error> {
@@ -8197,6 +8248,8 @@ fn parse_type(source: &str, line: &Line) -> Result<Type, Error> {
         "event" => Type::Event,
         "instant" => Type::Instant,
         "window-id" => Type::WindowId,
+        "widget-id" => Type::WidgetId,
+        "widget-target" => Type::WidgetTarget,
         "task-handle" => Type::TaskHandle,
         "unit" => Type::Unit,
         value if value.chars().next().is_some_and(char::is_uppercase) => {
@@ -8980,6 +9033,47 @@ view
         .unwrap_err();
         assert_eq!(error.code, "E052");
         assert!(error.message.contains("#id(key)"));
+    }
+
+    #[test]
+    fn parses_widget_selectors() {
+        let source = include_str!("../../../examples/iced-app/src/ui/widget_selectors.ice");
+        let document = parse(source).unwrap();
+        assert_eq!(document.functions[0].kind, ExternKind::Selector);
+        assert!(matches!(
+            &document.handlers[0].statements[0],
+            Statement::WidgetOperation {
+                operation: WidgetOperation::Find {
+                    selector: WidgetSelector::Id(_),
+                    all: false,
+                },
+                ..
+            }
+        ));
+        assert!(matches!(
+            &document.handlers[4].statements[0],
+            Statement::WidgetOperation {
+                operation: WidgetOperation::Find {
+                    selector: WidgetSelector::Text(_),
+                    all: true,
+                },
+                ..
+            }
+        ));
+        assert!(matches!(
+            &document.handlers[5].statements[0],
+            Statement::WidgetOperation {
+                operation: WidgetOperation::Find {
+                    selector: WidgetSelector::Extern { function, args },
+                    all: true,
+                },
+                ..
+            } if function == "by_kind" && args.len() == 1
+        ));
+
+        let error = parse(&source.replace("point 12.0 24.0", "point 12.0")).unwrap_err();
+        assert_eq!(error.code, "E052");
+        assert!(error.message.contains("requires x and y"));
     }
 
     #[test]

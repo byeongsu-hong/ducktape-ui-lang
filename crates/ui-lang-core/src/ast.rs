@@ -33,6 +33,8 @@ pub enum Type {
     SystemInfo,
     Instant,
     WindowId,
+    WidgetId,
+    WidgetTarget,
     TaskHandle,
     Named(String),
     Unit,
@@ -67,6 +69,8 @@ impl Type {
             Self::SystemInfo => "__IceSystemInfo".into(),
             Self::Instant => "::iced::time::Instant".into(),
             Self::WindowId => "::iced::window::Id".into(),
+            Self::WidgetId => "::iced::widget::Id".into(),
+            Self::WidgetTarget => "__IceWidgetTarget".into(),
             Self::TaskHandle => "::iced::task::Handle".into(),
             Self::Named(name) => structs
                 .iter()
@@ -100,6 +104,8 @@ impl Type {
             Self::SystemInfo => "system-info".into(),
             Self::Instant => "instant".into(),
             Self::WindowId => "window-id".into(),
+            Self::WidgetId => "widget-id".into(),
+            Self::WidgetTarget => "widget-target".into(),
             Self::TaskHandle => "task-handle".into(),
             Self::Named(name) => name.clone(),
             Self::Unit => "unit".into(),
@@ -361,6 +367,7 @@ pub enum ExternKind {
     Stream,
     Sip,
     Recipe,
+    Selector,
     EventFilter,
     Sync,
     Subscription,
@@ -718,11 +725,24 @@ pub enum WidgetOperation {
         x: Expr,
         y: Expr,
     },
+    Find {
+        selector: WidgetSelector,
+        all: bool,
+    },
 }
 
 #[derive(Clone, Debug)]
 pub struct WidgetTarget {
     pub segments: Vec<Id>,
+}
+
+#[derive(Clone, Debug)]
+pub enum WidgetSelector {
+    Id(WidgetTarget),
+    Text(Expr),
+    Point { x: Expr, y: Expr },
+    Focused,
+    Extern { function: String, args: Vec<Expr> },
 }
 
 #[derive(Clone, Debug)]

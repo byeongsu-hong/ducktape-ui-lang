@@ -17,6 +17,7 @@ pub fn generate(document: &Document, source_path: &str) -> Result<String, Error>
     generate_keyboard_types(&mut out, document);
     generate_mouse_types(&mut out, document);
     generate_system_types(&mut out, document);
+    generate_widget_selector_types(&mut out, document);
     generate_canvas_types(&mut out, document);
 
     writeln!(out, "#[derive(Debug)]\npub struct {} {{", document.app).unwrap();
@@ -528,6 +529,7 @@ struct __IceSystemInfo {
     graphics_backend: ::std::string::String,
     graphics_adapter: ::std::string::String,
 }
+
 fn __ice_system_info(value: ::iced::system::Information) -> __IceSystemInfo {
     __IceSystemInfo {
         system_name: value.system_name,
@@ -557,6 +559,114 @@ fn __ice_system_info(value: ::iced::system::Information) -> __IceSystemInfo {
 "#,
         );
     }
+}
+
+fn generate_widget_selector_types(out: &mut String, document: &Document) {
+    let uses_builtin = |statements: &[Statement]| {
+        statements_use_widget_selector(statements, |selector| {
+            !matches!(selector, WidgetSelector::Extern { .. })
+        })
+    };
+    if !document
+        .handlers
+        .iter()
+        .any(|handler| uses_builtin(&handler.statements))
+        && !document
+            .presets
+            .iter()
+            .any(|preset| uses_builtin(&preset.statements))
+    {
+        return;
+    }
+    out.push_str(
+        r#"#[derive(Debug, Clone)]
+struct __IceWidgetTarget {
+    kind: ::std::string::String,
+    id: ::std::option::Option<::iced::widget::Id>,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+    visible_x: ::std::option::Option<f64>,
+    visible_y: ::std::option::Option<f64>,
+    visible_width: ::std::option::Option<f64>,
+    visible_height: ::std::option::Option<f64>,
+    content: ::std::option::Option<::std::string::String>,
+    content_x: ::std::option::Option<f64>,
+    content_y: ::std::option::Option<f64>,
+    content_width: ::std::option::Option<f64>,
+    content_height: ::std::option::Option<f64>,
+    translation_x: ::std::option::Option<f64>,
+    translation_y: ::std::option::Option<f64>,
+}
+fn __ice_widget_target(
+    kind: &str,
+    id: ::std::option::Option<::iced::widget::Id>,
+    bounds: ::iced::Rectangle,
+    visible: ::std::option::Option<::iced::Rectangle>,
+    content: ::std::option::Option<::std::string::String>,
+    content_bounds: ::std::option::Option<::iced::Rectangle>,
+    translation: ::std::option::Option<::iced::Vector>,
+) -> __IceWidgetTarget {
+    __IceWidgetTarget {
+        kind: kind.to_owned(),
+        id,
+        x: bounds.x as f64,
+        y: bounds.y as f64,
+        width: bounds.width as f64,
+        height: bounds.height as f64,
+        visible_x: visible.map(|bounds| bounds.x as f64),
+        visible_y: visible.map(|bounds| bounds.y as f64),
+        visible_width: visible.map(|bounds| bounds.width as f64),
+        visible_height: visible.map(|bounds| bounds.height as f64),
+        content,
+        content_x: content_bounds.map(|bounds| bounds.x as f64),
+        content_y: content_bounds.map(|bounds| bounds.y as f64),
+        content_width: content_bounds.map(|bounds| bounds.width as f64),
+        content_height: content_bounds.map(|bounds| bounds.height as f64),
+        translation_x: translation.map(|translation| translation.x as f64),
+        translation_y: translation.map(|translation| translation.y as f64),
+    }
+}
+fn __ice_widget_target_from_target(value: ::iced::widget::selector::Target) -> __IceWidgetTarget {
+    use ::iced::widget::selector::Target;
+    match value {
+        Target::Container { id, bounds, visible_bounds } => __ice_widget_target("container", id, bounds, visible_bounds, None, None, None),
+        Target::Focusable { id, bounds, visible_bounds } => __ice_widget_target("focusable", id, bounds, visible_bounds, None, None, None),
+        Target::Scrollable { id, bounds, visible_bounds, content_bounds, translation } => __ice_widget_target("scrollable", id, bounds, visible_bounds, None, Some(content_bounds), Some(translation)),
+        Target::TextInput { id, bounds, visible_bounds, content } => __ice_widget_target("text-input", id, bounds, visible_bounds, Some(content), None, None),
+        Target::Text { id, bounds, visible_bounds, content } => __ice_widget_target("text", id, bounds, visible_bounds, Some(content), None, None),
+        Target::Custom { id, bounds, visible_bounds } => __ice_widget_target("custom", id, bounds, visible_bounds, None, None, None),
+    }
+}
+fn __ice_widget_target_from_text(value: ::iced::widget::selector::Text) -> __IceWidgetTarget {
+    use ::iced::widget::selector::Text;
+    match value {
+        Text::Raw { id, bounds, visible_bounds } => __ice_widget_target("text", id, bounds, visible_bounds, None, None, None),
+        Text::Input { id, bounds, visible_bounds } => __ice_widget_target("text-input", id, bounds, visible_bounds, None, None, None),
+    }
+}
+"#,
+    );
+}
+
+fn statements_use_widget_selector(
+    statements: &[Statement],
+    predicate: impl Copy + Fn(&WidgetSelector) -> bool,
+) -> bool {
+    statements.iter().any(|statement| match statement {
+        Statement::WidgetOperation {
+            operation: WidgetOperation::Find { selector, .. },
+            ..
+        } => predicate(selector),
+        Statement::TaskGroup { statements, .. } => {
+            statements_use_widget_selector(statements, predicate)
+        }
+        Statement::Abortable { task, .. } => {
+            statements_use_widget_selector(::std::slice::from_ref(task), predicate)
+        }
+        _ => false,
+    })
 }
 
 fn generate_canvas_types(out: &mut String, document: &Document) {
@@ -800,6 +910,12 @@ fn generate_extern_probes(out: &mut String, document: &Document) {
             ExternKind::Recipe => writeln!(
                 out,
                 "#[allow(dead_code)] fn __ui_lang_check_recipe_{}({params}) {{ let __recipe = {}({args}); fn __accept<R: ::iced::advanced::subscription::Recipe<Output = {output}>>(_: &R) {{}} __accept(&__recipe); }}",
+                item.name, item.rust_path
+            )
+            .unwrap(),
+            ExternKind::Selector => writeln!(
+                out,
+                "#[allow(dead_code)] fn __ui_lang_check_selector_{}({params}) {{ let _: ::iced::Task<::std::option::Option<{output}>> = ::iced::widget::selector::find({}({args})); }}",
                 item.name, item.rust_path
             )
             .unwrap(),
@@ -2456,6 +2572,21 @@ fn generate_statements(
                         value(x, "f32")?,
                         value(y, "f32")?
                     ),
+                    WidgetOperation::Find { selector, all } => {
+                        let route = route.as_ref().expect("checker requires selector route");
+                        let (selector, conversion) = widget_selector_code(selector, env, document)?;
+                        let function = if *all { "find_all" } else { "find" };
+                        let mut task = format!("::iced::widget::selector::{function}({selector})");
+                        if let Some(conversion) = conversion {
+                            if *all {
+                                write!(task, ".map(|values| values.into_iter().map({conversion}).collect::<::std::vec::Vec<_>>())").unwrap();
+                            } else {
+                                write!(task, ".map(|value| value.map({conversion}))").unwrap();
+                            }
+                        }
+                        let message_code = route_code(route, "value", env, document, message)?;
+                        format!("{task}.map(move |value| {message_code})")
+                    }
                 };
                 writeln!(
                     out,
@@ -7222,22 +7353,35 @@ fn expr_code(
             })?;
             let mut code = binding.code.clone();
             let mut ty = binding.ty.clone();
+            let mut owned_projection = false;
             for field in &path[1..] {
+                if let Type::Option(inner) = &ty
+                    && **inner == Type::WidgetTarget
+                {
+                    code = format!("({code}).as_ref().map(|value| value.{field}.clone())");
+                    ty = Type::Option(Box::new(
+                        widget_target_field_type(field).unwrap_or(Type::Unknown),
+                    ));
+                    owned_projection = true;
+                    continue;
+                }
                 write!(code, ".{field}").unwrap();
-                if let Type::Named(name) = ty {
+                if let Type::Named(name) = &ty {
                     ty = document
                         .structs
                         .iter()
-                        .find(|item| item.name == name)
+                        .find(|item| item.name == *name)
                         .and_then(|item| item.fields.iter().find(|(name, _)| name == field))
                         .map(|(_, ty)| ty.clone())
                         .unwrap_or(Type::Unknown);
+                } else if ty == Type::WidgetTarget {
+                    ty = widget_target_field_type(field).unwrap_or(Type::Unknown);
                 }
             }
-            if matches!(mode, ValueMode::Owned)
-                && !matches!(ty, Type::Bool | Type::I64 | Type::F64 | Type::Unit)
-                && !(binding.local && path.len() == 1)
-            {
+            let clone_unnecessary = matches!(ty, Type::Bool | Type::I64 | Type::F64 | Type::Unit)
+                || (binding.local && path.len() == 1)
+                || owned_projection;
+            if matches!(mode, ValueMode::Owned) && !clone_unnecessary {
                 code.push_str(".clone()");
             }
             code
@@ -7342,6 +7486,20 @@ fn expr_code(
             )
         }
     })
+}
+
+fn widget_target_field_type(field: &str) -> Option<Type> {
+    match field {
+        "kind" => Some(Type::Str),
+        "id" => Some(Type::Option(Box::new(Type::WidgetId))),
+        "x" | "y" | "width" | "height" => Some(Type::F64),
+        "visible_x" | "visible_y" | "visible_width" | "visible_height" | "content_x"
+        | "content_y" | "content_width" | "content_height" | "translation_x" | "translation_y" => {
+            Some(Type::Option(Box::new(Type::F64)))
+        }
+        "content" => Some(Type::Option(Box::new(Type::Str))),
+        _ => None,
+    }
 }
 
 fn u32_code(
@@ -9727,6 +9885,56 @@ fn widget_target_code(
         scope = id_code(segment, &scope, env, document)?;
     }
     Ok(format!("::iced::widget::Id::from({scope})"))
+}
+
+fn widget_selector_code(
+    selector: &WidgetSelector,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<(String, Option<&'static str>), Error> {
+    match selector {
+        WidgetSelector::Id(target) => Ok((
+            format!(
+                "::iced::widget::selector::id({})",
+                widget_target_code(target, env, document)?
+            ),
+            Some("__ice_widget_target_from_target"),
+        )),
+        WidgetSelector::Text(value) => Ok((
+            expr_code(value, env, document, ValueMode::Owned)?,
+            Some("__ice_widget_target_from_text"),
+        )),
+        WidgetSelector::Point { x, y } => Ok((
+            format!(
+                "::iced::Point::new(({}) as f32, ({}) as f32)",
+                expr_code(x, env, document, ValueMode::Owned)?,
+                expr_code(y, env, document, ValueMode::Owned)?
+            ),
+            Some("__ice_widget_target_from_target"),
+        )),
+        WidgetSelector::Focused => Ok((
+            "::iced::widget::selector::is_focused()".into(),
+            Some("__ice_widget_target_from_target"),
+        )),
+        WidgetSelector::Extern { function, args } => {
+            let function = document
+                .functions
+                .iter()
+                .find(|item| item.name == *function && item.kind == ExternKind::Selector)
+                .expect("checker validates selectors");
+            Ok((
+                format!(
+                    "{}({})",
+                    function.rust_path,
+                    args.iter()
+                        .map(|arg| expr_code(arg, env, document, ValueMode::Owned))
+                        .collect::<Result<Vec<_>, _>>()?
+                        .join(", ")
+                ),
+                None,
+            ))
+        }
+    }
 }
 
 #[derive(Default)]
@@ -12509,6 +12717,29 @@ view
             "format!(\"{}/cell\", format!(\"{}/column({})\", format!(\"{}/row({})\", \"ScopedOperations\", self.row_index), self.column_index))",
         ] {
             assert!(generated.contains(path), "missing {path}");
+        }
+    }
+
+    #[test]
+    fn lowers_widget_selectors() {
+        let source = include_str!("../../../examples/iced-app/src/ui/widget_selectors.ice");
+        let generated = compile(source, "widget_selectors.ice").unwrap();
+
+        for expected in [
+            "struct __IceWidgetTarget",
+            "fn __ice_widget_target_from_target",
+            "fn __ice_widget_target_from_text",
+            "::iced::widget::selector::find(::iced::widget::selector::id(",
+            "::iced::widget::selector::find(\"Search\".to_owned())",
+            "::iced::widget::selector::find(::iced::Point::new(",
+            "::iced::widget::selector::is_focused()",
+            "::iced::widget::selector::find_all(\"Search\".to_owned())",
+            "::iced::widget::selector::find_all(crate::backend::by_kind(",
+            "fn __ui_lang_check_selector_by_kind",
+            ".as_ref().map(|value| value.kind.clone())",
+            ".as_ref().map(|value| value.x.clone())",
+        ] {
+            assert!(generated.contains(expected), "missing {expected}");
         }
     }
 

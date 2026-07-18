@@ -1,4 +1,4 @@
-# Ice Language Specification 1.21
+# Ice Language Specification 1.22
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 1.21 syntax.
+marked “planned” is a design constraint, not accepted 1.22 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 1.21.
+  block comments are not part of 1.22.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -160,6 +160,7 @@ window_platform = "platform" "linux" INDENT
 
 extern_decl    = "extern" rust_path INDENT extern_item+
 extern_item    = struct_sig | function_sig | extern_component_sig
+               | extern_selector_sig
                | extern_shader_sig | extern_task_sig | extern_stream_sig
                | extern_sip_sig | extern_recipe_sig | extern_event_filter_sig
                | extern_sync_sig | extern_subscription_sig
@@ -179,6 +180,7 @@ field_list     = field ("," field)*
 field          = name ":" type
 type           = "bool" | "i64" | "f64" | "str" | "bytes" | "image"
                | "markdown" | "editor" | "event" | "instant" | "window-id"
+               | "widget-id" | "widget-target"
                | "task-handle" | "unit"
                | PascalName
                | "[" type "]" | type "?" | "result[" type "," type "]"
@@ -186,6 +188,8 @@ type           = "bool" | "i64" | "f64" | "str" | "bytes" | "image"
 function_sig   = name "(" field_list? ")" "->" type ("!" type)?
 extern_component_sig
                = "component" name "(" field_list? ")" "->" type
+extern_selector_sig
+               = "selector" name "(" field_list? ")" "->" type
 extern_shader_sig
                = "shader" name "(" field_list? ")" "->" type
 extern_task_sig = "task" name "(" field_list? ")" "->" type ("!" type)?
@@ -326,6 +330,9 @@ widget_operation = "focus-previous" | "focus-next"
                  | "cursor" widget_target expr
                  | "select" widget_target expr expr
                  | ("snap" | "scroll-to" | "scroll-by") widget_target expr expr
+                 | ("find" | "find-all") widget_selector
+widget_selector = "id" widget_target | "text" expr | "point" expr expr
+                | "focused" | call
 widget_target  = "#" widget_target_segment
                  ("/" "#"? widget_target_segment)*
 widget_target_segment = kebab_name | component_name | name "(" expr ")"
@@ -983,7 +990,7 @@ maximum size. `icon-rgba` embeds a relative raw RGBA file without an image
 codec; width and height are positive integers, and generated Rust rejects a
 byte length other than `width × height × 4`. `cargo ice check` reports a
 mismatch at the icon declaration, and generated Rust repeats the check at
-compile time. Encoded icon formats remain outside 1.21.
+compile time. Encoded icon formats remain outside 1.22.
 
 Application boot presets are structured top-level declarations:
 
@@ -1534,7 +1541,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 1.21 message payloads.
+`Clone` for 1.22 message payloads.
 
 Declared `sync` functions are checked, synchronous Rust calls available in
 Ice expressions. They are the small escape hatch for pure domain conversions
@@ -1552,12 +1559,13 @@ This declaration requires
 actual Rust signature. A sync function cannot declare `! Error` because it
 returns its value directly.
 
-Twenty-eight typed iced adapters expose framework capabilities without embedding Rust
+Twenty-nine typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
 
 ```ice
 extern crate::backend
   component native_help(active:bool) -> bool
+  selector by_kind(kind:str) -> str
   shader status_shader(speed:f64) -> bool
   task copy_text(text:str) -> unit
   stream task_steps(count:i64) -> i64
@@ -1588,6 +1596,7 @@ Their Rust signatures are:
 
 ```rust
 fn native_help(active: bool) -> iced::Element<'static, bool>;
+fn by_kind(kind: String) -> impl iced::widget::selector::Selector<Output = String>;
 fn status_shader(speed: f64) -> impl iced::widget::shader::Program<bool>;
 fn copy_text(text: String) -> iced::Task<()>;
 fn task_steps(count: i64) -> impl iced::futures::Stream<Item = i64> + Send + 'static;
@@ -1623,6 +1632,12 @@ checked route:
 ```ice
 shader status_shader(1.0) width=fill height=32.0 -> shader_hovered _
 ```
+
+A selector factory returns any concrete `widget::selector::Selector`. Ice passes
+its declared arguments, preserves its declared output type, and uses the result
+with native `find` or `find_all`. The consumer must enable iced's `selector`
+feature. Built-in selectors produce Ice's normalized `widget-target` value;
+custom selectors should use ordinary declared output types.
 
 A task returns `Task<Event>` or `Task<Result<Event, Error>>`. A stream returns
 any static `Stream<Item = Event>` or `Stream<Item = Result<Event, Error>>` that
@@ -1662,7 +1677,7 @@ pick-list/combo overlay menu Style.
 
 Generated probes type-check every declaration
 against the actual Rust item. Extern component, shader, recipe, event-filter,
-sync, subscription, window, Markdown viewer, editor extension, and widget style declarations are
+sync, selector, subscription, window, Markdown viewer, editor extension, and widget style declarations are
 infallible; errors are ordinary event payloads when an adapter needs them.
 Shader programs retain native control of `State`, `Primitive`, GPU
 pipeline/storage, event actions, redraws, capture, and mouse interaction. The
@@ -2670,8 +2685,37 @@ focus and focus query; cursor front/end/position; select all/range; relative
 snap/end; and absolute scroll-to/scroll-by. Effects have no route and
 `focused` requires a `bool` route. Cursor and selection positions are
 non-negative `i64`; relative offsets are `f64` in `0.0..=1.0`; absolute
-offsets are unrestricted `f64`. The feature-gated selector API remains outside
-1.21; direct operations cover every concrete static or dynamic identity path.
+offsets are unrestricted `f64`.
+
+Feature-gated native widget selectors use the same checked paths and ordinary
+Ice expressions:
+
+```ice
+state
+  found:widget-target? = none
+  matches:[widget-target] = []
+
+on inspect
+  task widget find id #dialog(selected)/TaskField/title -> found_one _
+
+on inspect_text
+  task widget find-all text "Title" -> found_many _
+
+on inspect_point
+  task widget find point 12.0 24.0 -> found_one _
+
+on inspect_focus
+  task widget find focused -> found_one _
+```
+
+`find` emits an optional result and `find-all` emits a list. Built-in `id`,
+`text`, `point`, and `focused` selectors return `widget-target`, including its
+kind, optional native `widget-id`, bounds, visible bounds, text content,
+scrollable content bounds and translation when the selected target provides
+them. Fields unavailable for a target kind are optional. A custom selector
+call such as `find-all by_kind("text")` emits the selector declaration's output
+type instead. Reading a field through `widget-target?` lifts that field into an
+optional result. The consumer must enable iced's `selector` feature.
 
 Persistent pane grids expose their native layout-state operations directly in
 handlers:
@@ -2925,7 +2969,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 1.21 does not claim that remapping.
+extern line; 1.22 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -2946,12 +2990,12 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 1.21 native backend is enough for CRUD/settings-style screens, selection,
+The 1.22 native backend is enough for CRUD/settings-style screens, selection,
 media, hover overlays, declarative canvas geometry, and common pointer events,
 not all of iced. It still lacks direct syntax for arbitrary custom overlays,
 and custom widgets. [`COVERAGE.md`](COVERAGE.md) is the exact versioned ledger.
 
-The language must not grow one ad-hoc syntax form for every iced API. Twenty-eight
+The language must not grow one ad-hoc syntax form for every iced API. Twenty-nine
 typed Rust boundaries cover domain work, native elements and programs, runtime
 tasks and subscriptions, Markdown viewers, and native style callbacks without
 admitting arbitrary Rust into expressions or duplicating iced in the core
@@ -2981,7 +3025,7 @@ compile-tested widget example is
 [`examples/iced-app/src/ui/showcase.ice`](examples/iced-app/src/ui/showcase.ice).
 Together they exercise
 state inference, typed extern structs/functions, mount and result handlers,
-direct and component-prop input/editor binding, complete typed time tasks/subscriptions, typed generic/keyboard/mouse/touch/input-method/system subscriptions with status filters, static, repeated, and hierarchically scoped widget operations, system tasks, clipboard effects, `if`, `for`, native keyed columns and lazy subtrees, parsed Markdown, structured tables, pure components, structured and compound component composition,
+direct and component-prop input/editor binding, complete typed time tasks/subscriptions, typed generic/keyboard/mouse/touch/input-method/system subscriptions with status filters, static, repeated, and hierarchically scoped widget operations, built-in and custom widget selectors, system tasks, clipboard effects, `if`, `for`, native keyed columns and lazy subtrees, parsed Markdown, structured tables, pure components, structured and compound component composition,
 dynamic component IDs,
 theme utilities, disabled controls, fallible asynchronous tasks, complete
 wrapping row/column layouts, grids and fully sized underlay stacks, toggles,
