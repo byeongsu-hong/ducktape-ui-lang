@@ -3540,9 +3540,11 @@ fn lazy_hashable(ty: &Type) -> bool {
         | Type::KeyPress
         | Type::KeyRelease
         | Type::Point
+        | Type::PointU32
         | Type::Vector
         | Type::Size
         | Type::Rectangle
+        | Type::RectangleU32
         | Type::Transformation
         | Type::MouseCursor
         | Type::MouseClick
@@ -6530,6 +6532,53 @@ fn check_builtin_args(
     Ok(())
 }
 
+fn check_u32_literals(name: &str, args: &[Expr], span: &Span) -> Result<(u32, u32), Error> {
+    let [Expr::I64(first), Expr::I64(second)] = args else {
+        return Err(Error::new(
+            "E152",
+            span,
+            format!("{name} expects two integer literals"),
+        ));
+    };
+    let (Ok(first), Ok(second)) = (u32::try_from(*first), u32::try_from(*second)) else {
+        return Err(Error::new(
+            "E152",
+            span,
+            format!("{name} dimensions must be in 0..={}", u32::MAX),
+        ));
+    };
+    Ok((first, second))
+}
+
+fn arithmetic_type(left: &Type, op: BinaryOp, right: &Type) -> Option<Type> {
+    if matches!(left, Type::I64 | Type::F64) && left == right {
+        return Some(left.clone());
+    }
+    match (left, op, right) {
+        (Type::Point, BinaryOp::Add | BinaryOp::Sub, Type::Vector) => Some(Type::Point),
+        (Type::Point, BinaryOp::Sub, Type::Point) => Some(Type::Vector),
+        (Type::Vector, BinaryOp::Add | BinaryOp::Sub, Type::Vector) => Some(Type::Vector),
+        (Type::Vector, BinaryOp::Mul | BinaryOp::Div, Type::F64) => Some(Type::Vector),
+        (Type::Size, BinaryOp::Add | BinaryOp::Sub, Type::Size) => Some(Type::Size),
+        (Type::Size, BinaryOp::Mul, Type::Vector) => Some(Type::Size),
+        (Type::Size, BinaryOp::Mul | BinaryOp::Div, Type::F64) => Some(Type::Size),
+        (Type::Rectangle, BinaryOp::Add | BinaryOp::Sub, Type::Vector) => Some(Type::Rectangle),
+        (Type::Rectangle, BinaryOp::Mul, Type::F64) => Some(Type::Rectangle),
+        (Type::Transformation, BinaryOp::Mul, Type::Transformation) => Some(Type::Transformation),
+        (
+            Type::Point
+            | Type::Vector
+            | Type::Size
+            | Type::Rectangle
+            | Type::MouseCursor
+            | Type::MouseClick,
+            BinaryOp::Mul,
+            Type::Transformation,
+        ) => Some(left.clone()),
+        _ => None,
+    }
+}
+
 pub(crate) fn expr_type(
     expr: &Expr,
     env: &HashMap<String, Type>,
@@ -6589,29 +6638,220 @@ pub(crate) fn expr_type(
                 )?;
                 Ok(Type::Rectangle)
             }
+            "point.origin" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::Point)
+            }
+            "point.distance" => {
+                check_builtin_args(name, args, &[Type::Point, Type::Point], env, document, span)?;
+                Ok(Type::F64)
+            }
+            "point.snap" => {
+                check_builtin_args(name, args, &[Type::Point], env, document, span)?;
+                Ok(Type::PointU32)
+            }
+            "vector.zero" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::Vector)
+            }
+            "size.zero" | "size.unit" | "size.infinite" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::Size)
+            }
+            "size.min" | "size.max" | "size.expand" => {
+                check_builtin_args(name, args, &[Type::Size, Type::Size], env, document, span)?;
+                Ok(Type::Size)
+            }
+            "size.rotate" | "size.ratio" => {
+                check_builtin_args(name, args, &[Type::Size, Type::F64], env, document, span)?;
+                Ok(Type::Size)
+            }
+            "size.from_vector" => {
+                check_builtin_args(name, args, &[Type::Vector], env, document, span)?;
+                Ok(Type::Size)
+            }
+            "vector.from_size" => {
+                check_builtin_args(name, args, &[Type::Size], env, document, span)?;
+                Ok(Type::Vector)
+            }
+            "size.from_u32" => {
+                check_u32_literals(name, args, span)?;
+                Ok(Type::Size)
+            }
+            "size.try_from_u32" => {
+                check_builtin_args(name, args, &[Type::I64, Type::I64], env, document, span)?;
+                Ok(Type::Option(Box::new(Type::Size)))
+            }
+            "rectangle.zero" | "rectangle.infinite" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::Rectangle)
+            }
+            "rectangle.with_size" => {
+                check_builtin_args(name, args, &[Type::Size], env, document, span)?;
+                Ok(Type::Rectangle)
+            }
+            "rectangle.with_radius" => {
+                check_builtin_args(name, args, &[Type::F64], env, document, span)?;
+                Ok(Type::Rectangle)
+            }
+            "rectangle.with_vertices" | "rectangle.vertices_rotation" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::Point, Type::Point, Type::Point],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(if name == "rectangle.with_vertices" {
+                    Type::Rectangle
+                } else {
+                    Type::F64
+                })
+            }
+            "rectangle.contains" | "rectangle.distance" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::Rectangle, Type::Point],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(if name == "rectangle.contains" {
+                    Type::Bool
+                } else {
+                    Type::F64
+                })
+            }
+            "rectangle.offset" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::Rectangle, Type::Rectangle],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::Vector)
+            }
+            "rectangle.is_within" | "rectangle.intersects" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::Rectangle, Type::Rectangle],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::Bool)
+            }
+            "rectangle.intersection" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::Rectangle, Type::Rectangle],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::Option(Box::new(Type::Rectangle)))
+            }
+            "rectangle.union" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::Rectangle, Type::Rectangle],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::Rectangle)
+            }
+            "rectangle.snap" => {
+                check_builtin_args(name, args, &[Type::Rectangle], env, document, span)?;
+                Ok(Type::Option(Box::new(Type::RectangleU32)))
+            }
+            "rectangle.expand" | "rectangle.shrink" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::Rectangle, Type::F64, Type::F64, Type::F64, Type::F64],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::Rectangle)
+            }
+            "rectangle.rotate" | "rectangle.zoom" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::Rectangle, Type::F64],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::Rectangle)
+            }
+            "rectangle.anchor" => {
+                if args.len() != 4 {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        "rectangle.anchor expects a rectangle, size, horizontal alignment, and vertical alignment",
+                    ));
+                }
+                require_type(
+                    &expr_type(&args[0], env, document, span)?,
+                    &Type::Rectangle,
+                    span,
+                )?;
+                require_type(
+                    &expr_type(&args[1], env, document, span)?,
+                    &Type::Size,
+                    span,
+                )?;
+                let Expr::Str(horizontal) = &args[2] else {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        "rectangle.anchor horizontal alignment must be left, center, or right",
+                    ));
+                };
+                let Expr::Str(vertical) = &args[3] else {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        "rectangle.anchor vertical alignment must be top, center, or bottom",
+                    ));
+                };
+                if !matches!(horizontal.as_str(), "left" | "center" | "right") {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        "rectangle.anchor horizontal alignment must be left, center, or right",
+                    ));
+                }
+                if !matches!(vertical.as_str(), "top" | "center" | "bottom") {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        "rectangle.anchor vertical alignment must be top, center, or bottom",
+                    ));
+                }
+                Ok(Type::Point)
+            }
+            "rectangle.from_u32" => {
+                check_builtin_args(name, args, &[Type::RectangleU32], env, document, span)?;
+                Ok(Type::Rectangle)
+            }
             "transform.identity" => {
                 check_builtin_args(name, args, &[], env, document, span)?;
                 Ok(Type::Transformation)
             }
             "transform.orthographic" => {
-                let [Expr::I64(width), Expr::I64(height)] = args.as_slice() else {
-                    return Err(Error::new(
-                        "E152",
-                        span,
-                        "transform.orthographic expects two integer literals",
-                    ));
-                };
-                if !(0..=u32::MAX as i64).contains(width) || !(0..=u32::MAX as i64).contains(height)
-                {
-                    return Err(Error::new(
-                        "E152",
-                        span,
-                        format!(
-                            "transform.orthographic dimensions must be in 0..={}",
-                            u32::MAX
-                        ),
-                    ));
-                }
+                check_u32_literals(name, args, span)?;
                 Ok(Type::Transformation)
             }
             "transform.try_orthographic" => {
@@ -7092,11 +7332,13 @@ pub(crate) fn expr_type(
                     require_type(&actual, &Type::Bool, span)?;
                     Ok(Type::Bool)
                 }
-                UnaryOp::Neg if matches!(actual, Type::I64 | Type::F64) => Ok(actual),
+                UnaryOp::Neg if matches!(actual, Type::I64 | Type::F64 | Type::Vector) => {
+                    Ok(actual)
+                }
                 UnaryOp::Neg => Err(Error::new(
                     "E153",
                     span,
-                    "numeric negation expects i64 or f64",
+                    "negation expects i64, f64, or vector",
                 )),
             }
         }
@@ -7129,20 +7371,42 @@ pub(crate) fn expr_type(
                             "mouse-click values are opaque; compare their kind or position",
                         ));
                     }
-                    require_type(&left, &right, span)?;
-                    Ok(Type::Bool)
-                }
-                _ => {
-                    if !matches!(left, Type::I64 | Type::F64) {
+                    if !matches!(op, BinaryOp::Eq | BinaryOp::NotEq)
+                        && matches!(
+                            left,
+                            Type::Point
+                                | Type::PointU32
+                                | Type::Vector
+                                | Type::Size
+                                | Type::Rectangle
+                                | Type::RectangleU32
+                                | Type::Transformation
+                        )
+                    {
                         return Err(Error::new(
                             "E153",
                             span,
-                            "arithmetic expects numeric values",
+                            format!(
+                                "operator `{op:?}` does not accept `{}` and `{}`",
+                                left.display(),
+                                right.display()
+                            ),
                         ));
                     }
                     require_type(&left, &right, span)?;
-                    Ok(left)
+                    Ok(Type::Bool)
                 }
+                _ => arithmetic_type(&left, *op, &right).ok_or_else(|| {
+                    Error::new(
+                        "E153",
+                        span,
+                        format!(
+                            "operator `{op:?}` does not accept `{}` and `{}`",
+                            left.display(),
+                            right.display()
+                        ),
+                    )
+                }),
             }
         }
     }
@@ -7235,18 +7499,33 @@ fn field_type(ty: &Type, field: &str, document: &Document, span: &Span) -> Resul
         },
         Type::Point => match field {
             "x" | "y" => Some(Type::F64),
+            "values" => Some(Type::List(Box::new(Type::F64))),
+            "display" => Some(Type::Str),
+            _ => None,
+        },
+        Type::PointU32 => match field {
+            "x" | "y" => Some(Type::I64),
             _ => None,
         },
         Type::Vector => match field {
             "x" | "y" => Some(Type::F64),
+            "values" => Some(Type::List(Box::new(Type::F64))),
             _ => None,
         },
         Type::Size => match field {
             "width" | "height" => Some(Type::F64),
+            "values" => Some(Type::List(Box::new(Type::F64))),
             _ => None,
         },
         Type::Rectangle => match field {
             "x" | "y" | "width" | "height" => Some(Type::F64),
+            "center" | "position" => Some(Type::Point),
+            "center_x" | "center_y" | "area" => Some(Type::F64),
+            "size" => Some(Type::Size),
+            _ => None,
+        },
+        Type::RectangleU32 => match field {
+            "x" | "y" | "width" | "height" => Some(Type::I64),
             _ => None,
         },
         Type::Transformation => match field {
@@ -7918,6 +8197,79 @@ view
                 "translation = combined.missing",
                 "E151",
                 "has no field `missing`",
+            ),
+        ] {
+            let error = analyze(&source.replacen(from, to, 1)).unwrap_err();
+            assert_eq!(error.code, code, "{from} -> {to}: {error:?}");
+            assert!(error.message.contains(message), "{from} -> {to}: {error:?}");
+        }
+    }
+
+    #[test]
+    fn checks_native_geometry_values() {
+        let source = include_str!("../../../examples/iced-app/src/ui/geometry_values.ice");
+        let document = analyze(source).unwrap();
+        assert_eq!(document.functions[0].output, Type::RectangleU32);
+        assert_eq!(document.functions[1].params[1].1, Type::PointU32);
+        assert_eq!(
+            document.functions[1].params[5].1,
+            Type::Option(Box::new(Type::RectangleU32))
+        );
+
+        for (from, to, code, message) in [
+            (
+                "point.origin()",
+                "point.origin(1)",
+                "E152",
+                "expects 0 argument(s)",
+            ),
+            (
+                "size.from_u32(640, 480)",
+                "size.from_u32(point_distance, 480)",
+                "E152",
+                "expects two integer literals",
+            ),
+            (
+                "size.from_u32(640, 480)",
+                "size.from_u32(4294967296, 480)",
+                "E152",
+                "dimensions must be in 0..=4294967295",
+            ),
+            (
+                "\"right\", \"bottom\"",
+                "\"around\", \"bottom\"",
+                "E152",
+                "horizontal alignment must be left, center, or right",
+            ),
+            (
+                "point_value = (point.origin() + vector(3.25, 4.75)) - vector.zero()",
+                "point_value = point.origin() + point.origin()",
+                "E153",
+                "does not accept `point` and `point`",
+            ),
+            (
+                "vector_value = ((-vector(1.0, 2.0)",
+                "vector_value = ((-point(1.0, 2.0)",
+                "E153",
+                "negation expects i64, f64, or vector",
+            ),
+            (
+                "snapped_x = snapped_point.x",
+                "snapped_x = snapped_point.missing",
+                "E151",
+                "has no field `missing`",
+            ),
+            (
+                "scaled_bounds = bounds * 2.0",
+                "scaled_bounds = bounds / 2.0",
+                "E153",
+                "does not accept `rectangle` and `f64`",
+            ),
+            (
+                "contains_point = rectangle.contains(bounds, point(20.0, 30.0))",
+                "contains_point = point_value < point.origin()",
+                "E153",
+                "does not accept `point` and `point`",
             ),
         ] {
             let error = analyze(&source.replacen(from, to, 1)).unwrap_err();

@@ -15,7 +15,7 @@ counts toward the row below.
 
 ## Typed system reachability
 
-Ice 1.25 has twenty-nine checked Rust boundaries:
+Ice 1.26 has twenty-nine checked Rust boundaries:
 
 | Boundary | Rust ABI | Covers |
 | --- | --- | --- |
@@ -113,7 +113,9 @@ public behavior has direct documented Ice syntax and tests.
 | event routing | native | all five structured families plus first-class generic `event` values through native `listen`/`listen_with`/`listen_raw`, optional window IDs, status filters, transforms, handler routing, and typed extern passage; system-theme runtime events remain a separate native source because iced does not represent them as `iced::Event` |
 | keyboard | native | all three native events preserve exact `Key`, `Physical`, `Location`, and `Modifiers` values; every named/code/native/location/modifier constructor, structured matching, safe runtime native-code conversion, exact extern passage, and native latin translation are checked Ice expressions |
 | mouse/touch | native | every mouse and touch event has a direct typed subscription with exact native `Button` and `Finger` payloads; every button/finger variant, `Cursor` and advanced `Click` constructor, query, projection, vector operation, transformation application, and typed extern passage is covered |
-| geometry primitives | partial | native f32 `Point`, `Vector`, `Size`, and `Rectangle` constructors, fields, equality, typed extern passage, and transformation application; constants, arithmetic/conversions, distance, containment/intersection, padding, rotation, snapping, zoom, and anchoring remain |
+| geometry primitives (default `f32`) | native | complete native `Point`, `Vector`, `Size`, and `Rectangle` constructors, constants, fields, array projections, point display, equality, arithmetic, distance, per-component size operations, conversions, containment, offset, intersection/union, exact `u32` snapping, four-side padding expansion/shrinking, radians rotation, zoom, anchoring, transformation application, and typed extern passage |
+| `Padding` | partial | exact four-side values lower natively in rectangle expansion/shrinking and widget layout; first-class constructors, projections, arithmetic, conversions, `fit`, and axis/zero helpers remain |
+| angles | partial | f64 radians lower natively for size/rectangle rotation and vertex-rotation results; first-class `Radians`/`Degrees`, arithmetic, conversions, ranges, and distance conversion remain |
 | `Transformation` | native | identity/default, orthographic, translate, scale, inverse, scale/translation inspection, composition, lossless matrix conversion, equality, typed extern passage, and native application to every supported geometry and pointer value cover the complete public behavior |
 | custom widget | partial | typed owned `Element<'static, Event>` adapter; borrowed elements and custom Theme/Renderer missing |
 | custom renderer | missing | renderer/graphics backend escape hatch |

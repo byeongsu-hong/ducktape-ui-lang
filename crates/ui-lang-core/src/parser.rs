@@ -8251,9 +8251,11 @@ fn parse_type(source: &str, line: &Line) -> Result<Type, Error> {
         "key-location" => Type::KeyLocation,
         "key-modifiers" => Type::KeyModifiers,
         "point" => Type::Point,
+        "point-u32" => Type::PointU32,
         "vector" => Type::Vector,
         "size" => Type::Size,
         "rectangle" => Type::Rectangle,
+        "rectangle-u32" => Type::RectangleU32,
         "transformation" => Type::Transformation,
         "mouse-button" => Type::MouseButton,
         "mouse-cursor" => Type::MouseCursor,
@@ -9158,6 +9160,38 @@ view
                 ..
             } if name == "transform.point" && args.len() == 2
         ));
+    }
+
+    #[test]
+    fn parses_native_geometry_values() {
+        let source = include_str!("../../../examples/iced-app/src/ui/geometry_values.ice");
+        let document = parse(source).unwrap();
+        let state_type = |name: &str| {
+            document
+                .states
+                .iter()
+                .find(|state| state.name == name)
+                .map(|state| state.ty.clone())
+                .unwrap()
+        };
+        assert_eq!(state_type("origin"), Type::Point);
+        assert_eq!(state_type("snapped_point"), Type::PointU32);
+        assert_eq!(state_type("exact_bounds"), Type::RectangleU32);
+        assert_eq!(
+            state_type("snapped_bounds"),
+            Type::Option(Box::new(Type::RectangleU32))
+        );
+        assert_eq!(state_type("bounds_size"), Type::Size);
+        assert!(document.handlers[0].statements.iter().any(|statement| {
+            matches!(
+                statement,
+                Statement::Assign {
+                    target,
+                    value: Expr::Binary { op: BinaryOp::Mul, .. },
+                    ..
+                } if target == "scaled_bounds"
+            )
+        }));
     }
 
     #[test]

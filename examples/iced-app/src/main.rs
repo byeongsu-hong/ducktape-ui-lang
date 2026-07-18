@@ -50,6 +50,28 @@ mod backend {
     }
 
     #[cfg(test)]
+    pub fn exact_rectangle() -> iced::Rectangle<u32> {
+        iced::Rectangle {
+            x: 1,
+            y: 2,
+            width: 3,
+            height: 4,
+        }
+    }
+
+    #[cfg(test)]
+    pub fn geometry_round_trip(
+        _: iced::Point,
+        _: iced::Point<u32>,
+        _: iced::Vector,
+        _: iced::Size,
+        bounds: iced::Rectangle,
+        _: Option<iced::Rectangle<u32>>,
+    ) -> iced::Rectangle {
+        bounds
+    }
+
+    #[cfg(test)]
     #[derive(Clone, Debug, PartialEq)]
     pub struct NetworkError {
         pub message: String,
@@ -942,6 +964,149 @@ mod transformation_values {
         assert!(app.identity_equal);
         assert!(app.maybe_projection.is_some());
         assert!(app.invalid_projection.is_none());
+    }
+}
+
+#[cfg(test)]
+mod geometry_values {
+    ui_lang::include_app!("src/ui/geometry_values.ice");
+
+    #[test]
+    fn preserves_and_applies_native_geometry_values() {
+        let (mut app, _) = GeometryValues::__boot();
+        let _ = app.__update(__GeometryValuesMessage::Inspect);
+
+        assert_eq!(app.point_value, iced::Point::new(3.25, 4.75));
+        assert_eq!(app.point_difference, iced::Vector::new(3.25, 4.75));
+        assert_eq!(app.point_distance, 5.0);
+        assert_eq!(app.snapped_point, iced::Point::new(3, 5));
+        assert_eq!((app.snapped_x, app.snapped_y), (3, 5));
+        assert_eq!(
+            (app.exact_x, app.exact_y, app.exact_width, app.exact_height),
+            (1, 2, 3, 4)
+        );
+        assert_eq!(app.point_values, [3.25, 4.75]);
+        assert_eq!(app.point_display, "Point { x: 3.25, y: 4.75 }");
+        assert_eq!(app.vector_value, iced::Vector::new(3.0, 3.0));
+        assert_eq!(app.size_min, iced::Size::new(3.0, 2.0));
+        assert_eq!(app.size_max, iced::Size::new(10.0, 8.0));
+        assert_eq!(app.size_expanded, iced::Size::new(13.0, 10.0));
+        assert_eq!(
+            app.size_rotated,
+            iced::Size::new(2.0, 4.0).rotate(iced::Radians(0.5))
+        );
+        assert_eq!(app.size_ratio, iced::Size::new(50.0, 50.0));
+        assert_eq!(app.size_value, iced::Size::new(14.0, 27.0));
+        assert_eq!(app.size_from_u32, iced::Size::new(640.0, 480.0));
+        assert_eq!(app.maybe_size, Some(iced::Size::new(640.0, 480.0)));
+        assert_eq!(app.invalid_size, None);
+        assert_eq!(app.size_vector, iced::Vector::new(14.0, 27.0));
+        assert_eq!(
+            app.sized_bounds,
+            iced::Rectangle::with_size(iced::Size::new(5.0, 6.0))
+        );
+        assert_eq!(app.radius_bounds, iced::Rectangle::with_radius(3.0));
+        assert!((app.vertex_rotation - std::f64::consts::FRAC_PI_2).abs() < 0.0001);
+        assert!(app.contains_point);
+        assert_eq!(app.point_to_bounds, 5.0);
+        assert_eq!(app.bounds_offset, iced::Vector::new(2.0, 2.0));
+        assert!(app.within_bounds);
+        assert_eq!(
+            app.intersection,
+            Some(iced::Rectangle {
+                x: 5.0,
+                y: 5.0,
+                width: 5.0,
+                height: 5.0
+            })
+        );
+        assert!(app.intersects_bounds);
+        assert_eq!(
+            app.union_bounds,
+            iced::Rectangle {
+                x: 0.0,
+                y: 0.0,
+                width: 15.0,
+                height: 15.0
+            }
+        );
+        assert_eq!(
+            app.snapped_bounds,
+            Some(iced::Rectangle {
+                x: 1,
+                y: 3,
+                width: 4,
+                height: 4
+            })
+        );
+        assert_eq!(
+            app.expanded_bounds,
+            iced::Rectangle {
+                x: 6.0,
+                y: 19.0,
+                width: 46.0,
+                height: 64.0
+            }
+        );
+        assert_eq!(
+            app.shrunk_bounds,
+            iced::Rectangle {
+                x: 14.0,
+                y: 21.0,
+                width: 34.0,
+                height: 56.0
+            }
+        );
+        assert_eq!(
+            app.rotated_bounds,
+            iced::Rectangle {
+                x: 10.0,
+                y: 20.0,
+                width: 40.0,
+                height: 60.0
+            }
+            .rotate(iced::Radians(0.5))
+        );
+        assert_eq!(
+            app.zoomed_bounds,
+            iced::Rectangle {
+                x: -10.0,
+                y: -10.0,
+                width: 80.0,
+                height: 120.0
+            }
+        );
+        assert_eq!(app.anchor, iced::Point::new(40.0, 60.0));
+        assert_eq!(
+            app.converted_bounds,
+            iced::Rectangle {
+                x: 1.0,
+                y: 2.0,
+                width: 3.0,
+                height: 4.0
+            }
+        );
+        assert_eq!(
+            app.moved_bounds,
+            iced::Rectangle {
+                x: 11.0,
+                y: 22.0,
+                width: 40.0,
+                height: 60.0
+            }
+        );
+        assert_eq!(
+            app.scaled_bounds,
+            iced::Rectangle {
+                x: 20.0,
+                y: 40.0,
+                width: 80.0,
+                height: 120.0
+            }
+        );
+        assert_eq!(app.center, iced::Point::new(30.0, 50.0));
+        assert_eq!(app.bounds_size, iced::Size::new(40.0, 60.0));
+        assert_eq!(app.area, 2400.0);
     }
 }
 
