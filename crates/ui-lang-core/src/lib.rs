@@ -9,9 +9,29 @@ mod test_support;
 
 pub use ast::*;
 pub use format::{format_fragment, format_source};
-pub use source::{FileCompilation, analyze_file, compile_file, source_is_app};
+pub use source::{
+    FileCompilation, analyze_file, analyze_file_with_source, compile_file, source_is_app,
+};
 
 use std::fmt;
+use std::ops::Deref;
+
+#[derive(Clone, Debug)]
+pub struct CheckedDocument(Document);
+
+impl CheckedDocument {
+    pub(crate) fn new(document: Document) -> Self {
+        Self(document)
+    }
+}
+
+impl Deref for CheckedDocument {
+    type Target = Document;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct Error {
@@ -51,6 +71,18 @@ impl Error {
             "{} {}:{}:{}: {}",
             self.code, path, self.line, self.column, self.message
         );
+        if let Ok(source) = std::fs::read_to_string(path)
+            && let Some(index) = self.line.checked_sub(1)
+            && let Some(line) = source.lines().nth(index)
+        {
+            let gutter = self.line.to_string();
+            let column = self.column.saturating_sub(1).min(line.chars().count());
+            rendered.push_str(&format!(
+                "\n{gutter} | {line}\n{} | {}^",
+                " ".repeat(gutter.len()),
+                " ".repeat(column)
+            ));
+        }
         if let Some(hint) = &self.hint {
             rendered.push_str("\nhint: ");
             rendered.push_str(hint);
@@ -80,10 +112,8 @@ pub fn parse(source: &str) -> Result<Document, Error> {
     parser::parse(source)
 }
 
-pub fn analyze(source: &str) -> Result<Document, Error> {
-    let mut document = parse(source)?;
-    check::check(&mut document)?;
-    Ok(document)
+pub fn analyze(source: &str) -> Result<CheckedDocument, Error> {
+    check::analyze(parse(source)?)
 }
 
 pub fn compile(source: &str, source_path: &str) -> Result<String, Error> {

@@ -36,6 +36,11 @@ pub(in crate::parser) fn parse_input(
             binding = Some(identifier(value, line)?);
         } else if let Some(value) = part.strip_prefix("hint=") {
             hint = string_literal(value, line)?;
+        } else if let Some(value) = part.strip_prefix("label=") {
+            options.accessibility.label = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("description=") {
+            options.accessibility.description =
+                Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else if let Some(value) = part.strip_prefix("disabled=") {
             disabled = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else if let Some(value) = part.strip_prefix("secure=") {
@@ -174,6 +179,11 @@ pub(in crate::parser) fn parse_button(
     for part in &parts[option_start..] {
         if part.starts_with('#') {
             id = Some(parse_id(part, line)?);
+        } else if let Some(value) = part.strip_prefix("label=") {
+            options.accessibility.label = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("description=") {
+            options.accessibility.description =
+                Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else if let Some(value) = part.strip_prefix("disabled=") {
             disabled = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else if let Some(value) = part.strip_prefix("width=") {
@@ -312,6 +322,11 @@ pub(in crate::parser) fn parse_checkbox(
     for part in &parts[2..] {
         if part.starts_with('#') {
             id = Some(parse_id(part, line)?);
+        } else if let Some(value) = part.strip_prefix("label=") {
+            options.accessibility.label = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("description=") {
+            options.accessibility.description =
+                Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else if let Some(value) = part.strip_prefix("checked=") {
             checked = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else if let Some(value) = part.strip_prefix("disabled=") {

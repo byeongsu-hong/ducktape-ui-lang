@@ -32,7 +32,7 @@ mod task_stream {
     fn constructs_both_native_stream_units() {
         let (mut app, _) = TaskStream::__boot();
         assert_eq!(app.__update(__TaskStreamMessage::Start).units(), 2);
-        assert_eq!(app.__subscription().units(), 5);
+        assert_eq!(app.__subscription().units(), 7);
     }
 }
 
@@ -154,7 +154,7 @@ mod timer {
     #[test]
     fn constructs_all_native_time_operations() {
         let (mut app, _) = TimerEvents::__boot();
-        assert_eq!(app.__subscription().units(), 4);
+        assert_eq!(app.__subscription().units(), 6);
         assert_eq!(app.__update(__TimerEventsMessage::Start).units(), 1);
     }
 }
@@ -166,13 +166,13 @@ mod animation {
     #[test]
     fn drives_native_animations_only_while_active() {
         let (mut app, _) = NativeAnimation::__boot();
-        assert_eq!(app.__subscription().units(), 0);
+        assert_eq!(app.__subscription().units(), 2);
 
         let _ = app.__update(__NativeAnimationMessage::Start);
         assert!(app.expanded.value());
         assert_eq!(app.progress.value(), 1.0);
         assert_eq!(app.custom_motion.value().value, 1.0);
-        assert_eq!(app.__subscription().units(), 1);
+        assert_eq!(app.__subscription().units(), 3);
         let _ = app.__view();
 
         let _ = app.__update(__NativeAnimationMessage::Sample);

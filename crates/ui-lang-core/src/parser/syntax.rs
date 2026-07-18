@@ -113,7 +113,7 @@ pub(in crate::parser) fn matching_paren(source: &str, line: &Line) -> Result<usi
     Err(error("E024", line, "missing closing `)`"))
 }
 
-pub(in crate::parser) fn split_words(source: &str) -> Vec<String> {
+pub(crate) fn split_words(source: &str) -> Vec<String> {
     let mut output = Vec::new();
     let mut start = 0;
     let mut depth = 0;
@@ -177,10 +177,7 @@ pub(in crate::parser) fn split_top_once(source: &str, delimiter: char) -> Option
     None
 }
 
-pub(in crate::parser) fn split_top_marker<'a>(
-    source: &'a str,
-    marker: &str,
-) -> Option<(&'a str, &'a str)> {
+pub(crate) fn split_top_marker<'a>(source: &'a str, marker: &str) -> Option<(&'a str, &'a str)> {
     let mut depth = 0;
     let mut string = false;
     let bytes = source.as_bytes();

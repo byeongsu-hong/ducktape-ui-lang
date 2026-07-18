@@ -151,7 +151,14 @@ pub enum ResponsiveContent {
 }
 
 #[derive(Clone, Debug, Default)]
+pub struct AccessibilityOptions {
+    pub label: Option<Expr>,
+    pub description: Option<Expr>,
+}
+
+#[derive(Clone, Debug, Default)]
 pub struct InputOptions {
+    pub accessibility: AccessibilityOptions,
     pub secure: Option<Expr>,
     pub submit: Option<Route>,
     pub paste: Option<Route>,
@@ -216,6 +223,7 @@ pub struct RichSpanOptions {
 
 #[derive(Clone, Debug, Default)]
 pub struct ButtonOptions {
+    pub accessibility: AccessibilityOptions,
     pub width: Option<LengthValue>,
     pub height: Option<LengthValue>,
     pub padding: Option<Expr>,
@@ -268,6 +276,7 @@ pub enum FontPreset {
 
 #[derive(Clone, Debug, Default)]
 pub struct BoolControlOptions {
+    pub accessibility: AccessibilityOptions,
     pub size: Option<Expr>,
     pub width: Option<LengthValue>,
     pub spacing: Option<Expr>,

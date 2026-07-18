@@ -1,0 +1,2129 @@
+//! Runtime support for the accessibility contract emitted by `ui-lang`.
+
+pub use accesskit::{Action, ActionRequest, Node, NodeId, Role, Toggled, TreeUpdate};
+
+use accesskit::{Rect, Tree, TreeId};
+use iced::advanced::widget::operation::{Focusable, Operation, Outcome, Scrollable, TextInput};
+use iced::advanced::widget::{self, tree};
+use iced::advanced::{Clipboard, Layout, Shell, Widget, layout, mouse, overlay, renderer};
+use iced::keyboard::{self, key};
+use iced::{Element, Event, Length, Rectangle, Size, Subscription, Task, Vector};
+use std::any::Any;
+use std::collections::{HashMap, HashSet};
+use std::fmt;
+use std::hash::{Hash, Hasher};
+use std::sync::{Arc, Mutex};
+
+const ROOT_ID: NodeId = NodeId(0);
+
+/// A deterministic identity for one semantic node.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct StableId(NodeId);
+
+impl StableId {
+    /// Hashes a compiler-owned key with a stable FNV-1a hash.
+    pub fn new(key: impl AsRef<str>) -> Self {
+        let mut hash = 0xcbf29ce484222325_u64;
+        for byte in key.as_ref().as_bytes() {
+            hash ^= u64::from(*byte);
+            hash = hash.wrapping_mul(0x100000001b3);
+        }
+        Self(NodeId(if hash == 0 { 1 } else { hash }))
+    }
+
+    /// Returns the AccessKit node identity.
+    pub const fn node_id(self) -> NodeId {
+        self.0
+    }
+
+    /// Returns the corresponding Iced widget identity used for focus actions.
+    pub fn widget_id(self) -> widget::Id {
+        format!("__ice_accessibility/{}", self.0.0).into()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FocusBehavior {
+    None,
+    Wrapper,
+    Descendant,
+}
+
+#[derive(Clone)]
+struct Semantics<Message> {
+    id: StableId,
+    role: Role,
+    label: Option<String>,
+    description: Option<String>,
+    value: Option<String>,
+    checked: Option<bool>,
+    disabled: bool,
+    focus: FocusBehavior,
+    focus_id: widget::Id,
+    activate: Option<Message>,
+}
+
+impl<Message> Semantics<Message> {
+    fn new(id: StableId, role: Role) -> Self {
+        let focus = match role {
+            Role::Button | Role::DefaultButton | Role::CheckBox | Role::Switch => {
+                FocusBehavior::Wrapper
+            }
+            Role::TextInput
+            | Role::MultilineTextInput
+            | Role::SearchInput
+            | Role::PasswordInput => FocusBehavior::Descendant,
+            _ => FocusBehavior::None,
+        };
+
+        Self {
+            id,
+            role,
+            label: None,
+            description: None,
+            value: None,
+            checked: None,
+            disabled: false,
+            focus,
+            focus_id: id.widget_id(),
+            activate: None,
+        }
+    }
+}
+
+struct SemanticState<Message> {
+    semantics: Semantics<Message>,
+    focused: bool,
+}
+
+impl<Message> Focusable for SemanticState<Message> {
+    fn is_focused(&self) -> bool {
+        self.focused
+    }
+
+    fn focus(&mut self) {
+        self.focused = true;
+    }
+
+    fn unfocus(&mut self) {
+        self.focused = false;
+    }
+}
+
+struct SemanticEnd;
+
+struct WithoutFocus<'a> {
+    inner: &'a mut dyn Operation,
+}
+
+impl Operation for WithoutFocus<'_> {
+    fn traverse(&mut self, operate: &mut dyn FnMut(&mut dyn Operation)) {
+        self.inner.traverse(&mut |inner| {
+            let mut filtered = WithoutFocus { inner };
+            operate(&mut filtered);
+        });
+    }
+
+    fn container(&mut self, id: Option<&widget::Id>, bounds: Rectangle) {
+        self.inner.container(id, bounds);
+    }
+
+    fn scrollable(
+        &mut self,
+        id: Option<&widget::Id>,
+        bounds: Rectangle,
+        content_bounds: Rectangle,
+        translation: Vector,
+        state: &mut dyn Scrollable,
+    ) {
+        self.inner
+            .scrollable(id, bounds, content_bounds, translation, state);
+    }
+
+    fn focusable(
+        &mut self,
+        _id: Option<&widget::Id>,
+        _bounds: Rectangle,
+        state: &mut dyn Focusable,
+    ) {
+        state.unfocus();
+    }
+
+    fn text_input(
+        &mut self,
+        id: Option<&widget::Id>,
+        bounds: Rectangle,
+        state: &mut dyn TextInput,
+    ) {
+        self.inner.text_input(id, bounds, state);
+    }
+
+    fn text(&mut self, id: Option<&widget::Id>, bounds: Rectangle, text: &str) {
+        self.inner.text(id, bounds, text);
+    }
+
+    fn custom(&mut self, id: Option<&widget::Id>, bounds: Rectangle, state: &mut dyn Any) {
+        self.inner.custom(id, bounds, state);
+    }
+
+    fn finish(&self) -> Outcome<()> {
+        self.inner.finish()
+    }
+}
+
+/// Wraps an Iced widget with semantics owned by Ice.
+pub struct Accessible<'a, Message, Theme, Renderer>
+where
+    Renderer: iced::advanced::Renderer,
+{
+    content: Element<'a, Message, Theme, Renderer>,
+    semantics: Semantics<Message>,
+}
+
+/// Creates an accessible wrapper around an Iced widget.
+pub fn accessible<'a, Message, Theme, Renderer>(
+    content: impl Into<Element<'a, Message, Theme, Renderer>>,
+    id: StableId,
+    role: Role,
+) -> Accessible<'a, Message, Theme, Renderer>
+where
+    Renderer: iced::advanced::Renderer,
+{
+    Accessible {
+        content: content.into(),
+        semantics: Semantics::new(id, role),
+    }
+}
+
+impl<'a, Message, Theme, Renderer> Accessible<'a, Message, Theme, Renderer>
+where
+    Renderer: iced::advanced::Renderer,
+{
+    pub fn label(mut self, label: impl Into<String>) -> Self {
+        self.semantics.label = Some(label.into());
+        self
+    }
+
+    pub fn description(mut self, description: impl Into<String>) -> Self {
+        self.semantics.description = Some(description.into());
+        self
+    }
+
+    pub fn value(mut self, value: impl Into<String>) -> Self {
+        self.semantics.value = Some(value.into());
+        self
+    }
+
+    pub fn value_maybe(mut self, value: Option<String>) -> Self {
+        self.semantics.value = value;
+        self
+    }
+
+    pub fn checked(mut self, checked: bool) -> Self {
+        self.semantics.checked = Some(checked);
+        self
+    }
+
+    pub fn disabled(mut self, disabled: bool) -> Self {
+        self.semantics.disabled = disabled;
+        self
+    }
+
+    pub fn focus_id(mut self, id: impl Into<widget::Id>) -> Self {
+        self.semantics.focus_id = id.into();
+        self
+    }
+
+    pub fn on_activate(mut self, message: Message) -> Self {
+        self.semantics.activate = Some(message);
+        self
+    }
+
+    pub fn on_activate_maybe(mut self, message: Option<Message>) -> Self {
+        self.semantics.activate = message;
+        self
+    }
+}
+
+impl<Message, Theme, Renderer> Widget<Message, Theme, Renderer>
+    for Accessible<'_, Message, Theme, Renderer>
+where
+    Message: Clone + 'static,
+    Renderer: iced::advanced::Renderer,
+{
+    fn tag(&self) -> tree::Tag {
+        tree::Tag::of::<SemanticState<Message>>()
+    }
+
+    fn state(&self) -> tree::State {
+        tree::State::new(SemanticState {
+            semantics: self.semantics.clone(),
+            focused: false,
+        })
+    }
+
+    fn children(&self) -> Vec<widget::Tree> {
+        vec![widget::Tree::new(&self.content)]
+    }
+
+    fn diff(&self, tree: &mut widget::Tree) {
+        let state = tree.state.downcast_mut::<SemanticState<Message>>();
+        state.semantics = self.semantics.clone();
+        if state.semantics.disabled {
+            state.focused = false;
+        }
+        tree.diff_children(std::slice::from_ref(&self.content));
+    }
+
+    fn size(&self) -> Size<Length> {
+        self.content.as_widget().size()
+    }
+
+    fn size_hint(&self) -> Size<Length> {
+        self.content.as_widget().size_hint()
+    }
+
+    fn layout(
+        &mut self,
+        tree: &mut widget::Tree,
+        renderer: &Renderer,
+        limits: &layout::Limits,
+    ) -> layout::Node {
+        self.content
+            .as_widget_mut()
+            .layout(&mut tree.children[0], renderer, limits)
+    }
+
+    fn operate(
+        &mut self,
+        tree: &mut widget::Tree,
+        layout: Layout<'_>,
+        renderer: &Renderer,
+        operation: &mut dyn Operation,
+    ) {
+        let state = tree.state.downcast_mut::<SemanticState<Message>>();
+        let focus_id = state.semantics.focus_id.clone();
+        if state.semantics.disabled {
+            state.focused = false;
+        }
+        operation.custom(Some(&focus_id), layout.bounds(), state);
+
+        if !state.semantics.disabled && state.semantics.focus == FocusBehavior::Wrapper {
+            operation.focusable(
+                Some(&state.semantics.focus_id.clone()),
+                layout.bounds(),
+                state,
+            );
+        }
+
+        if state.semantics.focus == FocusBehavior::Wrapper
+            || (state.semantics.disabled && state.semantics.focus == FocusBehavior::Descendant)
+        {
+            operation.traverse(&mut |operation| {
+                let mut operation = WithoutFocus { inner: operation };
+                self.content.as_widget_mut().operate(
+                    &mut tree.children[0],
+                    layout,
+                    renderer,
+                    &mut operation,
+                );
+            });
+        } else {
+            operation.traverse(&mut |operation| {
+                self.content.as_widget_mut().operate(
+                    &mut tree.children[0],
+                    layout,
+                    renderer,
+                    operation,
+                );
+            });
+        }
+
+        operation.custom(None, layout.bounds(), &mut SemanticEnd);
+    }
+
+    fn update(
+        &mut self,
+        tree: &mut widget::Tree,
+        event: &Event,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        renderer: &Renderer,
+        clipboard: &mut dyn Clipboard,
+        shell: &mut Shell<'_, Message>,
+        viewport: &Rectangle,
+    ) {
+        let state = tree.state.downcast_mut::<SemanticState<Message>>();
+        let wrapper_focus = state.semantics.focus == FocusBehavior::Wrapper;
+
+        if wrapper_focus && !state.semantics.disabled {
+            match event {
+                Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
+                    state.focused = cursor.is_over(layout.bounds());
+                }
+                Event::Touch(iced::touch::Event::FingerPressed { position, .. }) => {
+                    state.focused = layout.bounds().contains(*position);
+                }
+                _ => {}
+            }
+        }
+
+        self.content.as_widget_mut().update(
+            &mut tree.children[0],
+            event,
+            layout,
+            cursor,
+            renderer,
+            clipboard,
+            shell,
+            viewport,
+        );
+
+        if shell.is_event_captured() || state.semantics.disabled || !state.focused {
+            return;
+        }
+
+        let Event::Keyboard(keyboard::Event::KeyPressed {
+            key, repeat: false, ..
+        }) = event
+        else {
+            return;
+        };
+
+        let activates = match state.semantics.role {
+            Role::Button | Role::DefaultButton => matches!(
+                key,
+                keyboard::Key::Named(key::Named::Enter | key::Named::Space)
+            ),
+            Role::CheckBox | Role::Switch => {
+                matches!(key, keyboard::Key::Named(key::Named::Space))
+            }
+            _ => false,
+        };
+
+        if activates && let Some(message) = state.semantics.activate.clone() {
+            shell.publish(message);
+            shell.capture_event();
+        }
+    }
+
+    fn draw(
+        &self,
+        tree: &widget::Tree,
+        renderer: &mut Renderer,
+        theme: &Theme,
+        style: &renderer::Style,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+    ) {
+        self.content.as_widget().draw(
+            &tree.children[0],
+            renderer,
+            theme,
+            style,
+            layout,
+            cursor,
+            viewport,
+        );
+        let state = tree.state.downcast_ref::<SemanticState<Message>>();
+        if state.focused && !state.semantics.disabled {
+            renderer.fill_quad(
+                renderer::Quad {
+                    bounds: layout.bounds(),
+                    border: iced::Border {
+                        color: style.text_color,
+                        width: 2.0,
+                        radius: 3.0.into(),
+                    },
+                    ..renderer::Quad::default()
+                },
+                iced::Color::TRANSPARENT,
+            );
+        }
+    }
+
+    fn mouse_interaction(
+        &self,
+        tree: &widget::Tree,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+        renderer: &Renderer,
+    ) -> mouse::Interaction {
+        self.content.as_widget().mouse_interaction(
+            &tree.children[0],
+            layout,
+            cursor,
+            viewport,
+            renderer,
+        )
+    }
+
+    fn overlay<'a>(
+        &'a mut self,
+        tree: &'a mut widget::Tree,
+        layout: Layout<'a>,
+        renderer: &Renderer,
+        viewport: &Rectangle,
+        translation: Vector,
+    ) -> Option<overlay::Element<'a, Message, Theme, Renderer>> {
+        self.content.as_widget_mut().overlay(
+            &mut tree.children[0],
+            layout,
+            renderer,
+            viewport,
+            translation,
+        )
+    }
+}
+
+impl<'a, Message, Theme, Renderer> From<Accessible<'a, Message, Theme, Renderer>>
+    for Element<'a, Message, Theme, Renderer>
+where
+    Message: Clone + 'static,
+    Renderer: iced::advanced::Renderer + 'a,
+    Theme: 'a,
+{
+    fn from(accessible: Accessible<'a, Message, Theme, Renderer>) -> Self {
+        Self::new(accessible)
+    }
+}
+
+/// Root wrapper that turns Tab and Shift+Tab into Ice focus operations.
+pub struct Navigation<'a, Message, Theme, Renderer>
+where
+    Renderer: iced::advanced::Renderer,
+{
+    content: Element<'a, Message, Theme, Renderer>,
+    next: Message,
+    previous: Message,
+}
+
+pub fn navigation<'a, Message, Theme, Renderer>(
+    content: impl Into<Element<'a, Message, Theme, Renderer>>,
+    next: Message,
+    previous: Message,
+) -> Navigation<'a, Message, Theme, Renderer>
+where
+    Renderer: iced::advanced::Renderer,
+{
+    Navigation {
+        content: content.into(),
+        next,
+        previous,
+    }
+}
+
+impl<Message, Theme, Renderer> Widget<Message, Theme, Renderer>
+    for Navigation<'_, Message, Theme, Renderer>
+where
+    Message: Clone + 'static,
+    Renderer: iced::advanced::Renderer,
+{
+    fn children(&self) -> Vec<widget::Tree> {
+        vec![widget::Tree::new(&self.content)]
+    }
+
+    fn diff(&self, tree: &mut widget::Tree) {
+        tree.diff_children(std::slice::from_ref(&self.content));
+    }
+
+    fn size(&self) -> Size<Length> {
+        self.content.as_widget().size()
+    }
+
+    fn size_hint(&self) -> Size<Length> {
+        self.content.as_widget().size_hint()
+    }
+
+    fn layout(
+        &mut self,
+        tree: &mut widget::Tree,
+        renderer: &Renderer,
+        limits: &layout::Limits,
+    ) -> layout::Node {
+        self.content
+            .as_widget_mut()
+            .layout(&mut tree.children[0], renderer, limits)
+    }
+
+    fn operate(
+        &mut self,
+        tree: &mut widget::Tree,
+        layout: Layout<'_>,
+        renderer: &Renderer,
+        operation: &mut dyn Operation,
+    ) {
+        operation.traverse(&mut |operation| {
+            self.content.as_widget_mut().operate(
+                &mut tree.children[0],
+                layout,
+                renderer,
+                operation,
+            );
+        });
+    }
+
+    fn update(
+        &mut self,
+        tree: &mut widget::Tree,
+        event: &Event,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        renderer: &Renderer,
+        clipboard: &mut dyn Clipboard,
+        shell: &mut Shell<'_, Message>,
+        viewport: &Rectangle,
+    ) {
+        let tab = if let Event::Keyboard(keyboard::Event::KeyPressed {
+            key: keyboard::Key::Named(key::Named::Tab),
+            modifiers,
+            repeat: false,
+            ..
+        }) = event
+        {
+            (!modifiers.control() && !modifiers.alt() && !modifiers.logo())
+                .then(|| modifiers.shift())
+        } else {
+            None
+        };
+
+        self.content.as_widget_mut().update(
+            &mut tree.children[0],
+            event,
+            layout,
+            cursor,
+            renderer,
+            clipboard,
+            shell,
+            viewport,
+        );
+
+        if let Some(previous) = tab
+            && !shell.is_event_captured()
+        {
+            shell.publish(if previous {
+                self.previous.clone()
+            } else {
+                self.next.clone()
+            });
+            shell.capture_event();
+        }
+    }
+
+    fn draw(
+        &self,
+        tree: &widget::Tree,
+        renderer: &mut Renderer,
+        theme: &Theme,
+        style: &renderer::Style,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+    ) {
+        self.content.as_widget().draw(
+            &tree.children[0],
+            renderer,
+            theme,
+            style,
+            layout,
+            cursor,
+            viewport,
+        );
+    }
+
+    fn mouse_interaction(
+        &self,
+        tree: &widget::Tree,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+        renderer: &Renderer,
+    ) -> mouse::Interaction {
+        self.content.as_widget().mouse_interaction(
+            &tree.children[0],
+            layout,
+            cursor,
+            viewport,
+            renderer,
+        )
+    }
+
+    fn overlay<'a>(
+        &'a mut self,
+        tree: &'a mut widget::Tree,
+        layout: Layout<'a>,
+        renderer: &Renderer,
+        viewport: &Rectangle,
+        translation: Vector,
+    ) -> Option<overlay::Element<'a, Message, Theme, Renderer>> {
+        self.content.as_widget_mut().overlay(
+            &mut tree.children[0],
+            layout,
+            renderer,
+            viewport,
+            translation,
+        )
+    }
+}
+
+impl<'a, Message, Theme, Renderer> From<Navigation<'a, Message, Theme, Renderer>>
+    for Element<'a, Message, Theme, Renderer>
+where
+    Message: Clone + 'static,
+    Renderer: iced::advanced::Renderer + 'a,
+    Theme: 'a,
+{
+    fn from(navigation: Navigation<'a, Message, Theme, Renderer>) -> Self {
+        Self::new(navigation)
+    }
+}
+
+#[derive(Clone)]
+struct ActionTarget<Message> {
+    activate: Option<Message>,
+    focus: Option<SemanticFocus>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct SemanticFocus {
+    base: StableId,
+    occurrence: u64,
+}
+
+/// A complete AccessKit tree and the action map for the same UI frame.
+#[derive(Clone)]
+pub struct Snapshot<Message> {
+    pub update: TreeUpdate,
+    actions: HashMap<NodeId, ActionTarget<Message>>,
+}
+
+impl<Message> fmt::Debug for Snapshot<Message> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Snapshot")
+            .field("update", &self.update)
+            .field("action_count", &self.actions.len())
+            .finish()
+    }
+}
+
+impl<Message: Clone + Send + 'static> Snapshot<Message> {
+    pub fn dispatch(&self, request: ActionRequest) -> Task<Message> {
+        if request.target_tree != TreeId::ROOT {
+            return Task::none();
+        }
+        let Some(target) = self.actions.get(&request.target_node) else {
+            return Task::none();
+        };
+        match request.action {
+            Action::Click => target.activate.clone().map_or_else(Task::none, Task::done),
+            Action::Focus => target.focus.map_or_else(Task::none, focus_semantic),
+            _ => Task::none(),
+        }
+    }
+}
+
+fn duplicate_node_id(base: NodeId, occurrence: u64) -> NodeId {
+    let mut value = base
+        .0
+        .wrapping_add(occurrence.wrapping_mul(0x9e3779b97f4a7c15));
+    value = (value ^ (value >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
+    value = (value ^ (value >> 27)).wrapping_mul(0x94d049bb133111eb);
+    value ^= value >> 31;
+    NodeId(if value == 0 { 1 } else { value })
+}
+
+struct FocusOperation<Message> {
+    target: SemanticFocus,
+    occurrences: HashMap<NodeId, u64>,
+    current: Option<(SemanticFocus, FocusBehavior)>,
+    marker: std::marker::PhantomData<Message>,
+}
+
+impl<Message: Send + 'static> Operation<()> for FocusOperation<Message> {
+    fn traverse(&mut self, operate: &mut dyn FnMut(&mut dyn Operation<()>)) {
+        operate(self);
+    }
+
+    fn custom(&mut self, _id: Option<&widget::Id>, _bounds: Rectangle, state: &mut dyn Any) {
+        if state.downcast_mut::<SemanticEnd>().is_some() {
+            self.current = None;
+            return;
+        }
+        let Some(state) = state.downcast_mut::<SemanticState<Message>>() else {
+            return;
+        };
+        let occurrence = self
+            .occurrences
+            .entry(state.semantics.id.node_id())
+            .or_default();
+        let current = SemanticFocus {
+            base: state.semantics.id,
+            occurrence: *occurrence,
+        };
+        *occurrence += 1;
+        self.current = Some((current, state.semantics.focus));
+
+        if state.semantics.focus == FocusBehavior::Wrapper {
+            if current == self.target {
+                state.focus();
+            } else {
+                state.unfocus();
+            }
+        }
+    }
+
+    fn focusable(
+        &mut self,
+        _id: Option<&widget::Id>,
+        _bounds: Rectangle,
+        state: &mut dyn Focusable,
+    ) {
+        if self
+            .current
+            .is_some_and(|(current, _)| current == self.target)
+        {
+            state.focus();
+        } else {
+            state.unfocus();
+        }
+    }
+
+    fn finish(&self) -> Outcome<()> {
+        Outcome::Some(())
+    }
+}
+
+fn focus_semantic<Message: Send + 'static>(target: SemanticFocus) -> Task<Message> {
+    iced::advanced::widget::operate(FocusOperation::<Message> {
+        target,
+        occurrences: HashMap::new(),
+        current: None,
+        marker: std::marker::PhantomData,
+    })
+    .discard()
+}
+
+struct SnapshotOperation<Message> {
+    nodes: Vec<(NodeId, Node)>,
+    root_children: Vec<NodeId>,
+    frames: Vec<SemanticFrame>,
+    actions: HashMap<NodeId, ActionTarget<Message>>,
+    occurrences: HashMap<NodeId, u64>,
+    used_ids: HashSet<NodeId>,
+    focus: NodeId,
+    root_label: String,
+}
+
+struct SemanticFrame {
+    node_index: Option<usize>,
+    children: Vec<NodeId>,
+    focus: Option<NodeId>,
+    atomic: bool,
+}
+
+fn atomic_role(role: Role) -> bool {
+    matches!(
+        role,
+        Role::Button
+            | Role::DefaultButton
+            | Role::CheckBox
+            | Role::Switch
+            | Role::TextInput
+            | Role::MultilineTextInput
+            | Role::SearchInput
+            | Role::PasswordInput
+            | Role::Image
+            | Role::Label
+    )
+}
+
+impl<Message> Default for SnapshotOperation<Message> {
+    fn default() -> Self {
+        Self {
+            nodes: Vec::new(),
+            root_children: Vec::new(),
+            frames: Vec::new(),
+            actions: HashMap::new(),
+            occurrences: HashMap::new(),
+            used_ids: HashSet::from([ROOT_ID]),
+            focus: ROOT_ID,
+            root_label: "Ice application".into(),
+        }
+    }
+}
+
+impl<Message> SnapshotOperation<Message> {
+    fn named(root_label: impl Into<String>) -> Self {
+        Self {
+            root_label: root_label.into(),
+            ..Self::default()
+        }
+    }
+}
+
+impl<Message: Clone + Send + 'static> Operation<Snapshot<Message>> for SnapshotOperation<Message> {
+    fn traverse(&mut self, operate: &mut dyn FnMut(&mut dyn Operation<Snapshot<Message>>)) {
+        operate(self);
+    }
+
+    fn custom(&mut self, _id: Option<&widget::Id>, bounds: Rectangle, state: &mut dyn Any) {
+        if state.downcast_mut::<SemanticEnd>().is_some() {
+            let Some(frame) = self.frames.pop() else {
+                return;
+            };
+            if let Some(index) = frame.node_index {
+                self.nodes[index].1.set_children(frame.children);
+            }
+            return;
+        }
+        let Some(state) = state.downcast_mut::<SemanticState<Message>>() else {
+            return;
+        };
+        if self.frames.iter().any(|frame| frame.atomic) {
+            self.frames.push(SemanticFrame {
+                node_index: None,
+                children: Vec::new(),
+                focus: None,
+                atomic: false,
+            });
+            return;
+        }
+        let semantics = &state.semantics;
+        let base = semantics.id.node_id();
+        let next_occurrence = self.occurrences.entry(base).or_default();
+        let mut occurrence = *next_occurrence;
+        let mut id = if occurrence == 0 {
+            base
+        } else {
+            duplicate_node_id(base, occurrence)
+        };
+        while self.used_ids.contains(&id) {
+            occurrence += 1;
+            id = duplicate_node_id(base, occurrence);
+        }
+        *next_occurrence = occurrence + 1;
+        let focus = SemanticFocus {
+            base: semantics.id,
+            occurrence,
+        };
+        self.used_ids.insert(id);
+        let mut node = Node::new(semantics.role);
+        node.set_bounds(Rect {
+            x0: f64::from(bounds.x),
+            y0: f64::from(bounds.y),
+            x1: f64::from(bounds.x + bounds.width),
+            y1: f64::from(bounds.y + bounds.height),
+        });
+        if let Some(label) = &semantics.label {
+            node.set_label(label.clone());
+        }
+        if let Some(description) = &semantics.description {
+            node.set_description(description.clone());
+        }
+        if let Some(value) = &semantics.value {
+            node.set_value(value.clone());
+        }
+        if let Some(checked) = semantics.checked {
+            node.set_toggled(Toggled::from(checked));
+        }
+        if semantics.disabled {
+            node.set_disabled();
+        } else {
+            if semantics.focus != FocusBehavior::None {
+                node.add_action(Action::Focus);
+            }
+            if semantics.activate.is_some() {
+                node.add_action(Action::Click);
+            }
+            self.actions.insert(
+                id,
+                ActionTarget {
+                    activate: semantics.activate.clone(),
+                    focus: (semantics.focus != FocusBehavior::None).then_some(focus),
+                },
+            );
+        }
+        if state.focused {
+            self.focus = id;
+        }
+        if let Some(parent) = self
+            .frames
+            .iter_mut()
+            .rev()
+            .find(|frame| frame.node_index.is_some())
+        {
+            parent.children.push(id);
+        } else {
+            self.root_children.push(id);
+        }
+        let node_index = self.nodes.len();
+        self.nodes.push((id, node));
+        self.frames.push(SemanticFrame {
+            node_index: Some(node_index),
+            children: Vec::new(),
+            focus: (semantics.focus != FocusBehavior::None).then_some(id),
+            atomic: atomic_role(semantics.role),
+        });
+    }
+
+    fn focusable(
+        &mut self,
+        _id: Option<&widget::Id>,
+        _bounds: Rectangle,
+        state: &mut dyn Focusable,
+    ) {
+        if state.is_focused()
+            && let Some(id) = self.frames.iter().rev().find_map(|frame| frame.focus)
+        {
+            self.focus = id;
+        }
+    }
+
+    fn finish(&self) -> Outcome<Snapshot<Message>> {
+        let mut root = Node::new(Role::Window);
+        root.set_label(self.root_label.clone());
+        root.set_children(self.root_children.clone());
+        let mut nodes = Vec::with_capacity(self.nodes.len() + 1);
+        nodes.push((ROOT_ID, root));
+        nodes.extend(self.nodes.clone());
+        Outcome::Some(Snapshot {
+            update: TreeUpdate {
+                nodes,
+                tree: Some(Tree {
+                    root: ROOT_ID,
+                    toolkit_name: Some("Ice/Iced".into()),
+                    toolkit_version: Some("0.1/0.14".into()),
+                }),
+                tree_id: TreeId::ROOT,
+                focus: self.focus,
+            },
+            actions: self.actions.clone(),
+        })
+    }
+}
+
+/// Captures the live Iced widget tree as an AccessKit update.
+pub fn snapshot<Message>(root_label: impl Into<String>) -> Task<Snapshot<Message>>
+where
+    Message: Clone + Send + 'static,
+{
+    iced::advanced::widget::operate(SnapshotOperation::named(root_label))
+}
+
+#[derive(Clone)]
+struct ActionSubscription {
+    id: u64,
+    receiver: Arc<Mutex<Option<iced::futures::channel::mpsc::UnboundedReceiver<ActionRequest>>>>,
+}
+
+impl PartialEq for ActionSubscription {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+impl Eq for ActionSubscription {}
+
+impl Hash for ActionSubscription {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
+    }
+}
+
+fn action_stream(
+    subscription: &ActionSubscription,
+) -> iced::futures::channel::mpsc::UnboundedReceiver<ActionRequest> {
+    subscription
+        .receiver
+        .lock()
+        .expect("accessibility action receiver lock")
+        .take()
+        .unwrap_or_else(|| {
+            let (_sender, receiver) = iced::futures::channel::mpsc::unbounded();
+            receiver
+        })
+}
+
+static NEXT_BRIDGE_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+/// Owns the native adapter and the action map for the latest frame.
+pub struct Bridge<Message> {
+    id: u64,
+    snapshot: Option<Snapshot<Message>>,
+    receiver: Arc<Mutex<Option<iced::futures::channel::mpsc::UnboundedReceiver<ActionRequest>>>>,
+    latest_tree: Arc<Mutex<Option<TreeUpdate>>>,
+    #[cfg(target_os = "linux")]
+    adapter: Option<accesskit_unix::Adapter>,
+    #[cfg(target_os = "linux")]
+    window: Option<iced::window::Id>,
+}
+
+impl<Message> fmt::Debug for Bridge<Message> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Bridge")
+            .field("id", &self.id)
+            .field("has_snapshot", &self.snapshot.is_some())
+            .finish()
+    }
+}
+
+#[cfg(target_os = "linux")]
+struct Activation {
+    latest_tree: Arc<Mutex<Option<TreeUpdate>>>,
+}
+
+#[cfg(target_os = "linux")]
+impl accesskit::ActivationHandler for Activation {
+    fn request_initial_tree(&mut self) -> Option<TreeUpdate> {
+        self.latest_tree
+            .lock()
+            .expect("accessibility tree lock")
+            .clone()
+    }
+}
+
+#[cfg(target_os = "linux")]
+struct Actions {
+    sender: iced::futures::channel::mpsc::UnboundedSender<ActionRequest>,
+}
+
+#[cfg(target_os = "linux")]
+impl accesskit::ActionHandler for Actions {
+    fn do_action(&mut self, request: ActionRequest) {
+        let _ = self.sender.unbounded_send(request);
+    }
+}
+
+#[cfg(target_os = "linux")]
+struct Deactivation;
+
+#[cfg(target_os = "linux")]
+impl accesskit::DeactivationHandler for Deactivation {
+    fn deactivate_accessibility(&mut self) {}
+}
+
+impl<Message> Bridge<Message> {
+    pub fn new() -> Self {
+        Self::with_native_adapter(true)
+    }
+
+    /// Creates a deterministic bridge without exporting a native platform tree.
+    ///
+    /// This is used for daemon/multi-window applications until Iced exposes a
+    /// window-scoped widget-operation boundary.
+    pub fn without_native_adapter() -> Self {
+        Self::with_native_adapter(false)
+    }
+
+    fn with_native_adapter(native: bool) -> Self {
+        let id = NEXT_BRIDGE_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let (sender, receiver) = iced::futures::channel::mpsc::unbounded();
+        let receiver = Arc::new(Mutex::new(Some(receiver)));
+        let latest_tree = Arc::new(Mutex::new(None));
+        #[cfg(target_os = "linux")]
+        let adapter = native.then(|| {
+            accesskit_unix::Adapter::new(
+                Activation {
+                    latest_tree: Arc::clone(&latest_tree),
+                },
+                Actions { sender },
+                Deactivation,
+            )
+        });
+        #[cfg(not(target_os = "linux"))]
+        {
+            let _ = native;
+            drop(sender);
+        }
+
+        Self {
+            id,
+            snapshot: None,
+            receiver,
+            latest_tree,
+            #[cfg(target_os = "linux")]
+            adapter,
+            #[cfg(target_os = "linux")]
+            window: None,
+        }
+    }
+
+    pub fn subscription(&self) -> Subscription<ActionRequest> {
+        Subscription::run_with(
+            ActionSubscription {
+                id: self.id,
+                receiver: Arc::clone(&self.receiver),
+            },
+            action_stream,
+        )
+    }
+
+    pub fn update(&mut self, snapshot: Snapshot<Message>) {
+        let update = snapshot.update.clone();
+        *self.latest_tree.lock().expect("accessibility tree lock") = Some(update.clone());
+        #[cfg(target_os = "linux")]
+        if let Some(adapter) = &mut self.adapter {
+            adapter.update_if_active(|| update);
+        }
+        self.snapshot = Some(snapshot);
+    }
+
+    /// Applies focus truth for the single native window owned by this bridge.
+    pub fn window_event(&mut self, id: iced::window::Id, event: iced::window::Event) {
+        #[cfg(target_os = "linux")]
+        {
+            let Some(adapter) = &mut self.adapter else {
+                return;
+            };
+            let window = self.window.get_or_insert(id);
+            if *window != id {
+                return;
+            }
+            match event {
+                iced::window::Event::Focused => adapter.update_window_focus_state(true),
+                iced::window::Event::Unfocused | iced::window::Event::Closed => {
+                    adapter.update_window_focus_state(false);
+                }
+                _ => {}
+            }
+        }
+        #[cfg(not(target_os = "linux"))]
+        let _ = (id, event);
+    }
+}
+
+impl<Message: Clone + Send + 'static> Bridge<Message> {
+    pub fn dispatch(&self, request: ActionRequest) -> Task<Message> {
+        self.snapshot
+            .as_ref()
+            .map_or_else(Task::none, |snapshot| snapshot.dispatch(request))
+    }
+}
+
+impl<Message> Default for Bridge<Message> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Focuses the next enabled semantic/native focus target in view-tree order.
+pub fn focus_next<Message>() -> Task<Message> {
+    iced::widget::operation::focus_next()
+}
+
+/// Focuses the previous enabled semantic/native focus target in view-tree order.
+pub fn focus_previous<Message>() -> Task<Message> {
+    iced::widget::operation::focus_previous()
+}
+
+#[cfg(test)]
+#[allow(clippy::let_unit_value)]
+mod tests {
+    use super::*;
+    use iced::advanced::widget::Tree as WidgetTree;
+    use iced::advanced::widget::operation;
+    use iced::advanced::{Layout, Widget, layout};
+    use iced::{Font, Pixels, Point, Theme};
+    use iced_test::futures::futures::StreamExt;
+    use iced_test::runtime::UserInterface;
+    use iced_test::runtime::user_interface;
+
+    type TestRenderer = iced_test::renderer::Renderer;
+    type TestUi<'a> = UserInterface<'a, Message, Theme, TestRenderer>;
+    type TestElement<'a> = Element<'a, Message, Theme, TestRenderer>;
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    enum Message {
+        First,
+        Last,
+        Next,
+        Previous,
+    }
+
+    fn renderer() -> TestRenderer {
+        iced_test::futures::futures::executor::block_on(<TestRenderer as renderer::Headless>::new(
+            Font::DEFAULT,
+            Pixels(16.0),
+            None,
+        ))
+        .expect("headless renderer")
+    }
+
+    fn button(
+        label: &'static str,
+        id: StableId,
+        message: Message,
+        role: Role,
+        disabled: bool,
+    ) -> TestElement<'static> {
+        let native: TestElement<'static> = iced::widget::button(iced::widget::text(label))
+            .on_press_maybe((!disabled).then_some(message.clone()))
+            .into();
+        accessible(native, id, role)
+            .label(label)
+            .description(format!("{label} description"))
+            .checked(role == Role::CheckBox)
+            .disabled(disabled)
+            .on_activate_maybe((!disabled).then_some(message))
+            .into()
+    }
+
+    fn interface() -> (TestUi<'static>, TestRenderer) {
+        let repeated = StableId::new("repeated-control");
+        let children = vec![
+            button("First", repeated, Message::First, Role::Button, false),
+            button(
+                "Disabled",
+                StableId::new("disabled-control"),
+                Message::First,
+                Role::Button,
+                true,
+            ),
+            button("Last", repeated, Message::Last, Role::CheckBox, false),
+        ];
+        let content: TestElement<'static> = iced::widget::Column::with_children(children).into();
+        let root: TestElement<'static> =
+            navigation(content, Message::Next, Message::Previous).into();
+        let mut renderer = renderer();
+        let ui = UserInterface::build(
+            root,
+            Size::new(400.0, 240.0),
+            user_interface::Cache::default(),
+            &mut renderer,
+        );
+        (ui, renderer)
+    }
+
+    fn snapshot(ui: &mut TestUi<'_>, renderer: &TestRenderer) -> Snapshot<Message> {
+        let mut operation = SnapshotOperation::<Message>::named("Test application");
+        ui.operate(renderer, &mut operation::black_box(&mut operation));
+        match operation.finish() {
+            Outcome::Some(snapshot) => snapshot,
+            _ => panic!("snapshot operation did not finish"),
+        }
+    }
+
+    fn semantic_nodes(snapshot: &Snapshot<Message>) -> Vec<(NodeId, &Node)> {
+        snapshot
+            .update
+            .nodes
+            .iter()
+            .filter(|(id, _)| *id != ROOT_ID)
+            .map(|(id, node)| (*id, node))
+            .collect()
+    }
+
+    fn focus_next(ui: &mut TestUi<'_>, renderer: &TestRenderer) {
+        let mut operation: Box<dyn Operation> = Box::new(operation::focusable::focus_next::<()>());
+        loop {
+            ui.operate(renderer, operation.as_mut());
+            match operation.finish() {
+                Outcome::Chain(next) => operation = next,
+                Outcome::None | Outcome::Some(()) => break,
+            }
+        }
+    }
+
+    #[test]
+    fn builds_real_accesskit_nodes_and_disambiguates_repeated_ids() {
+        let (mut ui, renderer) = interface();
+        let snapshot = snapshot(&mut ui, &renderer);
+        let nodes = semantic_nodes(&snapshot);
+
+        assert_eq!(nodes.len(), 3);
+        assert_eq!(nodes[0].1.role(), Role::Button);
+        assert_eq!(nodes[0].1.label(), Some("First"));
+        assert_eq!(nodes[0].1.description(), Some("First description"));
+        assert!(nodes[0].1.supports_action(Action::Click));
+        assert!(nodes[0].1.supports_action(Action::Focus));
+        assert!(nodes[1].1.is_disabled());
+        assert!(!nodes[1].1.supports_action(Action::Click));
+        assert_eq!(nodes[2].1.role(), Role::CheckBox);
+        assert_eq!(nodes[2].1.toggled(), Some(Toggled::True));
+
+        assert_ne!(nodes[0].0, nodes[2].0, "repeated source IDs stay unique");
+        assert_eq!(snapshot.update.focus, ROOT_ID);
+        assert_eq!(snapshot.actions[&nodes[0].0].activate, Some(Message::First));
+        assert_eq!(snapshot.actions[&nodes[2].0].activate, Some(Message::Last));
+        assert!(!snapshot.actions.contains_key(&nodes[1].0));
+
+        let click = snapshot.dispatch(ActionRequest {
+            action: Action::Click,
+            target_tree: TreeId::ROOT,
+            target_node: nodes[0].0,
+            data: None,
+        });
+        let mut stream = iced_test::runtime::task::into_stream(click).expect("click task");
+        let action =
+            iced_test::futures::futures::executor::block_on(stream.next()).expect("click output");
+        assert!(matches!(
+            action,
+            iced_test::runtime::Action::Output(Message::First)
+        ));
+
+        let root = snapshot
+            .update
+            .nodes
+            .iter()
+            .find(|(id, _)| *id == ROOT_ID)
+            .map(|(_, node)| node)
+            .expect("root node");
+        assert_eq!(root.label(), Some("Test application"));
+        assert_eq!(root.children(), &[nodes[0].0, nodes[1].0, nodes[2].0]);
+    }
+
+    #[test]
+    fn logical_keys_keep_node_ids_when_source_order_changes() {
+        fn ids(order: [(&'static str, &'static str); 2]) -> HashMap<String, NodeId> {
+            let children: Vec<TestElement<'static>> = order
+                .into_iter()
+                .map(|(key, label)| {
+                    button(
+                        label,
+                        StableId::new(key),
+                        Message::First,
+                        Role::Button,
+                        false,
+                    )
+                })
+                .collect();
+            let root: TestElement<'static> = iced::widget::Column::with_children(children).into();
+            let mut renderer = renderer();
+            let mut ui = UserInterface::build(
+                root,
+                Size::new(400.0, 160.0),
+                user_interface::Cache::default(),
+                &mut renderer,
+            );
+            semantic_nodes(&snapshot(&mut ui, &renderer))
+                .into_iter()
+                .map(|(id, node)| (node.label().expect("label").to_owned(), id))
+                .collect()
+        }
+
+        let before = ids([("item-a", "A"), ("item-b", "B")]);
+        let after = ids([("item-b", "B"), ("item-a", "A")]);
+        assert_eq!(before, after);
+    }
+
+    #[test]
+    fn builds_hierarchy_and_suppresses_atomic_control_descendants() {
+        let group_id = StableId::new("group");
+        let readable_id = StableId::new("readable");
+        let button_id = StableId::new("atomic-button");
+        let nested_id = StableId::new("nested-button-label");
+
+        let readable: TestElement<'static> =
+            accessible(iced::widget::text("Readable"), readable_id, Role::Label)
+                .value("Readable")
+                .into();
+        let nested: TestElement<'static> =
+            accessible(iced::widget::text("Nested"), nested_id, Role::Label)
+                .value("Nested")
+                .into();
+        let native_button: TestElement<'static> =
+            iced::widget::button(nested).on_press(Message::First).into();
+        let atomic: TestElement<'static> = accessible(native_button, button_id, Role::Button)
+            .label("Atomic")
+            .on_activate(Message::First)
+            .into();
+        let children = vec![readable, atomic];
+        let column: TestElement<'static> = iced::widget::Column::with_children(children).into();
+        let root: TestElement<'static> =
+            accessible(column, group_id, Role::GenericContainer).into();
+        let mut renderer = renderer();
+        let mut ui = UserInterface::build(
+            root,
+            Size::new(400.0, 240.0),
+            user_interface::Cache::default(),
+            &mut renderer,
+        );
+
+        let snapshot = snapshot(&mut ui, &renderer);
+        let node = |id| {
+            snapshot
+                .update
+                .nodes
+                .iter()
+                .find(|(candidate, _)| *candidate == id)
+                .map(|(_, node)| node)
+                .expect("semantic node")
+        };
+        let root = node(ROOT_ID);
+        let group = node(group_id.node_id());
+        let readable = node(readable_id.node_id());
+        let button = node(button_id.node_id());
+
+        assert_eq!(root.children(), &[group_id.node_id()]);
+        assert_eq!(
+            group.children(),
+            &[readable_id.node_id(), button_id.node_id()]
+        );
+        assert_eq!(readable.role(), Role::Label);
+        assert_eq!(readable.value(), Some("Readable"));
+        assert!(button.children().is_empty());
+        assert!(
+            snapshot
+                .update
+                .nodes
+                .iter()
+                .all(|(id, _)| *id != nested_id.node_id())
+        );
+    }
+
+    #[test]
+    fn password_nodes_never_expose_the_plaintext_value() {
+        const SECRET: &str = "correct horse battery staple";
+        let id = StableId::new("password");
+        let native: TestElement<'static> = iced::widget::text_input("Password", SECRET).into();
+        let root: TestElement<'static> = accessible(native, id, Role::PasswordInput)
+            .label("Password")
+            .value_maybe(None)
+            .into();
+        let mut renderer = renderer();
+        let mut ui = UserInterface::build(
+            root,
+            Size::new(400.0, 80.0),
+            user_interface::Cache::default(),
+            &mut renderer,
+        );
+
+        let snapshot = snapshot(&mut ui, &renderer);
+        let node = semantic_nodes(&snapshot)[0].1;
+        assert_eq!(node.role(), Role::PasswordInput);
+        assert_eq!(node.value(), None);
+        assert!(!format!("{node:?}").contains(SECRET));
+    }
+
+    #[test]
+    fn tab_order_skips_disabled_and_tree_focus_follows_operations() {
+        let (mut ui, renderer) = interface();
+        let initial = snapshot(&mut ui, &renderer);
+        let nodes = semantic_nodes(&initial);
+        let first = nodes[0].0;
+        let last = nodes[2].0;
+
+        focus_next(&mut ui, &renderer);
+        assert_eq!(snapshot(&mut ui, &renderer).update.focus, first);
+        focus_next(&mut ui, &renderer);
+        assert_eq!(snapshot(&mut ui, &renderer).update.focus, last);
+
+        let focus = initial.dispatch(ActionRequest {
+            action: Action::Focus,
+            target_tree: TreeId::ROOT,
+            target_node: first,
+            data: None,
+        });
+        let mut stream = iced_test::runtime::task::into_stream(focus).expect("focus task");
+        let action = iced_test::futures::futures::executor::block_on(stream.next())
+            .expect("focus operation");
+        let iced_test::runtime::Action::Widget(mut operation) = action else {
+            panic!("focus dispatch must produce a widget operation");
+        };
+        ui.operate(&renderer, operation.as_mut());
+        assert_eq!(snapshot(&mut ui, &renderer).update.focus, first);
+    }
+
+    #[test]
+    fn tab_and_keyboard_activation_emit_exactly_one_message() {
+        let (mut ui, mut renderer) = interface();
+        let mut messages = Vec::new();
+        let events = iced_test::simulator::tap_key(key::Named::Tab, None).collect::<Vec<_>>();
+        let _ = ui.update(
+            &events,
+            mouse::Cursor::Unavailable,
+            &mut renderer,
+            &mut iced::advanced::clipboard::Null,
+            &mut messages,
+        );
+        assert_eq!(messages, [Message::Next]);
+
+        messages.clear();
+        focus_next(&mut ui, &renderer);
+        let events = iced_test::simulator::tap_key(key::Named::Enter, None).collect::<Vec<_>>();
+        let _ = ui.update(
+            &events,
+            mouse::Cursor::Unavailable,
+            &mut renderer,
+            &mut iced::advanced::clipboard::Null,
+            &mut messages,
+        );
+        assert_eq!(messages, [Message::First]);
+
+        messages.clear();
+        focus_next(&mut ui, &renderer);
+        let events = iced_test::simulator::tap_key(key::Named::Space, None).collect::<Vec<_>>();
+        let _ = ui.update(
+            &events,
+            mouse::Cursor::Unavailable,
+            &mut renderer,
+            &mut iced::advanced::clipboard::Null,
+            &mut messages,
+        );
+        assert_eq!(messages, [Message::Last]);
+    }
+
+    #[test]
+    fn pointer_focus_has_one_owner() {
+        let (mut ui, mut renderer) = interface();
+        let initial = snapshot(&mut ui, &renderer);
+        let nodes = semantic_nodes(&initial);
+        let first = nodes[0].0;
+        let last = nodes[2].0;
+        let centers = [nodes[0].1, nodes[2].1].map(|node| {
+            let bounds = node.bounds().expect("semantic bounds");
+            Point::new(
+                ((bounds.x0 + bounds.x1) / 2.0) as f32,
+                ((bounds.y0 + bounds.y1) / 2.0) as f32,
+            )
+        });
+        drop(nodes);
+
+        for (point, expected) in centers.into_iter().zip([first, last]) {
+            let mut messages = Vec::new();
+            let _ = ui.update(
+                &[Event::Mouse(mouse::Event::ButtonPressed(
+                    mouse::Button::Left,
+                ))],
+                mouse::Cursor::Available(point),
+                &mut renderer,
+                &mut iced::advanced::clipboard::Null,
+                &mut messages,
+            );
+            assert_eq!(snapshot(&mut ui, &renderer).update.focus, expected);
+        }
+    }
+
+    #[derive(Default)]
+    struct OperationCounts {
+        focusable: usize,
+        text_input: usize,
+    }
+
+    impl Operation for OperationCounts {
+        fn traverse(&mut self, operate: &mut dyn FnMut(&mut dyn Operation)) {
+            operate(self);
+        }
+
+        fn focusable(
+            &mut self,
+            _id: Option<&widget::Id>,
+            _bounds: Rectangle,
+            _state: &mut dyn Focusable,
+        ) {
+            self.focusable += 1;
+        }
+
+        fn text_input(
+            &mut self,
+            _id: Option<&widget::Id>,
+            _bounds: Rectangle,
+            _state: &mut dyn TextInput,
+        ) {
+            self.text_input += 1;
+        }
+    }
+
+    #[test]
+    fn disabled_inputs_preserve_text_operations_but_filter_focus() {
+        let id = StableId::new("disabled-input");
+        let native: TestElement<'static> = iced::widget::text_input("", "value")
+            .id(id.widget_id())
+            .into();
+        let root: TestElement<'static> = accessible(native, id, Role::TextInput)
+            .disabled(true)
+            .focus_id(id.widget_id())
+            .into();
+        let mut renderer = renderer();
+        let mut ui = UserInterface::build(
+            root,
+            Size::new(400.0, 80.0),
+            user_interface::Cache::default(),
+            &mut renderer,
+        );
+        let mut counts = OperationCounts::default();
+
+        ui.operate(&renderer, &mut operation::black_box(&mut counts));
+
+        assert_eq!(counts.text_input, 1);
+        assert_eq!(counts.focusable, 0);
+        assert_eq!(snapshot(&mut ui, &renderer).update.focus, ROOT_ID);
+    }
+
+    struct CapturesTab;
+
+    impl Widget<Message, Theme, TestRenderer> for CapturesTab {
+        fn size(&self) -> Size<Length> {
+            Size::new(Length::Fixed(80.0), Length::Fixed(30.0))
+        }
+
+        fn layout(
+            &mut self,
+            _tree: &mut WidgetTree,
+            _renderer: &TestRenderer,
+            _limits: &layout::Limits,
+        ) -> layout::Node {
+            layout::Node::new(Size::new(80.0, 30.0))
+        }
+
+        fn draw(
+            &self,
+            _tree: &WidgetTree,
+            _renderer: &mut TestRenderer,
+            _theme: &Theme,
+            _style: &renderer::Style,
+            _layout: Layout<'_>,
+            _cursor: mouse::Cursor,
+            _viewport: &Rectangle,
+        ) {
+        }
+
+        fn update(
+            &mut self,
+            _tree: &mut WidgetTree,
+            event: &Event,
+            _layout: Layout<'_>,
+            _cursor: mouse::Cursor,
+            _renderer: &TestRenderer,
+            _clipboard: &mut dyn Clipboard,
+            shell: &mut Shell<'_, Message>,
+            _viewport: &Rectangle,
+        ) {
+            if matches!(
+                event,
+                Event::Keyboard(keyboard::Event::KeyPressed {
+                    key: keyboard::Key::Named(key::Named::Tab),
+                    ..
+                })
+            ) {
+                shell.publish(Message::First);
+                shell.capture_event();
+            }
+        }
+    }
+
+    #[test]
+    fn navigation_defers_to_children_and_ignores_modified_tab() {
+        let child: TestElement<'static> = Element::new(CapturesTab);
+        let root: TestElement<'static> = navigation(child, Message::Next, Message::Previous).into();
+        let mut renderer = renderer();
+        let mut ui = UserInterface::build(
+            root,
+            Size::new(400.0, 80.0),
+            user_interface::Cache::default(),
+            &mut renderer,
+        );
+        let mut messages = Vec::new();
+        let event = iced_test::simulator::press_key(key::Named::Tab, None);
+        let _ = ui.update(
+            &[event],
+            mouse::Cursor::Unavailable,
+            &mut renderer,
+            &mut iced::advanced::clipboard::Null,
+            &mut messages,
+        );
+        assert_eq!(messages, [Message::First]);
+
+        let passive: TestElement<'static> = iced::widget::Space::new().into();
+        let root: TestElement<'static> =
+            navigation(passive, Message::Next, Message::Previous).into();
+        let cache = ui.into_cache();
+        let mut ui = UserInterface::build(root, Size::new(400.0, 80.0), cache, &mut renderer);
+        messages.clear();
+        let Event::Keyboard(keyboard::Event::KeyPressed {
+            key,
+            modified_key,
+            physical_key,
+            location,
+            repeat,
+            text,
+            ..
+        }) = iced_test::simulator::press_key(key::Named::Tab, None)
+        else {
+            unreachable!()
+        };
+        let event = Event::Keyboard(keyboard::Event::KeyPressed {
+            key,
+            modified_key,
+            physical_key,
+            location,
+            modifiers: keyboard::Modifiers::CTRL,
+            repeat,
+            text,
+        });
+        let _ = ui.update(
+            &[event],
+            mouse::Cursor::Unavailable,
+            &mut renderer,
+            &mut iced::advanced::clipboard::Null,
+            &mut messages,
+        );
+        assert!(messages.is_empty());
+    }
+
+    #[derive(Default)]
+    struct RecordingRenderer {
+        quads: Vec<renderer::Quad>,
+    }
+
+    impl renderer::Renderer for RecordingRenderer {
+        fn start_layer(&mut self, _bounds: Rectangle) {}
+        fn end_layer(&mut self) {}
+        fn start_transformation(&mut self, _transformation: iced::Transformation) {}
+        fn end_transformation(&mut self) {}
+        fn fill_quad(&mut self, quad: renderer::Quad, _background: impl Into<iced::Background>) {
+            self.quads.push(quad);
+        }
+        fn reset(&mut self, _new_bounds: Rectangle) {}
+        fn allocate_image(
+            &mut self,
+            _handle: &iced::advanced::image::Handle,
+            _callback: impl FnOnce(
+                Result<iced::advanced::image::Allocation, iced::advanced::image::Error>,
+            ) + Send
+            + 'static,
+        ) {
+            panic!("test leaf never allocates images");
+        }
+    }
+
+    struct Leaf;
+
+    impl Widget<Message, (), RecordingRenderer> for Leaf {
+        fn size(&self) -> Size<Length> {
+            Size::new(Length::Fixed(80.0), Length::Fixed(30.0))
+        }
+
+        fn layout(
+            &mut self,
+            _tree: &mut WidgetTree,
+            _renderer: &RecordingRenderer,
+            _limits: &layout::Limits,
+        ) -> layout::Node {
+            layout::Node::new(Size::new(80.0, 30.0))
+        }
+
+        fn draw(
+            &self,
+            _tree: &WidgetTree,
+            _renderer: &mut RecordingRenderer,
+            _theme: &(),
+            _style: &renderer::Style,
+            _layout: Layout<'_>,
+            _cursor: mouse::Cursor,
+            _viewport: &Rectangle,
+        ) {
+        }
+    }
+
+    #[test]
+    fn focused_wrapper_draws_a_visible_outline() {
+        let id = StableId::new("focus-ring");
+        let leaf: Element<'_, Message, (), RecordingRenderer> = Element::new(Leaf);
+        let mut element: Element<'_, Message, (), RecordingRenderer> =
+            accessible(leaf, id, Role::Button).label("Focusable").into();
+        let mut tree = WidgetTree::new(&element);
+        let mut renderer = RecordingRenderer::default();
+        let node = element.as_widget_mut().layout(
+            &mut tree,
+            &renderer,
+            &layout::Limits::new(Size::ZERO, Size::new(100.0, 100.0)),
+        );
+        let mut focus = operation::focusable::focus::<()>(id.widget_id());
+        element
+            .as_widget_mut()
+            .operate(&mut tree, Layout::new(&node), &renderer, &mut focus);
+        element.as_widget().draw(
+            &tree,
+            &mut renderer,
+            &(),
+            &renderer::Style {
+                text_color: iced::Color::WHITE,
+            },
+            Layout::new(&node),
+            mouse::Cursor::Unavailable,
+            &Rectangle::with_size(Size::new(100.0, 100.0)),
+        );
+
+        assert_eq!(renderer.quads.len(), 1);
+        assert_eq!(renderer.quads[0].border.width, 2.0);
+        assert_eq!(renderer.quads[0].border.color, iced::Color::WHITE);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_adapter_action_handler_routes_requests_to_iced() {
+        let (sender, mut receiver) = iced::futures::channel::mpsc::unbounded();
+        let mut handler = Actions { sender };
+        let request = ActionRequest {
+            action: Action::Click,
+            target_tree: TreeId::ROOT,
+            target_node: StableId::new("native-action").node_id(),
+            data: None,
+        };
+
+        accesskit::ActionHandler::do_action(&mut handler, request.clone());
+
+        let routed = iced_test::futures::futures::executor::block_on(receiver.next());
+        assert_eq!(routed, Some(request));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_bridge_activation_uses_latest_tree_and_one_window() {
+        let (mut ui, renderer) = interface();
+        let snapshot = snapshot(&mut ui, &renderer);
+        let mut bridge = Bridge::<Message>::new();
+        bridge.update(snapshot.clone());
+        let mut activation = Activation {
+            latest_tree: Arc::clone(&bridge.latest_tree),
+        };
+
+        let initial = accesskit::ActivationHandler::request_initial_tree(&mut activation)
+            .expect("latest tree");
+        assert_eq!(initial.nodes, snapshot.update.nodes);
+        assert_eq!(initial.focus, snapshot.update.focus);
+
+        let first = iced::window::Id::unique();
+        let second = iced::window::Id::unique();
+        bridge.window_event(first, iced::window::Event::Focused);
+        bridge.window_event(second, iced::window::Event::Unfocused);
+        assert_eq!(bridge.window, Some(first));
+
+        let disabled = Bridge::<Message>::without_native_adapter();
+        assert!(disabled.adapter.is_none());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    #[ignore = "requires an isolated Linux AT-SPI bus; run scripts/a11y-smoke.sh"]
+    fn linux_native_atspi_exports_tree_and_routes_action() {
+        use std::process::Command;
+        use std::thread;
+        use std::time::Duration;
+
+        fn gdbus(args: &[&str]) -> Result<String, String> {
+            let output = Command::new("gdbus")
+                .args(args)
+                .output()
+                .map_err(|error| format!("failed to run gdbus: {error}"))?;
+            if output.status.success() {
+                Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+            } else {
+                Err(String::from_utf8_lossy(&output.stderr).into_owned())
+            }
+        }
+
+        fn quoted_values(output: &str) -> Vec<&str> {
+            output.split('\'').skip(1).step_by(2).collect()
+        }
+
+        fn set_enabled(enabled: bool) -> Result<(), String> {
+            gdbus(&[
+                "call",
+                "--session",
+                "--dest",
+                "org.a11y.Bus",
+                "--object-path",
+                "/org/a11y/bus",
+                "--method",
+                "org.freedesktop.DBus.Properties.Set",
+                "org.a11y.Status",
+                "IsEnabled",
+                if enabled { "<true>" } else { "<false>" },
+            ])
+            .map(|_| ())
+        }
+
+        struct StatusGuard(bool);
+        impl Drop for StatusGuard {
+            fn drop(&mut self) {
+                let _ = set_enabled(self.0);
+            }
+        }
+
+        let address = std::env::var("AT_SPI_BUS_ADDRESS")
+            .expect("run this gate through scripts/a11y-smoke.sh");
+
+        let status = gdbus(&[
+            "call",
+            "--session",
+            "--dest",
+            "org.a11y.Bus",
+            "--object-path",
+            "/org/a11y/bus",
+            "--method",
+            "org.freedesktop.DBus.Properties.Get",
+            "org.a11y.Status",
+            "IsEnabled",
+        ])
+        .expect("query org.a11y.Status.IsEnabled");
+        let initially_enabled = status.contains("true");
+        let _guard = StatusGuard(initially_enabled);
+
+        let label = format!("ui-lang-native-smoke-{}", std::process::id());
+        let id = StableId::new(&label).node_id();
+        let mut root = Node::new(Role::Window);
+        root.set_label(label.clone());
+        root.set_children(vec![id]);
+        let mut button = Node::new(Role::Button);
+        button.set_label(label.clone());
+        button.add_action(Action::Click);
+        let snapshot = Snapshot {
+            update: TreeUpdate {
+                nodes: vec![(ROOT_ID, root), (id, button)],
+                tree: Some(Tree {
+                    root: ROOT_ID,
+                    toolkit_name: Some("Ice native smoke".into()),
+                    toolkit_version: Some(env!("CARGO_PKG_VERSION").into()),
+                }),
+                tree_id: TreeId::ROOT,
+                focus: ROOT_ID,
+            },
+            actions: HashMap::from([(
+                id,
+                ActionTarget {
+                    activate: Some(Message::First),
+                    focus: None,
+                },
+            )]),
+        };
+        let mut bridge = Bridge::new();
+        bridge.update(snapshot);
+        bridge.window_event(iced::window::Id::unique(), iced::window::Event::Focused);
+        let mut receiver = bridge
+            .receiver
+            .lock()
+            .expect("native action receiver")
+            .take()
+            .expect("native action receiver owner");
+
+        thread::sleep(Duration::from_millis(250));
+        if initially_enabled {
+            set_enabled(false).expect("temporarily disable accessibility");
+            thread::sleep(Duration::from_millis(100));
+        }
+        set_enabled(true).expect("enable accessibility for native smoke");
+        let mut exported = None;
+        let mut diagnostic = String::new();
+        for _ in 0..50 {
+            let Ok(applications) = gdbus(&[
+                "call",
+                "--address",
+                &address,
+                "--dest",
+                "org.a11y.atspi.Registry",
+                "--object-path",
+                "/org/a11y/atspi/accessible/root",
+                "--method",
+                "org.a11y.atspi.Accessible.GetChildren",
+            ]) else {
+                thread::sleep(Duration::from_millis(100));
+                continue;
+            };
+            diagnostic = format!("applications={applications}");
+            for bus in quoted_values(&applications)
+                .into_iter()
+                .filter(|value| value.starts_with(':'))
+            {
+                let Ok(roots) = gdbus(&[
+                    "call",
+                    "--address",
+                    &address,
+                    "--dest",
+                    bus,
+                    "--object-path",
+                    "/org/a11y/atspi/accessible/root",
+                    "--method",
+                    "org.a11y.atspi.Accessible.GetChildren",
+                ]) else {
+                    continue;
+                };
+                diagnostic.push_str(&format!(" bus={bus} roots={roots}"));
+                for root_path in quoted_values(&roots)
+                    .into_iter()
+                    .filter(|value| value.starts_with('/'))
+                {
+                    let Ok(name) = gdbus(&[
+                        "call",
+                        "--address",
+                        &address,
+                        "--dest",
+                        bus,
+                        "--object-path",
+                        root_path,
+                        "--method",
+                        "org.freedesktop.DBus.Properties.Get",
+                        "org.a11y.atspi.Accessible",
+                        "Name",
+                    ]) else {
+                        continue;
+                    };
+                    diagnostic.push_str(&format!(" path={root_path} name={name}"));
+                    if !name.contains(&label) {
+                        continue;
+                    }
+                    let Ok(children) = gdbus(&[
+                        "call",
+                        "--address",
+                        &address,
+                        "--dest",
+                        bus,
+                        "--object-path",
+                        root_path,
+                        "--method",
+                        "org.a11y.atspi.Accessible.GetChildren",
+                    ]) else {
+                        continue;
+                    };
+                    let Some(path) = quoted_values(&children)
+                        .into_iter()
+                        .find(|value| value.starts_with('/'))
+                    else {
+                        continue;
+                    };
+                    exported = Some((bus.to_owned(), path.to_owned()));
+                    break;
+                }
+                if exported.is_some() {
+                    break;
+                }
+            }
+            if exported.is_some() {
+                break;
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+
+        let (bus, path) = exported.unwrap_or_else(|| {
+            panic!("AccessKit tree was not exported through AT-SPI; {diagnostic}")
+        });
+        gdbus(&[
+            "call",
+            "--address",
+            &address,
+            "--dest",
+            &bus,
+            "--object-path",
+            &path,
+            "--method",
+            "org.a11y.atspi.Action.DoAction",
+            "0",
+        ])
+        .expect("invoke exported AT-SPI action");
+
+        let mut routed = None;
+        for _ in 0..20 {
+            if let Ok(request) = receiver.try_recv() {
+                routed = Some(request);
+                break;
+            }
+            thread::sleep(Duration::from_millis(25));
+        }
+        let request = routed.expect("native AT-SPI action was not routed to Iced");
+        assert_eq!(request.action, Action::Click);
+        assert_eq!(request.target_node, id);
+    }
+}

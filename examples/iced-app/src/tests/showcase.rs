@@ -10,7 +10,7 @@ fn appends_markdown_and_tracks_image_uris() {
     let (mut app, _) = Showcase::__boot();
     assert!(app.help_images.is_empty());
 
-    assert_eq!(app.__update(__ShowcaseMessage::ExtendMarkdown).units(), 0);
+    assert_eq!(app.__update(__ShowcaseMessage::ExtendMarkdown).units(), 1);
     assert_eq!(app.help_images, ["asset://ice"]);
 }
 

@@ -9,6 +9,7 @@ pub(in crate::check) fn infer_controls_group(
 ) -> Result<bool, Error> {
     match node {
         ViewNode::Button {
+            label,
             id,
             disabled,
             options,
@@ -22,6 +23,14 @@ pub(in crate::check) fn infer_controls_group(
             if let Some(disabled) = disabled {
                 let ty = expr_type(disabled, env, document, span)?;
                 require_type(&ty, &Type::Bool, span)?;
+            }
+            check_accessibility_options(&options.accessibility, env, document, span)?;
+            if label.is_none() && options.accessibility.label.is_none() {
+                return Err(Error::new(
+                    "E105",
+                    span,
+                    "a button with child content requires `label=...` for accessibility",
+                ));
             }
             for length in [&options.width, &options.height].into_iter().flatten() {
                 check_length_value(length, env, document, span, "button size")?;
@@ -56,7 +65,7 @@ pub(in crate::check) fn infer_controls_group(
                 )?;
             }
             infer_route(route, None, env, document, signatures)?;
-            check_styles(styles, document, span, StyleTarget::Button)?;
+            check_styles(styles, document, span, StyleTarget::Button(options))?;
             if let Some(content) = content {
                 infer_view(content, env, document, signatures, ids)?;
             }
@@ -82,6 +91,7 @@ pub(in crate::check) fn infer_controls_group(
                     span,
                 )?;
             }
+            check_accessibility_options(&options.accessibility, env, document, span)?;
             check_bool_control_options(options, env, document, span)?;
             if let Some(style) = &style.custom {
                 let function =

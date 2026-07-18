@@ -1,6 +1,6 @@
 use super::*;
 
-mod composition;
+pub(crate) mod composition;
 mod content;
 mod dispatch;
 mod layout;

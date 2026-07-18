@@ -6,12 +6,15 @@ pub(in crate::codegen) fn render_container(
     id: &Option<Id>,
     styles: &[String],
     content: &ViewNode,
+    span: &Span,
     document: &Document,
     message: &str,
     env: &HashMap<String, Binding>,
     scope: &str,
     slot: Option<&SlotContext>,
 ) -> Result<String, Error> {
+    let accessibility_key =
+        accessibility_key_code(id.as_ref(), "container", span, scope, env, document)?;
     let child_scope = id.as_ref().map_or_else(
         || Ok(scope.to_owned()),
         |id| id_code(id, scope, env, document),
@@ -95,7 +98,7 @@ pub(in crate::codegen) fn render_container(
         code
     };
     Ok(format!(
-        "{{ let __container_content: __IceElement<'_, {message}> = {content}; {code}.into() }}"
+        "{{ let __a11y_key = {accessibility_key}; let __container_content: __IceElement<'_, {message}> = {content}; let __container = {code}; ::ui_lang_runtime::accessible(__container, ::ui_lang_runtime::StableId::new(&__a11y_key), ::ui_lang_runtime::Role::GenericContainer).into() }}"
     ))
 }
 

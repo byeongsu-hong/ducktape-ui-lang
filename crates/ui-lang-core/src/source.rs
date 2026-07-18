@@ -1,4 +1,4 @@
-use crate::{Document, Error, Span, check, codegen, parser};
+use crate::{CheckedDocument, Document, Error, Span, check, codegen, parser};
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -29,8 +29,21 @@ pub fn source_is_app(source: &str) -> bool {
     })
 }
 
-pub fn analyze_file(path: impl AsRef<Path>) -> Result<Document, Error> {
+pub fn analyze_file(path: impl AsRef<Path>) -> Result<CheckedDocument, Error> {
     let loaded = load(path.as_ref())?;
+    analyze_loaded(&loaded)
+}
+
+/// Analyze an unsaved root buffer while resolving its `use` graph from disk.
+///
+/// This is the editor-facing counterpart to [`analyze_file`]. Imported-buffer
+/// overlays are deliberately not implied; callers can still rely on the same
+/// source map and imported-file diagnostics as the command-line loader.
+pub fn analyze_file_with_source(
+    path: impl AsRef<Path>,
+    source: &str,
+) -> Result<CheckedDocument, Error> {
+    let loaded = load_with_root_source(path.as_ref(), source)?;
     analyze_loaded(&loaded)
 }
 
@@ -55,9 +68,9 @@ pub fn compile_file(path: impl AsRef<Path>) -> Result<FileCompilation, Error> {
     })
 }
 
-fn analyze_loaded(loaded: &LoadedSource) -> Result<Document, Error> {
-    let mut document = parser::parse(&loaded.source).map_err(|error| remap_error(error, loaded))?;
-    check::check(&mut document).map_err(|error| remap_error(error, loaded))?;
+fn analyze_loaded(loaded: &LoadedSource) -> Result<CheckedDocument, Error> {
+    let document = parser::parse(&loaded.source).map_err(|error| remap_error(error, loaded))?;
+    let document = check::analyze(document).map_err(|error| remap_error(error, loaded))?;
     check_assets(&document, loaded).map_err(|error| remap_error(error, loaded))?;
     Ok(document)
 }
@@ -129,10 +142,28 @@ fn check_assets(document: &Document, loaded: &LoadedSource) -> Result<(), Error>
 }
 
 fn load(path: &Path) -> Result<LoadedSource, Error> {
+    load_with_optional_root_source(path, None)
+}
+
+fn load_with_root_source(path: &Path, source: &str) -> Result<LoadedSource, Error> {
+    load_with_optional_root_source(path, Some(source))
+}
+
+fn load_with_optional_root_source(
+    path: &Path,
+    root_source: Option<&str>,
+) -> Result<LoadedSource, Error> {
     let root = canonical(path, path, 1)?;
-    let root_source = fs::read_to_string(&root)
-        .map_err(|error| file_error("E181", &root, 1, format!("cannot read .ice file: {error}")))?;
-    if !source_is_app(&root_source) {
+    let disk_source;
+    let root_source = if let Some(source) = root_source {
+        source
+    } else {
+        disk_source = fs::read_to_string(&root).map_err(|error| {
+            file_error("E181", &root, 1, format!("cannot read .ice file: {error}"))
+        })?;
+        &disk_source
+    };
+    if !source_is_app(root_source) {
         return Err(file_error(
             "E183",
             &root,
@@ -147,7 +178,15 @@ fn load(path: &Path) -> Result<LoadedSource, Error> {
     };
     let mut included = HashSet::new();
     let mut stack = Vec::new();
-    load_into(&root, &root, 1, &mut loaded, &mut included, &mut stack)?;
+    load_into(
+        &root,
+        &root,
+        1,
+        Some(root_source),
+        &mut loaded,
+        &mut included,
+        &mut stack,
+    )?;
     Ok(loaded)
 }
 
@@ -155,6 +194,7 @@ fn load_into(
     path: &Path,
     imported_from: &Path,
     import_line: usize,
+    source_override: Option<&str>,
     loaded: &mut LoadedSource,
     included: &mut HashSet<PathBuf>,
     stack: &mut Vec<PathBuf>,
@@ -178,8 +218,15 @@ fn load_into(
 
     stack.push(path.to_owned());
     loaded.dependencies.push(path.to_owned());
-    let source = fs::read_to_string(path)
-        .map_err(|error| file_error("E181", path, 1, format!("cannot read .ice file: {error}")))?;
+    let disk_source;
+    let source = if let Some(source) = source_override {
+        source
+    } else {
+        disk_source = fs::read_to_string(path).map_err(|error| {
+            file_error("E181", path, 1, format!("cannot read .ice file: {error}"))
+        })?;
+        &disk_source
+    };
     for (index, raw) in source.lines().enumerate() {
         let line = index + 1;
         if raw.len() == raw.trim_start().len() && raw.starts_with("use ") {
@@ -192,7 +239,7 @@ fn load_into(
                 path,
                 line,
             )?;
-            load_into(&target, path, line, loaded, included, stack)?;
+            load_into(&target, path, line, None, loaded, included, stack)?;
         } else {
             loaded.source.push_str(raw);
             loaded.source.push('\n');
@@ -261,7 +308,7 @@ fn file_error(code: &'static str, path: &Path, line: usize, message: impl Into<S
 
 #[cfg(test)]
 mod tests {
-    use super::{compile_file, source_is_app};
+    use super::{analyze_file_with_source, compile_file, source_is_app};
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -320,6 +367,20 @@ mod tests {
         assert_eq!(compiled.dependencies.len(), 3);
         assert!(compiled.rust.contains("struct Demo"));
         assert_eq!(compiled.rust.matches("include_str!").count(), 3);
+    }
+
+    #[test]
+    fn analyzes_an_unsaved_root_with_disk_imports_and_source_mapping() {
+        let fixture = Fixture::new();
+        fixture.write("app.ice", "app Saved\nview\n  text \"Saved\"\n");
+        fixture.write("part.ice", "component Broken()\n  wat\n");
+        let overlay = "app Overlay\nuse \"part.ice\"\nview\n  Broken()\n";
+
+        let error = analyze_file_with_source(fixture.path("app.ice"), overlay).unwrap_err();
+
+        assert_eq!(error.code, "E064");
+        assert_eq!(error.line, 2);
+        assert!(error.path.as_deref().unwrap().ends_with("part.ice"));
     }
 
     #[test]
@@ -420,9 +481,12 @@ mod tests {
         fixture.write("part.ice", "component Broken()\n  wat\n");
 
         let error = compile_file(fixture.path("app.ice")).unwrap_err();
+        let rendered = error.render(&fixture.path("app.ice").display().to_string());
 
         assert_eq!(error.line, 2);
         assert!(error.path.as_deref().unwrap().ends_with("part.ice"));
+        assert!(rendered.contains("part.ice:2:1:"));
+        assert!(rendered.contains("2 |   wat\n  | ^"));
     }
 
     #[test]

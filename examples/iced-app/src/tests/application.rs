@@ -34,12 +34,12 @@ fn resolves_application_callbacks_from_state() {
 fn constructs_structured_boot_preset() {
     let (app, task) = Tasks::__preset_0();
     assert!(!app.loading);
-    assert_eq!(task.units(), 0);
+    assert_eq!(task.units(), 1);
 
     let (app, task) = Tasks::__preset_1();
     assert_eq!(app.draft, "Preset task");
     assert!(app.loading);
-    assert_eq!(task.units(), 1);
+    assert_eq!(task.units(), 2);
 }
 
 #[test]
@@ -54,7 +54,7 @@ fn opens_and_targets_a_named_window() {
     assert_eq!(
         app.__update(__TasksMessage::ChildSized(640.0, 480.0))
             .units(),
-        0
+        1
     );
     assert_eq!((app.child_width, app.child_height), (640.0, 480.0));
 }

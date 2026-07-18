@@ -141,9 +141,8 @@ view
     let generated = compile(source, "composition.ice").unwrap();
     assert!(generated.contains("__BindDraft(::std::string::String)"));
     assert!(generated.contains("::iced::widget::text_input(\"\", &self.draft)"));
-    assert!(generated.contains(
-            "format!(\"{}/name\", format!(\"{}/card\", format!(\"{}/Card\", format!(\"{}/editor\", \"Composition\"))))"
-        ));
+    assert!(generated.contains("format!(\"{}/name\""));
+    assert!(generated.contains("format!(\"{}/Card@"));
 }
 
 #[test]
@@ -214,8 +213,8 @@ view
     let generated = compile(source, "composition.ice").unwrap();
     assert!(generated.contains("Compound title"));
     assert!(generated.contains("Structured body"));
-    assert!(generated.contains("format!(\"{}/Dialog.Header\""));
-    assert!(generated.contains("format!(\"{}/Dialog.Body\""));
+    assert!(generated.contains("format!(\"{}/Dialog.Header@"));
+    assert!(generated.contains("format!(\"{}/Dialog.Body@"));
 }
 
 #[test]

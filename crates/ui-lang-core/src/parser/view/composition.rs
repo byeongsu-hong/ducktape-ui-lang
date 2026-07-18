@@ -1,6 +1,6 @@
 use super::*;
 
-pub(in crate::parser) fn split_style_utilities(source: &str) -> (&str, Vec<String>) {
+pub(crate) fn split_style_utilities(source: &str) -> (&str, Vec<String>) {
     split_top_marker(source, "@").map_or_else(
         || (source.trim(), Vec::new()),
         |(core, styles)| {

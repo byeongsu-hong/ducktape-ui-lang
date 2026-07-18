@@ -178,6 +178,20 @@ pub(in crate::codegen) fn id_code(
     }
 }
 
+pub(in crate::codegen) fn accessibility_key_code(
+    id: Option<&Id>,
+    kind: &str,
+    span: &Span,
+    scope: &str,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<String, Error> {
+    id.map_or_else(
+        || Ok(format!("format!(\"{{}}/@{kind}:{}\", {scope})", span.line)),
+        |id| id_code(id, scope, env, document),
+    )
+}
+
 pub(in crate::codegen) fn widget_target_code(
     target: &WidgetTarget,
     env: &HashMap<String, Binding>,

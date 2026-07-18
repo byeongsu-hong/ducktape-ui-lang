@@ -3,6 +3,12 @@
 This ledger defines what “Ice covers iced” means. The baseline is the versions
 resolved by this workspace: `iced 0.14.0` and `iced_widget 0.14.2`.
 
+This is a compatibility inventory, not a roadmap. A partial or missing row does
+not imply planned Ice syntax; uncommon behavior should use an existing typed
+Rust boundary unless it satisfies the Core criteria in [`SPEC.md`](SPEC.md).
+Language revision 1.58 and the workspace's pre-1.0 package version `0.1.0`
+are intentionally separate version schemes.
+
 - **native**: accepted Ice syntax is parsed, type-checked, lowered, and compiled
   by the reference application or a focused test.
 - **partial**: a useful subset exists, but the public iced feature is not fully
@@ -12,6 +18,41 @@ resolved by this workspace: `iced 0.14.0` and `iced_widget 0.14.2`.
 An internal use of an iced widget does not count as coverage. For example, the
 backend may wrap layouts in `container`, but only explicit accepted Ice syntax
 counts toward the row below.
+
+## Accessibility
+
+Core accessibility is **native for single-window Linux applications** through
+an Ice-owned AccessKit/AT-SPI adapter and **partial at cross-platform system
+scope** because other targets do not yet export to native screen readers.
+
+| Core surface | Delivered contract |
+| --- | --- |
+| `text` | AccessKit `Label` with the visible text as its value |
+| `input` | `TextInput` with value, or `PasswordInput` with no exported value; positional text is the default name and checked `label=`/`description=` may override/extend it |
+| `button` | `Button` with focus/click actions; compact text is the default name, child content requires `label=`, and `description=` is optional |
+| `checkbox` | `CheckBox` with toggled state and focus/click actions; visible text is the default name and checked `label=`/`description=` may override/extend it |
+| `image` | a labeled image is an `Image`; an unlabeled image is decorative and omitted, and `description=` requires `label=` |
+| focus | source/view-tree read and Tab/Shift+Tab order, disabled-target skip, button Enter/Space, checkbox Space, and a visible wrapper focus outline; no numeric focus order |
+
+AccessKit tree construction and action dispatch are deterministic on every
+target. Native export is Linux single-window only. Daemon and multi-window
+adapters, non-Linux native screen-reader export, and exact desktop
+screen-coordinate bounds are unsupported on stock Iced 0.14.0. Rich text and
+advanced widget semantics are not claimed. `scripts/a11y-smoke.sh` proves that
+the Linux AT-SPI tree is discoverable and an invoked action reaches the Iced
+bridge; headless tests cover dispatch to the app message.
+
+## Compiler and tooling contract
+
+| Surface | Delivered contract |
+| --- | --- |
+| checked boundary | semantic analysis returns the backend-neutral `CheckedDocument`; only the checker constructs it and code generation rejects unchecked documents |
+| diagnostics | file-backed and imported language errors include the resolved path, source line, and caret |
+| style migration | `E045` rejects proven same-builder ownership conflicts; the parser-aware formatter migrates only equivalent properties, including text size, and preserves semantic, wrapper-only, and dual-owner utilities |
+| schema | `cargo ice schema` emits generative Core contexts, syntax, child shapes, typed properties, bindings, routes, style migration metadata, editor capabilities, and the backend contract |
+| LSP | `cargo ice lsp` provides full-document stdio sync, UTF-16 diagnostics over a root-buffer overlay plus disk imports, imported-file routing, formatting, and schema-derived completion; imported-buffer overlays, definition, and rename are unsupported |
+| compatibility | `cargo ice compat` analyzes app graphs, verifies exact Iced/runtime/AccessKit lockfile and direct-manifest pins, and runs the reference app tests; generated applications directly depend on `ui-lang-runtime = "=0.1.0"` |
+| native accessibility gate | `scripts/a11y-smoke.sh` runs the isolated Linux D-Bus/AT-SPI discovery and action-routing test |
 
 ## Typed system reachability
 

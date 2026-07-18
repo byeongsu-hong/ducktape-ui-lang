@@ -494,7 +494,7 @@ view
         focused-hovered background=surface border=primary border-width=2.0 radius=8.0
         disabled background=background border=border icon=muted placeholder=muted value=muted selection=primary
         icon code="+" font=ui size=14.0 spacing=6.0 side=left
-      button disabled=empty(trim(draft)) height=44.0 padding=8.0 clip=true @bg-surface text-foreground rounded-lg disabled:opacity-50 -> copy_draft
+      button label="Copy draft" disabled=empty(trim(draft)) height=44.0 padding=8.0 clip=true @bg-surface text-foreground rounded-lg disabled:opacity-50 -> copy_draft
         row @gap-2 items-center
           text "Copy" @text-sm text-foreground
           text "⌘C" @text-xs text-muted

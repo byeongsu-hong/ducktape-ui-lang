@@ -7,6 +7,7 @@ pub(in crate::codegen) fn render_layout(
     id: &Option<Id>,
     styles: &[String],
     children: &[ViewNode],
+    span: &Span,
     document: &Document,
     message: &str,
     env: &HashMap<String, Binding>,
@@ -14,6 +15,8 @@ pub(in crate::codegen) fn render_layout(
     slot: Option<&SlotContext>,
 ) -> Result<String, Error> {
     let style = Style::parse(styles, document);
+    let accessibility_key =
+        accessibility_key_code(id.as_ref(), "layout", span, scope, env, document)?;
     if kind == Layout::Scroll {
         let child_scope = id.as_ref().map_or_else(
             || Ok(scope.to_owned()),
@@ -128,7 +131,7 @@ pub(in crate::codegen) fn render_layout(
             write!(code, ".height({})", length_code(height, env, document)?).unwrap();
         }
         return Ok(format!(
-            "{{ let __scroll_content: __IceElement<'_, {message}> = {child}; {code}.into() }}"
+            "{{ let __a11y_key = {accessibility_key}; let __scroll_content: __IceElement<'_, {message}> = {child}; let __layout = {code}; ::ui_lang_runtime::accessible(__layout, ::ui_lang_runtime::StableId::new(&__a11y_key), ::ui_lang_runtime::Role::GenericContainer).into() }}"
         ));
     }
 
@@ -346,10 +349,15 @@ pub(in crate::codegen) fn render_layout(
     body.push_str(&container_style_code(&style, document));
     body.push(';');
     if style.self_center {
-        body.push_str(" ::iced::widget::container(__content).width(::iced::Fill).center_x(::iced::Fill).into() }");
+        write!(body, " let __layout_content: __IceElement<'_, {message}> = ::iced::widget::container(__content).width(::iced::Fill).center_x(::iced::Fill).into();").unwrap();
     } else {
-        body.push_str(" __content.into() }");
+        write!(
+            body,
+            " let __layout_content: __IceElement<'_, {message}> = __content.into();"
+        )
+        .unwrap();
     }
+    write!(body, " let __a11y_key = {accessibility_key}; ::ui_lang_runtime::accessible(__layout_content, ::ui_lang_runtime::StableId::new(&__a11y_key), ::ui_lang_runtime::Role::GenericContainer).into() }}").unwrap();
     Ok(body)
 }
 

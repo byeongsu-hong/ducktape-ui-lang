@@ -209,7 +209,24 @@ pub(in crate::codegen) fn render_media(
                 )
                 .unwrap();
             }
-            Ok(format!("{code}.into()"))
+            if let Some(label) = &options.accessibility.label {
+                let accessibility_key =
+                    accessibility_key_code(None, "media", span, scope, env, document)?;
+                let label = expr_code(label, env, document, ValueMode::Owned)?;
+                let description = options
+                    .accessibility
+                    .description
+                    .as_ref()
+                    .map(|value| expr_code(value, env, document, ValueMode::Owned))
+                    .transpose()?
+                    .map(|value| format!(".description({value})"))
+                    .unwrap_or_default();
+                Ok(format!(
+                    "{{ let __a11y_key = {accessibility_key}; let __a11y_id = ::ui_lang_runtime::StableId::new(&__a11y_key); ::ui_lang_runtime::accessible({code}, __a11y_id, ::ui_lang_runtime::Role::Image).label({label}){description}.into() }}"
+                ))
+            } else {
+                Ok(format!("{code}.into()"))
+            }
         }
         ViewNode::Tooltip {
             options,

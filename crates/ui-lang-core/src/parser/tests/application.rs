@@ -389,3 +389,43 @@ fn accepts_every_built_in_nested_theme() {
         parse(&source).unwrap_or_else(|error| panic!("{preset}: {error:?}"));
     }
 }
+
+#[test]
+fn parses_first_class_accessibility_metadata() {
+    let document = parse(
+        r#"app Accessible
+state
+  name = ""
+  checked = false
+on press
+on toggle(value)
+view
+  col
+    input "Name" #name label="Full name" description="Profile name" <-> name
+    button "Save" #save description="Save changes" -> press
+    checkbox "Ready" #ready label="Ready state" description="Current readiness" checked=checked -> toggle _
+    image "photo.ppm" label="Portrait" description="Profile portrait"
+"#,
+    )
+    .unwrap();
+    let ViewNode::Layout { children, .. } = &document.view else {
+        panic!("expected column");
+    };
+    let ViewNode::Input { options, .. } = &children[0] else {
+        panic!("expected input");
+    };
+    assert!(options.accessibility.label.is_some());
+    assert!(options.accessibility.description.is_some());
+    let ViewNode::Button { options, .. } = &children[1] else {
+        panic!("expected button");
+    };
+    assert!(options.accessibility.description.is_some());
+    let ViewNode::Checkbox { options, .. } = &children[2] else {
+        panic!("expected checkbox");
+    };
+    assert!(options.accessibility.label.is_some());
+    let ViewNode::Media { options, .. } = &children[3] else {
+        panic!("expected image");
+    };
+    assert!(options.accessibility.label.is_some());
+}

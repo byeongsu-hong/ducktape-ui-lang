@@ -39,7 +39,12 @@ pub(in crate::codegen) fn render_children(
                     return Err(Error::new("E121", span, "for expects a list"));
                 };
                 let items = expr_code(items, env, document, ValueMode::Borrowed)?;
-                write!(out, " for {item} in {items}.iter() {{").unwrap();
+                write!(
+                    out,
+                    " for (__ice_index, {item}) in {items}.iter().enumerate() {{ let __for_scope = format!(\"{{}}/@for:{}({{}})\", {scope}, __ice_index);",
+                    span.line
+                )
+                .unwrap();
                 let mut child_env = env.clone();
                 child_env.insert(
                     item.clone(),
@@ -49,7 +54,15 @@ pub(in crate::codegen) fn render_children(
                         local: false,
                     },
                 );
-                render_children(out, children, document, message, &child_env, scope, slot)?;
+                render_children(
+                    out,
+                    children,
+                    document,
+                    message,
+                    &child_env,
+                    "__for_scope.clone()",
+                    slot,
+                )?;
                 out.push_str(" }");
             }
             _ => {

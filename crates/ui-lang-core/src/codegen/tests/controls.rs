@@ -30,7 +30,7 @@ on choice_changed(next)
   choice = next
 view
   col
-    grid columns=2 width=640.0 spacing=12.0 height=aspect(16.0,9.0) @gap-2
+    grid columns=2 width=640.0 spacing=12.0 height=aspect(16.0,9.0)
       toggler "Enabled" checked=enabled -> enabled_changed _
       slider amount min=0.0 max=100.0 step=0.5 default=50.0 shift-step=0.1 vertical width=20.0 height=fill(2) style=dynamic_slider(enabled) release=released -> amount_changed _
         active rail-start=linear(0.0, primary@0.0, danger@1.0) rail-end=linear(1.57, background@0.0, primary/25@1.0) rail-width=4.0 rail-border=transparent rail-border-width=1.0 rail-radius=2.0 rail-radius-tl=1.0 handle=circle(7.0) handle-color=linear(0.785, primary@0.0, foreground@1.0) handle-border=foreground handle-border-width=1.0
@@ -60,7 +60,7 @@ view
 "#;
     let generated = compile(source, "controls.ice").unwrap();
     assert!(
-            generated.contains("::iced::widget::grid(__children).spacing(8).spacing(12.0 as f32).width(640.0 as f32).height(::iced::widget::grid::aspect_ratio(16.0 as f32, 9.0 as f32)).columns(2 as usize)")
+            generated.contains("::iced::widget::grid(__children).spacing(12.0 as f32).width(640.0 as f32).height(::iced::widget::grid::aspect_ratio(16.0 as f32, 9.0 as f32)).columns(2 as usize)")
         );
     assert!(generated.contains(
             "::iced::widget::grid(__children).height(::iced::Length::FillPortion(2)).fluid(240.0 as f32)"
@@ -170,16 +170,19 @@ on submitted
 on pasted(next)
   value = next
 view
-  input "Secret" #secret <-> value hint="Paste token" disabled=disabled secure=secure submit=submitted paste=pasted width=240.0 padding=8.0 text-size=14.0 line-height=1.2 align=center font=mono style=dynamic_input(disabled) @bg-background border border-primary rounded-lg focus:border-danger
+  input "Secret" #secret <-> value hint="Paste token" disabled=disabled secure=secure submit=submitted paste=pasted width=240.0 padding=8.0 text-size=14.0 line-height=1.2 align=center font=mono style=dynamic_input(disabled)
     active background=background border=foreground border-width=1.0 radius=4.0 icon=primary placeholder=danger value=foreground selection=primary
-    hovered background=background icon=foreground placeholder=danger value=foreground selection=primary
-    focused background=background border=primary
-    focused-hovered background=background border=foreground
-    disabled background=background value=danger
+    hovered background=background border=primary border-width=1.0 radius=10.0 icon=foreground placeholder=danger value=foreground selection=primary
+    focused background=background border=primary border-width=1.0 radius=10.0
+    focused-hovered background=background border=foreground border-width=1.0 radius=10.0
+    disabled background=background border=primary border-width=1.0 radius=10.0 value=danger
     icon code="•" font=ui size=12.0 spacing=4.0 side=right
 "#;
     let generated = compile(source, "form.ice").unwrap();
-    assert!(generated.contains(".secure(self.secure)"));
+    assert!(generated.contains("let __secure = self.secure"));
+    assert!(generated.contains(".secure(__secure)"));
+    assert!(generated.contains("::ui_lang_runtime::Role::PasswordInput"));
+    assert!(generated.contains(".value_maybe((!__secure).then"));
     assert!(generated.contains(".width(240.0 as f32).padding(8.0 as f32).size(14.0 as f32)"));
     assert!(generated.contains("LineHeight::Relative(1.2 as f32)"));
     assert!(generated.contains(".align_x(::iced::alignment::Horizontal::Center)"));
@@ -193,14 +196,13 @@ view
     let custom = generated
         .find("crate::backend::dynamic_input(__theme, __status, self.disabled)")
         .unwrap();
-    let utility = custom + generated[custom..].find(" __style.background =").unwrap();
-    let statuses = utility + generated[utility..].find(" match __status").unwrap();
-    assert!(custom < utility && utility < statuses);
+    let statuses = custom + generated[custom..].find(" match __status").unwrap();
+    assert!(custom < statuses);
     assert!(generated.contains("Status::Focused { is_hovered: true }"));
     assert!(generated.contains("__style.placeholder ="));
     assert!(generated.contains("__style.selection ="));
-    assert!(generated.contains(".on_submit_maybe(if self.disabled"));
-    assert!(generated.contains(".on_paste_maybe(if self.disabled"));
+    assert!(generated.contains(".on_submit_maybe(if __disabled"));
+    assert!(generated.contains(".on_paste_maybe(if __disabled"));
     let default_input = compile(
         &source.replace(" style=dynamic_input(disabled)", ""),
         "form.ice",
@@ -223,21 +225,23 @@ state
   disabled = false
 on pressed
 view
-  button #action disabled=disabled width=fill height=48.0 padding=8.0 clip=true style=dynamic_button(disabled) @bg-primary text-white rounded-lg disabled:opacity-50 -> pressed
+  button #action label="Save" disabled=disabled width=fill height=48.0 padding=8.0 clip=true style=dynamic_button(disabled) @disabled:opacity-50 -> pressed
     row
       text "Save"
       text "⌘S"
     active background=linear(1.57, primary@0.0, background@1.0) text=foreground border=primary border-width=1.0 radius=4.0 radius-tl=2.0 radius-tr=3.0 radius-br=5.0 radius-bl=6.0 shadow=black/50 shadow-x=-1.0 shadow-y=2.0 shadow-blur=4.0 pixel-snap=true
-    hovered background=foreground text=background
-    pressed background=primary
-    disabled background=background text=foreground
+    hovered background=foreground text=background radius=10.0
+    pressed background=primary text=white radius=10.0
+    disabled background=background text=foreground radius=10.0
 "#;
     let generated = compile(source, "actions.ice").unwrap();
     assert!(generated.contains("let __button_content: __IceElement"));
     assert!(generated.contains("::iced::widget::row(__children)"));
     assert!(generated.contains(".width(::iced::Fill).height(48.0 as f32)"));
     assert!(generated.contains(".padding(8.0 as f32).clip(true)"));
-    assert!(generated.contains(".on_press_maybe(if self.disabled"));
+    assert!(generated.contains(".on_press_maybe(if __disabled"));
+    assert!(generated.contains("::ui_lang_runtime::Role::Button"));
+    assert!(generated.contains(".label(\"Save\".to_owned())"));
     assert!(generated.contains("crate::backend::dynamic_button(__theme, __status, self.disabled)"));
     assert!(generated.contains("fn __ui_lang_check_button_style_dynamic_button"));
     assert!(generated.contains("button::Status::Active =>"));
@@ -476,4 +480,23 @@ view
     assert!(generated.contains("Stretch::SemiExpanded"));
     assert!(generated.contains("Style::Italic"));
     assert!(generated.contains("weight: ::iced::font::Weight::Bold, ..::iced::Font"));
+}
+
+#[test]
+fn lowers_builtin_and_opacity_text_color_utilities() {
+    let source = r#"app Typography
+theme
+  background #000000
+  foreground #ffffff
+  primary #336699
+  danger #ff0000
+state
+view
+  col
+    text "Invisible" @text-transparent
+    text "Muted" @text-primary/50
+"#;
+    let generated = compile(source, "typography.ice").unwrap();
+    assert!(generated.contains(".color(::iced::Color::from_rgba8(0, 0, 0, 0.000000))"));
+    assert!(generated.contains(".color(::iced::Color::from_rgba8(51, 102, 153, 0.500000))"));
 }

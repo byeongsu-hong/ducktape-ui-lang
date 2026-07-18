@@ -110,6 +110,7 @@ pub(in crate::codegen) fn generate_boot(
     document: &Document,
     message: &str,
 ) -> Result<(), Error> {
+    let accessibility_root = rust_string(&document.app);
     writeln!(out, "fn __state() -> Self {{").unwrap();
     for node in pane_grids(&document.view) {
         let ViewNode::PaneGrid {
@@ -152,6 +153,12 @@ pub(in crate::codegen) fn generate_boot(
         }
     }
     writeln!(out, "Self {{").unwrap();
+    let accessibility_bridge = if document.daemon {
+        "::ui_lang_runtime::Bridge::without_native_adapter()"
+    } else {
+        "::ui_lang_runtime::Bridge::new()"
+    };
+    writeln!(out, "__ice_accessibility: {accessibility_bridge},").unwrap();
     for qr in &document.qr_codes {
         writeln!(out, "{}: {},", qr.name, qr_data_code(qr)).unwrap();
     }
@@ -200,7 +207,15 @@ pub(in crate::codegen) fn generate_boot(
     } else {
         writeln!(out, "let task = ::iced::Task::none();").unwrap();
     }
-    writeln!(out, "(state, task)\n}}").unwrap();
+    if document.daemon {
+        writeln!(out, "(state, task)\n}}").unwrap();
+    } else {
+        writeln!(
+            out,
+            "let __accessibility = ::ui_lang_runtime::snapshot::<{message}>({accessibility_root}).map(|__snapshot| {message}::__AccessibilitySnapshot(::std::boxed::Box::new(__snapshot)));\n(state, ::iced::Task::batch([task, __accessibility]))\n}}"
+        )
+        .unwrap();
+    }
     Ok(())
 }
 
@@ -209,6 +224,7 @@ pub(in crate::codegen) fn generate_presets(
     document: &Document,
     message: &str,
 ) -> Result<(), Error> {
+    let accessibility_root = rust_string(&document.app);
     for (index, preset) in document.presets.iter().enumerate() {
         writeln!(
             out,
@@ -228,7 +244,15 @@ pub(in crate::codegen) fn generate_presets(
         if !has_task {
             writeln!(out, "::iced::Task::none()").unwrap();
         }
-        writeln!(out, "}})();\n(state, task)\n}}").unwrap();
+        if document.daemon {
+            writeln!(out, "}})();\n(state, task)\n}}").unwrap();
+        } else {
+            writeln!(
+                out,
+                "}})();\nlet __accessibility = ::ui_lang_runtime::snapshot::<{message}>({accessibility_root}).map(|__snapshot| {message}::__AccessibilitySnapshot(::std::boxed::Box::new(__snapshot)));\n(state, ::iced::Task::batch([task, __accessibility]))\n}}"
+            )
+            .unwrap();
+        }
     }
     Ok(())
 }
@@ -238,9 +262,10 @@ pub(in crate::codegen) fn generate_update(
     document: &Document,
     message: &str,
 ) -> Result<(), Error> {
+    let accessibility_root = rust_string(&document.app);
     writeln!(
         out,
-        "fn __update(&mut self, message: {message}) -> ::iced::Task<{message}> {{\nmatch message {{"
+        "fn __update(&mut self, message: {message}) -> ::iced::Task<{message}> {{\nlet __task = match message {{\n{message}::__AccessibilitySnapshot(__snapshot) => {{ self.__ice_accessibility.update(*__snapshot); return ::iced::Task::none(); }},\n{message}::__AccessibilityAction(__request) => {{ let __refresh = matches!(__request.action, ::ui_lang_runtime::Action::Focus); let __task = self.__ice_accessibility.dispatch(__request); return if __refresh {{ __task.chain(::ui_lang_runtime::snapshot::<{message}>({accessibility_root}).map(|__snapshot| {message}::__AccessibilitySnapshot(::std::boxed::Box::new(__snapshot)))) }} else {{ __task }}; }},\n{message}::__AccessibilityWindow(__id, __event) => {{ self.__ice_accessibility.window_event(__id, __event); return ::iced::Task::none(); }},\n{message}::__AccessibilityFocusNext => {{ return ::ui_lang_runtime::focus_next::<{message}>().chain(::ui_lang_runtime::snapshot::<{message}>({accessibility_root}).map(|__snapshot| {message}::__AccessibilitySnapshot(::std::boxed::Box::new(__snapshot)))); }},\n{message}::__AccessibilityFocusPrevious => {{ return ::ui_lang_runtime::focus_previous::<{message}>().chain(::ui_lang_runtime::snapshot::<{message}>({accessibility_root}).map(|__snapshot| {message}::__AccessibilitySnapshot(::std::boxed::Box::new(__snapshot)))); }},"
     )
     .unwrap();
     for handler in &document.handlers {
@@ -334,8 +359,20 @@ pub(in crate::codegen) fn generate_update(
         writeln!(out, "{message}::__ExternNoop => ::iced::Task::none(),").unwrap();
     }
     if has_animations(document) {
-        writeln!(out, "{message}::__AnimationFrame => ::iced::Task::none(),").unwrap();
+        writeln!(
+            out,
+            "{message}::__AnimationFrame => return ::iced::Task::none(),"
+        )
+        .unwrap();
     }
-    writeln!(out, "}}\n}}").unwrap();
+    if document.daemon {
+        writeln!(out, "}};\n__task\n}}").unwrap();
+    } else {
+        writeln!(
+            out,
+            "}};\n::iced::Task::batch([__task, ::ui_lang_runtime::snapshot::<{message}>({accessibility_root}).map(|__snapshot| {message}::__AccessibilitySnapshot(::std::boxed::Box::new(__snapshot)))])\n}}"
+        )
+        .unwrap();
+    }
     Ok(())
 }

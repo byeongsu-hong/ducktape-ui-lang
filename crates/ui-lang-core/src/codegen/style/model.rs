@@ -23,7 +23,7 @@ pub(in crate::codegen) struct Style {
 }
 
 impl Style {
-    pub(in crate::codegen) fn parse(tokens: &[String], document: &Document) -> Self {
+    pub(in crate::codegen) fn parse(tokens: &[String], _document: &Document) -> Self {
         let mut style = Self::default();
         for token in tokens {
             let (variant, utility) = token
@@ -91,11 +91,7 @@ impl Style {
                     }
                 }
                 _ if utility.starts_with("bg-") => style.background = Some(utility[3..].into()),
-                _ if utility.starts_with("text-") && document.theme.contains_key(&utility[5..])
-                    || matches!(utility, "text-white" | "text-black") =>
-                {
-                    style.text_color = Some(utility[5..].into())
-                }
+                _ if utility.starts_with("text-") => style.text_color = Some(utility[5..].into()),
                 _ if utility.starts_with("border-") => {
                     style.border_color = Some(utility[7..].into())
                 }
@@ -134,7 +130,12 @@ pub(in crate::codegen) fn container_style_value(
     style: &Style,
     document: &Document,
 ) -> Option<String> {
-    if style.background.is_none() && style.border_width == 0 && style.text_color.is_none() {
+    if style.background.is_none()
+        && style.border_width == 0
+        && style.border_color.is_none()
+        && style.radius == 0
+        && style.text_color.is_none()
+    {
         return None;
     }
     let background = style

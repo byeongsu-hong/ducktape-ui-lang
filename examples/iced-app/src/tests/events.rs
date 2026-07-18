@@ -32,6 +32,6 @@ mod generic_events {
     #[test]
     fn constructs_native_event_listeners() {
         let (app, _) = GenericEvents::__boot();
-        assert_eq!(app.__subscription().units(), 5);
+        assert_eq!(app.__subscription().units(), 7);
     }
 }

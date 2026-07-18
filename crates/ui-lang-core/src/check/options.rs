@@ -185,7 +185,12 @@ pub(in crate::check) fn infer_pane_view(
         pane_env.insert(binding.clone(), Type::Bool);
     }
     let env = &pane_env;
-    check_styles(&pane.styles, document, &pane.span, StyleTarget::PaneContent)?;
+    check_styles(
+        &pane.styles,
+        document,
+        &pane.span,
+        StyleTarget::PaneContent(&pane.style),
+    )?;
     check_container_style_options(&pane.style, env, document, &pane.span, "E187")?;
     if let Some(title) = &pane.title {
         for value in [
@@ -207,7 +212,12 @@ pub(in crate::check) fn infer_pane_view(
             )?;
             require_literal_range(value, 0.0, None, "pane title padding", &title.span)?;
         }
-        check_styles(&title.styles, document, &title.span, StyleTarget::PaneTitle)?;
+        check_styles(
+            &title.styles,
+            document,
+            &title.span,
+            StyleTarget::PaneTitle(&title.style),
+        )?;
         check_container_style_options(&title.style, env, document, &title.span, "E187")?;
     }
     for node in pane.nodes() {
@@ -375,6 +385,18 @@ pub(in crate::check) fn f64_literal(expr: &Expr) -> Option<f64> {
         } => f64_literal(value).map(|value| -value),
         _ => None,
     }
+}
+
+pub(in crate::check) fn check_accessibility_options(
+    options: &AccessibilityOptions,
+    env: &HashMap<String, Type>,
+    document: &Document,
+    span: &Span,
+) -> Result<(), Error> {
+    for value in [&options.label, &options.description].into_iter().flatten() {
+        require_type(&expr_type(value, env, document, span)?, &Type::Str, span)?;
+    }
+    Ok(())
 }
 
 pub(in crate::check) fn check_bool_control_options(

@@ -230,6 +230,7 @@ pub enum MediaKind {
 
 #[derive(Clone, Debug, Default)]
 pub struct MediaOptions {
+    pub accessibility: Box<AccessibilityOptions>,
     pub width: Option<LengthValue>,
     pub height: Option<LengthValue>,
     pub fit: Option<Expr>,

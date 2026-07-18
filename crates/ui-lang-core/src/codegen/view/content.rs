@@ -105,7 +105,7 @@ pub(in crate::codegen) fn render_content(
                 );
             }
             let component_scope = id.as_ref().map_or_else(
-                || format!("format!(\"{{}}/{}\", {scope})", name),
+                || format!("format!(\"{{}}/{}@{}\", {scope})", name, span.line),
                 |id| id_code(id, scope, env, document).unwrap_or_else(|_| scope.into()),
             );
             let component_slots = (!slots.is_empty()).then(|| SlotContext {

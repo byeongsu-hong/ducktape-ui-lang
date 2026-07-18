@@ -137,7 +137,7 @@ pub(in crate::check) fn infer_layout_group(
                 }
                 check_scroll_styles(&scroll.styles, env, document)?;
             }
-            check_styles(styles, document, span, StyleTarget::Layout(*kind))?;
+            check_styles(styles, document, span, StyleTarget::Layout(*kind, options))?;
             for child in children {
                 infer_view(child, env, document, signatures, ids)?;
             }
@@ -179,7 +179,7 @@ pub(in crate::check) fn infer_layout_group(
                 check_call_args(function, &style.args, env, document, span)?;
             }
             check_container_style_options(&options.style, env, document, span, "E184")?;
-            check_styles(styles, document, span, StyleTarget::Container)?;
+            check_styles(styles, document, span, StyleTarget::Container(options))?;
             infer_view(content, env, document, signatures, ids)?;
         }
         ViewNode::Overlay {

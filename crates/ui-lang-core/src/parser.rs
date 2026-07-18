@@ -342,8 +342,8 @@ mod declarations;
 mod expression;
 mod settings;
 mod statement;
-mod syntax;
-mod view;
+pub(crate) mod syntax;
+pub(crate) mod view;
 
 use canvas::*;
 use controls::*;

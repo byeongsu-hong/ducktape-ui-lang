@@ -14,6 +14,15 @@ pub(in crate::check) fn infer_media_group(
             options,
             span,
         } => {
+            check_accessibility_options(&options.accessibility, env, document, span)?;
+            if options.accessibility.label.is_none() && options.accessibility.description.is_some()
+            {
+                return Err(Error::new(
+                    "E105",
+                    span,
+                    "media `description=...` requires an accessibility `label=...`",
+                ));
+            }
             let source_ty = expr_type(source, env, document, span)?;
             let valid_source = match kind {
                 MediaKind::Image | MediaKind::Viewer => {

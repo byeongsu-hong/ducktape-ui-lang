@@ -811,3 +811,47 @@ view
     assert!(generated.contains("crate::backend::load(arg0).await"));
     assert!(generated.contains("let task = (||"));
 }
+
+#[test]
+fn lowers_accessibility_into_the_runtime_bridge() {
+    let source = r#"app Accessible
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  name = ""
+  checked = false
+on press
+on toggle(value)
+view
+  col
+    text 42
+    input "Name" #name label="Full name" description="Profile name" <-> name
+    button "Save" #save description="Save changes" -> press
+    checkbox "Ready" #ready label="Ready state" checked=checked -> toggle _
+    image "photo.ppm" label="Portrait" description="Profile portrait"
+"#;
+    let generated = compile(source, "accessible.ice").unwrap();
+    for expected in [
+        "::ui_lang_runtime::Bridge<__AccessibleMessage>",
+        "::ui_lang_runtime::snapshot::<__AccessibleMessage>(\"Accessible\")",
+        "::ui_lang_runtime::navigation(",
+        "::ui_lang_runtime::Role::TextInput",
+        "::ui_lang_runtime::Role::Label",
+        "let __text_value = (42).to_string()",
+        ".value(__text_value)",
+        "::ui_lang_runtime::Role::GenericContainer",
+        "::ui_lang_runtime::Role::Button",
+        "::ui_lang_runtime::Role::CheckBox",
+        "::ui_lang_runtime::Role::Image",
+        ".label(\"Full name\".to_owned())",
+        ".description(\"Profile portrait\".to_owned())",
+        ".chain(::ui_lang_runtime::snapshot",
+        "let __refresh = matches!(__request.action, ::ui_lang_runtime::Action::Focus)",
+    ] {
+        assert!(generated.contains(expected), "missing {expected}");
+    }
+    assert!(!generated.contains("dispatch(__request).chain"));
+}

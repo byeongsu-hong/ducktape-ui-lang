@@ -58,9 +58,6 @@ pub(in crate::codegen) fn generate_subscription(
     document: &Document,
     message: &str,
 ) -> Result<(), Error> {
-    if document.subscriptions.is_empty() && !has_animations(document) {
-        return Ok(());
-    }
     let env = state_env(document, "self");
     writeln!(
         out,
@@ -68,6 +65,18 @@ pub(in crate::codegen) fn generate_subscription(
     )
     .unwrap();
     writeln!(out, "::iced::Subscription::batch([").unwrap();
+    if !document.daemon {
+        writeln!(
+            out,
+            "self.__ice_accessibility.subscription().map({message}::__AccessibilityAction),"
+        )
+        .unwrap();
+        writeln!(
+            out,
+            "::iced::window::events().map(|(__id, __event)| {message}::__AccessibilityWindow(__id, __event)),"
+        )
+        .unwrap();
+    }
     for subscription in &document.subscriptions {
         let source_arity = subscription_payload_arity(&subscription.source, subscription.window_id);
         let filter = subscription

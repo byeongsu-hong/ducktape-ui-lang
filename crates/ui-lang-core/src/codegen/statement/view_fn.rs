@@ -29,10 +29,18 @@ pub(in crate::codegen) fn generate_view(
     } else {
         ""
     };
-    writeln!(
-        out,
-        "fn __view(&self{window_arg}) -> __IceElement<'_, {message}> {{ {root} }}"
-    )
-    .unwrap();
+    if document.daemon {
+        writeln!(
+            out,
+            "fn __view(&self{window_arg}) -> __IceElement<'_, {message}> {{ {root} }}"
+        )
+        .unwrap();
+    } else {
+        writeln!(
+            out,
+            "fn __view(&self{window_arg}) -> __IceElement<'_, {message}> {{ let __ice_content: __IceElement<'_, {message}> = {root}; ::ui_lang_runtime::navigation(__ice_content, {message}::__AccessibilityFocusNext, {message}::__AccessibilityFocusPrevious).into() }}"
+        )
+        .unwrap();
+    }
     Ok(())
 }

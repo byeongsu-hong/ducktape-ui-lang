@@ -1,3 +1,7 @@
+mod compat;
+mod lsp;
+mod schema;
+
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -20,6 +24,26 @@ fn run() -> Result<(), String> {
     }
     let command = args.first().map(String::as_str).unwrap_or("check");
     let check_only = args.iter().any(|arg| arg == "--check");
+
+    match command {
+        "schema" => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&schema::document())
+                    .map_err(|error| error.to_string())?
+            );
+            return Ok(());
+        }
+        "lsp" => return lsp::run_stdio(),
+        "help" | "--help" | "-h" => {
+            println!(
+                "cargo ice <fmt [--check] | check | clippy | compat | expand <file.ice> | schema | lsp>"
+            );
+            return Ok(());
+        }
+        _ => {}
+    }
+
     let root = env::current_dir().map_err(|error| error.to_string())?;
     let files = ice_files(&root)?;
 
@@ -62,6 +86,12 @@ fn run() -> Result<(), String> {
             analyze(&roots)?;
             cargo(&["clippy", "--workspace", "--all-targets", "--no-deps"])?;
         }
+        "compat" => {
+            let roots = app_files(&files)?;
+            analyze(&roots)?;
+            compat::verify(&root)?;
+            cargo(&["test", "-p", "iced-app"])?;
+        }
         "expand" => {
             let requested = args
                 .get(1)
@@ -70,9 +100,6 @@ fn run() -> Result<(), String> {
             let generated = ui_lang_core::compile_file(&path)
                 .map_err(|error| error.render(&path.display().to_string()))?;
             print!("{}", generated.rust);
-        }
-        "help" | "--help" | "-h" => {
-            println!("cargo ice <fmt [--check] | check | clippy | expand <file.ice>>");
         }
         other => return Err(format!("unknown cargo ice command `{other}`")),
     }

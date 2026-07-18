@@ -16,4 +16,4 @@ on loaded(next)
 on failed(error)
   items = []
 view
-  text len(items) @text-sm
+  text len(items) size=14.0

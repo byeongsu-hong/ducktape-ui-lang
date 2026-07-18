@@ -1,8 +1,13 @@
-use crate::Error;
 use crate::ast::*;
+use crate::{CheckedDocument, Error};
 use std::collections::{HashMap, HashSet};
 
-pub fn check(document: &mut Document) -> Result<(), Error> {
+pub fn analyze(mut document: Document) -> Result<CheckedDocument, Error> {
+    check(&mut document)?;
+    Ok(CheckedDocument::new(document))
+}
+
+fn check(document: &mut Document) -> Result<(), Error> {
     check_unique(document)?;
     check_fonts(document)?;
     check_slots(document)?;

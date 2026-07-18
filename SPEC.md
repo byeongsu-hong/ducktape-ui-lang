@@ -40,6 +40,69 @@ interaction -> handler -> extern async Rust fn -> result handler -> state -> vie
 UI validation such as disabling an empty submit button is only a convenience.
 The Rust action must still validate its input.
 
+### Core and compatibility boundary
+
+Ice Core is the stable authoring surface: `app`, `use`, `state`, `component`,
+`slot`, `on`, `view`, `if`, `for`, `keyed`, and `lazy`; common row, column,
+stack, scroll, and container layout; text, input, button, checkbox, and image
+widgets; bindings, routes, payloads, scoped IDs, typed extern calls, and basic
+async success/failure routing.
+
+A new Core construct must be common UI authoring, have one canonical source
+form, and not fit an existing typed Rust boundary. Core vocabulary is frozen
+for revision 1.58; adding or changing it requires an explicit language design
+and a new revision, while removal requires deprecation and migration.
+
+Accepted advanced syntax such as Canvas paths, complete PaneGrid mutation, raw
+window/platform values, shaders, custom renderers, task-composition variants,
+and exhaustive native status styles remains a compatibility surface. It is not
+a parity roadmap and must not grow only because iced exposes another public
+type or method. Removing accepted compatibility syntax also requires a separate
+deprecation and migration decision.
+
+Language revisions and Cargo package versions use separate schemes. This
+document specifies language revision 1.58. The workspace packages are
+pre-1.0 SemVer `0.1.0`; their package version does not claim language 0.1. The
+resolved iced/iced_widget versions are a third, independent backend baseline.
+
+### Accessibility contract
+
+Ice owns a small accessibility layer above stock Iced. Generated Core nodes
+produce a deterministic AccessKit tree with these mappings:
+
+| Ice node | AccessKit role | Semantic state |
+| --- | --- | --- |
+| `text` | `Label` | the visible text is its value |
+| `input` | `TextInput` | label, optional description, value, disabled/focus state |
+| secure `input` | `PasswordInput` | label, optional description, disabled/focus state; no value is exported |
+| `button` | `Button` | label, optional description, disabled/focus state, click action |
+| `checkbox` | `CheckBox` | label, optional description, toggled/disabled/focus state, click action |
+| labeled `image` | `Image` | label and optional description |
+
+`label=` and `description=` are checked `str` expressions. The positional input
+label, compact button string, and visible checkbox label are default accessible
+names; an explicit `label=` overrides them. A button whose content is a child
+node requires `label=` (`E105`). An image without `label=` is decorative and is
+omitted from the semantic tree; media `description=` without `label=` is also
+`E105`. Secure inputs use `PasswordInput` and never copy their state value into
+the accessibility tree.
+
+Semantic read order and keyboard focus order follow source/view-tree order.
+Tab and Shift+Tab traverse enabled inputs, buttons, and checkboxes; disabled
+controls expose disabled state but no focus/click action and are skipped.
+Enter and Space activate a focused button, while Space activates a focused
+checkbox. Wrapper-focused controls draw a two-pixel outline; text inputs retain
+their native focused rendering. There is no numeric focus-order syntax.
+
+Tree construction, focus updates, duplicate-ID disambiguation, and action
+routing are deterministic across platforms. Native screen-reader export is a
+separate, narrower contract: `accesskit_unix` exports a single-window Linux
+application over AT-SPI. Stock Iced 0.14.0 does not expose the window-scoped
+operations or desktop transform needed for daemon/multi-window adapters or
+exact screen-coordinate bounds. Non-Linux builds retain the deterministic
+tree/action behavior but have no native screen-reader adapter. Rich text and
+advanced widgets are outside this Core semantic contract.
+
 ## 2. Compiler model
 
 ```text
@@ -48,7 +111,7 @@ UTF-8 .ice source graph
   -> indentation-aware parser
   -> AST
   -> name resolution + type inference + semantic checks
-  -> typed AST/IR
+  -> checked AST
   -> iced Rust backend
   -> rustc
 ```
@@ -56,6 +119,12 @@ UTF-8 .ice source graph
 `ui-lang-core` owns the parser, AST, checker, formatter, and backend. The
 `ui-lang` proc macro and `cargo-ice` command are thin frontends over that core.
 There is no runtime parser and no `build.rs` generator.
+
+Successful semantic analysis returns the nominal `CheckedDocument` boundary.
+Only the checker can construct it, and backend generation accepts that checked
+form rather than an unchecked `Document`. The type is backend-neutral: it
+contains the same Ice AST after resolution and semantic checks, without Iced
+types or a speculative second backend.
 
 The Rust adapter is one manifest-relative include:
 
@@ -72,6 +141,12 @@ rebuilds after any `.ice` change. It also
 emits probes for every declared extern struct field and async function. Rustc
 therefore rejects missing, private, or shape-incompatible Rust items even when
 an extern declaration is not reached at runtime.
+
+Generated Rust refers to the public `::ui_lang_runtime` path, so a consuming
+application must declare `ui-lang-runtime = "=0.1.0"` as a direct dependency.
+That runtime pins AccessKit and, on Linux, `accesskit_unix`; the reference
+application uses the workspace path with the exact version. `cargo ice compat`
+verifies the lockfile and direct-manifest contract.
 
 ## 3. Source rules
 
@@ -644,7 +719,9 @@ text_property  = ("width=" | "height=") length | "size=" expr
                | "shaping=" ("auto" | "basic" | "advanced")
                | "wrapping=" ("none" | "word" | "glyph" | "word-or-glyph")
                | "style=" call
-input          = "input" string id? "<->" name input_property* styles?
+accessibility_property = ("label=" | "description=") expr
+input          = "input" string id? accessibility_property* "<->" name
+                 input_property* styles?
                  (INDENT input_child*)?
 input_property = "hint=" string | ("disabled=" | "secure=") expr
                | ("submit=" | "paste=") route | "width=" length
@@ -666,13 +743,15 @@ input_style_property
 input_icon     = "icon" combo_icon_property+
 button         = "button" (string | INDENT node) id? button_property*
                  styles? "->" route (INDENT button_status_style*)?
-button_property = "disabled=" expr | ("width=" | "height=") length
+button_property = accessibility_property | "disabled=" expr
+                | ("width=" | "height=") length
                 | ("padding=" | "clip=") expr
                 | "style=" (("primary" | "secondary" | "success" | "warning"
                   | "danger" | "text" | "background" | "subtle") | call)
 button_status_style = ("active" | "hovered" | "pressed" | "disabled")
                       surface_style_property*
-checkbox       = "checkbox" expr id? "checked=" expr bool_property*
+checkbox       = "checkbox" expr id? accessibility_property* "checked=" expr
+                 bool_property*
                  checkbox_icon_property* checkbox_style? styles? "->" route
                  (INDENT checkbox_status_style*)?
 toggler        = "toggler" expr "checked=" expr bool_property*
@@ -829,7 +908,7 @@ qr_property    = ("cell-size=" | "total-size=") expr
                | ("cell=" | "background=") name ("/" u8)?
 space          = "space" ("width=" length)? ("height=" length)? styles?
 media          = ("image" | "svg" | "viewer") expr media_property*
-media_property = ("width=" | "height=") length
+media_property = accessibility_property | ("width=" | "height=") length
                | "fit=" ("contain" | "cover" | "fill" | "none" | "scale-down")
                | "rotation=" (expr | "solid(" expr ")") | "opacity=" expr
                | "memory" | "color=" color_ref
@@ -1106,6 +1185,9 @@ Crop is `(x, y, width, height)` in non-negative `i64` source-pixel coordinates.
 `memory`, `color`, and `hover` are SVG-only. `memory` accepts UTF-8 SVG text or
 raw `bytes`; `color` filters both statuses and `hover` overrides the
 hovered status with a checked theme color or `none`.
+Core `image` accepts checked `label=` and `description=` text. A labeled image
+is an AccessKit `Image`; an unlabeled image is decorative, and a description
+without a label is rejected.
 `viewer` wraps an image path or handle in iced's stateful zoom/pan widget. It
 accepts width, height, fit, filter, non-negative padding, positive minimum and
 maximum scales, and a positive scale step; the minimum cannot exceed the
@@ -1188,12 +1270,13 @@ relative `line-height=` or absolute `line-height-px=`, horizontal and vertical
 alignment, shaping, wrapping, and declared or built-in fonts. An explicit `size=`
 overrides a `@text-*` utility; `font=mono @font-bold` preserves both choices.
 
-`input` keeps its required `str` binding and additionally supports bool secure
-mode, submit routes, str-payload paste routes, typed width/padding/text size,
-relative line height, horizontal alignment, complete font descriptors, and a
-complete text-input icon. Its five optional status lines expose every concrete
-iced text-input Style field. A disabled input suppresses typing, submit, and
-paste messages together. The old inline `icon=`, `icon-font=`, `icon-size=`,
+`input` keeps its required `str` binding and additionally supports checked
+`label=`/`description=` accessibility text, bool secure mode, submit routes,
+str-payload paste routes, typed width/padding/text size, relative line height,
+horizontal alignment, complete font descriptors, and a complete text-input
+icon. Its five optional status lines expose every concrete iced text-input Style
+field. A disabled input suppresses typing, submit, paste, and accessibility
+focus together. The old inline `icon=`, `icon-font=`, `icon-size=`,
 `icon-spacing=`, and `icon-side=` properties remain accepted as compact syntax.
 
 ```ice
@@ -1210,12 +1293,13 @@ owned arguments and returns `text_input::Style`. Checked utilities apply next,
 and status lines are the final overrides.
 
 `button` accepts either its compact string label or exactly one arbitrary child
-node. It also supports typed width/height, non-negative padding, bool clipping,
-disabled routing, all eight iced presets, and checked style utilities. Optional
-`active`, `hovered`, `pressed`, and `disabled` child lines override every
-concrete button style field with solid/linear backgrounds, text, per-corner
-border, shadow, and pixel snapping. A structured content node may appear beside
-these status lines.
+node. The compact string is its default accessible name; child content requires
+an explicit checked `label=`, and either form may add `description=`. It also
+supports typed width/height, non-negative padding, bool clipping, disabled
+routing, all eight iced presets, and checked style utilities. Optional `active`,
+`hovered`, `pressed`, and `disabled` child lines override every concrete button
+style field with solid/linear backgrounds, text, per-corner border, shadow, and
+pixel snapping. A structured content node may appear beside these status lines.
 
 `style=action_button(loading)` may instead call a declared `button-style`.
 Its Rust function receives `&iced::Theme`, the current `button::Status`, then
@@ -1225,10 +1309,12 @@ that returned base style.
 
 `checkbox` and `toggler` share typed control size/width/spacing, text size and
 relative line height, shaping, wrapping, and default/mono font properties.
-Togglers add full text alignment. Checkboxes add a single-character icon with
-size, relative line height, and shaping. A checkbox may start from any of iced's
-primary, secondary, success, or danger presets and override each checked and
-unchecked form of its active, hovered, and disabled statuses independently:
+Togglers add full text alignment. Checkboxes use their visible label as the
+default accessible name and accept checked `label=` and `description=`
+overrides. They also add a single-character icon with size, relative line
+height, and shaping. A checkbox may start from any of iced's primary,
+secondary, success, or danger presets and override each checked and unchecked
+form of its active, hovered, and disabled statuses independently:
 
 ```ice
 checkbox "Complete" checked=done style=success -> changed _
@@ -2261,12 +2347,12 @@ The implemented native nodes are:
 | `stack` | overlays children with typed width/height, optional clipping and `under=N` intrinsic-base control |
 | `container` | exactly one child with ID, all length bounds, max bounds, per-axis alignment, clipping, per-side padding, every concrete surface style field including linear backgrounds, and typed native runtime style callbacks |
 | `overlay` | named `content` and `layer` trees with checked visibility, alignment, padding, backdrop and optional dismissal |
-| `text` | one `str`, `i64`, or `f64` expression with bounds, size/line-height, font, alignment, shaping, wrapping and checked color/weight styles |
+| `text` | one `str`, `i64`, or `f64` expression with bounds, size/line-height, font, alignment, shaping, wrapping, checked color/weight styles, and an AccessKit `Label` role containing the visible value |
 | `rich-text` | zero or more structured spans with rich defaults, complete span highlights and optional string link events |
 | `pane-grid` | named pane trees backed by recursive persistent split state, structured title/full/compact controls, complete concrete state and surface styles with linear backgrounds, closed panes, list-keyed runtime templates, typed dynamic references, click, resize and drag/drop behavior |
-| `input` | required `str` binding; ID, hint, disabled/secure, submit/paste, every concrete builder setter, complete icon, all concrete status style fields, and typed native runtime style callbacks |
-| `button` | string label or one child; optional ID/disabled, typed size/padding/clip, eight presets, complete status styles, typed native runtime style callbacks and required route |
-| `checkbox` | string label, bool value/route, disabled, sizing/typography/wrapping/font, custom icon, four presets and complete checked-aware status styles |
+| `input` | required `str` binding; checked accessible label/description, `TextInput` or value-suppressing `PasswordInput` role, ID, hint, disabled/secure, submit/paste, every concrete builder setter, complete icon, all concrete status style fields, and typed native runtime style callbacks |
+| `button` | string label or one child; checked accessible label/description with an explicit label required for child content, `Button` role and keyboard activation, optional ID/disabled, typed size/padding/clip, eight presets, complete status styles, typed native runtime style callbacks and required route |
+| `checkbox` | string label, optional accessible label/description, `CheckBox` role and keyboard activation, bool value/route, disabled, sizing/typography/wrapping/font, custom icon, four presets and complete checked-aware status styles |
 | `toggler` | string label, bool value/route, disabled, sizing/typography/wrapping/font/alignment and complete checked-aware status styles |
 | `slider` | `f64` or typed extern numeric value/range/default/normal+shift steps, direction-aware sizing, change/release routes and nested status styles |
 | `progress` | `f64` value/range, all length/girth variants, vertical axis, five presets, complete concrete style overrides and typed native runtime style callbacks |
@@ -2280,7 +2366,7 @@ The implemented native nodes are:
 | `rule` | horizontal/vertical separator with non-negative thickness, all fill modes, default/weak preset, color, corner radii and snap |
 | `qr` | named text/binary QR data with correction/version, cell/total sizing and checked colors |
 | `space` | optional fixed/fill/fill-portion/shrink width and height |
-| `image` | raster path or encoded/RGBA handle with every concrete sizing/fit/filter/floating-or-solid rotation/opacity/scale/expand/per-corner-radius/crop property |
+| `image` | raster path or encoded/RGBA handle with every concrete sizing/fit/filter/floating-or-solid rotation/opacity/scale/expand/per-corner-radius/crop property; `label=` adds an AccessKit `Image` role and unlabeled images are decorative |
 | `viewer` | interactive image zoom/pan with path/handle sources and complete sizing/fit/filter/padding/scale configuration |
 | `svg` | SVG path or UTF-8/raw-byte memory expression with typed layout, idle/hover color properties, and a typed native runtime style callback |
 | `tooltip` | exactly two children (content then tip), full positioning/timing, every concrete container style field, and typed native runtime style callbacks |
@@ -2309,10 +2395,11 @@ expression and maps to iced's evenly distributed sizing.
 and style an arbitrary structured child tree. It accepts the shared surface
 properties used by pane content and title bars: solid or linear background,
 text, border with per-corner radius, shadow offset/blur, and pixel snapping.
-Typed properties override any equivalent `@` utility on the same node:
+Typed properties and equivalent `@` utilities may each be used alone, but the
+checker rejects both owning the same field on one node:
 
 ```ice
-container #card width=fill max-width=640.0 align-x=center padding=12.0 background=linear(1.57, surface@0.0, background@1.0) shadow=black/50 shadow-y=2.0 shadow-blur=8.0 pixel-snap=true @bg-surface rounded-lg
+container #card width=fill max-width=640.0 align-x=center padding=12.0 background=linear(1.57, surface@0.0, background@1.0) radius=10.0 shadow=black/50 shadow-y=2.0 shadow-blur=8.0 pixel-snap=true
   TaskRow task=task loading=loading
 ```
 
@@ -2456,8 +2543,8 @@ pane-grid #workspace split=vertical resize=8.0 drag
     hovered-region background=linear(0.785, primary/10@0.0, primary/40@1.0) border=primary border-width=2.0 radius=8.0
     hovered-split color=primary width=3.0
     picked-split color=foreground width=3.0
-  pane files background=linear(1.57, surface@0.0, background@1.0) shadow=black/50 shadow-y=2.0 shadow-blur=8.0 pixel-snap=true @bg-surface border border-border rounded-lg
-    title padding=8.0 padding-x=12.0 always-controls background=background border=border border-width=1.0 radius-tl=8.0 radius-tr=8.0 @bg-background
+  pane files background=linear(1.57, surface@0.0, background@1.0) border=border border-width=1.0 radius=10.0 shadow=black/50 shadow-y=2.0 shadow-blur=8.0 pixel-snap=true
+    title padding=8.0 padding-x=12.0 always-controls background=background border=border border-width=1.0 radius-tl=8.0 radius-tr=8.0
       text "Files" @font-bold
     controls
       row @gap-2
@@ -3758,22 +3845,34 @@ The Rust function has signature `fn(bool) -> iced::Theme`. It may use
 `Theme::custom_with_fn` to derive the complete extended palette; generated
 probes reject a missing function, wrong arguments, or a different return type.
 
-`@` switches the remainder of a node to style utilities. Utilities are resolved
-at compile time; there is no CSS engine, selector matching, cascade, or runtime
-string parser.
+`@` switches the remainder of a node to checked semantic color, font-emphasis,
+and design-token utilities. Layout, geometry, and text size use typed
+properties such as
+`width=`, `height=`, `padding=`, `spacing=`, and `radius=`. Fixed native widget
+appearance uses `style=` presets; reusable or state-dependent native appearance
+that is more complex than token variants crosses a typed Rust style or
+component boundary.
 
-The implemented utility surface is:
+The accepted geometry utilities below predate that ownership rule and remain a
+compatibility surface during migration. New source should use the typed
+property. Utilities are resolved at compile time; there is no CSS engine,
+selector matching, cascade, or runtime string parser. When a node writes the
+same semantic property through two forms, the checker may reject it with
+`E045`; for example, `container width=fill @w-full` must be written as
+`container width=fill`.
+
+The accepted utility surface is:
 
 | Family | Values | Effective on |
 | --- | --- | --- |
-| size | `w-full`, `h-full` | layouts; `w-full` also input |
-| max width | `max-w-sm` through `max-w-2xl` | row, col, grid, stack |
-| alignment | `items-center`, `self-center` | row, col |
-| spacing | `p-*`, `px-*`, `py-*`, `gap-*` | row/col/grid/stack; padding also input/button; grid supports gap |
+| size | `w-full`, `h-full` | row, col, scroll, grid, stack, container; `w-full` also input |
+| max width | `max-w-sm` through `max-w-2xl` | row, col, grid, stack, container |
+| alignment | `items-center`, `self-center` | `items-center` on row/col; `self-center` on row/col/grid/stack/container |
+| spacing | `p-*`, `px-*`, `py-*`, `gap-*` | padding on row/col/grid/stack/container/input/button; gap on row/col/grid |
 | text | `text-xs` through `text-2xl`, `font-bold` | text |
 | color | `bg-TOKEN`, `text-TOKEN`, `border-TOKEN` | checked per widget |
-| border | `border`, `border-2` | row, col, grid, stack, input |
-| radius | `rounded-sm`, `rounded`, `rounded-md`, `rounded-lg`, `rounded-full` | row, col, grid, stack, input, button |
+| border | `border`, `border-2` | row, col, grid, stack, container, pane/title, input |
+| radius | `rounded-sm`, `rounded`, `rounded-md`, `rounded-lg`, `rounded-full` | row, col, grid, stack, container, pane/title, input, button |
 | states | `hover:bg-*`, `pressed:bg-*`, `disabled:opacity-*` | button |
 | focus | `focus:border-*` | input |
 
@@ -3781,9 +3880,10 @@ Spacing values are `0 1 2 3 4 5 6 8 10 12 16 20 24` and map to four iced
 logical pixels per unit. Opacity values are `0 25 50 75 100`; color opacity may
 be any integer from 0 through 100.
 
-`border-TOKEN` and `focus:border-TOKEN` require `border` or `border-2` on the
-same node. A rounded row, column, grid, or stack requires a background or
-border, because iced would otherwise have nothing to round.
+`border-TOKEN` and `focus:border-TOKEN` require either `border-width=` or the
+deprecated `border`/`border-2` utility on the same node. A rounded row, column,
+grid, or stack requires a background or border, because iced would otherwise
+have nothing to round.
 
 The checker rejects both an unknown utility (`E041`) and a known utility on a
 node where the iced backend would ignore it (`E042`/`E044`). Silent CSS-like
@@ -3798,6 +3898,43 @@ E132 src/ui/tasks.ice:26:1: unknown handler `save`
 E041 src/ui/tasks.ice:61:1: unsupported utility `grid-cols-3`
 E042 src/ui/tasks.ice:61:1: utility `gap-4` has no effect on `text`
 ```
+
+When the resolved source file is readable, command-line rendering includes the
+offending line and a caret at the checked column:
+
+```text
+E045 src/ui/panel.ice:8:1: style property `width` is set by both `width=` and `@w-full`
+8 |   container width=fill @w-full
+  | ^
+hint: remove `@w-full`; `width=` is the canonical spelling
+```
+
+Imported-file errors use the imported path and excerpt. Callers that only have
+an in-memory source, or whose file is no longer readable, retain the compact
+coordinate-only form.
+
+`E045` is limited to forms that write the same generated builder. It does not
+reject callback or fixed-preset base styles, `font=` composed with
+`@font-bold`, or layout utilities that deliberately style a generated outer
+wrapper. The formatter reuses the parser's string/depth-aware tokenization and
+rewrites only ownership-equivalent forms: direct widget sizing, spacing,
+padding, alignment, text size, border width, and radius. It simulates ordered
+padding utilities before emitting typed sides, preserves routes and quoted
+markers, and leaves semantic utilities and wrapper-only geometry unchanged.
+Radius utilities are rewritten only when their original utility surface already
+satisfies `E044`, so formatting cannot legalize invalid source.
+
+Those directly replaceable geometry utilities are deprecated compatibility
+spellings. `cargo ice fmt` is their migration path; they remain accepted on a
+node by themselves in revision 1.58 and are not removed without a later
+language revision. Row/column/grid wrapper sizing, layout `max-w-*` and
+`self-center`, stack/grid wrapper padding, and axis-specific input/button
+padding are intentional utilities because their generated owner has no
+equivalent typed property. Stack `w-full`/`h-full` write both the stack and its
+wrapper, so the formatter preserves them and `E045` rejects combining them with
+the corresponding typed stack size. A final input/button `p-0` is also
+preserved because the legacy form keeps Iced's default padding instead of
+emitting an explicit zero.
 
 The implemented families are:
 
@@ -3830,11 +3967,33 @@ extern line; 1.58 does not claim that remapping.
 | `cargo ice fmt --check` | checks both Rust and Ice formatting without changing `.ice` files |
 | `cargo ice check` | language analysis followed by workspace `cargo check` |
 | `cargo ice clippy` | language analysis followed by workspace clippy |
+| `cargo ice compat` | analyzes app graphs, verifies exact Iced/runtime/AccessKit lockfile versions and direct reference-app/runtime manifest pins, and runs the reference app tests |
 | `cargo ice expand FILE` | prints generated Rust for debugging |
+| `cargo ice schema` | prints the generative Core grammar, style migration, editor capabilities, and backend contract as JSON |
+| `cargo ice lsp` | serves stdio UTF-16 diagnostics, whole-document formatting, and schema-driven completion |
 
 `cargo-ice` discovers `.ice` files recursively below the current directory,
 skips `.git` and `target`, analyzes files with a top-level `app` or `daemon` as roots, and
 formats both roots and imported fragments.
+
+The schema describes every Core construct's valid contexts, canonical syntax,
+child cardinality, typed properties, binding, and route. Completion entries are
+generated from that same construct table instead of a separate vocabulary.
+
+The LSP uses Content-Length framed stdio, full-document synchronization, and
+the same parser/checker/source map as the compiler. Existing file URIs use the
+open root buffer over disk-backed imports; imported diagnostics are published
+at the imported URI with UTF-16 ranges. Unsaved imported buffers are not
+overlaid. Definition and rename remain unsupported because the checked model
+does not retain reference spans and imported source origins.
+
+The normal runtime and reference-app tests verify deterministic semantic trees,
+focus, keyboard activation, visible focus, password suppression, and action
+routing. On Linux, `scripts/a11y-smoke.sh` starts an isolated D-Bus/AT-SPI
+session and runs the ignored native gate that discovers the exported tree and
+delivers its action to the Iced bridge. Headless tests cover dispatch from the
+bridge to the app message. The smoke is the native adapter gate; it does not
+expand the single-window or coordinate contract above.
 
 ## 12. Current coverage and escape hatches
 

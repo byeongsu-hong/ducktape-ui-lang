@@ -1,11 +1,11 @@
-use crate::Error;
 use crate::ast::*;
 use crate::check::{controlled_state_bindings, expr_type};
+use crate::{CheckedDocument, Error};
 use std::collections::HashMap;
 use std::fmt::Write;
 use std::path::Path;
 
-pub fn generate(document: &Document, source_path: &str) -> Result<String, Error> {
+pub fn generate(document: &CheckedDocument, source_path: &str) -> Result<String, Error> {
     let message = format!("__{}Message", document.app);
     let mut out = String::new();
     writeln!(
@@ -31,6 +31,11 @@ pub fn generate(document: &Document, source_path: &str) -> Result<String, Error>
     generate_pane_types(&mut out, document)?;
 
     writeln!(out, "#[derive(Debug)]\npub struct {} {{", document.app).unwrap();
+    writeln!(
+        out,
+        "pub(crate) __ice_accessibility: ::ui_lang_runtime::Bridge<{message}>,"
+    )
+    .unwrap();
     for qr in &document.qr_codes {
         writeln!(
             out,
@@ -81,6 +86,11 @@ pub fn generate(document: &Document, source_path: &str) -> Result<String, Error>
     writeln!(out, "}}").unwrap();
 
     writeln!(out, "#[derive(Debug, Clone)]\nenum {message} {{").unwrap();
+    writeln!(
+        out,
+        "__AccessibilitySnapshot(::std::boxed::Box<::ui_lang_runtime::Snapshot<{message}>>),\n__AccessibilityAction(::ui_lang_runtime::ActionRequest),\n__AccessibilityWindow(::iced::window::Id, ::iced::window::Event),\n__AccessibilityFocusNext,\n__AccessibilityFocusPrevious,"
+    )
+    .unwrap();
     for handler in &document.handlers {
         if handler.name == "mount" {
             continue;
@@ -147,11 +157,7 @@ pub fn generate(document: &Document, source_path: &str) -> Result<String, Error>
     writeln!(out, "impl {} {{", document.app).unwrap();
     generate_named_windows(&mut out, document, source_path);
     writeln!(out, "pub fn run() -> ::iced::Result {{").unwrap();
-    let subscription = if document.subscriptions.is_empty() && !has_animations(document) {
-        ""
-    } else {
-        ".subscription(Self::__subscription)"
-    };
+    let subscription = ".subscription(Self::__subscription)";
     let default_font = document
         .fonts
         .iter()

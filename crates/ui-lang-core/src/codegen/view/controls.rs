@@ -17,10 +17,34 @@ pub(in crate::codegen) fn render_controls(
             options,
             styles,
             route,
-            ..
+            span,
         } => {
             let style = Style::parse(styles, document);
             let message_code = route_code(route, "", env, document, message)?;
+            let accessibility_key =
+                accessibility_key_code(id.as_ref(), "button", span, scope, env, document)?;
+            let accessibility_label = options
+                .accessibility
+                .label
+                .as_ref()
+                .map(|value| expr_code(value, env, document, ValueMode::Owned))
+                .transpose()?
+                .unwrap_or_else(|| {
+                    rust_string(label.as_ref().expect("checked button accessibility label"))
+                });
+            let accessibility_description = options
+                .accessibility
+                .description
+                .as_ref()
+                .map(|value| expr_code(value, env, document, ValueMode::Owned))
+                .transpose()?
+                .map(|value| format!(".description({value})"))
+                .unwrap_or_default();
+            let disabled_value = disabled
+                .as_ref()
+                .map(|value| expr_code(value, env, document, ValueMode::Owned))
+                .transpose()?
+                .unwrap_or_else(|| "false".into());
             let content = if let Some(content) = content {
                 let child_scope = id.as_ref().map_or_else(
                     || Ok(scope.to_owned()),
@@ -34,7 +58,7 @@ pub(in crate::codegen) fn render_controls(
                 )
             };
             let mut code = format!(
-                "{{ let __button_content: __IceElement<'_, {message}> = {content}; ::iced::widget::button(__button_content)"
+                "{{ let __a11y_key = {accessibility_key}; let __a11y_id = ::ui_lang_runtime::StableId::new(&__a11y_key); let __disabled = {disabled_value}; let __activate = {message_code}; let __button_content: __IceElement<'_, {message}> = {content}; let __button = ::iced::widget::button(__button_content)"
             );
             if let Some(padding) = style.padding_code() {
                 write!(code, ".padding({padding})").unwrap();
@@ -61,45 +85,63 @@ pub(in crate::codegen) fn render_controls(
                 )
                 .unwrap();
             }
-            if let Some(disabled) = disabled {
-                let disabled = expr_code(disabled, env, document, ValueMode::Owned)?;
-                write!(
-                    code,
-                    ".on_press_maybe(if {disabled} {{ None }} else {{ Some({message_code}) }})"
-                )
-                .unwrap();
-            } else {
-                write!(code, ".on_press({message_code})").unwrap();
-            }
+            code.push_str(
+                ".on_press_maybe(if __disabled { None } else { Some(__activate.clone()) })",
+            );
             code.push_str(&button_style_code(&style, &options.style, env, document)?);
-            Ok(format!("{code}.into() }}"))
+            Ok(format!(
+                "{code}; ::ui_lang_runtime::accessible(__button, __a11y_id, ::ui_lang_runtime::Role::Button).focus_id(::iced::widget::Id::from(__a11y_key)).label({accessibility_label}).disabled(__disabled).on_activate_maybe(if __disabled {{ None }} else {{ Some(__activate) }}){accessibility_description}.into() }}"
+            ))
         }
         ViewNode::Checkbox {
             label,
+            id,
             checked,
             disabled,
             options,
             style,
             route,
+            span,
             ..
         } => {
             let label = expr_code(label, env, document, ValueMode::Owned)?;
             let checked = expr_code(checked, env, document, ValueMode::Owned)?;
             let message_code = route_code(route, "__value", env, document, message)?;
-            let mut code = format!("::iced::widget::checkbox({checked}).label({label})");
+            let accessibility_key =
+                accessibility_key_code(id.as_ref(), "checkbox", span, scope, env, document)?;
+            let accessibility_label = options
+                .accessibility
+                .label
+                .as_ref()
+                .map(|value| expr_code(value, env, document, ValueMode::Owned))
+                .transpose()?
+                .unwrap_or_else(|| "__label.clone()".into());
+            let accessibility_description = options
+                .accessibility
+                .description
+                .as_ref()
+                .map(|value| expr_code(value, env, document, ValueMode::Owned))
+                .transpose()?
+                .map(|value| format!(".description({value})"))
+                .unwrap_or_default();
+            let disabled_value = disabled
+                .as_ref()
+                .map(|value| expr_code(value, env, document, ValueMode::Owned))
+                .transpose()?
+                .unwrap_or_else(|| "false".into());
+            let mut code = format!(
+                "{{ let __a11y_key = {accessibility_key}; let __a11y_id = ::ui_lang_runtime::StableId::new(&__a11y_key); let __label = {label}; let __checked = {checked}; let __disabled = {disabled_value}; let __activate = {{ let __value = !__checked; {message_code} }}; let __checkbox = ::iced::widget::checkbox(__checked).label(__label.clone())"
+            );
             append_bool_control_options(&mut code, options, env, document, false)?;
-            if let Some(disabled) = disabled {
-                let disabled = expr_code(disabled, env, document, ValueMode::Owned)?;
-                write!(
-                    code,
-                    ".on_toggle_maybe(if {disabled} {{ None }} else {{ Some(move |__value| {message_code}) }})"
-                )
-                .unwrap();
-            } else {
-                write!(code, ".on_toggle(move |__value| {message_code})").unwrap();
-            }
+            write!(
+                code,
+                ".on_toggle_maybe(if __disabled {{ None }} else {{ Some(move |__value| {message_code}) }})"
+            )
+            .unwrap();
             code.push_str(&checkbox_style_code(style, env, document)?);
-            Ok(format!("{code}.into()"))
+            Ok(format!(
+                "{code}; ::ui_lang_runtime::accessible(__checkbox, __a11y_id, ::ui_lang_runtime::Role::CheckBox).focus_id(::iced::widget::Id::from(__a11y_key)).label({accessibility_label}).checked(__checked).disabled(__disabled).on_activate_maybe(if __disabled {{ None }} else {{ Some(__activate) }}){accessibility_description}.into() }}"
+            ))
         }
         ViewNode::Toggler {
             label,

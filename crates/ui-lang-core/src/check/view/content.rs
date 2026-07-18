@@ -19,7 +19,7 @@ pub(in crate::check) fn infer_content_group(
                 return Err(type_error(span, &Type::Str, &ty).hint("text accepts str, i64, or f64"));
             }
             check_text_options(options, env, document, span)?;
-            check_styles(styles, document, span, StyleTarget::Text)?;
+            check_styles(styles, document, span, StyleTarget::Text(options))?;
         }
         ViewNode::RichText {
             options,
@@ -30,7 +30,15 @@ pub(in crate::check) fn infer_content_group(
             span,
         } => {
             check_text_options(options, env, document, span)?;
-            check_styles(styles, document, span, StyleTarget::Text)?;
+            check_styles(
+                styles,
+                document,
+                span,
+                StyleTarget::RichText {
+                    options,
+                    typed_color: color.is_some(),
+                },
+            )?;
             if color
                 .as_ref()
                 .is_some_and(|color| !valid_theme_color(color, document))
@@ -48,7 +56,12 @@ pub(in crate::check) fn infer_content_group(
                     ));
                 }
                 check_font(item.options.font.as_ref(), document, &item.span)?;
-                check_styles(&item.styles, document, &item.span, StyleTarget::Text)?;
+                check_styles(
+                    &item.styles,
+                    document,
+                    &item.span,
+                    StyleTarget::RichSpan(&item.options),
+                )?;
                 for color in [&item.options.color, &item.options.border]
                     .into_iter()
                     .flatten()
@@ -173,6 +186,7 @@ pub(in crate::check) fn infer_content_group(
                 let ty = expr_type(disabled, env, document, span)?;
                 require_type(&ty, &Type::Bool, span)?;
             }
+            check_accessibility_options(&options.accessibility, env, document, span)?;
             if let Some(secure) = &options.secure {
                 require_type(&expr_type(secure, env, document, span)?, &Type::Bool, span)?;
             }
@@ -203,7 +217,7 @@ pub(in crate::check) fn infer_content_group(
                 check_call_args(function, &style.args, env, document, span)?;
             }
             check_text_input_styles(&options.style, env, document, span, "input")?;
-            check_styles(styles, document, span, StyleTarget::Input)?;
+            check_styles(styles, document, span, StyleTarget::Input(options))?;
         }
         _ => return Ok(false),
     };

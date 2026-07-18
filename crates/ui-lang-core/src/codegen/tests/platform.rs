@@ -544,11 +544,12 @@ view
         generated
             .contains("Id::from(format!(\"{}/list({})\", \"DynamicOperations\", self.selected))")
     );
+    assert!(
+        generated.contains("let __a11y_key = format!(\"{}/field({})\", __for_scope.clone(), id)")
+    );
+    assert!(generated.contains(".id(::iced::widget::Id::from(__a11y_key.clone()))"));
     assert!(generated.contains(
-        ".id(::iced::widget::Id::from(format!(\"{}/field({})\", \"DynamicOperations\", id)))"
-    ));
-    assert!(generated.contains(
-        ".id(::iced::widget::Id::from(format!(\"{}/list({})\", \"DynamicOperations\", id)))"
+        ".id(::iced::widget::Id::from(format!(\"{}/list({})\", __for_scope.clone(), id)))"
     ));
 }
 

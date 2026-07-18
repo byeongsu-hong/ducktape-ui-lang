@@ -15,18 +15,18 @@ pub(in crate::codegen) fn render_foundation(
             id,
             styles,
             children,
-            ..
+            span,
         } => render_layout(
-            *kind, options, id, styles, children, document, message, env, scope, slot,
+            *kind, options, id, styles, children, span, document, message, env, scope, slot,
         ),
         ViewNode::Container {
             options,
             id,
             styles,
             content,
-            ..
+            span,
         } => render_container(
-            options, id, styles, content, document, message, env, scope, slot,
+            options, id, styles, content, span, document, message, env, scope, slot,
         ),
         ViewNode::Overlay {
             options,
@@ -47,16 +47,20 @@ pub(in crate::codegen) fn render_foundation(
             value,
             options,
             styles,
-            ..
+            span,
         } => {
             let style = Style::parse(styles, document);
             let value = expr_code(value, env, document, ValueMode::Owned)?;
-            let mut code = format!("::iced::widget::text({value})");
+            let accessibility_key =
+                accessibility_key_code(None, "text", span, scope, env, document)?;
+            let mut code = "::iced::widget::text(__text_value.clone())".to_owned();
             append_text_options(&mut code, options, &style, env, document)?;
             if let Some(color) = style.text_color {
                 write!(code, ".color({})", theme_color(document, &color)).unwrap();
             }
-            Ok(format!("{code}.into()"))
+            Ok(format!(
+                "{{ let __a11y_key = {accessibility_key}; let __text_value = ({value}).to_string(); let __text = {code}; ::ui_lang_runtime::accessible(__text, ::ui_lang_runtime::StableId::new(&__a11y_key), ::ui_lang_runtime::Role::Label).value(__text_value).into() }}"
+            ))
         }
         ViewNode::RichText {
             options,
@@ -82,33 +86,47 @@ pub(in crate::codegen) fn render_foundation(
             })?;
             let state_name = controlled_state_name(&state.code, "input", span)?;
             let variant = binding_variant(&state_name);
+            let accessibility_key =
+                accessibility_key_code(id.as_ref(), "input", span, scope, env, document)?;
+            let accessibility_label = options
+                .accessibility
+                .label
+                .as_ref()
+                .map(|value| expr_code(value, env, document, ValueMode::Owned))
+                .transpose()?
+                .unwrap_or_else(|| rust_string(label));
+            let accessibility_description = options
+                .accessibility
+                .description
+                .as_ref()
+                .map(|value| expr_code(value, env, document, ValueMode::Owned))
+                .transpose()?
+                .map(|value| format!(".description({value})"))
+                .unwrap_or_default();
+            let disabled_value = disabled
+                .as_ref()
+                .map(|value| expr_code(value, env, document, ValueMode::Owned))
+                .transpose()?
+                .unwrap_or_else(|| "false".into());
+            let secure_value = options
+                .secure
+                .as_ref()
+                .map(|value| expr_code(value, env, document, ValueMode::Owned))
+                .transpose()?
+                .unwrap_or_else(|| "false".into());
             let mut input = format!(
                 "::iced::widget::text_input({}, &{})",
                 rust_string(hint),
                 state.code
             );
-            if let Some(id) = id {
-                write!(
-                    input,
-                    ".id(::iced::widget::Id::from({}))",
-                    id_code(id, scope, env, document)?
-                )
-                .unwrap();
-            }
+            input.push_str(".id(::iced::widget::Id::from(__a11y_key.clone()))");
             if let Some(padding) = style.padding_code() {
                 write!(input, ".padding({padding})").unwrap();
             }
             if style.width_fill {
                 input.push_str(".width(::iced::Fill)");
             }
-            if let Some(secure) = &options.secure {
-                write!(
-                    input,
-                    ".secure({})",
-                    expr_code(secure, env, document, ValueMode::Owned)?
-                )
-                .unwrap();
-            }
+            input.push_str(".secure(__secure)");
             if let Some(width) = &options.width {
                 write!(input, ".width({})", length_code(width, env, document)?).unwrap();
             }
@@ -157,41 +175,26 @@ pub(in crate::codegen) fn render_foundation(
             }
             let constructor =
                 format!("{message}::{variant} as fn(::std::string::String) -> {message}");
-            if let Some(disabled) = disabled {
-                let disabled = expr_code(disabled, env, document, ValueMode::Owned)?;
-                write!(
-                    input,
-                    ".on_input_maybe(if {disabled} {{ None }} else {{ Some({constructor}) }})"
-                )
-                .unwrap();
-            } else {
-                write!(input, ".on_input({constructor})").unwrap();
-            }
+            write!(
+                input,
+                ".on_input_maybe(if __disabled {{ None }} else {{ Some({constructor}) }})"
+            )
+            .unwrap();
             if let Some(route) = &options.submit {
                 let submit = route_code(route, "", env, document, message)?;
-                if let Some(disabled) = disabled {
-                    write!(
-                        input,
-                        ".on_submit_maybe(if {} {{ None }} else {{ Some({submit}) }})",
-                        expr_code(disabled, env, document, ValueMode::Owned)?
-                    )
-                    .unwrap();
-                } else {
-                    write!(input, ".on_submit({submit})").unwrap();
-                }
+                write!(
+                    input,
+                    ".on_submit_maybe(if __disabled {{ None }} else {{ Some({submit}) }})"
+                )
+                .unwrap();
             }
             if let Some(route) = &options.paste {
                 let paste = route_code(route, "__value", env, document, message)?;
-                if let Some(disabled) = disabled {
-                    write!(
-                        input,
-                        ".on_paste_maybe(if {} {{ None }} else {{ Some(move |__value| {paste}) }})",
-                        expr_code(disabled, env, document, ValueMode::Owned)?
-                    )
-                    .unwrap();
-                } else {
-                    write!(input, ".on_paste(move |__value| {paste})").unwrap();
-                }
+                write!(
+                    input,
+                    ".on_paste_maybe(if __disabled {{ None }} else {{ Some(move |__value| {paste}) }})"
+                )
+                .unwrap();
             }
             input.push_str(&text_input_style_code(
                 &options.style,
@@ -203,7 +206,8 @@ pub(in crate::codegen) fn render_foundation(
                 "text_input",
             )?);
             Ok(format!(
-                "::iced::widget::column![::iced::widget::text({}), {input}].spacing(6).into()",
+                "{{ let __a11y_key = {accessibility_key}; let __a11y_id = ::ui_lang_runtime::StableId::new(&__a11y_key); let __disabled = {disabled_value}; let __secure = {secure_value}; let __role = if __secure {{ ::ui_lang_runtime::Role::PasswordInput }} else {{ ::ui_lang_runtime::Role::TextInput }}; let __input = ::ui_lang_runtime::accessible({input}, __a11y_id, __role).focus_id(::iced::widget::Id::from(__a11y_key)).label({accessibility_label}).value_maybe((!__secure).then(|| ({}).clone())).disabled(__disabled){accessibility_description}; ::iced::widget::column![::iced::widget::text({}), __input].spacing(6).into() }}",
+                state.code,
                 rust_string(label)
             ))
         }

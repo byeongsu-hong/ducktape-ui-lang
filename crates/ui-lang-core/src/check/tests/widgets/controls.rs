@@ -482,7 +482,7 @@ state
   disabled = false
 on pressed
 view
-  button #action disabled=disabled width=fill height=48.0 padding=8.0 clip=true style=dynamic_button(disabled) -> pressed
+  button #action label="Save" disabled=disabled width=fill height=48.0 padding=8.0 clip=true style=dynamic_button(disabled) -> pressed
     row
       text "Save"
       text "⌘S"

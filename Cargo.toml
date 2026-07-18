@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/ui-lang-core",
+    "crates/ui-lang-runtime",
     "crates/ui-lang",
     "crates/cargo-ice",
     "examples/iced-app",

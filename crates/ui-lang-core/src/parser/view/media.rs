@@ -25,7 +25,12 @@ pub(in crate::parser) fn parse_media(
     };
     let mut options = MediaOptions::default();
     for part in &parts[2..] {
-        if let Some(value) = part.strip_prefix("width=") {
+        if let Some(value) = part.strip_prefix("label=") {
+            options.accessibility.label = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("description=") {
+            options.accessibility.description =
+                Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("width=") {
             options.width = Some(parse_length(value, line)?);
         } else if let Some(value) = part.strip_prefix("height=") {
             options.height = Some(parse_length(value, line)?);
