@@ -15,7 +15,6 @@ pub fn generate(document: &Document, source_path: &str) -> Result<String, Error>
     )
     .unwrap();
     generate_keyboard_types(&mut out, document);
-    generate_mouse_types(&mut out, document);
     generate_system_types(&mut out, document);
     generate_widget_selector_types(&mut out, document);
     generate_canvas_types(&mut out, document);
@@ -440,32 +439,6 @@ struct __IceKeyRelease {
     physical_key: ::iced::keyboard::key::Physical,
     location: ::iced::keyboard::Location,
     modifiers: ::iced::keyboard::Modifiers,
-}
-"#,
-    );
-}
-
-fn generate_mouse_types(out: &mut String, document: &Document) {
-    if !document
-        .subscriptions
-        .iter()
-        .any(|subscription| matches!(&subscription.source, SubscriptionSource::Mouse(_)))
-        && !canvas_events(document)
-            .iter()
-            .any(|event| matches!(event.source, SubscriptionSource::Mouse(_)))
-    {
-        return;
-    }
-    out.push_str(
-        r#"fn __ice_mouse_button(value: ::iced::mouse::Button) -> ::std::string::String {
-    match value {
-        ::iced::mouse::Button::Left => "left".to_owned(),
-        ::iced::mouse::Button::Right => "right".to_owned(),
-        ::iced::mouse::Button::Middle => "middle".to_owned(),
-        ::iced::mouse::Button::Back => "back".to_owned(),
-        ::iced::mouse::Button::Forward => "forward".to_owned(),
-        ::iced::mouse::Button::Other(number) => ::std::format!("other-{number}"),
-    }
 }
 "#,
     );
@@ -1854,10 +1827,10 @@ fn generate_subscription(
                         "match __event { ::iced::Event::Mouse(::iced::mouse::Event::CursorMoved { position }) => ::std::option::Option::Some((position.x as f64, position.y as f64)), _ => ::std::option::Option::None }"
                     }
                     MouseEvent::Pressed => {
-                        "match __event { ::iced::Event::Mouse(::iced::mouse::Event::ButtonPressed(button)) => ::std::option::Option::Some(__ice_mouse_button(button)), _ => ::std::option::Option::None }"
+                        "match __event { ::iced::Event::Mouse(::iced::mouse::Event::ButtonPressed(button)) => ::std::option::Option::Some(button), _ => ::std::option::Option::None }"
                     }
                     MouseEvent::Released => {
-                        "match __event { ::iced::Event::Mouse(::iced::mouse::Event::ButtonReleased(button)) => ::std::option::Option::Some(__ice_mouse_button(button)), _ => ::std::option::Option::None }"
+                        "match __event { ::iced::Event::Mouse(::iced::mouse::Event::ButtonReleased(button)) => ::std::option::Option::Some(button), _ => ::std::option::Option::None }"
                     }
                     MouseEvent::Wheel => {
                         "match __event { ::iced::Event::Mouse(::iced::mouse::Event::WheelScrolled { delta }) => { let (x, y, pixels) = match delta { ::iced::mouse::ScrollDelta::Lines { x, y } => (x as f64, y as f64, false), ::iced::mouse::ScrollDelta::Pixels { x, y } => (x as f64, y as f64, true) }; ::std::option::Option::Some((x, y, pixels)) }, _ => ::std::option::Option::None }"
@@ -1877,7 +1850,7 @@ fn generate_subscription(
                     TouchEvent::Lost => "FingerLost",
                 };
                 let filter = format!(
-                    "match __event {{ ::iced::Event::Touch(::iced::touch::Event::{variant} {{ id, position }}) => ::std::option::Option::Some((id.0.to_string(), position.x as f64, position.y as f64)), _ => ::std::option::Option::None }}"
+                    "match __event {{ ::iced::Event::Touch(::iced::touch::Event::{variant} {{ id, position }}) => ::std::option::Option::Some((id, position.x as f64, position.y as f64)), _ => ::std::option::Option::None }}"
                 );
                 let (filter, status) = event_status_filter(&filter, subscription.status);
                 writeln!(out, "::iced::event::listen_with(|__event, {status}, _| {{ {filter} }}){transforms}.map(move |__value| {route}),").unwrap();
@@ -6351,8 +6324,8 @@ fn canvas_event_filter(source: &SubscriptionSource) -> String {
             MouseEvent::Entered => "matches!(__event, ::iced::widget::canvas::Event::Mouse(::iced::mouse::Event::CursorEntered)).then_some(())".into(),
             MouseEvent::Left => "matches!(__event, ::iced::widget::canvas::Event::Mouse(::iced::mouse::Event::CursorLeft)).then_some(())".into(),
             MouseEvent::Moved => "match __event { ::iced::widget::canvas::Event::Mouse(::iced::mouse::Event::CursorMoved { position }) => ::std::option::Option::Some((position.x as f64, position.y as f64)), _ => ::std::option::Option::None }".into(),
-            MouseEvent::Pressed => "match __event { ::iced::widget::canvas::Event::Mouse(::iced::mouse::Event::ButtonPressed(button)) => ::std::option::Option::Some(__ice_mouse_button(*button)), _ => ::std::option::Option::None }".into(),
-            MouseEvent::Released => "match __event { ::iced::widget::canvas::Event::Mouse(::iced::mouse::Event::ButtonReleased(button)) => ::std::option::Option::Some(__ice_mouse_button(*button)), _ => ::std::option::Option::None }".into(),
+            MouseEvent::Pressed => "match __event { ::iced::widget::canvas::Event::Mouse(::iced::mouse::Event::ButtonPressed(button)) => ::std::option::Option::Some(*button), _ => ::std::option::Option::None }".into(),
+            MouseEvent::Released => "match __event { ::iced::widget::canvas::Event::Mouse(::iced::mouse::Event::ButtonReleased(button)) => ::std::option::Option::Some(*button), _ => ::std::option::Option::None }".into(),
             MouseEvent::Wheel => "match __event { ::iced::widget::canvas::Event::Mouse(::iced::mouse::Event::WheelScrolled { delta }) => { let (x, y, pixels) = match delta { ::iced::mouse::ScrollDelta::Lines { x, y } => (*x as f64, *y as f64, false), ::iced::mouse::ScrollDelta::Pixels { x, y } => (*x as f64, *y as f64, true) }; ::std::option::Option::Some((x, y, pixels)) }, _ => ::std::option::Option::None }".into(),
         },
         SubscriptionSource::Touch(event) => {
@@ -6362,7 +6335,7 @@ fn canvas_event_filter(source: &SubscriptionSource) -> String {
                 TouchEvent::Lifted => "FingerLifted",
                 TouchEvent::Lost => "FingerLost",
             };
-            format!("match __event {{ ::iced::widget::canvas::Event::Touch(::iced::touch::Event::{variant} {{ id, position }}) => ::std::option::Option::Some((id.0.to_string(), position.x as f64, position.y as f64)), _ => ::std::option::Option::None }}")
+            format!("match __event {{ ::iced::widget::canvas::Event::Touch(::iced::touch::Event::{variant} {{ id, position }}) => ::std::option::Option::Some((*id, position.x as f64, position.y as f64)), _ => ::std::option::Option::None }}")
         }
         SubscriptionSource::Window(event) => match event {
             WindowEvent::Frame => "matches!(__event, ::iced::widget::canvas::Event::Window(::iced::window::Event::RedrawRequested(_))).then_some(())".into(),
@@ -6401,10 +6374,10 @@ fn canvas_event_payload_types(source: &SubscriptionSource) -> Vec<Type> {
         SubscriptionSource::Mouse(event) => match event {
             MouseEvent::Entered | MouseEvent::Left => Vec::new(),
             MouseEvent::Moved => vec![Type::F64, Type::F64],
-            MouseEvent::Pressed | MouseEvent::Released => vec![Type::Str],
+            MouseEvent::Pressed | MouseEvent::Released => vec![Type::MouseButton],
             MouseEvent::Wheel => vec![Type::F64, Type::F64, Type::Bool],
         },
-        SubscriptionSource::Touch(_) => vec![Type::Str, Type::F64, Type::F64],
+        SubscriptionSource::Touch(_) => vec![Type::TouchFinger, Type::F64, Type::F64],
         SubscriptionSource::Window(event) => match event {
             WindowEvent::Frame
             | WindowEvent::Closed
@@ -7275,7 +7248,7 @@ fn state_env(document: &Document, name: &str) -> HashMap<String, Binding> {
         .collect()
 }
 
-fn keyboard_field_type(ty: &Type, field: &str) -> Option<Type> {
+fn native_field_type(ty: &Type, field: &str) -> Option<Type> {
     match ty {
         Type::KeyPress => match field {
             "key" | "modified_key" => Some(Type::Key),
@@ -7297,7 +7270,7 @@ fn keyboard_field_type(ty: &Type, field: &str) -> Option<Type> {
     }
 }
 
-fn keyboard_field_projection(ty: &Type, field: &str, code: &str) -> Option<(String, Type)> {
+fn native_field_projection(ty: &Type, field: &str, code: &str) -> Option<(String, Type)> {
     let projected = match (ty, field) {
         (Type::Key, "kind") => (
             format!(
@@ -7360,6 +7333,40 @@ fn keyboard_field_projection(ty: &Type, field: &str, code: &str) -> Option<(Stri
             };
             (format!("({code}).{method}()"), Type::Bool)
         }
+        (Type::Point, "x" | "y") | (Type::Rectangle, "x" | "y" | "width" | "height") => {
+            (format!("({code}).{field} as f64"), Type::F64)
+        }
+        (Type::MouseButton, "kind") => (
+            format!(
+                "match &({code}) {{ ::iced::mouse::Button::Left => \"left\", ::iced::mouse::Button::Right => \"right\", ::iced::mouse::Button::Middle => \"middle\", ::iced::mouse::Button::Back => \"back\", ::iced::mouse::Button::Forward => \"forward\", ::iced::mouse::Button::Other(_) => \"other\" }}.to_owned()"
+            ),
+            Type::Str,
+        ),
+        (Type::MouseButton, "number") => (
+            format!(
+                "match &({code}) {{ ::iced::mouse::Button::Other(value) => ::std::option::Option::Some(i64::from(*value)), _ => ::std::option::Option::None }}"
+            ),
+            Type::Option(Box::new(Type::I64)),
+        ),
+        (Type::MouseCursor, "kind") => (
+            format!(
+                "match &({code}) {{ ::iced::mouse::Cursor::Available(_) => \"available\", ::iced::mouse::Cursor::Levitating(_) => \"levitating\", ::iced::mouse::Cursor::Unavailable => \"unavailable\" }}.to_owned()"
+            ),
+            Type::Str,
+        ),
+        (Type::MouseCursor, "position") => (
+            format!("({code}).position()"),
+            Type::Option(Box::new(Type::Point)),
+        ),
+        (Type::MouseCursor, "levitating") => (format!("({code}).is_levitating()"), Type::Bool),
+        (Type::MouseClick, "kind") => (
+            format!(
+                "match ({code}).kind() {{ ::iced::advanced::mouse::click::Kind::Single => \"single\", ::iced::advanced::mouse::click::Kind::Double => \"double\", ::iced::advanced::mouse::click::Kind::Triple => \"triple\" }}.to_owned()"
+            ),
+            Type::Str,
+        ),
+        (Type::MouseClick, "position") => (format!("({code}).position()"), Type::Point),
+        (Type::TouchFinger, "id") => (format!("({code}).0.to_string()"), Type::Str),
         _ => return None,
     };
     Some(projected)
@@ -7410,7 +7417,7 @@ fn expr_code(
             let mut owned_projection = false;
             for field in &path[1..] {
                 if let Some((projection, projected_ty)) =
-                    keyboard_field_projection(&ty, field, &code)
+                    native_field_projection(&ty, field, &code)
                 {
                     code = projection;
                     ty = projected_ty;
@@ -7438,7 +7445,7 @@ fn expr_code(
                         .unwrap_or(Type::Unknown);
                 } else if ty == Type::WidgetTarget {
                     ty = widget_target_field_type(field).unwrap_or(Type::Unknown);
-                } else if let Some(field_ty) = keyboard_field_type(&ty, field) {
+                } else if let Some(field_ty) = native_field_type(&ty, field) {
                     ty = field_ty;
                 }
             }
@@ -7450,6 +7457,12 @@ fn expr_code(
                     | Type::PhysicalKey
                     | Type::KeyLocation
                     | Type::KeyModifiers
+                    | Type::Point
+                    | Type::Rectangle
+                    | Type::MouseButton
+                    | Type::MouseCursor
+                    | Type::MouseClick
+                    | Type::TouchFinger
                     | Type::Unit
             )
                 || (binding.local && path.len() == 1)
@@ -7460,6 +7473,112 @@ fn expr_code(
             code
         }
         Expr::Call { name, args } => match name.as_str() {
+            "point" => format!(
+                "::iced::Point::new(({}) as f32, ({}) as f32)",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "rectangle" => format!(
+                "::iced::Rectangle {{ x: ({}) as f32, y: ({}) as f32, width: ({}) as f32, height: ({}) as f32 }}",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?,
+                expr_code(&args[2], env, document, ValueMode::Owned)?,
+                expr_code(&args[3], env, document, ValueMode::Owned)?
+            ),
+            "mouse.button" => {
+                let Expr::Str(value) = &args[0] else {
+                    unreachable!("checker requires a mouse button literal")
+                };
+                let variant = match value.as_str() {
+                    "left" => "Left",
+                    "right" => "Right",
+                    "middle" => "Middle",
+                    "back" => "Back",
+                    "forward" => "Forward",
+                    _ => unreachable!("checker validates mouse buttons"),
+                };
+                format!("::iced::mouse::Button::{variant}")
+            }
+            "mouse.other_button" => {
+                let Expr::I64(value) = &args[0] else {
+                    unreachable!("checker requires a mouse button literal")
+                };
+                format!("::iced::mouse::Button::Other({value}u16)")
+            }
+            "mouse.try_other_button" => format!(
+                "<u16>::try_from({}).ok().map(::iced::mouse::Button::Other)",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "mouse.cursor" => format!(
+                "::iced::mouse::Cursor::Available({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "mouse.levitating" => format!(
+                "::iced::mouse::Cursor::Levitating({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "mouse.unavailable" => "::iced::mouse::Cursor::Unavailable".into(),
+            "mouse.cursor_position" => format!(
+                "({}).position()",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "mouse.cursor_over" => format!(
+                "({}).position_over({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "mouse.cursor_in" => format!(
+                "({}).position_in({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "mouse.cursor_from" => format!(
+                "({}).position_from({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "mouse.cursor_is_over" => format!(
+                "({}).is_over({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "mouse.cursor_is_levitating" => format!(
+                "({}).is_levitating()",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "mouse.cursor_levitate" => format!(
+                "({}).levitate()",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "mouse.cursor_land" => format!(
+                "({}).land()",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "mouse.cursor_translate" => format!(
+                "({}) + ::iced::Vector::new(({}) as f32, ({}) as f32)",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?,
+                expr_code(&args[2], env, document, ValueMode::Owned)?
+            ),
+            "mouse.click" => format!(
+                "::iced::advanced::mouse::Click::new({}, {}, {})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?,
+                expr_code(&args[2], env, document, ValueMode::Owned)?
+            ),
+            "touch.finger" => {
+                let Expr::Str(value) = &args[0] else {
+                    unreachable!("checker requires a touch finger literal")
+                };
+                let value = value
+                    .parse::<u64>()
+                    .expect("checker validates touch finger literals");
+                format!("::iced::touch::Finger({value}u64)")
+            }
+            "touch.try_finger" => format!(
+                "({}).parse::<u64>().ok().map(::iced::touch::Finger)",
+                expr_code(&args[0], env, document, ValueMode::Borrowed)?
+            ),
             "key.named" => {
                 let Expr::Str(variant) = &args[0] else {
                     unreachable!("checker requires a named key variant")
@@ -12590,7 +12709,6 @@ view
     fn lowers_all_native_mouse_subscriptions() {
         let source = include_str!("../../../examples/iced-app/src/ui/mouse_events.ice");
         let generated = compile(source, "mouse_events.ice").unwrap();
-        assert!(generated.contains("fn __ice_mouse_button"));
         assert!(generated.contains("::iced::event::listen_with"));
         assert!(generated.contains("::iced::mouse::Event::CursorEntered"));
         assert!(generated.contains("::iced::mouse::Event::CursorLeft"));
@@ -12599,6 +12717,7 @@ view
         assert!(generated.contains("::iced::mouse::Event::ButtonReleased"));
         assert!(generated.contains("::iced::mouse::Event::WheelScrolled"));
         assert!(generated.contains("::iced::mouse::ScrollDelta::Pixels"));
+        assert!(generated.contains("::std::option::Option::Some(button)"));
         assert!(generated.contains("::iced::event::Status::Captured"));
     }
 
@@ -12610,8 +12729,26 @@ view
         assert!(generated.contains("::iced::touch::Event::FingerMoved"));
         assert!(generated.contains("::iced::touch::Event::FingerLifted"));
         assert!(generated.contains("::iced::touch::Event::FingerLost"));
-        assert!(generated.contains("id.0.to_string()"));
+        assert!(generated.contains("::std::option::Option::Some((id, position.x as f64"));
         assert!(generated.contains("::iced::event::Status::Ignored"));
+    }
+
+    #[test]
+    fn lowers_typed_pointer_values() {
+        let source = include_str!("../../../examples/iced-app/src/ui/pointer_values.ice");
+        let generated = compile(source, "pointer_values.ice").unwrap();
+        for expected in [
+            "Pressed(::iced::mouse::Button)",
+            "Touched(::iced::touch::Finger, f64, f64)",
+            "::iced::advanced::mouse::Click::new",
+            "::iced::mouse::Cursor::Available",
+            "::iced::mouse::Button::Other(9u16)",
+            "::iced::touch::Finger(18446744073709551615u64)",
+            ".position_over(self.bounds)",
+            "fn __ui_lang_check_sync_pointer_click",
+        ] {
+            assert!(generated.contains(expected), "missing {expected}");
+        }
     }
 
     #[test]
@@ -13229,7 +13366,7 @@ view
             "Event::Touch",
             "Event::Window",
             "struct __IceKeyPress",
-            "fn __ice_mouse_button",
+            "::iced::mouse::Button",
             "KeyPressed",
             "KeyReleased",
             "ModifiersChanged",

@@ -1,4 +1,4 @@
-# Ice Language Specification 1.23
+# Ice Language Specification 1.24
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 1.23 syntax.
+marked “planned” is a design constraint, not accepted 1.24 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 1.23.
+  block comments are not part of 1.24.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -181,6 +181,8 @@ field          = name ":" type
 type           = "bool" | "i64" | "f64" | "str" | "bytes" | "image"
                | "markdown" | "editor" | "event" | "instant" | "window-id"
                | "key" | "physical-key" | "key-location" | "key-modifiers"
+               | "point" | "rectangle" | "mouse-button" | "mouse-cursor"
+               | "mouse-click" | "touch-finger"
                | "widget-id" | "widget-target"
                | "task-handle" | "unit"
                | PascalName
@@ -991,7 +993,7 @@ maximum size. `icon-rgba` embeds a relative raw RGBA file without an image
 codec; width and height are positive integers, and generated Rust rejects a
 byte length other than `width × height × 4`. `cargo ice check` reports a
 mismatch at the icon declaration, and generated Rust repeats the check at
-compile time. Encoded icon formats remain outside 1.23.
+compile time. Encoded icon formats remain outside 1.24.
 
 Application boot presets are structured top-level declarations:
 
@@ -1542,7 +1544,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 1.23 message payloads.
+`Clone` for 1.24 message payloads.
 
 Declared `sync` functions are checked, synchronous Rust calls available in
 Ice expressions. They are the small escape hatch for pure domain conversions
@@ -1727,6 +1729,9 @@ The expression language contains:
   `aborted(task-handle?) -> bool`;
 - namespaced keyboard built-ins such as `key.named("Enter")`,
   `key.code("KeyA")`, and `key.latin(logical, physical)`;
+- native pointer built-ins such as `point(x, y)`, `mouse.button("left")`,
+  `mouse.cursor(point)`, `mouse.click(point, button, previous)`, and
+  `touch.finger("42")`;
 - `markdown(str) -> markdown` and `markdown_images(markdown) -> [str]`;
 - calls to declared typed `sync` extern functions.
 
@@ -2593,6 +2598,44 @@ Equality compares the native typed values, and `key.latin` delegates to iced's
 native locale-aware physical-key translation. Like `iced::keyboard::listen`,
 these subscriptions receive keyboard events that no widget captured.
 
+Pointer values also preserve iced's native types across state, handlers, and
+typed extern functions:
+
+```ice
+state
+  position:point = point(12.0, 24.0)
+  bounds:rectangle = rectangle(0.0, 0.0, 100.0, 80.0)
+  button:mouse-button = mouse.button("left")
+  cursor:mouse-cursor = mouse.cursor(point(12.0, 24.0))
+  click:mouse-click = mouse.click(point(12.0, 24.0), mouse.button("left"), none)
+  finger:touch-finger = touch.finger("18446744073709551615")
+```
+
+`mouse.button` accepts `left`, `right`, `middle`, `back`, and `forward`.
+`mouse.other_button` accepts a checked literal `u16` value;
+`mouse.try_other_button(i64) -> mouse-button?` safely handles runtime values.
+`touch.finger` accepts a checked decimal `u64` string, preserving the full
+native identifier without unsigned Ice arithmetic, while
+`touch.try_finger(str) -> touch-finger?` parses runtime input safely.
+
+`mouse.cursor(point)`, `mouse.levitating(point)`, and `mouse.unavailable()`
+construct all cursor variants. `mouse.cursor_position`, `cursor_over`,
+`cursor_in`, and `cursor_from` expose iced's optional coordinate queries;
+`cursor_is_over`, `cursor_is_levitating`, `cursor_levitate`, `cursor_land`, and
+`cursor_translate` expose its variant and vector-translation behavior.
+`mouse.click` creates a native click from a point, button, and optional previous
+click. Point and rectangle coordinates are `f64` in Ice and lower to iced's
+`f32` geometry.
+
+Fields are checked: points expose `x/y`; rectangles expose
+`x/y/width/height`; buttons expose `kind` and optional `number`; cursors expose
+`kind`, optional `position`, and `levitating`; clicks expose `kind` and
+`position`; fingers expose their lossless decimal `id`. `mouse-click` uses
+iced's advanced mouse API and therefore requires the `advanced` Cargo feature.
+Native clicks do not implement equality; compare their checked `kind` or
+`position` fields instead. Native `Transformation` multiplication for cursors
+and clicks remains a typed Rust-boundary operation in 1.24.
+
 Input-method composition events use a separate readable source:
 
 ```ice
@@ -2882,8 +2925,10 @@ subscribe
   mouse wheel -> wheel _ _ _
 ```
 
-Moved emits window x/y as two `f64` values. Pressed and released emit a stable
-button `str`: `left`, `right`, `middle`, `back`, `forward`, or `other-N`.
+Moved emits window x/y as two `f64` values. Pressed and released emit the exact
+native `mouse-button`; its `kind` field is `left`, `right`, `middle`, `back`,
+`forward`, or `other`, and `number` preserves the optional native `u16` value
+as `i64?`.
 Wheel emits x/y as `f64` followed by `pixels:bool`; false means iced line
 units. These subscriptions observe captured and ignored runtime events. As
 with window subscriptions, routes accept only the exact number of `_`
@@ -2899,8 +2944,9 @@ subscribe
   touch lost -> lost _ _ _
 ```
 
-Each emits `(finger:str, x:f64, y:f64)`. The decimal string preserves iced's
-full `u64` finger identity without adding unsigned arithmetic to Ice. Routes
+Each emits `(finger:touch-finger, x:f64, y:f64)`. The typed finger preserves
+iced's full native `u64` identity; its `id` field exposes a lossless decimal
+string when text is needed. Routes
 accept exactly three `_` payloads and observe both captured and ignored touch
 events.
 
@@ -3002,7 +3048,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 1.23 does not claim that remapping.
+extern line; 1.24 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -3023,7 +3069,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 1.23 native backend is enough for CRUD/settings-style screens, selection,
+The 1.24 native backend is enough for CRUD/settings-style screens, selection,
 media, hover overlays, declarative canvas geometry, and common pointer events,
 not all of iced. It still lacks direct syntax for arbitrary custom overlays,
 and custom widgets. [`COVERAGE.md`](COVERAGE.md) is the exact versioned ledger.
@@ -3056,9 +3102,12 @@ its Rust boundary in
 [`examples/iced-app/src/main.rs`](examples/iced-app/src/main.rs). The exhaustive
 compile-tested widget example is
 [`examples/iced-app/src/ui/showcase.ice`](examples/iced-app/src/ui/showcase.ice).
+Native pointer constructors, subscription payloads, projections, and Rust
+extern round trips are exercised by
+[`examples/iced-app/src/ui/pointer_values.ice`](examples/iced-app/src/ui/pointer_values.ice).
 Together they exercise
 state inference, typed extern structs/functions, mount and result handlers,
-direct and component-prop input/editor binding, complete typed time tasks/subscriptions, typed generic/native-keyboard/mouse/touch/input-method/system subscriptions with status filters, exact keyboard value constructors and latin translation, static, repeated, and hierarchically scoped widget operations, built-in and custom widget selectors, system tasks, clipboard effects, `if`, `for`, native keyed columns and lazy subtrees, parsed Markdown, structured tables, pure components, structured and compound component composition,
+direct and component-prop input/editor binding, complete typed time tasks/subscriptions, typed generic/native-keyboard/mouse/touch/input-method/system subscriptions with status filters, exact keyboard and pointer value constructors and native extern passage, static, repeated, and hierarchically scoped widget operations, built-in and custom widget selectors, system tasks, clipboard effects, `if`, `for`, native keyed columns and lazy subtrees, parsed Markdown, structured tables, pure components, structured and compound component composition,
 dynamic component IDs,
 theme utilities, disabled controls, fallible asynchronous tasks, complete
 wrapping row/column layouts, grids and fully sized underlay stacks, toggles,

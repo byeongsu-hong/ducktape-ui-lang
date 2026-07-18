@@ -8250,6 +8250,12 @@ fn parse_type(source: &str, line: &Line) -> Result<Type, Error> {
         "physical-key" => Type::PhysicalKey,
         "key-location" => Type::KeyLocation,
         "key-modifiers" => Type::KeyModifiers,
+        "point" => Type::Point,
+        "rectangle" => Type::Rectangle,
+        "mouse-button" => Type::MouseButton,
+        "mouse-cursor" => Type::MouseCursor,
+        "mouse-click" => Type::MouseClick,
+        "touch-finger" => Type::TouchFinger,
         "instant" => Type::Instant,
         "window-id" => Type::WindowId,
         "widget-id" => Type::WidgetId,
@@ -9105,6 +9111,29 @@ view
                 value: Expr::Call { name, args },
                 ..
             } if name == "key.latin" && args.len() == 2
+        ));
+    }
+
+    #[test]
+    fn parses_typed_pointer_values() {
+        let source = include_str!("../../../examples/iced-app/src/ui/pointer_values.ice");
+        let document = parse(source).unwrap();
+        assert_eq!(document.states[0].ty, Type::Point);
+        assert_eq!(document.states[1].ty, Type::Rectangle);
+        assert_eq!(document.states[2].ty, Type::MouseButton);
+        assert_eq!(document.states[5].ty, Type::MouseCursor);
+        assert_eq!(document.states[7].ty, Type::MouseClick);
+        assert_eq!(document.states[8].ty, Type::TouchFinger);
+        assert!(matches!(
+            &document.states[7].initial,
+            Expr::Call { name, args } if name == "mouse.click" && args.len() == 3
+        ));
+        assert!(matches!(
+            &document.handlers[0].statements[0],
+            Statement::Assign {
+                value: Expr::Call { name, args },
+                ..
+            } if name == "mouse.cursor_position" && args.len() == 1
         ));
     }
 

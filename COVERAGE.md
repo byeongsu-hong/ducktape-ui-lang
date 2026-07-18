@@ -15,7 +15,7 @@ counts toward the row below.
 
 ## Typed system reachability
 
-Ice 1.23 has twenty-nine checked Rust boundaries:
+Ice 1.24 has twenty-nine checked Rust boundaries:
 
 | Boundary | Rust ABI | Covers |
 | --- | --- | --- |
@@ -112,7 +112,7 @@ public behavior has direct documented Ice syntax and tests.
 | window | native | every initial and named-open setting, including codec-free RGBA icons and structured Linux/Windows/macOS/Wasm fields; typed `window-id`, open/oldest/latest, direct targeting for every per-window close/drag/resize/constraints/state/move/mode/focus/level/menu/attention/passthrough/monitor/raw-ID/screenshot/icon task, automatic tabbing, lossless RGBA screenshot payloads, all 12 event forms with optional IDs on all 11 discrete events, and an exact typed `window::run` callback boundary for raw window/display handles |
 | event routing | native | all five structured families plus first-class generic `event` values through native `listen`/`listen_with`/`listen_raw`, optional window IDs, status filters, transforms, handler routing, and typed extern passage; system-theme runtime events remain a separate native source because iced does not represent them as `iced::Event` |
 | keyboard | native | all three native events preserve exact `Key`, `Physical`, `Location`, and `Modifiers` values; every named/code/native/location/modifier constructor, structured matching, safe runtime native-code conversion, exact extern passage, and native latin translation are checked Ice expressions |
-| mouse/touch | partial | every mouse and touch event has a direct typed subscription; native mouse-area events and all cursor interactions are covered; low-level `Cursor` and `Click` construction remain custom-widget concerns |
+| mouse/touch | partial | every mouse and touch event has a direct typed subscription with exact native `Button` and `Finger` payloads; native `Point`, `Rectangle`, `Cursor`, and advanced `Click` constructors, queries, projections, mutation-like cursor operations, and typed extern passage are covered; direct `Transformation` multiplication for `Cursor` and `Click` remains adapter-only |
 | custom widget | partial | typed owned `Element<'static, Event>` adapter; borrowed elements and custom Theme/Renderer missing |
 | custom renderer | missing | renderer/graphics backend escape hatch |
 

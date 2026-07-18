@@ -104,6 +104,8 @@ togglers, and generic-value radios.
 Key files:
 
 - [`tasks.ice`](examples/iced-app/src/ui/tasks.ice) is the readable root;
+- [`pointer_values.ice`](examples/iced-app/src/ui/pointer_values.ice) preserves
+  native pointer values through state, events, and Rust externs;
 - [`main.rs`](examples/iced-app/src/main.rs) owns the Rust backend;
 - [`SPEC.md`](SPEC.md) defines the implemented language.
 
@@ -131,7 +133,7 @@ cargo fmt --all
 
 ## Status
 
-This is an executable v1.23 language slice, not yet a complete iced replacement.
+This is an executable v1.24 language slice, not yet a complete iced replacement.
 It implements typed extern data/actions, state, handlers, async tasks, pure
 components with named props, default children, named structural slots, and
 React-like qualified compound children, scoped IDs, relative
@@ -139,7 +141,8 @@ multi-file `use`,
 `if`/`for`, six layouts including identity-preserving keyed columns,
 thirty-two native widget forms,
 dependency-keyed lazy subtrees, checked style utilities, formatting, analysis,
-native typed keyboard values and constructors, mouse, touch, input-method,
+native typed keyboard and pointer values and constructors, mouse, touch,
+input-method,
 complete typed time, event status filtering, raw runtime-event filters, native stream/custom-recipe
 subscriptions and context/filter transforms, structured parallel/sequential
 tasks, structured boot presets, state-driven application title, theme, base
