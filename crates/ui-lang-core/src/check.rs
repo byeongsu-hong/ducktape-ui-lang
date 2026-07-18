@@ -3165,6 +3165,13 @@ fn infer_view(
                     ));
                 }
             }
+            if let Some(fit) = &options.fit {
+                require_type(
+                    &expr_type(fit, env, document, span)?,
+                    &Type::ContentFit,
+                    span,
+                )?;
+            }
             for (value, label, min, max) in [
                 (&options.opacity, "opacity", Some(0.0), Some(1.0)),
                 (&options.scale, "scale", Some(f64::EPSILON), None),
@@ -3830,6 +3837,7 @@ fn lazy_hashable(ty: &Type) -> bool {
         | Type::KeyModifiers
         | Type::MouseButton
         | Type::TouchFinger
+        | Type::ContentFit
         | Type::Named(_) => true,
         Type::List(inner) | Type::Option(inner) => lazy_hashable(inner),
         Type::Result(output, error) => lazy_hashable(output) && lazy_hashable(error),
@@ -7226,6 +7234,22 @@ pub(crate) fn expr_type(
             Ok(ty)
         }
         Expr::Call { name, args } => match name.as_str() {
+            "fit.default" | "fit.contain" | "fit.cover" | "fit.fill" | "fit.none"
+            | "fit.scale_down" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::ContentFit)
+            }
+            "fit.apply" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::ContentFit, Type::Size, Type::Size],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::Size)
+            }
             "rotation.default" => {
                 check_builtin_args(name, args, &[], env, document, span)?;
                 Ok(Type::Rotation)
@@ -8455,6 +8479,10 @@ fn field_type(ty: &Type, field: &str, document: &Document, span: &Span) -> Resul
             "kind" => Some(Type::Str),
             _ => None,
         },
+        Type::ContentFit => match field {
+            "kind" | "display" => Some(Type::Str),
+            _ => None,
+        },
         Type::Point => match field {
             "x" | "y" => Some(Type::F64),
             "values" => Some(Type::List(Box::new(Type::F64))),
@@ -8832,6 +8860,24 @@ fn type_error(span: &Span, expected: &Type, actual: &Type) -> Error {
 #[cfg(test)]
 mod tests {
     use crate::{PaneConfiguration, Type, ViewNode, analyze};
+
+    #[test]
+    fn checks_native_content_fit_values_and_widgets() {
+        let source = include_str!("../../../examples/iced-app/src/ui/content_fit.ice");
+        analyze(source).unwrap();
+
+        let error = analyze(&source.replace(
+            "fit.apply(contain_fit, size(100.0, 50.0), size(80.0, 80.0))",
+            "fit.apply(contain_fit, true, size(80.0, 80.0))",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E101");
+        assert!(error.message.contains("expected `size`"));
+
+        let error = analyze(&source.replace("fit=round_trip", "fit=true")).unwrap_err();
+        assert_eq!(error.code, "E101");
+        assert!(error.message.contains("expected `content-fit`"));
+    }
 
     #[test]
     fn checks_native_rotation_values_and_widgets() {

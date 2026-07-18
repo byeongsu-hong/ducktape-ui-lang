@@ -4222,15 +4222,13 @@ fn render_node(
             if let Some(height) = &options.height {
                 write!(code, ".height({})", length_code(height, env, document)?).unwrap();
             }
-            if let Some(fit) = options.fit {
-                let fit = match fit {
-                    ContentFit::Contain => "Contain",
-                    ContentFit::Cover => "Cover",
-                    ContentFit::Fill => "Fill",
-                    ContentFit::None => "None",
-                    ContentFit::ScaleDown => "ScaleDown",
-                };
-                write!(code, ".content_fit(::iced::ContentFit::{fit})").unwrap();
+            if let Some(fit) = &options.fit {
+                write!(
+                    code,
+                    ".content_fit({})",
+                    expr_code(fit, env, document, ValueMode::Owned)?
+                )
+                .unwrap();
             }
             if let Some(rotation) = &options.rotation {
                 let rotation_type = expr_type(rotation, &env_types(env), document, span)?;
@@ -7876,6 +7874,13 @@ fn native_field_projection(ty: &Type, field: &str, code: &str) -> Option<(String
             ),
             Type::Str,
         ),
+        (Type::ContentFit, "kind") => (
+            format!(
+                "match ({code}) {{ ::iced::ContentFit::Contain => \"contain\", ::iced::ContentFit::Cover => \"cover\", ::iced::ContentFit::Fill => \"fill\", ::iced::ContentFit::None => \"none\", ::iced::ContentFit::ScaleDown => \"scale-down\" }}.to_owned()"
+            ),
+            Type::Str,
+        ),
+        (Type::ContentFit, "display") => (format!("::std::format!(\"{{}}\", ({code}))"), Type::Str),
         (Type::Point | Type::Vector | Type::Size, "values") => (
             format!(
                 "::std::convert::Into::<[f32; 2]>::into({code}).into_iter().map(f64::from).collect::<::std::vec::Vec<_>>()"
@@ -8025,6 +8030,7 @@ fn expr_code(
                     | Type::Degrees
                     | Type::Radians
                     | Type::Rotation
+                    | Type::ContentFit
                     | Type::Point
                     | Type::PointU32
                     | Type::Vector
@@ -8047,6 +8053,18 @@ fn expr_code(
             code
         }
         Expr::Call { name, args } => match name.as_str() {
+            "fit.default" => "::iced::ContentFit::default()".into(),
+            "fit.contain" => "::iced::ContentFit::Contain".into(),
+            "fit.cover" => "::iced::ContentFit::Cover".into(),
+            "fit.fill" => "::iced::ContentFit::Fill".into(),
+            "fit.none" => "::iced::ContentFit::None".into(),
+            "fit.scale_down" => "::iced::ContentFit::ScaleDown".into(),
+            "fit.apply" => format!(
+                "({}).fit({}, {})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?,
+                expr_code(&args[2], env, document, ValueMode::Owned)?
+            ),
             "rotation.default" => "::iced::Rotation::default()".into(),
             "rotation.floating" => format!(
                 "::iced::Rotation::Floating({})",
@@ -11934,6 +11952,26 @@ fn pascal(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use crate::compile;
+
+    #[test]
+    fn lowers_every_native_content_fit_operation() {
+        let source = include_str!("../../../examples/iced-app/src/ui/content_fit.ice");
+        let generated = compile(source, "content_fit.ice").unwrap();
+        for expected in [
+            "::iced::ContentFit::default()",
+            "::iced::ContentFit::Contain",
+            "::iced::ContentFit::Cover",
+            "::iced::ContentFit::Fill",
+            "::iced::ContentFit::None",
+            "::iced::ContentFit::ScaleDown",
+            ".fit(::iced::Size::new((100.0) as f32, (50.0) as f32), ::iced::Size::new((80.0) as f32, (80.0) as f32))",
+            ".content_fit(self.round_trip)",
+            ".content_fit(self.scale_down_fit)",
+            ".content_fit(self.fill_fit)",
+        ] {
+            assert!(generated.contains(expected), "missing {expected}");
+        }
+    }
 
     #[test]
     fn lowers_every_native_rotation_operation() {

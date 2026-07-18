@@ -117,6 +117,8 @@ Key files:
   native pixels, padding, degrees, and radians through operations and externs;
 - [`rotation.ice`](examples/iced-app/src/ui/rotation.ice) preserves the native
   rotation enum, mutation/query API, geometry application, and widget passage;
+- [`content_fit.ice`](examples/iced-app/src/ui/content_fit.ice) preserves every
+  native fit strategy, geometry calculation, extern, and media-widget passage;
 - [`animation.ice`](examples/iced-app/src/ui/animation.ice) declares native
   boolean/numeric animation state with checked easing, timing, projection, and
   active-frame driving;
@@ -134,7 +136,8 @@ Key files:
   typed Element escape hatch with a custom indexed Overlay;
 - [`main.rs`](examples/iced-app/src/main.rs) owns the Rust backend; new fixture
   harnesses stay in dedicated modules such as
-  [`rotation.rs`](examples/iced-app/src/rotation.rs) instead of growing it;
+  [`rotation.rs`](examples/iced-app/src/rotation.rs) and
+  [`content_fit.rs`](examples/iced-app/src/content_fit.rs) instead of growing it;
 - [`SPEC.md`](SPEC.md) defines the implemented language.
 
 ## Tooling
@@ -161,7 +164,7 @@ cargo fmt --all
 
 ## Status
 
-This is an executable v1.40 language slice, not yet a complete iced replacement.
+This is an executable v1.41 language slice, not yet a complete iced replacement.
 It implements typed extern data/actions, state, handlers, async tasks, pure
 components with named props, default children, named structural slots, and
 React-like qualified compound children, scoped IDs, relative

@@ -5220,18 +5220,11 @@ fn parse_media(
             options.height = Some(parse_length(value, line)?);
         } else if let Some(value) = part.strip_prefix("fit=") {
             options.fit = Some(match value {
-                "contain" => ContentFit::Contain,
-                "cover" => ContentFit::Cover,
-                "fill" => ContentFit::Fill,
-                "none" => ContentFit::None,
-                "scale-down" => ContentFit::ScaleDown,
-                _ => {
-                    return Err(error(
-                        "E085",
-                        line,
-                        "fit must be contain, cover, fill, none, or scale-down",
-                    ));
-                }
+                "contain" | "cover" | "fill" | "none" | "scale-down" => Expr::Call {
+                    name: format!("fit.{}", value.replace('-', "_")),
+                    args: Vec::new(),
+                },
+                value => parse_expr(strip_wrapping_parens(value), line)?,
             });
         } else if let Some(value) = part.strip_prefix("rotation=") {
             if media_kind == MediaKind::Viewer {
@@ -8635,6 +8628,7 @@ fn parse_type(source: &str, line: &Line) -> Result<Type, Error> {
         "degrees" => Type::Degrees,
         "radians" => Type::Radians,
         "rotation" => Type::Rotation,
+        "content-fit" => Type::ContentFit,
         "point" => Type::Point,
         "point-u32" => Type::PointU32,
         "vector" => Type::Vector,
@@ -9245,6 +9239,19 @@ fn error(code: &'static str, line: &Line, message: impl Into<String>) -> Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_first_class_native_content_fit() {
+        let source = include_str!("../../../examples/iced-app/src/ui/content_fit.ice");
+        let document = parse(source).unwrap();
+        assert_eq!(document.functions[0].params[0].1, Type::ContentFit);
+        assert_eq!(document.functions[0].output, Type::ContentFit);
+        assert_eq!(document.states[1].ty, Type::ContentFit);
+        assert!(matches!(
+            &document.handlers[0].statements[2],
+            Statement::Assign { value: Expr::Call { name, .. }, .. } if name == "fit.cover"
+        ));
+    }
 
     #[test]
     fn parses_first_class_native_rotation() {
