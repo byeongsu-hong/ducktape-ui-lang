@@ -15,7 +15,7 @@ counts toward the row below.
 
 ## Typed system reachability
 
-Ice 0.92 has seven checked Rust boundaries:
+Ice 0.93 has eight checked Rust boundaries:
 
 | Boundary | Rust ABI | Covers |
 | --- | --- | --- |
@@ -24,8 +24,9 @@ Ice 0.92 has seven checked Rust boundaries:
 | `task name(args)` | `fn(...) -> Task<Event>` or `Task<Result<Event, Error>>` | widget/window/clipboard/font/system operations and arbitrary task composition |
 | `stream name(args)` | `fn(...) -> impl Stream<Item = Event>` or `Stream<Item = Result<Event, Error>>` | native repeated `Task::run` output and `Subscription::run`/`run_with` workers from channels, iterators, async generators, and other streams |
 | `sip name(args)` | `fn(...) -> impl Sipper<Output, Progress>` or `Straw<Output, Progress, Error>` | native repeated progress plus one final output through `Task::sip` |
+| `recipe name(args)` | `fn(...) -> impl Recipe<Output = Event>` | custom subscription identity, runtime-event input, streams, cancellation, and arbitrary recipe behavior through native `from_recipe` |
 | `sync name(args)` | `fn(...) -> Output` | checked synchronous domain conversions usable in Ice expressions |
-| `subscribe` | `fn(...) -> Subscription<Event>` | event, keyboard, mouse, window, system, channel, timer, stream, and custom recipe sources |
+| `subscription name(args)` | `fn(...) -> Subscription<Event>` | event, keyboard, mouse, window, system, channel, timer, stream, and custom subscription sources |
 
 Generated probes verify the concrete Rust signatures. Reachability is not the
 same as native coverage: a row stays partial or missing until its complete
@@ -81,7 +82,7 @@ public behavior has direct documented Ice syntax and tests.
 | application settings | partial | static title, application ID, ordered checked font byte preloads, default text size/font, antialiasing, vsync, scale factor, theme and run; executor and presets missing |
 | `Theme` and styles | partial | checked color tokens and a Tailwind-like subset; native theme/style catalogs and custom closures missing |
 | `Task` | partial | async/sync externs, typed arbitrary iced `Task` adapters, direct system/clipboard/font/widget/main-window tasks, nested batch/chain groups, complete abortable handles, repeated `run` streams, typed `sip`, and native typed flows with direct `done`/`none`, output-dependent `then`, optional-or-result `and_then`, `map_err`, result-preserving `collect`, `discard`, and `units`; low-level task-module `oneshot`/`channel`/blocking/effect constructors remain adapter-only |
-| `Subscription` | partial | typed arbitrary iced `Subscription` adapters, batching, checked conditional activation/status filters, direct every/repeat timers, input-method/keyboard/mouse/touch/window sources and system theme changes, native typed `run`/`run_with` stream workers, plus `with` identity context and noncapturing typed `filter_map` transforms on every source; custom recipes and direct recipe extraction remain adapter-only |
+| `Subscription` | partial | typed arbitrary iced `Subscription` adapters, batching, checked conditional activation/status filters, direct every/repeat timers, input-method/keyboard/mouse/touch/window sources and system theme changes, native typed `run`/`run_with` stream workers and custom `Recipe` factories through `from_recipe`, plus `with` identity context and noncapturing typed `filter_map` transforms on every source; the raw-event free `filter_map` constructor and direct recipe extraction remain adapter-only |
 | widget operations | partial | all 13 core focus/cursor/selection/scroll operations with checked static app IDs and typed focus query; scoped repeated/component IDs and feature-gated selectors remain |
 | clipboard | native | standard and primary read/write tasks; reads preserve iced's optional string payload and writes are checked fire-and-forget effects |
 | fonts | native | ordered app-level relative font files are checked and embedded into iced's startup loader; runtime bytes lower to native `font::load`; every family/weight/stretch/style descriptor, checked named reference, application default and all widget font setters are covered |

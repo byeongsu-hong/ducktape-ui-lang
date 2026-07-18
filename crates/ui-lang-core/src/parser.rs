@@ -53,6 +53,8 @@ pub fn parse(source: &str) -> Result<Document, Error> {
                     functions.push(parse_extern_fn(source, item, &path, ExternKind::Stream)?);
                 } else if let Some(source) = item.text.strip_prefix("sip ") {
                     functions.push(parse_extern_fn(source, item, &path, ExternKind::Sip)?);
+                } else if let Some(source) = item.text.strip_prefix("recipe ") {
+                    functions.push(parse_extern_fn(source, item, &path, ExternKind::Recipe)?);
                 } else if let Some(source) = item.text.strip_prefix("sync ") {
                     functions.push(parse_extern_fn(source, item, &path, ExternKind::Sync)?);
                 } else if let Some(source) = item.text.strip_prefix("subscription ") {
@@ -650,6 +652,7 @@ fn parse_extern_fn(
             kind,
             ExternKind::Component
                 | ExternKind::Shader
+                | ExternKind::Recipe
                 | ExternKind::Sync
                 | ExternKind::Subscription
         )
@@ -657,7 +660,7 @@ fn parse_extern_fn(
         return Err(error(
             "E023",
             line,
-            "extern components, shaders, sync functions, and subscriptions cannot declare an error type",
+            "extern components, shaders, recipes, sync functions, and subscriptions cannot declare an error type",
         ));
     }
     Ok(ExternFn {
@@ -678,7 +681,7 @@ fn parse_subscription(line: &Line) -> Result<Subscription, Error> {
         return Err(error(
             "E084",
             line,
-            "subscription uses `name(args)`, `every duration`, `repeat name() every duration`, `run name(args)`, `input-method event`, `keyboard event`, `mouse event`, `touch event`, `window event`, or `system theme` before `-> handler _`",
+            "subscription uses `name(args)`, `every duration`, `repeat name() every duration`, `run name(args)`, `recipe name(args)`, `input-method event`, `keyboard event`, `mouse event`, `touch event`, `window event`, or `system theme` before `-> handler _`",
         ));
     };
     let call = call.trim();
@@ -739,6 +742,12 @@ fn parse_subscription(line: &Line) -> Result<Subscription, Error> {
     } else if let Some(call) = call.strip_prefix("run ") {
         let (function, args) = parse_signature(call.trim(), line)?;
         SubscriptionSource::Run {
+            function,
+            args: parse_expr_list(&args, line)?,
+        }
+    } else if let Some(call) = call.strip_prefix("recipe ") {
+        let (function, args) = parse_signature(call.trim(), line)?;
+        SubscriptionSource::Recipe {
             function,
             args: parse_expr_list(&args, line)?,
         }
@@ -8068,6 +8077,7 @@ extern crate::backend
   stream numbers(limit:i64) -> i64
   stream range(start:i64, limit:i64) -> i64
   stream fallible() -> str ! AppError
+  recipe snapshot(id:i64) -> str
 theme
   background #000000
 on start
@@ -8082,6 +8092,7 @@ subscribe
   run fallible() -> observed _
   run numbers(3) -> number _
   run range(1, 3) -> number _
+  recipe snapshot(3) -> text _
 view
   text "Streams"
 "#;
@@ -8111,6 +8122,18 @@ view
             SubscriptionSource::Run { function, args }
                 if function == "range" && args.len() == 2
         ));
+        assert!(matches!(
+            &document.subscriptions[3].source,
+            SubscriptionSource::Recipe { function, args }
+                if function == "snapshot" && args.len() == 1
+        ));
+
+        let error = parse(&source.replace(
+            "recipe snapshot(id:i64) -> str",
+            "recipe snapshot(id:i64) -> str ! AppError",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E023");
 
         let error = parse(&source.replace("stream numbers(3) -> number _", "stream numbers(3)"))
             .unwrap_err();

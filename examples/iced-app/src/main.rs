@@ -199,6 +199,32 @@ mod backend {
     }
 
     #[cfg(test)]
+    pub struct CounterRecipe {
+        id: i64,
+    }
+
+    #[cfg(test)]
+    impl iced::advanced::subscription::Recipe for CounterRecipe {
+        type Output = i64;
+
+        fn hash(&self, state: &mut iced::advanced::subscription::Hasher) {
+            std::hash::Hash::hash(&self.id, state);
+        }
+
+        fn stream(
+            self: Box<Self>,
+            _input: iced::advanced::subscription::EventStream,
+        ) -> iced::futures::stream::BoxStream<'static, Self::Output> {
+            Box::pin(iced::futures::stream::iter([self.id]))
+        }
+    }
+
+    #[cfg(test)]
+    pub fn counter_recipe(id: i64) -> CounterRecipe {
+        CounterRecipe { id }
+    }
+
+    #[cfg(test)]
     pub fn count_sip(limit: i64) -> impl iced::task::Sipper<i64, i64> + Send + 'static {
         iced::task::sipper(move |mut sender| async move {
             let limit = limit.max(0);
@@ -378,7 +404,7 @@ mod task_stream {
     fn constructs_both_native_stream_units() {
         let (mut app, _) = TaskStream::__boot();
         assert_eq!(app.__update(__TaskStreamMessage::Start).units(), 2);
-        assert_eq!(app.__subscription().units(), 3);
+        assert_eq!(app.__subscription().units(), 4);
     }
 }
 
