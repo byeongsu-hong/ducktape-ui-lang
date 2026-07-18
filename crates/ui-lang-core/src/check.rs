@@ -3828,6 +3828,7 @@ fn lazy_hashable(ty: &Type) -> bool {
         | Type::Markdown
         | Type::Editor
         | Type::Event
+        | Type::EventStatus
         | Type::KeyLocation
         | Type::KeyPress
         | Type::KeyRelease
@@ -7659,6 +7660,21 @@ pub(crate) fn expr_type(
                 check_builtin_args(name, args, &[Type::F64, Type::F64], env, document, span)?;
                 Ok(Type::ScrollDelta)
             }
+            "event_status.ignored" | "event_status.captured" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::EventStatus)
+            }
+            "event_status.merge" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::EventStatus, Type::EventStatus],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::EventStatus)
+            }
             "window_direction.north"
             | "window_direction.south"
             | "window_direction.east"
@@ -9082,6 +9098,7 @@ pub(crate) fn expr_type(
                                 | Type::RectangleU32
                                 | Type::Transformation
                                 | Type::ScrollDelta
+                                | Type::EventStatus
                                 | Type::WindowLevel
                                 | Type::WindowMode
                         )
@@ -9282,6 +9299,10 @@ fn field_type(ty: &Type, field: &str, document: &Document, span: &Span) -> Resul
         Type::ScrollDelta => match field {
             "kind" => Some(Type::Str),
             "x" | "y" => Some(Type::F64),
+            _ => None,
+        },
+        Type::EventStatus => match field {
+            "kind" => Some(Type::Str),
             _ => None,
         },
         Type::WindowPosition => match field {
@@ -9898,6 +9919,36 @@ mod tests {
         let error = analyze(&source.replace(
             "    button \"Inspect\" -> inspect",
             "    lazy responsive as cached\n      text cached.kind",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E139");
+        assert!(error.message.contains("does not implement stable hashing"));
+    }
+
+    #[test]
+    fn checks_native_event_status_values_and_traits() {
+        let source = include_str!("../../../examples/iced-app/src/ui/event_status.ice");
+        analyze(source).unwrap();
+
+        let error = analyze(&source.replace(
+            "event_status.merge(ignored, captured)",
+            "event_status.merge(true, captured)",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E101");
+        assert!(error.message.contains("expected `event-status`"));
+
+        let error = analyze(&source.replace(
+            "values_equal = returned == captured",
+            "values_equal = returned < captured",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E153");
+        assert!(error.message.contains("does not accept `event-status`"));
+
+        let error = analyze(&source.replace(
+            "    button \"Inspect\" -> inspect",
+            "    lazy returned as cached\n      text cached.kind",
         ))
         .unwrap_err();
         assert_eq!(error.code, "E139");
