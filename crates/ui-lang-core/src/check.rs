@@ -3305,8 +3305,17 @@ fn infer_view(
             infer_view(tip, env, document, signatures, ids)?;
         }
         ViewNode::MouseArea {
-            options, content, ..
+            options,
+            content,
+            span,
         } => {
+            if let Some(interaction) = &options.interaction_expr {
+                require_type(
+                    &expr_type(interaction, env, document, span)?,
+                    &Type::MouseInteraction,
+                    span,
+                )?;
+            }
             for route in [
                 &options.press,
                 &options.release,
@@ -3481,12 +3490,19 @@ fn infer_view(
             canvas_env.insert("canvas_width".into(), Type::F64);
             canvas_env.insert("canvas_height".into(), Type::F64);
             if let Some(interaction) = &options.interaction_expr {
-                require_type(
-                    &expr_type(interaction, &canvas_env, document, span)?,
-                    &Type::Str,
-                    span,
-                )?;
-                if let Expr::Str(value) = interaction
+                let actual = expr_type(interaction, &canvas_env, document, span)?;
+                if !matches!(actual, Type::Str | Type::MouseInteraction) {
+                    return Err(Error::new(
+                        "E101",
+                        span,
+                        format!(
+                            "expected `str` or `mouse-interaction`, got `{}`",
+                            actual.display()
+                        ),
+                    ));
+                }
+                if actual == Type::Str
+                    && let Expr::Str(value) = interaction
                     && !valid_canvas_cursor(value)
                 {
                     return Err(Error::new(
@@ -3836,6 +3852,7 @@ fn lazy_hashable(ty: &Type) -> bool {
         | Type::Rectangle
         | Type::RectangleU32
         | Type::Transformation
+        | Type::MouseInteraction
         | Type::MouseCursor
         | Type::MouseClick
         | Type::SystemInfo
@@ -7601,6 +7618,37 @@ pub(crate) fn expr_type(
                 check_builtin_args(name, args, &[], env, document, span)?;
                 Ok(Type::FontStyle)
             }
+            "interaction.default"
+            | "interaction.none"
+            | "interaction.hidden"
+            | "interaction.idle"
+            | "interaction.context_menu"
+            | "interaction.help"
+            | "interaction.pointer"
+            | "interaction.progress"
+            | "interaction.wait"
+            | "interaction.cell"
+            | "interaction.crosshair"
+            | "interaction.text"
+            | "interaction.alias"
+            | "interaction.copy"
+            | "interaction.move"
+            | "interaction.no_drop"
+            | "interaction.not_allowed"
+            | "interaction.grab"
+            | "interaction.grabbing"
+            | "interaction.resize_horizontal"
+            | "interaction.resize_vertical"
+            | "interaction.resize_diagonal_up"
+            | "interaction.resize_diagonal_down"
+            | "interaction.resize_column"
+            | "interaction.resize_row"
+            | "interaction.all_scroll"
+            | "interaction.zoom_in"
+            | "interaction.zoom_out" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::MouseInteraction)
+            }
             "length.fill" | "length.shrink" => {
                 check_builtin_args(name, args, &[], env, document, span)?;
                 Ok(Type::Length)
@@ -9167,6 +9215,10 @@ fn field_type(ty: &Type, field: &str, document: &Document, span: &Span) -> Resul
             "kind" => Some(Type::Str),
             _ => None,
         },
+        Type::MouseInteraction => match field {
+            "kind" => Some(Type::Str),
+            _ => None,
+        },
         Type::Length => match field {
             "fill_factor" => Some(Type::I64),
             "is_fill" => Some(Type::Bool),
@@ -9665,6 +9717,25 @@ mod tests {
         .unwrap_err();
         assert_eq!(error.code, "E153");
         assert!(error.message.contains("does not accept `font`"));
+    }
+
+    #[test]
+    fn checks_native_mouse_interaction_and_widget_passage() {
+        let source = include_str!("../../../examples/iced-app/src/ui/mouse_interaction.ice");
+        analyze(source).unwrap();
+
+        let error =
+            analyze(&source.replace("mouse cursor=(returned)", "mouse cursor=(kind)")).unwrap_err();
+        assert_eq!(error.code, "E101");
+        assert!(error.message.contains("expected `mouse-interaction`"));
+
+        let error = analyze(&source.replace(
+            "    button \"Inspect\" -> inspect",
+            "    lazy returned as cached\n      text cached.kind",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E139");
+        assert!(error.message.contains("does not implement stable hashing"));
     }
 
     #[test]

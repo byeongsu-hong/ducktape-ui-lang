@@ -5543,7 +5543,14 @@ fn parse_mouse_area(parts: &[String], styles: Vec<String>, line: &Line) -> Resul
         } else if let Some(value) = part.strip_prefix("exit=") {
             options.exit = Some(route(value)?);
         } else if let Some(value) = part.strip_prefix("cursor=") {
-            options.interaction = Some(parse_mouse_interaction(value, line)?);
+            if options.interaction.is_some() || options.interaction_expr.is_some() {
+                return Err(error("E087", line, "duplicate mouse cursor property"));
+            }
+            if value.starts_with('(') {
+                options.interaction_expr = Some(parse_expr(strip_wrapping_parens(value), line)?);
+            } else {
+                options.interaction = Some(parse_mouse_interaction(value, line)?);
+            }
         } else {
             return Err(error(
                 "E087",
@@ -8654,6 +8661,7 @@ fn parse_type(source: &str, line: &Line) -> Result<Type, Error> {
         "rectangle" => Type::Rectangle,
         "rectangle-u32" => Type::RectangleU32,
         "transformation" => Type::Transformation,
+        "mouse-interaction" => Type::MouseInteraction,
         "mouse-button" => Type::MouseButton,
         "mouse-cursor" => Type::MouseCursor,
         "mouse-click" => Type::MouseClick,
@@ -9334,6 +9342,23 @@ mod tests {
         assert!(matches!(
             &document.handlers[0].statements[4],
             Statement::Assign { value: Expr::Call { name, .. }, .. } if name == "font.new"
+        ));
+    }
+
+    #[test]
+    fn parses_first_class_native_mouse_interaction() {
+        let source = include_str!("../../../examples/iced-app/src/ui/mouse_interaction.ice");
+        let document = parse(source).unwrap();
+        assert_eq!(document.functions[0].params[0].1, Type::MouseInteraction);
+        assert_eq!(document.functions[0].output, Type::MouseInteraction);
+        assert_eq!(document.states[0].ty, Type::MouseInteraction);
+        assert_eq!(
+            document.states[2].ty,
+            Type::List(Box::new(Type::MouseInteraction))
+        );
+        assert!(matches!(
+            &document.handlers[0].statements[0],
+            Statement::Assign { value: Expr::Call { name, .. }, .. } if name == "interaction.default"
         ));
     }
 

@@ -15,7 +15,7 @@ counts toward the row below.
 
 ## Typed system reachability
 
-Ice 1.48 has thirty-three checked Rust boundaries:
+Ice 1.49 has thirty-three checked Rust boundaries:
 
 | Boundary | Rust ABI | Covers |
 | --- | --- | --- |
@@ -120,7 +120,8 @@ public behavior has direct documented Ice syntax and tests.
 | window | native | every initial and named-open setting, including codec-free RGBA icons and structured Linux/Windows/macOS/Wasm fields; typed `window-id`, open/oldest/latest, direct targeting for every per-window close/drag/resize/constraints/state/move/mode/focus/level/menu/attention/passthrough/monitor/raw-ID/screenshot/icon task, automatic tabbing, lossless RGBA screenshot payloads, all 12 event forms with optional IDs on all 11 discrete events, and an exact typed `window::run` callback boundary for raw window/display handles |
 | event routing | native | all five structured families plus first-class generic `event` values through native `listen`/`listen_with`/`listen_raw`, optional window IDs, status filters, transforms, handler routing, and typed extern passage; system-theme runtime events remain a separate native source because iced does not represent them as `iced::Event` |
 | keyboard | native | all three native events preserve exact `Key`, `Physical`, `Location`, and `Modifiers` values; every named/code/native/location/modifier constructor, structured matching, safe runtime native-code conversion, exact extern passage, and native latin translation are checked Ice expressions |
-| mouse/touch | native | every mouse and touch event has a direct typed subscription with exact native `Button` and `Finger` payloads; every button/finger variant, `Cursor` and advanced `Click` constructor, query, projection, vector operation, transformation application, and typed extern passage is covered |
+| mouse/touch | native | every mouse and touch event has a direct typed subscription with exact native `Button` and `Finger` payloads; every button/finger variant, `Cursor`, advanced `Click`, and all 27 `Interaction` variants, constructors, queries, projections, ordering, transformations, typed extern passage, and direct MouseArea/Canvas passage are covered |
+| `mouse::Interaction` | native | default and all 27 variants, compact kind projection, equality/order, exact typed extern passage, direct MouseArea/Canvas builder input, equivalent cursor-name sugar, and deliberate lazy rejection matching the native enum's lack of `Hash` cover the complete public value behavior |
 | `Pixels` | native | zero, f32/u32 numeric construction with checked runtime u32 conversion, value projection, equality/order, every native pixels/pixels and pixels/scalar addition, multiplication and division form, and typed extern passage cover the complete public behavior |
 | geometry primitives (default `f32`) | native | complete native `Point`, `Vector`, `Size`, and `Rectangle` constructors, constants, fields, array projections, point display, equality, arithmetic, distance, per-component size operations, conversions, containment, offset, intersection/union, exact `u32` snapping, four-side padding expansion/shrinking, radians rotation, zoom, anchoring, transformation application, and typed extern passage |
 | `Padding` | native | zero/default, uniform/per-side/axis constructors, f32/u16-equivalent scalar and axis conversions, exact Pixels conversion, every side and x/y projection, all six native builder methods, `fit`, Size conversion, Rectangle expansion/shrinking, equality, and typed extern passage cover the complete public behavior |
