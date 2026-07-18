@@ -135,17 +135,35 @@ pub fn generate(document: &Document, source_path: &str) -> Result<String, Error>
         .executor
         .as_ref()
         .map_or_else(String::new, |executor| format!(".executor::<{executor}>()"));
+    let presets = if document.presets.is_empty() {
+        String::new()
+    } else {
+        format!(
+            ".presets([{}])",
+            document
+                .presets
+                .iter()
+                .enumerate()
+                .map(|(index, preset)| format!(
+                    "::iced::Preset::new({}, Self::__preset_{index})",
+                    rust_string(&preset.name)
+                ))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    };
     let scale_factor = document
         .settings
         .scale_factor
         .map_or_else(String::new, |scale| {
             format!(".scale_factor(|_| {scale} as f32)")
         });
-    writeln!(out, "::iced::application(Self::__boot, Self::__update, Self::__view){title}{subscription}.theme(Self::__theme){settings}{default_font}{fonts}{window}{scale_factor}{executor}.run()").unwrap();
+    writeln!(out, "::iced::application(Self::__boot, Self::__update, Self::__view){title}{subscription}.theme(Self::__theme){settings}{default_font}{fonts}{window}{scale_factor}{executor}{presets}.run()").unwrap();
     writeln!(out, "}}").unwrap();
 
     generate_theme(&mut out, document);
     generate_boot(&mut out, document, &message)?;
+    generate_presets(&mut out, document, &message)?;
     generate_update(&mut out, document, &message)?;
     generate_subscription(&mut out, document, &message)?;
     generate_view(&mut out, document, &message)?;
@@ -725,11 +743,7 @@ fn generate_theme(out: &mut String, document: &Document) {
 }
 
 fn generate_boot(out: &mut String, document: &Document, message: &str) -> Result<(), Error> {
-    writeln!(
-        out,
-        "fn __boot() -> (Self, ::iced::Task<{message}>) {{\nlet mut state = Self {{"
-    )
-    .unwrap();
+    writeln!(out, "fn __state() -> Self {{\nSelf {{").unwrap();
     for qr in &document.qr_codes {
         writeln!(out, "{}: {},", qr.name, qr_data_code(qr)).unwrap();
     }
@@ -759,7 +773,11 @@ fn generate_boot(out: &mut String, document: &Document, message: &str) -> Result
         )
         .unwrap();
     }
-    writeln!(out, "}};").unwrap();
+    writeln!(
+        out,
+        "}}\n}}\nfn __boot() -> (Self, ::iced::Task<{message}>) {{\nlet mut state = Self::__state();"
+    )
+    .unwrap();
     if let Some(mount) = document
         .handlers
         .iter()
@@ -784,6 +802,31 @@ fn generate_boot(out: &mut String, document: &Document, message: &str) -> Result
         writeln!(out, "let task = ::iced::Task::none();").unwrap();
     }
     writeln!(out, "(state, task)\n}}").unwrap();
+    Ok(())
+}
+
+fn generate_presets(out: &mut String, document: &Document, message: &str) -> Result<(), Error> {
+    for (index, preset) in document.presets.iter().enumerate() {
+        writeln!(
+            out,
+            "fn __preset_{index}() -> (Self, ::iced::Task<{message}>) {{\nlet mut state = Self::__state();\nlet task = (|| {{"
+        )
+        .unwrap();
+        let env = state_env(document, "state");
+        let has_task = generate_statements(
+            out,
+            &preset.statements,
+            document,
+            message,
+            &env,
+            "state",
+            false,
+        )?;
+        if !has_task {
+            writeln!(out, "::iced::Task::none()").unwrap();
+        }
+        writeln!(out, "}})();\n(state, task)\n}}").unwrap();
+    }
     Ok(())
 }
 
@@ -8854,6 +8897,17 @@ mod tests {
     blur true
     level always-on-top
     exit-on-close-request false
+state
+  ready = false
+extern crate::backend
+  task seed() -> bool
+preset ready
+  state
+    ready = true
+  boot
+    task seed() -> seeded _
+on seeded(value)
+  ready = value
 theme
   background #000000
   foreground #ffffff
@@ -8866,6 +8920,10 @@ view
         for expected in [
             ".title(\"Configured app\")",
             ".executor::<iced::executor::Default>()",
+            ".presets([::iced::Preset::new(\"ready\", Self::__preset_0)])",
+            "fn __preset_0()",
+            "state.ready = true",
+            "crate::backend::seed().map(|value| __ConfiguredMessage::Seeded(value))",
             "id: ::std::option::Option::Some(\"dev.example.configured\".to_owned())",
             ".font(include_bytes!(\"fonts/Brand.ttf\").as_slice())",
             ".font(include_bytes!(\"fonts/Icons.otf\").as_slice())",
@@ -8894,6 +8952,13 @@ view
         ] {
             assert!(generated.contains(expected), "missing {expected}");
         }
+
+        let error = compile(
+            &source.replace("ready = true", "ready = 1"),
+            "configured.ice",
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "E101");
     }
 
     #[test]

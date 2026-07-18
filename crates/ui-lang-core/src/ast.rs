@@ -106,6 +106,7 @@ impl Type {
 pub struct Document {
     pub app: String,
     pub settings: AppSettings,
+    pub presets: Vec<Preset>,
     pub extern_path: Option<String>,
     pub structs: Vec<ExternStruct>,
     pub functions: Vec<ExternFn>,
@@ -117,6 +118,13 @@ pub struct Document {
     pub components: Vec<Component>,
     pub handlers: Vec<Handler>,
     pub view: ViewNode,
+}
+
+#[derive(Clone, Debug)]
+pub struct Preset {
+    pub name: String,
+    pub statements: Vec<Statement>,
+    pub span: Span,
 }
 
 #[derive(Clone, Debug, Default)]

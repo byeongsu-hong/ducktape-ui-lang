@@ -19,6 +19,15 @@ use "components/task_row.ice"
 use "components/dialog.ice"
 use "handlers/tasks.ice"
 
+preset pristine
+
+preset seeded
+  state
+    draft = "Preset task"
+    loading = true
+  boot
+    run list_tasks() -> loaded _ | failed _
+
 view
   overlay when=about_open dismiss=close_about backdrop=black/60 padding=24.0 align-x=center align-y=center
     content

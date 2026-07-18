@@ -22,6 +22,16 @@ pub fn check(document: &mut Document) -> Result<(), Error> {
         .iter()
         .map(|state| (state.name.clone(), state.ty.clone()))
         .collect();
+    let preset_handlers = document
+        .presets
+        .iter()
+        .map(|preset| Handler {
+            name: format!("preset_{}", preset.name),
+            params: Vec::new(),
+            statements: preset.statements.clone(),
+            span: preset.span.clone(),
+        })
+        .collect::<Vec<_>>();
     for state in &document.states {
         let actual = expr_type(&state.initial, &HashMap::new(), document, &state.span)?;
         if let Type::Combo(expected) = &state.ty {
@@ -41,7 +51,7 @@ pub fn check(document: &mut Document) -> Result<(), Error> {
             }
         }
     }
-    for handler in &document.handlers {
+    for handler in document.handlers.iter().chain(&preset_handlers) {
         check_structured_tasks(handler)?;
     }
 
@@ -74,7 +84,7 @@ pub fn check(document: &mut Document) -> Result<(), Error> {
         infer_view(&component.root, &env, document, &mut signatures, &mut ids)?;
     }
     infer_subscriptions(document, &states, &mut signatures)?;
-    for handler in &document.handlers {
+    for handler in document.handlers.iter().chain(&preset_handlers) {
         infer_runs(handler, document, &mut signatures)?;
     }
 
@@ -95,7 +105,7 @@ pub fn check(document: &mut Document) -> Result<(), Error> {
         }
     }
 
-    for handler in &document.handlers {
+    for handler in document.handlers.iter().chain(&preset_handlers) {
         check_handler(handler, &states, document, &operation_ids, &pane_grids)?;
     }
     Ok(())
@@ -336,6 +346,16 @@ fn check_unique(document: &Document) -> Result<(), Error> {
                 "E100",
                 &item.span,
                 format!("duplicate function `{}`", item.name),
+            ));
+        }
+    }
+    let mut presets = HashSet::new();
+    for preset in &document.presets {
+        if !presets.insert(&preset.name) {
+            return Err(Error::new(
+                "E100",
+                &preset.span,
+                format!("duplicate preset `{}`", preset.name),
             ));
         }
     }

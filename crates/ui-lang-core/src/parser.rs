@@ -14,6 +14,7 @@ pub fn parse(source: &str) -> Result<Document, Error> {
     let lines = line_tree(source)?;
     let mut app = None;
     let mut settings = AppSettings::default();
+    let mut presets = Vec::new();
     let mut extern_path = None;
     let mut structs = Vec::new();
     let mut functions = Vec::new();
@@ -32,6 +33,8 @@ pub fn parse(source: &str) -> Result<Document, Error> {
                 return Err(error("E002", line, "an app may only be declared once"));
             }
             settings = parse_app_settings(line)?;
+        } else if let Some(name) = line.text.strip_prefix("preset ") {
+            presets.push(parse_preset(name.trim(), line)?);
         } else if let Some(path) = line.text.strip_prefix("extern ") {
             if extern_path.is_some() {
                 return Err(error(
@@ -151,6 +154,7 @@ pub fn parse(source: &str) -> Result<Document, Error> {
     Ok(Document {
         app: app.ok_or_else(|| Error::new("E006", &span, "missing `app Name` declaration"))?,
         settings,
+        presets,
         extern_path,
         structs,
         functions,
@@ -162,6 +166,64 @@ pub fn parse(source: &str) -> Result<Document, Error> {
         components,
         handlers,
         view: view.ok_or_else(|| Error::new("E008", &span, "missing `view` block"))?,
+    })
+}
+
+fn parse_preset(name: &str, line: &Line) -> Result<Preset, Error> {
+    let name = identifier(name, line)?;
+    let mut statements = Vec::new();
+    let mut state = false;
+    let mut boot = false;
+    for section in &line.children {
+        match section.text.as_str() {
+            "state" if !state && !boot => {
+                state = true;
+                for item in &section.children {
+                    match parse_statement(item)? {
+                        statement @ Statement::Assign { .. } => statements.push(statement),
+                        _ => {
+                            return Err(error(
+                                "E016",
+                                item,
+                                "preset state only accepts `name = value` overrides",
+                            ));
+                        }
+                    }
+                }
+            }
+            "boot" if !boot => {
+                boot = true;
+                statements.extend(
+                    section
+                        .children
+                        .iter()
+                        .map(parse_statement)
+                        .collect::<Result<Vec<_>, _>>()?,
+                );
+            }
+            "state" if boot => {
+                return Err(error("E016", section, "preset state must precede boot"));
+            }
+            "state" | "boot" => {
+                return Err(error(
+                    "E016",
+                    section,
+                    format!("duplicate preset section `{}`", section.text),
+                ));
+            }
+            _ => {
+                return Err(error(
+                    "E016",
+                    section,
+                    "preset accepts `state` and `boot` sections",
+                ));
+            }
+        }
+    }
+    Ok(Preset {
+        name,
+        statements,
+        span: Span::line(line.number),
     })
 }
 
@@ -8483,6 +8545,17 @@ view
         ))
         .unwrap_err();
         assert_eq!(error.code, "E073");
+    }
+
+    #[test]
+    fn rejects_non_assignment_preset_state() {
+        let source = SOURCE.replace(
+            "view\n",
+            "preset seeded\n  state\n    return if true\nview\n",
+        );
+        let error = parse(&source).unwrap_err();
+        assert_eq!(error.code, "E016");
+        assert!(error.message.contains("only accepts"));
     }
 
     #[test]

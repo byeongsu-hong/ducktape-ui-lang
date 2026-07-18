@@ -1,4 +1,4 @@
-# Ice Language Specification 0.95
+# Ice Language Specification 0.96
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.95 syntax.
+marked “planned” is a design constraint, not accepted 0.96 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.95.
+  block comments are not part of 0.96.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -102,6 +102,7 @@ extern
 theme
 qr
 state
+preset
 component
 on
 subscribe
@@ -124,9 +125,10 @@ source_graph   = root_file imported_file*
 root_file      = (app_decl | use_decl | declaration)*
 imported_file  = (use_decl | declaration)*
 use_decl       = "use" string
-declaration    = extern_decl | theme_decl | font_decl | qr_decl | state_decl | component_decl
-               | handler_decl | subscribe_decl | view_decl
-document       = app_decl extern_decl? theme_decl qr_decl* state_decl?
+declaration    = extern_decl | theme_decl | font_decl | qr_decl | state_decl
+               | preset_decl | component_decl | handler_decl | subscribe_decl
+               | view_decl
+document       = app_decl extern_decl? theme_decl qr_decl* state_decl? preset_decl*
                  component_decl* handler_decl* subscribe_decl? view_decl
 
 app_decl       = "app" PascalName (INDENT app_setting*)?
@@ -193,6 +195,12 @@ qr_data_property = "correction=" ("low" | "medium" | "quartile" | "high")
 
 state_decl     = "state" INDENT state_entry+
 state_entry    = name (":" type)? "=" expr
+
+preset_decl    = "preset" name (INDENT preset_section*)?
+preset_section = preset_state | preset_boot
+preset_state   = "state" INDENT preset_override*
+preset_override = name "=" expr
+preset_boot    = "boot" INDENT statement*
 
 component_decl = "component" component_name "(" field_list? ")"
                  INDENT node
@@ -840,7 +848,27 @@ codec; width and height are positive integers, and generated Rust rejects a
 byte length other than `width × height × 4`. `cargo ice check` reports a
 mismatch at the icon declaration, and generated Rust repeats the check at
 compile time. Encoded icon formats and platform-specific settings are not part
-of 0.95.
+of 0.96.
+
+Application boot presets are structured top-level declarations:
+
+```ice
+preset pristine
+
+preset seeded
+  state
+    draft = "Preset task"
+    loading = true
+  boot
+    run list_tasks() -> loaded _ | failed _
+```
+
+Each preset starts from declared state and internal widget layout state without
+running `on mount`. The optional `state` section applies checked assignments in
+order. The optional `boot` section accepts the same checked statements, task
+composition, and routes as a handler. With no task it returns `Task::none`.
+Generated code passes each strategy to iced `Preset::new`; an empty preset is a
+side-effect-free default-state fixture.
 
 Media fixed lengths, rotation, opacity, scale, and radius are `f64`; rotation
 is radians and defaults to floating layout behavior, while `solid(angle)` makes
@@ -1259,7 +1287,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.95 message payloads.
+`Clone` for 0.96 message payloads.
 
 Declared `sync` functions are checked, synchronous Rust calls available in
 Ice expressions. They are the small escape hatch for pure domain conversions
@@ -2266,7 +2294,7 @@ snap/end; and absolute scroll-to/scroll-by. Effects have no route and
 non-negative `i64`; relative offsets are `f64` in `0.0..=1.0`; absolute
 offsets are unrestricted `f64`. Targets must be real static IDs in the app
 scope. Repeated/component scopes and the feature-gated selector API remain
-outside 0.95.
+outside 0.96.
 
 Persistent pane grids expose their native layout-state operations directly in
 handlers:
@@ -2314,7 +2342,7 @@ all modes, decorations, user attention, focus, level, system menu, mouse
 passthrough, monitor size, and automatic tabbing. Positive sizes and bool
 arguments are checked before Rust generation. New-window IDs, open/oldest/latest,
 runtime icon changes, raw handles, screenshots, and callbacks remain outside
-0.95.
+0.96.
 
 Every iced window event has a direct subscription form:
 
@@ -2467,7 +2495,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 0.95 does not claim that remapping.
+extern line; 0.96 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -2488,7 +2516,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 0.95 native backend is enough for CRUD/settings-style screens, selection,
+The 0.96 native backend is enough for CRUD/settings-style screens, selection,
 media, hover overlays, declarative canvas geometry, and common pointer events,
 not all of iced. It still lacks direct syntax for arbitrary custom overlays,
 multiple windows, and custom widgets. [`COVERAGE.md`](COVERAGE.md) is
