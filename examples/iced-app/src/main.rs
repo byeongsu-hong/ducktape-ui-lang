@@ -3,6 +3,8 @@ ui_lang::include_app!("src/ui/tasks.ice");
 #[cfg(test)]
 mod alignment;
 #[cfg(test)]
+mod background_gradient;
+#[cfg(test)]
 mod border_radius;
 #[cfg(test)]
 mod color;
@@ -116,6 +118,11 @@ mod backend {
 
     #[cfg(test)]
     pub use crate::alignment::{alignment_round_trip, horizontal_round_trip, vertical_round_trip};
+
+    #[cfg(test)]
+    pub use crate::background_gradient::{
+        background_round_trip, color_stop_round_trip, gradient_round_trip, linear_round_trip,
+    };
 
     #[cfg(test)]
     pub use crate::border_radius::{border_round_trip, radius_round_trip};

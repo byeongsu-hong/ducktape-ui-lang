@@ -7926,6 +7926,41 @@ fn native_field_projection(ty: &Type, field: &str, code: &str) -> Option<(String
             Type::List(Box::new(Type::F64)),
         ),
         (Type::Color, "display") => (format!("::std::format!(\"{{}}\", ({code}))"), Type::Str),
+        (Type::Background, "kind") => (
+            format!(
+                "match ({code}) {{ ::iced::Background::Color(_) => \"color\", ::iced::Background::Gradient(_) => \"gradient\" }}.to_owned()"
+            ),
+            Type::Str,
+        ),
+        (Type::Background, "color") => (
+            format!(
+                "match ({code}) {{ ::iced::Background::Color(__value) => ::std::option::Option::Some(__value), ::iced::Background::Gradient(_) => ::std::option::Option::None }}"
+            ),
+            Type::Option(Box::new(Type::Color)),
+        ),
+        (Type::Background, "gradient") => (
+            format!(
+                "match ({code}) {{ ::iced::Background::Gradient(__value) => ::std::option::Option::Some(__value), ::iced::Background::Color(_) => ::std::option::Option::None }}"
+            ),
+            Type::Option(Box::new(Type::Gradient)),
+        ),
+        (Type::Gradient, "kind") => (
+            format!("match ({code}) {{ ::iced::Gradient::Linear(_) => \"linear\" }}.to_owned()"),
+            Type::Str,
+        ),
+        (Type::Gradient, "linear") => (
+            format!("match ({code}) {{ ::iced::Gradient::Linear(__value) => __value }}"),
+            Type::LinearGradient,
+        ),
+        (Type::LinearGradient, "angle") => (format!("({code}).angle"), Type::Radians),
+        (Type::LinearGradient, "stops") => (
+            format!(
+                "({code}).stops.into_iter().collect::<::std::vec::Vec<::std::option::Option<::iced::gradient::ColorStop>>>()"
+            ),
+            Type::List(Box::new(Type::Option(Box::new(Type::ColorStop)))),
+        ),
+        (Type::ColorStop, "offset") => (format!("({code}).offset as f64"), Type::F64),
+        (Type::ColorStop, "color") => (format!("({code}).color"), Type::Color),
         (Type::Length, "fill_factor") => (format!("({code}).fill_factor() as i64"), Type::I64),
         (Type::Length, "is_fill") => (format!("({code}).is_fill()"), Type::Bool),
         (Type::Length, "kind") => (
@@ -8130,6 +8165,10 @@ fn expr_code(
                     | Type::Rotation
                     | Type::ContentFit
                     | Type::Color
+                    | Type::Background
+                    | Type::Gradient
+                    | Type::LinearGradient
+                    | Type::ColorStop
                     | Type::Length
                     | Type::Alignment
                     | Type::HorizontalAlignment
@@ -8255,6 +8294,70 @@ fn expr_code(
             ),
             "color.readable" => format!(
                 "({}).is_readable_on({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "color_stop.default" => "::iced::gradient::ColorStop::default()".into(),
+            "color_stop" => format!(
+                "::iced::gradient::ColorStop {{ offset: ({}) as f32, color: {} }}",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "linear" => format!(
+                "::iced::gradient::Linear::new({})",
+                radians_value_code(&args[0], env, document)?
+            ),
+            "linear.add_stop" => format!(
+                "({}).add_stop(({}) as f32, {})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?,
+                expr_code(&args[2], env, document, ValueMode::Owned)?
+            ),
+            "linear.add_stops" => format!(
+                "({}).add_stops({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "linear.scale_alpha" => format!(
+                "({}).scale_alpha(({}) as f32)",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "gradient.linear" => format!(
+                "::iced::Gradient::Linear({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "gradient.from_linear" => format!(
+                "::iced::Gradient::from({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "gradient.scale_alpha" => format!(
+                "({}).scale_alpha(({}) as f32)",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "background.color" => format!(
+                "::iced::Background::Color({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "background.gradient" => format!(
+                "::iced::Background::Gradient({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "background.from_color" => format!(
+                "::iced::Background::from({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "background.from_gradient" => format!(
+                "::iced::Background::from({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "background.from_linear" => format!(
+                "::iced::Background::from({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "background.scale_alpha" => format!(
+                "({}).scale_alpha(({}) as f32)",
                 expr_code(&args[0], env, document, ValueMode::Owned)?,
                 expr_code(&args[1], env, document, ValueMode::Owned)?
             ),
@@ -12422,6 +12525,41 @@ mod tests {
             "(self.built_radius).top_right as f64",
             "(self.built_radius).bottom_right as f64",
             "(self.built_radius).bottom_left as f64",
+        ] {
+            assert!(generated.contains(expected), "missing {expected}");
+        }
+    }
+
+    #[test]
+    fn lowers_every_native_background_and_gradient_operation() {
+        let source = include_str!("../../../examples/iced-app/src/ui/background_gradient.ice");
+        let generated = compile(source, "background_gradient.ice").unwrap();
+        for expected in [
+            "::iced::gradient::ColorStop::default()",
+            "::iced::gradient::ColorStop { offset: (0.25) as f32, color:",
+            "crate::backend::color_stop_round_trip(self.custom_stop)",
+            "(self.custom_stop).offset as f64",
+            "(self.custom_stop).color",
+            "::iced::gradient::Linear::new(::iced::Radians((0.5) as f32))",
+            "::iced::gradient::Linear::new(::iced::Radians((0.75) as f32))",
+            ".add_stop((0.75) as f32, ::iced::Color::WHITE)",
+            ".add_stops(::std::vec![",
+            ".scale_alpha((0.5) as f32)",
+            "crate::backend::linear_round_trip(self.multi_linear)",
+            "(self.numeric_linear).angle",
+            ".stops.into_iter().collect::<::std::vec::Vec<::std::option::Option<::iced::gradient::ColorStop>>>()",
+            "::iced::Gradient::Linear(self.added_linear)",
+            "::iced::Gradient::from(self.added_linear)",
+            "crate::backend::gradient_round_trip(self.converted_gradient)",
+            "match (self.direct_gradient) { ::iced::Gradient::Linear(__value) => __value }",
+            "::iced::Background::Color(",
+            "::iced::Background::Gradient(self.direct_gradient)",
+            "::iced::Background::from(::iced::Color::WHITE)",
+            "::iced::Background::from(self.converted_gradient)",
+            "::iced::Background::from(self.added_linear)",
+            "crate::backend::background_round_trip(self.from_linear_background)",
+            "::iced::Background::Color(__value) => ::std::option::Option::Some(__value)",
+            "::iced::Background::Gradient(__value) => ::std::option::Option::Some(__value)",
         ] {
             assert!(generated.contains(expected), "missing {expected}");
         }

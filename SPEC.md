@@ -1,4 +1,4 @@
-# Ice Language Specification 1.46
+# Ice Language Specification 1.47
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 1.46 syntax.
+marked “planned” is a design constraint, not accepted 1.47 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 1.46.
+  block comments are not part of 1.47.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -192,6 +192,7 @@ type           = "bool" | "i64" | "f64" | "str" | "bytes" | "image"
                | "rotation"
                | "content-fit"
                | "color"
+               | "background" | "gradient" | "linear-gradient" | "color-stop"
                | "length"
                | "alignment" | "horizontal-alignment" | "vertical-alignment"
                | "border" | "radius"
@@ -1040,7 +1041,7 @@ maximum size. `icon-rgba` embeds a relative raw RGBA file without an image
 codec; width and height are positive integers, and generated Rust rejects a
 byte length other than `width × height × 4`. `cargo ice check` reports a
 mismatch at the icon declaration, and generated Rust repeats the check at
-compile time. Encoded icon formats remain outside 1.46.
+compile time. Encoded icon formats remain outside 1.47.
 
 Use `daemon Name` instead of `app Name` for an iced daemon that starts without
 an initial window and remains alive after all windows close. A daemon rejects
@@ -1601,6 +1602,10 @@ button "Add" disabled=(loading || empty(trim(draft))) -> submit
 | `rotation` | `iced::Rotation` |
 | `content-fit` | `iced::ContentFit` |
 | `color` | `iced::Color` |
+| `background` | `iced::Background` |
+| `gradient` | `iced::Gradient` |
+| `linear-gradient` | `iced::gradient::Linear` |
+| `color-stop` | `iced::gradient::ColorStop` |
 | `length` | `iced::Length` |
 | `alignment` | `iced::Alignment` |
 | `horizontal-alignment` | `iced::alignment::Horizontal` |
@@ -1639,7 +1644,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 1.46 message payloads.
+`Clone` for 1.47 message payloads.
 
 Declared `sync` functions are checked, synchronous Rust calls available in
 Ice expressions. They are the small escape hatch for pure domain conversions
@@ -3070,6 +3075,30 @@ call iced's exact WCAG calculations. Colors support equality and typed extern
 passage. They are deliberately rejected as lazy identities because native
 `Color` contains floating-point channels and does not implement `Hash`.
 
+`color_stop.default()` and `color_stop(offset, color)` construct exact native
+gradient stops. A stop exposes `.offset` and `.color`, supports equality and
+typed extern passage, and is not a lazy identity because it contains floating
+point values.
+
+`linear(angle)` constructs `iced::gradient::Linear` and accepts either `f64` or
+`radians`. `linear.add_stop` and `linear.add_stops` delegate to the native
+sorting, finite/range rejection, and eight-stop limit; `linear.scale_alpha`
+preserves the native stop-color operation. A linear gradient exposes `.angle`
+and its exact eight-entry `[color-stop?]` `.stops`, supports equality and typed
+extern passage, and is not a lazy identity.
+
+`gradient.linear` constructs the native enum variant while
+`gradient.from_linear` preserves its native conversion. A gradient exposes
+`.kind` and `.linear`; `gradient.scale_alpha` delegates to the native operation.
+`background.color` and `background.gradient` construct both native variants;
+`background.from_color`, `background.from_gradient`, and
+`background.from_linear` preserve every native conversion. A background
+exposes `.kind`, optional `.color`, and optional `.gradient`, and
+`background.scale_alpha` handles either variant. Both types support equality
+and typed extern passage but remain unavailable as floating-point lazy
+identities. Existing solid/linear style properties remain compact equivalent
+sugar.
+
 `length.fill()`, `length.fill_portion(u16 literal)`, `length.shrink()`, and
 `length.fixed(f64)` construct every native variant. Dynamic `i64` portions use
 `length.try_fill_portion(value) -> length?`, which returns `none` outside the
@@ -3627,7 +3656,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 1.46 does not claim that remapping.
+extern line; 1.47 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -3648,7 +3677,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 1.46 native backend covers both windowed applications and windowless
+The 1.47 native backend covers both windowed applications and windowless
 daemons alongside CRUD/settings-style screens, selection, media, hover
 overlays, declarative canvas geometry, and pointer events. Borrowed custom
 widgets and an application-wide renderer type remain the escape hatch for
@@ -3704,6 +3733,11 @@ Complete native border/radius construction, builders, conversions, fields, and
 extern passage are exercised by the split
 [`examples/iced-app/src/ui/border_radius.ice`](examples/iced-app/src/ui/border_radius.ice)
 and [`examples/iced-app/src/border_radius.rs`](examples/iced-app/src/border_radius.rs)
+fixture.
+Complete native background variants/conversions, gradient/linear operations,
+color stops, projections, and extern passage are exercised by the split
+[`examples/iced-app/src/ui/background_gradient.ice`](examples/iced-app/src/ui/background_gradient.ice)
+and [`examples/iced-app/src/background_gradient.rs`](examples/iced-app/src/background_gradient.rs)
 fixture.
 Native `Task::map` output/optional conversion and fallible error preservation
 are executed by

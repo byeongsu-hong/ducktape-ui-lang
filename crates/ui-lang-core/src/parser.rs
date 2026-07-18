@@ -8630,6 +8630,10 @@ fn parse_type(source: &str, line: &Line) -> Result<Type, Error> {
         "rotation" => Type::Rotation,
         "content-fit" => Type::ContentFit,
         "color" => Type::Color,
+        "background" => Type::Background,
+        "gradient" => Type::Gradient,
+        "linear-gradient" => Type::LinearGradient,
+        "color-stop" => Type::ColorStop,
         "length" => Type::Length,
         "alignment" => Type::Alignment,
         "horizontal-alignment" => Type::HorizontalAlignment,
@@ -9284,6 +9288,22 @@ mod tests {
         assert!(matches!(
             &document.handlers[0].statements[1],
             Statement::Assign { value: Expr::Call { name, .. }, .. } if name == "border.new"
+        ));
+    }
+
+    #[test]
+    fn parses_first_class_native_background_and_gradient() {
+        let source = include_str!("../../../examples/iced-app/src/ui/background_gradient.ice");
+        let document = parse(source).unwrap();
+        assert_eq!(document.functions[0].params[0].1, Type::Background);
+        assert_eq!(document.functions[1].params[0].1, Type::Gradient);
+        assert_eq!(document.functions[2].params[0].1, Type::LinearGradient);
+        assert_eq!(document.functions[3].params[0].1, Type::ColorStop);
+        assert_eq!(document.states[0].ty, Type::ColorStop);
+        assert_eq!(document.states[6].ty, Type::LinearGradient);
+        assert!(matches!(
+            &document.handlers[0].statements[1],
+            Statement::Assign { value: Expr::Call { name, .. }, .. } if name == "color_stop"
         ));
     }
 
