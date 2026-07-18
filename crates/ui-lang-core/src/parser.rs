@@ -8669,6 +8669,7 @@ fn parse_type(source: &str, line: &Line) -> Result<Type, Error> {
         "touch-finger" => Type::TouchFinger,
         "instant" => Type::Instant,
         "window-id" => Type::WindowId,
+        "window-position" => Type::WindowPosition,
         "window-direction" => Type::WindowDirection,
         "window-level" => Type::WindowLevel,
         "window-mode" => Type::WindowMode,
@@ -9404,6 +9405,21 @@ mod tests {
                 value: Expr::List(_),
                 ..
             }
+        ));
+    }
+
+    #[test]
+    fn parses_first_class_native_window_position() {
+        let source = include_str!("../../../examples/iced-app/src/ui/window_position.ice");
+        let document = parse(source).unwrap();
+        assert_eq!(document.functions[0].params[0].1, Type::WindowPosition);
+        assert_eq!(document.functions[0].output, Type::WindowPosition);
+        assert_eq!(document.functions[1].output, Type::WindowPosition);
+        assert_eq!(document.states[0].ty, Type::WindowPosition);
+        assert_eq!(document.states[5].ty, Type::Option(Box::new(Type::Point)));
+        assert!(matches!(
+            &document.handlers[0].statements[2],
+            Statement::Assign { value: Expr::Call { name, .. }, .. } if name == "window_position.specific"
         ));
     }
 

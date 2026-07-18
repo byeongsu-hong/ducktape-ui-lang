@@ -8032,6 +8032,18 @@ fn native_field_projection(ty: &Type, field: &str, code: &str) -> Option<(String
             ),
             Type::F64,
         ),
+        (Type::WindowPosition, "kind") => (
+            format!(
+                "match ({code}) {{ ::iced::window::Position::Default => \"default\", ::iced::window::Position::Centered => \"centered\", ::iced::window::Position::Specific(_) => \"specific\", ::iced::window::Position::SpecificWith(_) => \"specific-with\" }}.to_owned()"
+            ),
+            Type::Str,
+        ),
+        (Type::WindowPosition, "point") => (
+            format!(
+                "match ({code}) {{ ::iced::window::Position::Specific(__value) => ::std::option::Option::Some(__value), _ => ::std::option::Option::None }}"
+            ),
+            Type::Option(Box::new(Type::Point)),
+        ),
         (Type::WindowDirection, "kind") => (
             format!(
                 "match ({code}) {{ ::iced::window::Direction::North => \"north\", ::iced::window::Direction::South => \"south\", ::iced::window::Direction::East => \"east\", ::iced::window::Direction::West => \"west\", ::iced::window::Direction::NorthEast => \"north-east\", ::iced::window::Direction::NorthWest => \"north-west\", ::iced::window::Direction::SouthEast => \"south-east\", ::iced::window::Direction::SouthWest => \"south-west\" }}.to_owned()"
@@ -8290,6 +8302,7 @@ fn expr_code(
                     | Type::MouseCursor
                     | Type::MouseClick
                     | Type::TouchFinger
+                    | Type::WindowPosition
                     | Type::WindowDirection
                     | Type::WindowLevel
                     | Type::WindowMode
@@ -8609,6 +8622,12 @@ fn expr_code(
                     name.strip_prefix("window_attention.")
                         .expect("checked prefix")
                 )
+            ),
+            "window_position.default" => "::iced::window::Position::default()".into(),
+            "window_position.centered" => "::iced::window::Position::Centered".into(),
+            "window_position.specific" => format!(
+                "::iced::window::Position::Specific({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
             ),
             "length.fill" => "::iced::Length::Fill".into(),
             "length.shrink" => "::iced::Length::Shrink".into(),
@@ -12976,6 +12995,26 @@ mod tests {
             "::iced::window::Level::AlwaysOnTop => \"always-on-top\"",
             "::iced::window::Mode::Fullscreen => \"fullscreen\"",
             "::iced::window::UserAttention::Informational => \"informational\"",
+        ] {
+            assert!(generated.contains(expected), "missing {expected}");
+        }
+    }
+
+    #[test]
+    fn lowers_every_native_window_position_operation() {
+        let source = include_str!("../../../examples/iced-app/src/ui/window_position.ice");
+        let generated = compile(source, "window_position.ice").unwrap();
+        for expected in [
+            "::iced::window::Position::default()",
+            "::iced::window::Position::Centered",
+            "::iced::window::Position::Specific(::iced::Point::new((24.0) as f32, ((-12.0)) as f32))",
+            "crate::backend::responsive_position()",
+            "crate::backend::position_round_trip(self.specific_position)",
+            "::iced::window::Position::Default => \"default\"",
+            "::iced::window::Position::Centered => \"centered\"",
+            "::iced::window::Position::Specific(_) => \"specific\"",
+            "::iced::window::Position::SpecificWith(_) => \"specific-with\"",
+            "::iced::window::Position::Specific(__value) => ::std::option::Option::Some(__value)",
         ] {
             assert!(generated.contains(expected), "missing {expected}");
         }
