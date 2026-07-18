@@ -8246,6 +8246,10 @@ fn parse_type(source: &str, line: &Line) -> Result<Type, Error> {
         "markdown" => Type::Markdown,
         "editor" => Type::Editor,
         "event" => Type::Event,
+        "key" => Type::Key,
+        "physical-key" => Type::PhysicalKey,
+        "key-location" => Type::KeyLocation,
+        "key-modifiers" => Type::KeyModifiers,
         "instant" => Type::Instant,
         "window-id" => Type::WindowId,
         "widget-id" => Type::WidgetId,
@@ -8410,6 +8414,14 @@ impl<'a> ExprParser<'a> {
             Token::Ident(name) if name == "false" => Ok(Expr::Bool(false)),
             Token::Ident(name) if name == "none" => Ok(Expr::None),
             Token::Ident(name) => {
+                let mut path = vec![name];
+                while self.peek() == Some(&Token::Dot) {
+                    self.index += 1;
+                    match self.next() {
+                        Some(Token::Ident(field)) => path.push(field),
+                        _ => return Err(error("E070", self.line, "expected name after `.`")),
+                    }
+                }
                 if self.peek() == Some(&Token::LParen) {
                     self.index += 1;
                     let mut args = Vec::new();
@@ -8426,15 +8438,10 @@ impl<'a> ExprParser<'a> {
                     if self.next() != Some(Token::RParen) {
                         return Err(error("E070", self.line, "missing closing `)`"));
                     }
-                    return Ok(Expr::Call { name, args });
-                }
-                let mut path = vec![name];
-                while self.peek() == Some(&Token::Dot) {
-                    self.index += 1;
-                    match self.next() {
-                        Some(Token::Ident(field)) => path.push(field),
-                        _ => return Err(error("E070", self.line, "expected field after `.`")),
-                    }
+                    return Ok(Expr::Call {
+                        name: path.join("."),
+                        args,
+                    });
                 }
                 Ok(Expr::Path(path))
             }
@@ -9074,6 +9081,31 @@ view
         let error = parse(&source.replace("point 12.0 24.0", "point 12.0")).unwrap_err();
         assert_eq!(error.code, "E052");
         assert!(error.message.contains("requires x and y"));
+    }
+
+    #[test]
+    fn parses_typed_keyboard_values() {
+        let source = include_str!("../../../examples/iced-app/src/ui/keyboard_values.ice");
+        let document = parse(source).unwrap();
+        assert_eq!(document.states[0].ty, Type::Key);
+        assert_eq!(document.states[1].ty, Type::PhysicalKey);
+        assert_eq!(
+            document.states[3].ty,
+            Type::Option(Box::new(Type::PhysicalKey))
+        );
+        assert_eq!(document.states[4].ty, Type::KeyLocation);
+        assert_eq!(document.states[5].ty, Type::KeyModifiers);
+        assert!(matches!(
+            &document.states[0].initial,
+            Expr::Call { name, args } if name == "key.unidentified" && args.is_empty()
+        ));
+        assert!(matches!(
+            &document.handlers[0].statements[4],
+            Statement::Assign {
+                value: Expr::Call { name, args },
+                ..
+            } if name == "key.latin" && args.len() == 2
+        ));
     }
 
     #[test]

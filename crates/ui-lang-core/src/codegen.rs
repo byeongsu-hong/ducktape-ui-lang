@@ -423,59 +423,23 @@ fn generate_keyboard_types(out: &mut String, document: &Document) {
         return;
     }
     out.push_str(
-        r#"#[derive(Debug, Clone, Copy)]
-struct __IceKeyModifiers {
-    shift: bool,
-    control: bool,
-    alt: bool,
-    logo: bool,
-    command: bool,
-    jump: bool,
-    macos_command: bool,
-}
-#[derive(Debug, Clone)]
+        r#"#[derive(Debug, Clone)]
 struct __IceKeyPress {
-    key: ::std::string::String,
-    modified_key: ::std::string::String,
-    physical_key: ::std::string::String,
-    location: ::std::string::String,
-    modifiers: __IceKeyModifiers,
+    key: ::iced::keyboard::Key,
+    modified_key: ::iced::keyboard::Key,
+    physical_key: ::iced::keyboard::key::Physical,
+    location: ::iced::keyboard::Location,
+    modifiers: ::iced::keyboard::Modifiers,
     text: ::std::option::Option<::std::string::String>,
     repeat: bool,
 }
 #[derive(Debug, Clone)]
 struct __IceKeyRelease {
-    key: ::std::string::String,
-    modified_key: ::std::string::String,
-    physical_key: ::std::string::String,
-    location: ::std::string::String,
-    modifiers: __IceKeyModifiers,
-}
-fn __ice_key(value: ::iced::keyboard::Key) -> ::std::string::String {
-    match value {
-        ::iced::keyboard::Key::Named(value) => ::std::format!("{value:?}"),
-        ::iced::keyboard::Key::Character(value) => value.to_string(),
-        ::iced::keyboard::Key::Unidentified => "Unidentified".to_owned(),
-    }
-}
-fn __ice_key_modifiers(value: ::iced::keyboard::Modifiers) -> __IceKeyModifiers {
-    __IceKeyModifiers {
-        shift: value.shift(),
-        control: value.control(),
-        alt: value.alt(),
-        logo: value.logo(),
-        command: value.command(),
-        jump: value.jump(),
-        macos_command: value.macos_command(),
-    }
-}
-fn __ice_key_location(value: ::iced::keyboard::Location) -> ::std::string::String {
-    match value {
-        ::iced::keyboard::Location::Standard => "standard",
-        ::iced::keyboard::Location::Left => "left",
-        ::iced::keyboard::Location::Right => "right",
-        ::iced::keyboard::Location::Numpad => "numpad",
-    }.to_owned()
+    key: ::iced::keyboard::Key,
+    modified_key: ::iced::keyboard::Key,
+    physical_key: ::iced::keyboard::key::Physical,
+    location: ::iced::keyboard::Location,
+    modifiers: ::iced::keyboard::Modifiers,
 }
 "#,
     );
@@ -1859,13 +1823,13 @@ fn generate_subscription(
             SubscriptionSource::Keyboard(event) => {
                 let filter = match event {
                     KeyboardEvent::Press => {
-                        "match __event { ::iced::keyboard::Event::KeyPressed { key, modified_key, physical_key, location, modifiers, text, repeat } => ::std::option::Option::Some(__IceKeyPress { key: __ice_key(key), modified_key: __ice_key(modified_key), physical_key: ::std::format!(\"{physical_key:?}\"), location: __ice_key_location(location), modifiers: __ice_key_modifiers(modifiers), text: text.map(|value| value.to_string()), repeat }), _ => ::std::option::Option::None }"
+                        "match __event { ::iced::keyboard::Event::KeyPressed { key, modified_key, physical_key, location, modifiers, text, repeat } => ::std::option::Option::Some(__IceKeyPress { key, modified_key, physical_key, location, modifiers, text: text.map(|value| value.to_string()), repeat }), _ => ::std::option::Option::None }"
                     }
                     KeyboardEvent::Release => {
-                        "match __event { ::iced::keyboard::Event::KeyReleased { key, modified_key, physical_key, location, modifiers } => ::std::option::Option::Some(__IceKeyRelease { key: __ice_key(key), modified_key: __ice_key(modified_key), physical_key: ::std::format!(\"{physical_key:?}\"), location: __ice_key_location(location), modifiers: __ice_key_modifiers(modifiers) }), _ => ::std::option::Option::None }"
+                        "match __event { ::iced::keyboard::Event::KeyReleased { key, modified_key, physical_key, location, modifiers } => ::std::option::Option::Some(__IceKeyRelease { key, modified_key, physical_key, location, modifiers }), _ => ::std::option::Option::None }"
                     }
                     KeyboardEvent::Modifiers => {
-                        "match __event { ::iced::keyboard::Event::ModifiersChanged(modifiers) => ::std::option::Option::Some(__ice_key_modifiers(modifiers)), _ => ::std::option::Option::None }"
+                        "match __event { ::iced::keyboard::Event::ModifiersChanged(modifiers) => ::std::option::Option::Some(modifiers), _ => ::std::option::Option::None }"
                     }
                 };
                 if subscription.status.is_some() {
@@ -6379,9 +6343,9 @@ fn canvas_event_filter(source: &SubscriptionSource) -> String {
             InputMethodEvent::Closed => "matches!(__event, ::iced::widget::canvas::Event::InputMethod(::iced::advanced::input_method::Event::Closed)).then_some(())".into(),
         },
         SubscriptionSource::Keyboard(event) => match event {
-            KeyboardEvent::Press => "match __event { ::iced::widget::canvas::Event::Keyboard(::iced::keyboard::Event::KeyPressed { key, modified_key, physical_key, location, modifiers, text, repeat }) => ::std::option::Option::Some(__IceKeyPress { key: __ice_key(key.clone()), modified_key: __ice_key(modified_key.clone()), physical_key: ::std::format!(\"{physical_key:?}\"), location: __ice_key_location(*location), modifiers: __ice_key_modifiers(*modifiers), text: text.as_ref().map(::std::string::ToString::to_string), repeat: *repeat }), _ => ::std::option::Option::None }".into(),
-            KeyboardEvent::Release => "match __event { ::iced::widget::canvas::Event::Keyboard(::iced::keyboard::Event::KeyReleased { key, modified_key, physical_key, location, modifiers }) => ::std::option::Option::Some(__IceKeyRelease { key: __ice_key(key.clone()), modified_key: __ice_key(modified_key.clone()), physical_key: ::std::format!(\"{physical_key:?}\"), location: __ice_key_location(*location), modifiers: __ice_key_modifiers(*modifiers) }), _ => ::std::option::Option::None }".into(),
-            KeyboardEvent::Modifiers => "match __event { ::iced::widget::canvas::Event::Keyboard(::iced::keyboard::Event::ModifiersChanged(modifiers)) => ::std::option::Option::Some(__ice_key_modifiers(*modifiers)), _ => ::std::option::Option::None }".into(),
+            KeyboardEvent::Press => "match __event { ::iced::widget::canvas::Event::Keyboard(::iced::keyboard::Event::KeyPressed { key, modified_key, physical_key, location, modifiers, text, repeat }) => ::std::option::Option::Some(__IceKeyPress { key: key.clone(), modified_key: modified_key.clone(), physical_key: *physical_key, location: *location, modifiers: *modifiers, text: text.as_ref().map(::std::string::ToString::to_string), repeat: *repeat }), _ => ::std::option::Option::None }".into(),
+            KeyboardEvent::Release => "match __event { ::iced::widget::canvas::Event::Keyboard(::iced::keyboard::Event::KeyReleased { key, modified_key, physical_key, location, modifiers }) => ::std::option::Option::Some(__IceKeyRelease { key: key.clone(), modified_key: modified_key.clone(), physical_key: *physical_key, location: *location, modifiers: *modifiers }), _ => ::std::option::Option::None }".into(),
+            KeyboardEvent::Modifiers => "match __event { ::iced::widget::canvas::Event::Keyboard(::iced::keyboard::Event::ModifiersChanged(modifiers)) => ::std::option::Option::Some(*modifiers), _ => ::std::option::Option::None }".into(),
         },
         SubscriptionSource::Mouse(event) => match event {
             MouseEvent::Entered => "matches!(__event, ::iced::widget::canvas::Event::Mouse(::iced::mouse::Event::CursorEntered)).then_some(())".into(),
@@ -7311,6 +7275,96 @@ fn state_env(document: &Document, name: &str) -> HashMap<String, Binding> {
         .collect()
 }
 
+fn keyboard_field_type(ty: &Type, field: &str) -> Option<Type> {
+    match ty {
+        Type::KeyPress => match field {
+            "key" | "modified_key" => Some(Type::Key),
+            "physical_key" => Some(Type::PhysicalKey),
+            "location" => Some(Type::KeyLocation),
+            "modifiers" => Some(Type::KeyModifiers),
+            "text" => Some(Type::Option(Box::new(Type::Str))),
+            "repeat" => Some(Type::Bool),
+            _ => None,
+        },
+        Type::KeyRelease => match field {
+            "key" | "modified_key" => Some(Type::Key),
+            "physical_key" => Some(Type::PhysicalKey),
+            "location" => Some(Type::KeyLocation),
+            "modifiers" => Some(Type::KeyModifiers),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn keyboard_field_projection(ty: &Type, field: &str, code: &str) -> Option<(String, Type)> {
+    let projected = match (ty, field) {
+        (Type::Key, "kind") => (
+            format!(
+                "match &({code}) {{ ::iced::keyboard::Key::Named(_) => \"named\", ::iced::keyboard::Key::Character(_) => \"character\", ::iced::keyboard::Key::Unidentified => \"unidentified\" }}.to_owned()"
+            ),
+            Type::Str,
+        ),
+        (Type::Key, "named") => (
+            format!(
+                "match &({code}) {{ ::iced::keyboard::Key::Named(value) => ::std::option::Option::Some(::std::format!(\"{{value:?}}\")), _ => ::std::option::Option::None }}"
+            ),
+            Type::Option(Box::new(Type::Str)),
+        ),
+        (Type::Key, "character") => (
+            format!(
+                "match &({code}) {{ ::iced::keyboard::Key::Character(value) => ::std::option::Option::Some(value.to_string()), _ => ::std::option::Option::None }}"
+            ),
+            Type::Option(Box::new(Type::Str)),
+        ),
+        (Type::PhysicalKey, "kind") => (
+            format!(
+                "match &({code}) {{ ::iced::keyboard::key::Physical::Code(_) => \"code\", ::iced::keyboard::key::Physical::Unidentified(_) => \"native\" }}.to_owned()"
+            ),
+            Type::Str,
+        ),
+        (Type::PhysicalKey, "code") => (
+            format!(
+                "match &({code}) {{ ::iced::keyboard::key::Physical::Code(value) => ::std::option::Option::Some(::std::format!(\"{{value:?}}\")), _ => ::std::option::Option::None }}"
+            ),
+            Type::Option(Box::new(Type::Str)),
+        ),
+        (Type::PhysicalKey, "native_platform") => (
+            format!(
+                "match &({code}) {{ ::iced::keyboard::key::Physical::Unidentified(::iced::keyboard::key::NativeCode::Unidentified) => ::std::option::Option::Some(\"unidentified\".to_owned()), ::iced::keyboard::key::Physical::Unidentified(::iced::keyboard::key::NativeCode::Android(_)) => ::std::option::Option::Some(\"android\".to_owned()), ::iced::keyboard::key::Physical::Unidentified(::iced::keyboard::key::NativeCode::MacOS(_)) => ::std::option::Option::Some(\"macos\".to_owned()), ::iced::keyboard::key::Physical::Unidentified(::iced::keyboard::key::NativeCode::Windows(_)) => ::std::option::Option::Some(\"windows\".to_owned()), ::iced::keyboard::key::Physical::Unidentified(::iced::keyboard::key::NativeCode::Xkb(_)) => ::std::option::Option::Some(\"xkb\".to_owned()), _ => ::std::option::Option::None }}"
+            ),
+            Type::Option(Box::new(Type::Str)),
+        ),
+        (Type::PhysicalKey, "native_code") => (
+            format!(
+                "match &({code}) {{ ::iced::keyboard::key::Physical::Unidentified(::iced::keyboard::key::NativeCode::Android(value) | ::iced::keyboard::key::NativeCode::Xkb(value)) => ::std::option::Option::Some(i64::from(*value)), ::iced::keyboard::key::Physical::Unidentified(::iced::keyboard::key::NativeCode::MacOS(value) | ::iced::keyboard::key::NativeCode::Windows(value)) => ::std::option::Option::Some(i64::from(*value)), _ => ::std::option::Option::None }}"
+            ),
+            Type::Option(Box::new(Type::I64)),
+        ),
+        (Type::KeyLocation, "name") => (
+            format!(
+                "match &({code}) {{ ::iced::keyboard::Location::Standard => \"standard\", ::iced::keyboard::Location::Left => \"left\", ::iced::keyboard::Location::Right => \"right\", ::iced::keyboard::Location::Numpad => \"numpad\" }}.to_owned()"
+            ),
+            Type::Str,
+        ),
+        (Type::KeyModifiers, field) => {
+            let method = match field {
+                "shift" => "shift",
+                "control" => "control",
+                "alt" => "alt",
+                "logo" => "logo",
+                "command" => "command",
+                "jump" => "jump",
+                "macos_command" => "macos_command",
+                _ => return None,
+            };
+            (format!("({code}).{method}()"), Type::Bool)
+        }
+        _ => return None,
+    };
+    Some(projected)
+}
+
 fn expr_code(
     expr: &Expr,
     env: &HashMap<String, Binding>,
@@ -7355,6 +7409,14 @@ fn expr_code(
             let mut ty = binding.ty.clone();
             let mut owned_projection = false;
             for field in &path[1..] {
+                if let Some((projection, projected_ty)) =
+                    keyboard_field_projection(&ty, field, &code)
+                {
+                    code = projection;
+                    ty = projected_ty;
+                    owned_projection = true;
+                    continue;
+                }
                 if let Type::Option(inner) = &ty
                     && **inner == Type::WidgetTarget
                 {
@@ -7376,9 +7438,20 @@ fn expr_code(
                         .unwrap_or(Type::Unknown);
                 } else if ty == Type::WidgetTarget {
                     ty = widget_target_field_type(field).unwrap_or(Type::Unknown);
+                } else if let Some(field_ty) = keyboard_field_type(&ty, field) {
+                    ty = field_ty;
                 }
             }
-            let clone_unnecessary = matches!(ty, Type::Bool | Type::I64 | Type::F64 | Type::Unit)
+            let clone_unnecessary = matches!(
+                ty,
+                Type::Bool
+                    | Type::I64
+                    | Type::F64
+                    | Type::PhysicalKey
+                    | Type::KeyLocation
+                    | Type::KeyModifiers
+                    | Type::Unit
+            )
                 || (binding.local && path.len() == 1)
                 || owned_projection;
             if matches!(mode, ValueMode::Owned) && !clone_unnecessary {
@@ -7387,6 +7460,91 @@ fn expr_code(
             code
         }
         Expr::Call { name, args } => match name.as_str() {
+            "key.named" => {
+                let Expr::Str(variant) = &args[0] else {
+                    unreachable!("checker requires a named key variant")
+                };
+                format!(
+                    "::iced::keyboard::Key::Named(::iced::keyboard::key::Named::{variant})"
+                )
+            }
+            "key.character" => format!(
+                "::iced::keyboard::Key::Character(({}).into())",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "key.unidentified" => "::iced::keyboard::Key::Unidentified".into(),
+            "key.code" => {
+                let Expr::Str(variant) = &args[0] else {
+                    unreachable!("checker requires a physical key variant")
+                };
+                format!(
+                    "::iced::keyboard::key::Physical::Code(::iced::keyboard::key::Code::{variant})"
+                )
+            }
+            "key.native_unidentified" => "::iced::keyboard::key::Physical::Unidentified(::iced::keyboard::key::NativeCode::Unidentified)".into(),
+            "key.command_modifiers" => "::iced::keyboard::Modifiers::COMMAND".into(),
+            "key.native" => {
+                let (Expr::Str(platform), Expr::I64(value)) = (&args[0], &args[1]) else {
+                    unreachable!("checker requires a literal native key")
+                };
+                let (variant, ty) = match platform.as_str() {
+                    "android" => ("Android", "u32"),
+                    "macos" => ("MacOS", "u16"),
+                    "windows" => ("Windows", "u16"),
+                    "xkb" => ("Xkb", "u32"),
+                    _ => unreachable!("checker validates native key platforms"),
+                };
+                format!(
+                    "::iced::keyboard::key::Physical::Unidentified(::iced::keyboard::key::NativeCode::{variant}({value}{ty}))"
+                )
+            }
+            "key.try_native" => {
+                let Expr::Str(platform) = &args[0] else {
+                    unreachable!("checker requires a native key platform")
+                };
+                let (variant, ty) = match platform.as_str() {
+                    "android" => ("Android", "u32"),
+                    "macos" => ("MacOS", "u16"),
+                    "windows" => ("Windows", "u16"),
+                    "xkb" => ("Xkb", "u32"),
+                    _ => unreachable!("checker validates native key platforms"),
+                };
+                format!(
+                    "<{ty}>::try_from({}).ok().map(|value| ::iced::keyboard::key::Physical::Unidentified(::iced::keyboard::key::NativeCode::{variant}(value)))",
+                    expr_code(&args[1], env, document, ValueMode::Owned)?
+                )
+            }
+            "key.location" => {
+                let Expr::Str(value) = &args[0] else {
+                    unreachable!("checker requires a key location literal")
+                };
+                let variant = match value.as_str() {
+                    "standard" => "Standard",
+                    "left" => "Left",
+                    "right" => "Right",
+                    "numpad" => "Numpad",
+                    _ => unreachable!("checker validates key locations"),
+                };
+                format!("::iced::keyboard::Location::{variant}")
+            }
+            "key.modifiers" => {
+                let values = ["SHIFT", "CTRL", "ALT", "LOGO"]
+                    .into_iter()
+                    .zip(args)
+                    .map(|(flag, value)| {
+                        Ok(format!(
+                            "if {} {{ ::iced::keyboard::Modifiers::{flag} }} else {{ ::iced::keyboard::Modifiers::empty() }}",
+                            expr_code(value, env, document, ValueMode::Owned)?
+                        ))
+                    })
+                    .collect::<Result<Vec<_>, Error>>()?;
+                format!("({})", values.join(" | "))
+            }
+            "key.latin" => format!(
+                "({}).to_latin({}).map(|value| value.to_string())",
+                expr_code(&args[0], env, document, ValueMode::Borrowed)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
             "len" => format!(
                 "({}).len() as i64",
                 expr_code(&args[0], env, document, ValueMode::Borrowed)?
@@ -12305,40 +12463,27 @@ view
 
     #[test]
     fn lowers_native_keyboard_subscriptions() {
-        let source = r#"app Shortcuts
-theme
-  background #000000
-  foreground #ffffff
-  primary #333333
-  danger #ff0000
-state
-  key = ""
-  command = false
-on pressed(event)
-  key = event.key
-  command = event.modifiers.command
-on released(event)
-  key = event.key
-on modifiers_changed(modifiers)
-  command = modifiers.command
-subscribe
-  keyboard press status=ignored -> pressed _
-  keyboard release -> released _
-  keyboard modifiers -> modifiers_changed _
-view
-  text key
-"#;
-        let generated = compile(source, "shortcuts.ice").unwrap();
+        let source = include_str!("../../../examples/iced-app/src/ui/keyboard_values.ice");
+        let generated = compile(source, "keyboard_values.ice").unwrap();
         assert!(generated.contains("struct __IceKeyPress"));
         assert!(generated.contains("struct __IceKeyRelease"));
-        assert!(generated.contains("struct __IceKeyModifiers"));
+        assert!(generated.contains("key: ::iced::keyboard::Key"));
+        assert!(generated.contains("physical_key: ::iced::keyboard::key::Physical"));
+        assert!(generated.contains("modifiers: ::iced::keyboard::Modifiers"));
         assert!(generated.contains("::iced::keyboard::listen().filter_map"));
         assert!(generated.contains("::iced::keyboard::Event::KeyPressed"));
         assert!(generated.contains("::iced::keyboard::Event::KeyReleased"));
         assert!(generated.contains("::iced::keyboard::Event::ModifiersChanged"));
-        assert!(generated.contains("::iced::event::Status::Ignored"));
-        assert!(generated.contains("self.key = event.key.clone()"));
-        assert!(generated.contains("self.command = event.modifiers.command.clone()"));
+        assert!(generated.contains("::iced::keyboard::key::Named::Enter"));
+        assert!(generated.contains("::iced::keyboard::key::NativeCode::Windows(42u16)"));
+        assert!(generated.contains("<u32>::try_from(42).ok().map"));
+        assert!(generated.contains("::iced::keyboard::Location::Standard"));
+        assert!(generated.contains("::iced::keyboard::Modifiers::SHIFT"));
+        assert!(generated.contains("::iced::keyboard::Modifiers::COMMAND"));
+        assert!(generated.contains(".to_latin(event.physical_key)"));
+        assert!(generated.contains("::iced::keyboard::Key::Character(value)"));
+        assert!(generated.contains("::iced::keyboard::key::Physical::Code(value)"));
+        assert!(generated.contains("fn __ui_lang_check_sync_keyboard_value"));
     }
 
     #[test]

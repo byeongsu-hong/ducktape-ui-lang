@@ -3523,6 +3523,9 @@ fn lazy_hashable(ty: &Type) -> bool {
         | Type::Instant
         | Type::WindowId
         | Type::WidgetId
+        | Type::Key
+        | Type::PhysicalKey
+        | Type::KeyModifiers
         | Type::Named(_) => true,
         Type::List(inner) | Type::Option(inner) => lazy_hashable(inner),
         Type::Result(output, error) => lazy_hashable(output) && lazy_hashable(error),
@@ -3531,9 +3534,9 @@ fn lazy_hashable(ty: &Type) -> bool {
         | Type::Markdown
         | Type::Editor
         | Type::Event
+        | Type::KeyLocation
         | Type::KeyPress
         | Type::KeyRelease
-        | Type::KeyModifiers
         | Type::SystemInfo
         | Type::WidgetTarget
         | Type::TaskHandle
@@ -6469,6 +6472,34 @@ pub(crate) fn task_flow_type(
     Ok((Some(output), error_ty))
 }
 
+fn keyboard_variant<'a>(name: &str, args: &'a [Expr], span: &Span) -> Result<&'a str, Error> {
+    if args.len() != 1 {
+        return Err(Error::new(
+            "E152",
+            span,
+            format!("{name} expects one string literal"),
+        ));
+    }
+    let Expr::Str(value) = &args[0] else {
+        return Err(Error::new(
+            "E152",
+            span,
+            format!("{name} expects a string literal"),
+        ));
+    };
+    let mut chars = value.chars();
+    if !chars.next().is_some_and(|ch| ch.is_ascii_uppercase())
+        || !chars.all(|ch| ch.is_ascii_alphanumeric())
+    {
+        return Err(Error::new(
+            "E152",
+            span,
+            format!("{name} expects an exact iced Rust variant like `Enter` or `KeyA`"),
+        ));
+    }
+    Ok(value)
+}
+
 pub(crate) fn expr_type(
     expr: &Expr,
     env: &HashMap<String, Type>,
@@ -6505,6 +6536,152 @@ pub(crate) fn expr_type(
             Ok(ty)
         }
         Expr::Call { name, args } => match name.as_str() {
+            "key.named" => {
+                keyboard_variant(name, args, span)?;
+                Ok(Type::Key)
+            }
+            "key.character" => {
+                if args.len() != 1 {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        "key.character expects one str argument",
+                    ));
+                }
+                require_type(&expr_type(&args[0], env, document, span)?, &Type::Str, span)?;
+                Ok(Type::Key)
+            }
+            "key.unidentified" | "key.native_unidentified" | "key.command_modifiers" => {
+                if !args.is_empty() {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        format!("{name} expects no arguments"),
+                    ));
+                }
+                Ok(match name.as_str() {
+                    "key.unidentified" => Type::Key,
+                    "key.native_unidentified" => Type::PhysicalKey,
+                    _ => Type::KeyModifiers,
+                })
+            }
+            "key.code" => {
+                keyboard_variant(name, args, span)?;
+                Ok(Type::PhysicalKey)
+            }
+            "key.try_native" => {
+                if args.len() != 2 {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        "key.try_native expects a platform and integer code",
+                    ));
+                }
+                let Expr::Str(platform) = &args[0] else {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        "key.try_native platform must be a string literal",
+                    ));
+                };
+                if !matches!(platform.as_str(), "android" | "macos" | "windows" | "xkb") {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        "key.try_native platform must be android, macos, windows, or xkb",
+                    ));
+                }
+                require_type(&expr_type(&args[1], env, document, span)?, &Type::I64, span)?;
+                Ok(Type::Option(Box::new(Type::PhysicalKey)))
+            }
+            "key.native" => {
+                if args.len() != 2 {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        "key.native expects a platform and integer code",
+                    ));
+                }
+                let Expr::Str(platform) = &args[0] else {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        "key.native platform must be a string literal",
+                    ));
+                };
+                let Expr::I64(code) = args[1] else {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        "key.native code must be an integer literal",
+                    ));
+                };
+                let maximum = match platform.as_str() {
+                    "android" | "xkb" => u32::MAX as i64,
+                    "macos" | "windows" => u16::MAX as i64,
+                    _ => {
+                        return Err(Error::new(
+                            "E152",
+                            span,
+                            "key.native platform must be android, macos, windows, or xkb",
+                        ));
+                    }
+                };
+                if !(0..=maximum).contains(&code) {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        format!("key.native {platform} code must be in 0..={maximum}"),
+                    ));
+                }
+                Ok(Type::PhysicalKey)
+            }
+            "key.location" => {
+                let [Expr::Str(value)] = args.as_slice() else {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        "key.location expects one string literal",
+                    ));
+                };
+                if !matches!(value.as_str(), "standard" | "left" | "right" | "numpad") {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        "key.location must be standard, left, right, or numpad",
+                    ));
+                }
+                Ok(Type::KeyLocation)
+            }
+            "key.modifiers" => {
+                if args.len() != 4 {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        "key.modifiers expects shift, control, alt, and logo booleans",
+                    ));
+                }
+                for value in args {
+                    require_type(&expr_type(value, env, document, span)?, &Type::Bool, span)?;
+                }
+                Ok(Type::KeyModifiers)
+            }
+            "key.latin" => {
+                if args.len() != 2 {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        "key.latin expects a logical key and physical key",
+                    ));
+                }
+                require_type(&expr_type(&args[0], env, document, span)?, &Type::Key, span)?;
+                require_type(
+                    &expr_type(&args[1], env, document, span)?,
+                    &Type::PhysicalKey,
+                    span,
+                )?;
+                Ok(Type::Option(Box::new(Type::Str)))
+            }
             "len" => {
                 if args.len() != 1 {
                     return Err(Error::new("E152", span, "len expects one argument"));
@@ -6730,15 +6907,34 @@ fn field_type(ty: &Type, field: &str, document: &Document, span: &Span) -> Resul
                 });
         }
         Type::KeyPress => match field {
-            "key" | "modified_key" | "physical_key" | "location" => Some(Type::Str),
+            "key" | "modified_key" => Some(Type::Key),
+            "physical_key" => Some(Type::PhysicalKey),
+            "location" => Some(Type::KeyLocation),
             "modifiers" => Some(Type::KeyModifiers),
             "text" => Some(Type::Option(Box::new(Type::Str))),
             "repeat" => Some(Type::Bool),
             _ => None,
         },
         Type::KeyRelease => match field {
-            "key" | "modified_key" | "physical_key" | "location" => Some(Type::Str),
+            "key" | "modified_key" => Some(Type::Key),
+            "physical_key" => Some(Type::PhysicalKey),
+            "location" => Some(Type::KeyLocation),
             "modifiers" => Some(Type::KeyModifiers),
+            _ => None,
+        },
+        Type::Key => match field {
+            "kind" => Some(Type::Str),
+            "named" | "character" => Some(Type::Option(Box::new(Type::Str))),
+            _ => None,
+        },
+        Type::PhysicalKey => match field {
+            "kind" => Some(Type::Str),
+            "code" | "native_platform" => Some(Type::Option(Box::new(Type::Str))),
+            "native_code" => Some(Type::Option(Box::new(Type::I64))),
+            _ => None,
+        },
+        Type::KeyLocation => match field {
+            "name" => Some(Type::Str),
             _ => None,
         },
         Type::KeyModifiers => match field {
@@ -9936,17 +10132,29 @@ theme
   primary #333333
   danger #ff0000
 state
-  key = ""
+  key:key = key.unidentified()
+  physical:physical-key = key.native_unidentified()
+  location:key-location = key.location("standard")
+  modifiers:key-modifiers = key.modifiers(false, false, false, false)
+  label = ""
+  latin:str? = none
+  matched = false
   typed:str? = none
   repeat = false
   command = false
 on pressed(event)
   key = event.key
+  physical = event.physical_key
+  location = event.location
+  modifiers = event.modifiers
+  label = event.key.kind
+  latin = key.latin(event.key, event.physical_key)
+  matched = event.key == key.named("Enter")
   typed = event.text
   repeat = event.repeat
   command = event.modifiers.command
 on released(event)
-  key = event.physical_key
+  physical = event.physical_key
   command = event.modifiers.jump
 on modifiers_changed(modifiers)
   command = modifiers.macos_command
@@ -9955,16 +10163,46 @@ subscribe
   keyboard release -> released _
   keyboard modifiers -> modifiers_changed _
 view
-  text key
+  text label
 "#;
         let document = analyze(source).unwrap();
         assert_eq!(document.handlers[0].params[0].ty.display(), "key-press");
         assert_eq!(document.handlers[1].params[0].ty.display(), "key-release");
         assert_eq!(document.handlers[2].params[0].ty.display(), "key-modifiers");
 
-        let error = analyze(&source.replace("event.physical_key", "event.repeat")).unwrap_err();
+        let error = analyze(&source.replace(
+            "on released(event)\n  physical = event.physical_key",
+            "on released(event)\n  physical = event.repeat",
+        ))
+        .unwrap_err();
         assert_eq!(error.code, "E151");
         assert!(error.message.contains("key-release"));
+
+        for (from, to, message) in [
+            (
+                "key.named(\"Enter\")",
+                "key.named(\"enter\")",
+                "exact iced Rust variant",
+            ),
+            (
+                "key.location(\"standard\")",
+                "key.location(\"middle\")",
+                "standard, left, right, or numpad",
+            ),
+            (
+                "key.native_unidentified()",
+                "key.native(\"windows\", 65536)",
+                "0..=65535",
+            ),
+            (
+                "key.latin(event.key, event.physical_key)",
+                "key.latin(event.key, event.location)",
+                "expected `physical-key`",
+            ),
+        ] {
+            let error = analyze(&source.replace(from, to)).unwrap_err();
+            assert!(error.message.contains(message), "{}", error.message);
+        }
     }
 
     #[test]

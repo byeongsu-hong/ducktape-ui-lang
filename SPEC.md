@@ -1,4 +1,4 @@
-# Ice Language Specification 1.22
+# Ice Language Specification 1.23
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 1.22 syntax.
+marked “planned” is a design constraint, not accepted 1.23 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 1.22.
+  block comments are not part of 1.23.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -180,6 +180,7 @@ field_list     = field ("," field)*
 field          = name ":" type
 type           = "bool" | "i64" | "f64" | "str" | "bytes" | "image"
                | "markdown" | "editor" | "event" | "instant" | "window-id"
+               | "key" | "physical-key" | "key-location" | "key-modifiers"
                | "widget-id" | "widget-target"
                | "task-handle" | "unit"
                | PascalName
@@ -990,7 +991,7 @@ maximum size. `icon-rgba` embeds a relative raw RGBA file without an image
 codec; width and height are positive integers, and generated Rust rejects a
 byte length other than `width × height × 4`. `cargo ice check` reports a
 mismatch at the icon declaration, and generated Rust repeats the check at
-compile time. Encoded icon formats remain outside 1.22.
+compile time. Encoded icon formats remain outside 1.23.
 
 Application boot presets are structured top-level declarations:
 
@@ -1541,7 +1542,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 1.22 message payloads.
+`Clone` for 1.23 message payloads.
 
 Declared `sync` functions are checked, synchronous Rust calls available in
 Ice expressions. They are the small escape hatch for pure domain conversions
@@ -1724,6 +1725,8 @@ The expression language contains:
   `empty(list_or_str_or_bytes) -> bool`, `trim(str) -> str`, `some(T) -> T?`,
   `encoded(bytes) -> image`, `rgba(i64, i64, bytes) -> image`, and
   `aborted(task-handle?) -> bool`;
+- namespaced keyboard built-ins such as `key.named("Enter")`,
+  `key.code("KeyA")`, and `key.latin(logical, physical)`;
 - `markdown(str) -> markdown` and `markdown_images(markdown) -> [str]`;
 - calls to declared typed `sync` extern functions.
 
@@ -2551,14 +2554,44 @@ requires iced's `tokio` or `smol` Cargo feature; `repeat` requires `tokio`,
 which the reference app uses.
 
 Native keyboard subscriptions infer structured payloads. Press events expose
-`key`, `modified_key`, `physical_key`, `location`, `modifiers`, optional `text`,
-and `repeat`; release events expose the same fields except `text` and `repeat`.
-Modifier payloads expose `shift`, `control`, `alt`, `logo`, `command`, `jump`,
-and `macos_command`. The nested `event.modifiers` value has that same shape.
-Logical character keys keep their text, named and physical keys use their iced
-names, and locations are `standard`, `left`, `right`, or `numpad`. Like
-`iced::keyboard::listen`, these subscriptions receive keyboard events that no
-widget captured.
+`key:key`, `modified_key:key`, `physical_key:physical-key`,
+`location:key-location`, `modifiers:key-modifiers`, optional `text`, and
+`repeat`; release events expose the same fields except `text` and `repeat`.
+These four public types are the exact native iced values, so state and typed
+extern functions can preserve them without string conversion.
+
+```ice
+state
+  shortcut:key = key.named("Enter")
+  scan:physical-key = key.code("Enter")
+  location:key-location = key.location("standard")
+  modifiers:key-modifiers = key.modifiers(false, true, false, false)
+  latin:str? = none
+
+on pressed(event)
+  latin = key.latin(event.key, event.physical_key)
+  shortcut = event.key
+```
+
+`key.named("Variant")` and `key.code("Variant")` accept exact iced Rust enum
+variant names and lower directly, covering every current named and physical
+code without a second alias catalog; rustc reports an unknown variant during
+`cargo ice check`. `key.character(str)` and `key.unidentified()` construct the
+other logical variants. `key.native_unidentified()` and literal
+`key.native("android" | "macos" | "windows" | "xkb", code)` construct every
+native physical variant with checked integer ranges. For runtime integers,
+`key.try_native(platform, code) -> physical-key?` returns none on overflow.
+
+`key.location("standard" | "left" | "right" | "numpad")` covers every
+location. `key.modifiers(shift, control, alt, logo)` constructs any flag set;
+`key.command_modifiers()` preserves iced's platform-dependent `COMMAND`
+constant. Modifier values expose `shift`, `control`, `alt`, `logo`, `command`,
+`jump`, and `macos_command` booleans. Logical keys expose `kind`, optional
+`named`, and optional `character`; physical keys expose `kind`, optional
+`code`, `native_platform`, and `native_code`; locations expose `name`.
+Equality compares the native typed values, and `key.latin` delegates to iced's
+native locale-aware physical-key translation. Like `iced::keyboard::listen`,
+these subscriptions receive keyboard events that no widget captured.
 
 Input-method composition events use a separate readable source:
 
@@ -2969,7 +3002,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 1.22 does not claim that remapping.
+extern line; 1.23 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -2990,7 +3023,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 1.22 native backend is enough for CRUD/settings-style screens, selection,
+The 1.23 native backend is enough for CRUD/settings-style screens, selection,
 media, hover overlays, declarative canvas geometry, and common pointer events,
 not all of iced. It still lacks direct syntax for arbitrary custom overlays,
 and custom widgets. [`COVERAGE.md`](COVERAGE.md) is the exact versioned ledger.
@@ -3025,7 +3058,7 @@ compile-tested widget example is
 [`examples/iced-app/src/ui/showcase.ice`](examples/iced-app/src/ui/showcase.ice).
 Together they exercise
 state inference, typed extern structs/functions, mount and result handlers,
-direct and component-prop input/editor binding, complete typed time tasks/subscriptions, typed generic/keyboard/mouse/touch/input-method/system subscriptions with status filters, static, repeated, and hierarchically scoped widget operations, built-in and custom widget selectors, system tasks, clipboard effects, `if`, `for`, native keyed columns and lazy subtrees, parsed Markdown, structured tables, pure components, structured and compound component composition,
+direct and component-prop input/editor binding, complete typed time tasks/subscriptions, typed generic/native-keyboard/mouse/touch/input-method/system subscriptions with status filters, exact keyboard value constructors and latin translation, static, repeated, and hierarchically scoped widget operations, built-in and custom widget selectors, system tasks, clipboard effects, `if`, `for`, native keyed columns and lazy subtrees, parsed Markdown, structured tables, pure components, structured and compound component composition,
 dynamic component IDs,
 theme utilities, disabled controls, fallible asynchronous tasks, complete
 wrapping row/column layouts, grids and fully sized underlay stacks, toggles,

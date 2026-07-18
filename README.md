@@ -131,7 +131,7 @@ cargo fmt --all
 
 ## Status
 
-This is an executable v1.22 language slice, not yet a complete iced replacement.
+This is an executable v1.23 language slice, not yet a complete iced replacement.
 It implements typed extern data/actions, state, handlers, async tasks, pure
 components with named props, default children, named structural slots, and
 React-like qualified compound children, scoped IDs, relative
@@ -139,8 +139,8 @@ multi-file `use`,
 `if`/`for`, six layouts including identity-preserving keyed columns,
 thirty-two native widget forms,
 dependency-keyed lazy subtrees, checked style utilities, formatting, analysis,
-direct typed keyboard, mouse, touch, input-method, complete typed time, event
-status filtering, raw runtime-event filters, native stream/custom-recipe
+native typed keyboard values and constructors, mouse, touch, input-method,
+complete typed time, event status filtering, raw runtime-event filters, native stream/custom-recipe
 subscriptions and context/filter transforms, structured parallel/sequential
 tasks, structured boot presets, state-driven application title, theme, base
 style, and scale callbacks, checked application executors and codec-free
