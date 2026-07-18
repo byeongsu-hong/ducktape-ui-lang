@@ -57,11 +57,11 @@ pub fn compile_file(path: impl AsRef<Path>) -> Result<FileCompilation, Error> {
 fn analyze_loaded(loaded: &LoadedSource) -> Result<Document, Error> {
     let mut document = parser::parse(&loaded.source).map_err(|error| remap_error(error, loaded))?;
     check::check(&mut document).map_err(|error| remap_error(error, loaded))?;
-    check_font_assets(&document, loaded).map_err(|error| remap_error(error, loaded))?;
+    check_assets(&document, loaded).map_err(|error| remap_error(error, loaded))?;
     Ok(document)
 }
 
-fn check_font_assets(document: &Document, loaded: &LoadedSource) -> Result<(), Error> {
+fn check_assets(document: &Document, loaded: &LoadedSource) -> Result<(), Error> {
     let root = loaded
         .dependencies
         .first()
@@ -74,6 +74,46 @@ fn check_font_assets(document: &Document, loaded: &LoadedSource) -> Result<(), E
                 "E192",
                 &font.span,
                 format!("cannot read font file `{}`", path.display()),
+            ));
+        }
+    }
+    if let Some(icon) = document
+        .settings
+        .window
+        .as_ref()
+        .and_then(|window| window.icon.as_ref())
+    {
+        let path = parent.join(&icon.path);
+        if !path.is_file() {
+            return Err(Error::new(
+                "E192",
+                &icon.span,
+                format!("cannot read window icon file `{}`", path.display()),
+            ));
+        }
+        let actual = fs::metadata(&path)
+            .map_err(|error| {
+                Error::new(
+                    "E192",
+                    &icon.span,
+                    format!(
+                        "cannot inspect window icon file `{}`: {error}",
+                        path.display()
+                    ),
+                )
+            })?
+            .len();
+        if actual != icon.byte_len as u64 {
+            return Err(Error::new(
+                "E193",
+                &icon.span,
+                format!(
+                    "window icon `{}` has {actual} RGBA bytes; expected {} for {} × {}",
+                    path.display(),
+                    icon.byte_len,
+                    icon.width,
+                    icon.height
+                ),
             ));
         }
     }
@@ -312,9 +352,10 @@ mod tests {
         let fixture = Fixture::new();
         fixture.write(
             "app.ice",
-            "app Demo\n  font \"assets/Brand.ttf\"\ntheme\n  background #000000\n  foreground #ffffff\n  primary #333333\n  danger #ff0000\nview\n  text \"Hi\"\n",
+            "app Demo\n  font \"assets/Brand.ttf\"\n  window\n    icon-rgba \"assets/app.rgba\" 2 1\ntheme\n  background #000000\n  foreground #ffffff\n  primary #333333\n  danger #ff0000\nview\n  text \"Hi\"\n",
         );
         fixture.write("assets/Brand.ttf", "font bytes");
+        fixture.write("assets/app.rgba", "RGBAABC\n");
 
         let compiled = compile_file(fixture.path("app.ice")).unwrap();
         let font = fixture.path("assets/Brand.ttf");
@@ -322,6 +363,12 @@ mod tests {
             ".font(include_bytes!({:?}).as_slice())",
             font.display().to_string()
         )));
+        let icon = fixture.path("assets/app.rgba");
+        assert!(
+            compiled
+                .rust
+                .contains(&format!("include_bytes!({:?})", icon.display().to_string()))
+        );
     }
 
     #[test]
@@ -337,6 +384,25 @@ mod tests {
         assert_eq!(error.line, 2);
         assert!(error.path.as_deref().unwrap().ends_with("app.ice"));
         assert!(error.message.contains("assets/Missing.ttf"));
+
+        fixture.write(
+            "app.ice",
+            "app Demo\n  window\n    icon-rgba \"assets/missing.rgba\" 2 1\ntheme\n  background #000000\n  foreground #ffffff\n  primary #333333\n  danger #ff0000\nview\n  text \"Hi\"\n",
+        );
+        let error = compile_file(fixture.path("app.ice")).unwrap_err();
+        assert_eq!(error.code, "E192");
+        assert_eq!(error.line, 3);
+        assert!(error.message.contains("assets/missing.rgba"));
+
+        fixture.write("assets/wrong.rgba", "RGBA");
+        fixture.write(
+            "app.ice",
+            "app Demo\n  window\n    icon-rgba \"assets/wrong.rgba\" 2 1\ntheme\n  background #000000\n  foreground #ffffff\n  primary #333333\n  danger #ff0000\nview\n  text \"Hi\"\n",
+        );
+        let error = compile_file(fixture.path("app.ice")).unwrap_err();
+        assert_eq!(error.code, "E193");
+        assert_eq!(error.line, 3);
+        assert!(error.message.contains("has 4 RGBA bytes; expected 8"));
     }
 
     #[test]

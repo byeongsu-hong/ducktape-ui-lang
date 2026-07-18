@@ -129,14 +129,19 @@ pub fn generate(document: &Document, source_path: &str) -> Result<String, Error>
         });
     let settings = app_settings_code(&document.settings);
     let fonts = font_assets_code(&document.settings, source_path);
-    let window = window_settings_code(document.settings.window.as_ref());
+    let window = window_settings_code(document.settings.window.as_ref(), source_path);
+    let executor = document
+        .settings
+        .executor
+        .as_ref()
+        .map_or_else(String::new, |executor| format!(".executor::<{executor}>()"));
     let scale_factor = document
         .settings
         .scale_factor
         .map_or_else(String::new, |scale| {
             format!(".scale_factor(|_| {scale} as f32)")
         });
-    writeln!(out, "::iced::application(Self::__boot, Self::__update, Self::__view){title}{subscription}.theme(Self::__theme){settings}{default_font}{fonts}{window}{scale_factor}.run()").unwrap();
+    writeln!(out, "::iced::application(Self::__boot, Self::__update, Self::__view){title}{subscription}.theme(Self::__theme){settings}{default_font}{fonts}{window}{scale_factor}{executor}.run()").unwrap();
     writeln!(out, "}}").unwrap();
 
     generate_theme(&mut out, document);
@@ -190,7 +195,7 @@ fn app_settings_code(settings: &AppSettings) -> String {
     }
 }
 
-fn window_settings_code(settings: Option<&WindowSettings>) -> String {
+fn window_settings_code(settings: Option<&WindowSettings>, source_path: &str) -> String {
     let Some(settings) = settings else {
         return String::new();
     };
@@ -249,6 +254,21 @@ fn window_settings_code(settings: Option<&WindowSettings>) -> String {
             WindowLevel::AlwaysOnTop => "AlwaysOnTop",
         };
         write!(fields, "level: ::iced::window::Level::{level},").unwrap();
+    }
+    if let Some(icon) = &settings.icon {
+        let parent = Path::new(source_path)
+            .parent()
+            .unwrap_or_else(|| Path::new("."));
+        let path = parent.join(&icon.path).display().to_string();
+        write!(
+            fields,
+            "icon: ::std::option::Option::Some({{ const __ICE_RGBA: &[u8] = include_bytes!({}); const _: () = ::std::assert!(__ICE_RGBA.len() == {}, \"window icon RGBA byte length does not match width × height × 4\"); ::iced::window::icon::from_rgba(__ICE_RGBA.to_vec(), {}, {}).expect(\"statically checked RGBA window icon\") }}),",
+            rust_string(&path),
+            icon.byte_len,
+            icon.width,
+            icon.height
+        )
+        .unwrap();
     }
     format!(".window(::iced::window::Settings {{ {fields} ..::std::default::Default::default() }})")
 }
@@ -8810,6 +8830,7 @@ mod tests {
         let source = r#"app Configured
   title "Configured app"
   id "dev.example.configured"
+  executor iced::executor::Default
   font "fonts/Brand.ttf"
   font "fonts/Icons.otf"
   default-text-size 15
@@ -8817,6 +8838,7 @@ mod tests {
   vsync false
   scale-factor 1.25
   window
+    icon-rgba "assets/app.rgba" 2 1
     size 960 720
     maximized true
     fullscreen false
@@ -8843,6 +8865,7 @@ view
         let generated = compile(source, "configured.ice").unwrap();
         for expected in [
             ".title(\"Configured app\")",
+            ".executor::<iced::executor::Default>()",
             "id: ::std::option::Option::Some(\"dev.example.configured\".to_owned())",
             ".font(include_bytes!(\"fonts/Brand.ttf\").as_slice())",
             ".font(include_bytes!(\"fonts/Icons.otf\").as_slice())",
@@ -8863,6 +8886,9 @@ view
             "transparent: true",
             "blur: true",
             "level: ::iced::window::Level::AlwaysOnTop",
+            "const __ICE_RGBA: &[u8] = include_bytes!(\"assets/app.rgba\")",
+            "__ICE_RGBA.len() == 8",
+            "window::icon::from_rgba(__ICE_RGBA.to_vec(), 2, 1)",
             "exit_on_close_request: false",
             ".scale_factor(|_| 1.25 as f32)",
         ] {
