@@ -18,6 +18,7 @@ pub fn generate(document: &Document, source_path: &str) -> Result<String, Error>
     generate_system_types(&mut out, document);
     generate_widget_selector_types(&mut out, document);
     generate_canvas_types(&mut out, document);
+    generate_pane_types(&mut out, document)?;
 
     writeln!(out, "#[derive(Debug)]\npub struct {} {{", document.app).unwrap();
     for qr in &document.qr_codes {
@@ -32,14 +33,20 @@ pub fn generate(document: &Document, source_path: &str) -> Result<String, Error>
         let ViewNode::PaneGrid {
             name,
             configuration,
+            templates,
             ..
         } = node
         else {
             unreachable!()
         };
+        let pane_state = if templates.is_empty() {
+            "&'static str".into()
+        } else {
+            pane_type(name)
+        };
         writeln!(
             out,
-            "pub(crate) {}: ::iced::widget::pane_grid::State<&'static str>,",
+            "pub(crate) {}: ::iced::widget::pane_grid::State<{pane_state}>,",
             pane_field(name)
         )
         .unwrap();
@@ -1359,6 +1366,7 @@ fn generate_boot(out: &mut String, document: &Document, message: &str) -> Result
         let ViewNode::PaneGrid {
             name,
             configuration,
+            templates,
             ..
         } = node
         else {
@@ -1368,7 +1376,10 @@ fn generate_boot(out: &mut String, document: &Document, message: &str) -> Result
         writeln!(
             out,
             "let {field} = ::iced::widget::pane_grid::State::with_configuration({});",
-            pane_configuration_code(configuration)
+            pane_configuration_code(
+                configuration,
+                (!templates.is_empty()).then(|| pane_type(name)).as_deref()
+            )
         )
         .unwrap();
         let slots = pane_split_slots(configuration);
@@ -2646,11 +2657,11 @@ fn generate_statements(
                 ..
             } => {
                 let field = pane_field(grid);
-                let pane = |name: &str| {
-                    format!(
-                        "{state}.{field}.iter().find_map(|(__pane, __name)| (*__name == {}).then_some(*__pane))",
-                        rust_string(name)
-                    )
+                let dynamic = pane_grids(&document.view).into_iter().any(|node| {
+                    matches!(node, ViewNode::PaneGrid { name, templates, .. } if name == grid && !templates.is_empty())
+                });
+                let pane = |reference: &PaneReference| {
+                    pane_reference_find_code(reference, grid, state, dynamic, env, document)
                 };
                 let edge = |edge: &PaneEdge| match edge {
                     PaneEdge::Top => "Top",
@@ -2666,7 +2677,7 @@ fn generate_statements(
                     PaneOperation::Maximize { pane: name } => writeln!(
                         out,
                         "{{ let __pane = {}; if let ::std::option::Option::Some(__pane) = __pane {{ {state}.{field}.maximize(__pane); }} }}",
-                        pane(name)
+                        pane(name)?
                     )
                     .unwrap(),
                     PaneOperation::Restore => {
@@ -2674,21 +2685,21 @@ fn generate_statements(
                     }
                     PaneOperation::Swap { first, second } => writeln!(
                         out,
-                        "{{ let __first = {}; let __second = {}; if let (::std::option::Option::Some(__first), ::std::option::Option::Some(__second)) = (__first, __second) {{ {state}.{field}.swap(__first, __second); }} }}",
-                        pane(first),
-                        pane(second)
+                        "{{ let __first = {}; let __second = {}; if let (::std::option::Option::Some(__first), ::std::option::Option::Some(__second)) = (__first, __second) && __first != __second {{ {state}.{field}.swap(__first, __second); }} }}",
+                        pane(first)?,
+                        pane(second)?
                     )
                     .unwrap(),
                     PaneOperation::Close { pane: name } => writeln!(
                         out,
                         "{{ let __pane = {}; if let ::std::option::Option::Some(__pane) = __pane {{ let _ = {state}.{field}.close(__pane); }} }}",
-                        pane(name)
+                        pane(name)?
                     )
                     .unwrap(),
                     PaneOperation::Move { pane: name, edge: side } => writeln!(
                         out,
                         "{{ let __pane = {}; if let ::std::option::Option::Some(__pane) = __pane {{ {state}.{field}.move_to_edge(__pane, ::iced::widget::pane_grid::Edge::{}); }} }}",
-                        pane(name),
+                        pane(name)?,
                         edge(side)
                     )
                     .unwrap(),
@@ -2726,9 +2737,9 @@ fn generate_statements(
                         );
                         writeln!(
                             out,
-                            "{{ let __pane = {}; let __target = {}; if let (::std::option::Option::Some(__pane), ::std::option::Option::Some(__target)) = (__pane, __target) {{ {state}.{field}.drop(__pane, ::iced::widget::pane_grid::Target::Pane(__target, {region})); }} }}",
-                            pane(name),
-                            pane(target)
+                            "{{ let __pane = {}; let __target = {}; if let (::std::option::Option::Some(__pane), ::std::option::Option::Some(__target)) = (__pane, __target) && __pane != __target {{ {state}.{field}.drop(__pane, ::iced::widget::pane_grid::Target::Pane(__target, {region})); }} }}",
+                            pane(name)?,
+                            pane(target)?
                         )
                         .unwrap();
                     }
@@ -2737,22 +2748,37 @@ fn generate_statements(
                         pane: name,
                         axis: direction,
                         ratio,
-                    } => writeln!(
-                        out,
-                        "{{ let __target = {}; let __pane = {}; if let (::std::option::Option::Some(__target), ::std::option::Option::None) = (__target, __pane) {{ if let ::std::option::Option::Some((_, __split)) = {state}.{field}.split(::iced::widget::pane_grid::Axis::{}, __target, {}) {{ {state}.{field}.resize(__split, ({}) as f32); }} }} }}",
-                        pane(target),
-                        pane(name),
-                        axis(direction),
-                        rust_string(name),
-                        expr_code(ratio, env, document, ValueMode::Owned)?
-                    )
-                    .unwrap(),
+                    } => {
+                        let target = pane(target)?;
+                        let value = pane_reference_value_code(
+                            name, grid, dynamic, env, document,
+                        )?;
+                        let ratio = expr_code(ratio, env, document, ValueMode::Owned)?;
+                        if dynamic {
+                            writeln!(
+                                out,
+                                "{{ let __target = {target}; let __pane_value = {value}; let __pane = {state}.{field}.iter().find_map(|(__pane, __value)| (__value == &__pane_value).then_some(*__pane)); if let (::std::option::Option::Some(__target), ::std::option::Option::None) = (__target, __pane) {{ if let ::std::option::Option::Some((_, __split)) = {state}.{field}.split(::iced::widget::pane_grid::Axis::{}, __target, __pane_value) {{ {state}.{field}.resize(__split, ({ratio}) as f32); }} }} }}",
+                                axis(direction),
+                            )
+                            .unwrap();
+                        } else {
+                            writeln!(
+                                out,
+                                "{{ let __target = {target}; let __pane = {}; if let (::std::option::Option::Some(__target), ::std::option::Option::None) = (__target, __pane) {{ if let ::std::option::Option::Some((_, __split)) = {state}.{field}.split(::iced::widget::pane_grid::Axis::{}, __target, {value}) {{ {state}.{field}.resize(__split, ({ratio}) as f32); }} }} }}",
+                                pane(name)?,
+                                axis(direction),
+                            )
+                            .unwrap();
+                        }
+                    }
                     PaneOperation::Maximized | PaneOperation::Adjacent { .. } => {
                         has_task = true;
                         let value = match operation {
-                            PaneOperation::Maximized => format!(
-                                "{state}.{field}.maximized().and_then(|__pane| {state}.{field}.get(__pane)).map(|__name| (*__name).to_owned())"
-                            ),
+                            PaneOperation::Maximized => if dynamic {
+                                format!("{state}.{field}.maximized().and_then(|__pane| {state}.{field}.get(__pane)).map(|__pane| __pane.__name())")
+                            } else {
+                                format!("{state}.{field}.maximized().and_then(|__pane| {state}.{field}.get(__pane)).map(|__name| (*__name).to_owned())")
+                            },
                             PaneOperation::Adjacent { pane: name, edge: side } => {
                                 let direction = match side {
                                     PaneEdge::Top => "Up",
@@ -2760,10 +2786,12 @@ fn generate_statements(
                                     PaneEdge::Right => "Right",
                                     PaneEdge::Bottom => "Down",
                                 };
-                                format!(
-                                    "{}.and_then(|__pane| {state}.{field}.adjacent(__pane, ::iced::widget::pane_grid::Direction::{direction})).and_then(|__pane| {state}.{field}.get(__pane)).map(|__name| (*__name).to_owned())",
-                                    pane(name)
-                                )
+                                let value = pane(name)?;
+                                if dynamic {
+                                    format!("{value}.and_then(|__pane| {state}.{field}.adjacent(__pane, ::iced::widget::pane_grid::Direction::{direction})).and_then(|__pane| {state}.{field}.get(__pane)).map(|__pane| __pane.__name())")
+                                } else {
+                                    format!("{value}.and_then(|__pane| {state}.{field}.adjacent(__pane, ::iced::widget::pane_grid::Direction::{direction})).and_then(|__pane| {state}.{field}.get(__pane)).map(|__name| (*__name).to_owned())")
+                                }
                             }
                             _ => unreachable!(),
                         };
@@ -3136,8 +3164,11 @@ fn render_node(
             name,
             options,
             panes,
+            templates,
             ..
-        } => render_pane_grid(name, options, panes, document, message, env, scope, slot),
+        } => render_pane_grid(
+            name, options, panes, templates, document, message, env, scope, slot,
+        ),
         ViewNode::Text {
             value,
             options,
@@ -5041,27 +5072,96 @@ fn render_pane_grid(
     name: &str,
     options: &PaneGridOptions,
     panes: &[PaneView],
+    templates: &[PaneTemplate],
     document: &Document,
     message: &str,
     env: &HashMap<String, Binding>,
     scope: &str,
     slot: Option<&SlotContext>,
 ) -> Result<String, Error> {
-    let arms = panes
+    let pane_type = (!templates.is_empty()).then(|| pane_type(name));
+    let mut arms = panes
         .iter()
         .map(|pane| {
+            let mut pane_env = env.clone();
+            if let Some(binding) = &pane.maximized {
+                pane_env.insert(
+                    binding.clone(),
+                    Binding {
+                        code: "__pane_maximized".into(),
+                        ty: Type::Bool,
+                        local: true,
+                    },
+                );
+            }
             let pane_scope = format!("format!(\"{{}}/{}\", {scope})", pane.name);
+            let pattern = pane_type.as_ref().map_or_else(
+                || rust_string(&pane.name),
+                |pane_type| format!("{pane_type}::__Static({})", rust_string(&pane.name)),
+            );
             Ok(format!(
                 "{} => {}",
-                rust_string(&pane.name),
-                render_pane_content(pane, document, message, env, &pane_scope, slot)?
+                pattern,
+                render_pane_content(pane, document, message, &pane_env, &pane_scope, slot)?
             ))
         })
-        .collect::<Result<Vec<_>, Error>>()?
-        .join(", ");
+        .collect::<Result<Vec<_>, Error>>()?;
+    for template in templates {
+        let (item_type, _) = pane_template_types(template, document)?;
+        let mut template_env = env.clone();
+        template_env.insert(
+            template.item.clone(),
+            Binding {
+                code: format!("(*{})", template.item),
+                ty: item_type,
+                local: false,
+            },
+        );
+        if let Some(binding) = &template.pane.maximized {
+            template_env.insert(
+                binding.clone(),
+                Binding {
+                    code: "__pane_maximized".into(),
+                    ty: Type::Bool,
+                    local: true,
+                },
+            );
+        }
+        let key = expr_code(&template.key, &template_env, document, ValueMode::Owned)?;
+        let pane_scope = format!(
+            "format!(\"{{}}/{}({{}})\", {scope}, __pane_key)",
+            template.item
+        );
+        let content = render_pane_content(
+            &template.pane,
+            document,
+            message,
+            &template_env,
+            &pane_scope,
+            slot,
+        )?;
+        let items = &env
+            .get(&template.items)
+            .expect("checker validates dynamic pane state")
+            .code;
+        arms.push(format!(
+            "{}::{}(__pane_key) => match {items}.iter().find(|{}| {key} == (*__pane_key).clone()) {{ ::std::option::Option::Some({}) => {content}, ::std::option::Option::None => ::iced::widget::pane_grid::Content::new(::iced::widget::text(::std::format!({}, __pane_key))), }}",
+            pane_type.as_deref().expect("dynamic pane type"),
+            pascal(&template.item),
+            template.item,
+            template.item,
+            rust_string(&format!("Missing pane `{}({{}})`", template.item)),
+        ));
+    }
+    let arms = arms.join(", ");
     let field = pane_field(name);
+    let pane_value = if pane_type.is_some() {
+        "__pane_name"
+    } else {
+        "*__pane_name"
+    };
     let mut code = format!(
-        "::iced::widget::pane_grid(&self.{field}, move |_, __pane_name, _| match *__pane_name {{ {arms}, _ => ::core::unreachable!() }})"
+        "::iced::widget::pane_grid(&self.{field}, move |_, __pane_name, __pane_maximized| match {pane_value} {{ {arms}, _ => ::core::unreachable!() }})"
     );
     for (length, method) in [(&options.width, "width"), (&options.height, "height")] {
         if let Some(length) = length {
@@ -5094,12 +5194,21 @@ fn render_pane_grid(
         write!(code, ".on_drag({message}::{})", pane_drag_variant(name)).unwrap();
     }
     if let Some(route) = &options.click {
-        let route = route_code(route, "__pane_name.to_owned()", env, document, message)?;
-        write!(
-            code,
-            ".on_click(move |__pane| {{ let __pane_name = self.{field}.get(__pane).copied().unwrap_or(\"\"); {route} }})"
-        )
-        .unwrap();
+        if pane_type.is_some() {
+            let route = route_code(route, "__pane_name", env, document, message)?;
+            write!(
+                code,
+                ".on_click(move |__pane| {{ let __pane_name = self.{field}.get(__pane).map(|__pane| __pane.__name()).unwrap_or_default(); {route} }})"
+            )
+            .unwrap();
+        } else {
+            let route = route_code(route, "__pane_name.to_owned()", env, document, message)?;
+            write!(
+                code,
+                ".on_click(move |__pane| {{ let __pane_name = self.{field}.get(__pane).copied().unwrap_or(\"\"); {route} }})"
+            )
+            .unwrap();
+        }
     }
     append_pane_grid_style(
         &mut code,
@@ -8528,6 +8637,121 @@ fn pane_splits_field(name: &str) -> String {
     format!("__pane_{name}_splits")
 }
 
+fn pane_type(name: &str) -> String {
+    format!("__IcePane{}", pascal(name))
+}
+
+fn pane_template_types(
+    template: &PaneTemplate,
+    document: &Document,
+) -> Result<(Type, Type), Error> {
+    let state = document
+        .states
+        .iter()
+        .find(|state| state.name == template.items)
+        .expect("checker validates dynamic pane state");
+    let Type::List(item_type) = &state.ty else {
+        unreachable!("checker validates dynamic pane lists")
+    };
+    let mut env = document
+        .states
+        .iter()
+        .map(|state| (state.name.clone(), state.ty.clone()))
+        .collect::<HashMap<_, _>>();
+    env.insert(template.item.clone(), (**item_type).clone());
+    Ok((
+        (**item_type).clone(),
+        expr_type(&template.key, &env, document, &template.span)?,
+    ))
+}
+
+fn generate_pane_types(out: &mut String, document: &Document) -> Result<(), Error> {
+    for node in pane_grids(&document.view) {
+        let ViewNode::PaneGrid {
+            name, templates, ..
+        } = node
+        else {
+            unreachable!()
+        };
+        if templates.is_empty() {
+            continue;
+        }
+        let pane_type = pane_type(name);
+        writeln!(
+            out,
+            "#[derive(Debug, Clone, PartialEq)]\nenum {pane_type} {{\n__Static(&'static str),"
+        )
+        .unwrap();
+        for template in templates {
+            let (_, key_type) = pane_template_types(template, document)?;
+            writeln!(
+                out,
+                "{}({}),",
+                pascal(&template.item),
+                key_type.rust(&document.structs)
+            )
+            .unwrap();
+        }
+        writeln!(out, "}}\nimpl {pane_type} {{\nfn __name(&self) -> ::std::string::String {{\nmatch self {{\nSelf::__Static(__name) => (*__name).to_owned(),").unwrap();
+        for template in templates {
+            writeln!(
+                out,
+                "Self::{}(__key) => ::std::format!({}, __key),",
+                pascal(&template.item),
+                rust_string(&format!("{}({{}})", template.item))
+            )
+            .unwrap();
+        }
+        writeln!(out, "}}\n}}\n}}").unwrap();
+    }
+    Ok(())
+}
+
+fn pane_reference_find_code(
+    reference: &PaneReference,
+    grid: &str,
+    state: &str,
+    dynamic: bool,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<String, Error> {
+    let field = pane_field(grid);
+    if dynamic {
+        let value = pane_reference_value_code(reference, grid, true, env, document)?;
+        return Ok(format!(
+            "{{ let __value = {value}; {state}.{field}.iter().find_map(|(__pane, __pane_value)| (__pane_value == &__value).then_some(*__pane)) }}"
+        ));
+    }
+    Ok(match reference {
+        PaneReference::Static(name) => format!(
+            "{state}.{field}.iter().find_map(|(__pane, __name)| (*__name == {}).then_some(*__pane))",
+            rust_string(name)
+        ),
+        PaneReference::Dynamic { .. } => unreachable!("dynamic pane requires a template"),
+    })
+}
+
+fn pane_reference_value_code(
+    reference: &PaneReference,
+    grid: &str,
+    dynamic: bool,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<String, Error> {
+    Ok(match reference {
+        PaneReference::Static(name) if dynamic => {
+            format!("{}::__Static({})", pane_type(grid), rust_string(name))
+        }
+        PaneReference::Static(name) => rust_string(name),
+        PaneReference::Dynamic { template, key } => format!(
+            "{}::{}({})",
+            pane_type(grid),
+            pascal(template),
+            expr_code(key, env, document, ValueMode::Owned)?
+        ),
+    })
+}
+
 fn pane_split_slots(configuration: &PaneConfiguration) -> Vec<Option<&str>> {
     fn collect<'a>(configuration: &'a PaneConfiguration, output: &mut Vec<Option<&'a str>>) {
         if let PaneConfiguration::Split { name, a, b, .. } = configuration {
@@ -8542,12 +8766,15 @@ fn pane_split_slots(configuration: &PaneConfiguration) -> Vec<Option<&str>> {
     output
 }
 
-fn pane_configuration_code(configuration: &PaneConfiguration) -> String {
+fn pane_configuration_code(configuration: &PaneConfiguration, pane_type: Option<&str>) -> String {
     match configuration {
-        PaneConfiguration::Pane(name) => format!(
-            "::iced::widget::pane_grid::Configuration::Pane({})",
-            rust_string(name)
-        ),
+        PaneConfiguration::Pane(name) => {
+            let value = pane_type.map_or_else(
+                || rust_string(name),
+                |pane_type| format!("{pane_type}::__Static({})", rust_string(name)),
+            );
+            format!("::iced::widget::pane_grid::Configuration::Pane({value})")
+        }
         PaneConfiguration::Split {
             axis, ratio, a, b, ..
         } => {
@@ -8557,8 +8784,8 @@ fn pane_configuration_code(configuration: &PaneConfiguration) -> String {
             };
             format!(
                 "::iced::widget::pane_grid::Configuration::Split {{ axis: ::iced::widget::pane_grid::Axis::{axis}, ratio: {ratio:?}, a: ::std::boxed::Box::new({}), b: ::std::boxed::Box::new({}) }}",
-                pane_configuration_code(a),
-                pane_configuration_code(b)
+                pane_configuration_code(a, pane_type),
+                pane_configuration_code(b, pane_type)
             )
         }
     }
@@ -8575,10 +8802,17 @@ fn pane_drag_variant(name: &str) -> String {
 fn pane_grids(root: &ViewNode) -> Vec<&ViewNode> {
     fn collect<'a>(node: &'a ViewNode, output: &mut Vec<&'a ViewNode>) {
         match node {
-            ViewNode::PaneGrid { panes, .. } => {
+            ViewNode::PaneGrid {
+                panes, templates, ..
+            } => {
                 output.push(node);
                 for pane in panes {
                     for node in pane.nodes() {
+                        collect(node, output);
+                    }
+                }
+                for template in templates {
+                    for node in template.pane.nodes() {
                         collect(node, output);
                     }
                 }
@@ -8661,8 +8895,14 @@ fn canvases(document: &Document) -> Vec<(&CanvasOptions, &[CanvasEvent])> {
                 collect(content, output);
                 collect(layer, output);
             }
-            ViewNode::PaneGrid { panes, .. } => {
-                for node in panes.iter().flat_map(PaneView::nodes) {
+            ViewNode::PaneGrid {
+                panes, templates, ..
+            } => {
+                for node in panes
+                    .iter()
+                    .flat_map(PaneView::nodes)
+                    .chain(templates.iter().flat_map(|template| template.pane.nodes()))
+                {
                     collect(node, output);
                 }
             }
@@ -8742,9 +8982,13 @@ fn needs_extern_noop(document: &Document) -> bool {
             | ViewNode::For { children, .. } => children.iter().any(contains),
             ViewNode::Tooltip { content, tip, .. } => contains(content) || contains(tip),
             ViewNode::Overlay { .. } => true,
-            ViewNode::PaneGrid { panes, .. } => {
-                panes.iter().flat_map(PaneView::nodes).any(contains)
-            }
+            ViewNode::PaneGrid {
+                panes, templates, ..
+            } => panes
+                .iter()
+                .flat_map(PaneView::nodes)
+                .chain(templates.iter().flat_map(|template| template.pane.nodes()))
+                .any(contains),
             ViewNode::Table { columns, .. } => columns
                 .iter()
                 .any(|column| contains(&column.header) || contains(&column.cell)),
@@ -12510,6 +12754,54 @@ view
         assert!(generated.contains("Option::Some(\"editor_stack\")"));
         assert!(generated.contains("self.__pane_work_splits.get(\"editor_stack\").copied()"));
         assert!(generated.contains("self.__pane_work.resize(__split, (0.55) as f32)"));
+    }
+
+    #[test]
+    fn lowers_runtime_pane_templates() {
+        let source = r#"app Workspace
+extern crate::backend
+  Task(id:i64, title:str)
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  tasks:[Task] = []
+  selected = 7
+on open_task
+  pane #work split files task(selected) horizontal
+on close_task
+  pane #work close task(selected)
+on clicked(name)
+view
+  pane-grid #work click=clicked(_)
+    pane files maximized=files_maximized
+      col
+        if files_maximized
+          text "Maximized files"
+    pane task in tasks by=task.id maximized=task_maximized
+      scroll #body
+        col
+          if task_maximized
+            text "Maximized task"
+          text task.title
+"#;
+        let generated = compile(source, "workspace.ice").unwrap();
+        assert!(generated.contains("enum __IcePaneWork"));
+        assert!(generated.contains("Task(i64)"));
+        assert!(generated.contains("State<__IcePaneWork>"));
+        assert!(generated.contains("Configuration::Pane(__IcePaneWork::__Static(\"files\"))"));
+        assert!(generated.contains("__IcePaneWork::Task(__pane_key)"));
+        assert!(
+            generated
+                .contains("self.tasks.iter().find(|task| (*task).id == (*__pane_key).clone())")
+        );
+        assert!(generated.contains("__IcePaneWork::Task(self.selected)"));
+        assert!(generated.contains("__pane.__name()"));
+        assert!(generated.contains("__pane_maximized"));
+        assert!(generated.contains("if __pane_maximized"));
+        assert!(generated.contains("format!(\"{}/task({})\""));
     }
 
     #[test]

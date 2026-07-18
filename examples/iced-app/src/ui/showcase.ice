@@ -440,6 +440,21 @@ on close_nested_preview
 on resize_nested_editor
   pane #nested_workspace resize editor_stack 0.45
 
+on open_task_pane
+  pane #nested_workspace split nested_terminal pane_task(1) vertical ratio=0.45
+
+on close_task_pane(id)
+  pane #nested_workspace close pane_task(id)
+
+on maximize_task_pane
+  pane #nested_workspace maximize pane_task(1)
+
+on open_mode_pane
+  pane #nested_workspace split nested_files mode_pane("List") horizontal ratio=0.35
+
+on close_mode_pane(name)
+  pane #nested_workspace close mode_pane(name)
+
 subscribe
   app_events() -> external_event _
   keyboard press status=ignored -> key_pressed _
@@ -619,12 +634,33 @@ view
             col @gap-2
               button "Open nested preview" -> open_nested_preview
               button "Resize editor split" -> resize_nested_editor
+              button "Open task pane" -> open_task_pane
+              button "Open mode pane" -> open_mode_pane
           pane nested_terminal
             text "Nested terminal" @text-sm text-muted
       pane nested_preview closed
         col @gap-2
           text "Dynamic preview" @text-sm text-foreground
           button "Close nested preview" -> close_nested_preview
+      pane pane_task in tasks by=pane_task.id maximized=task_pane_maximized
+        title
+          text pane_task.title @text-sm text-foreground
+        controls
+          row @gap-2
+            button "Maximize" -> maximize_task_pane
+            button "Close" -> close_task_pane pane_task.id
+        content
+          col @gap-2
+            if task_pane_maximized
+              text "Maximized task pane" @text-sm text-foreground
+            TaskRow task=pane_task loading=loading
+      pane mode_pane in display_modes by=mode_pane
+        title
+          text mode_pane @text-sm text-foreground
+        controls
+          button "Close" -> close_mode_pane mode_pane
+        content
+          text "String-keyed runtime pane" @text-sm text-muted
 
     scroll #task-list direction=vertical width=fill height=fill bar=visible bar-width=8.0 bar-margin=2.0 scroller-width=6.0 bar-spacing=2.0 anchor-y=start auto=true viewport=task_list_scrolled style=task_scroll(loading)
       keyed task in tasks by=task.id width=fill height=shrink spacing=8.0 padding=4.0 padding-left=8.0 max-width=720.0 align=center

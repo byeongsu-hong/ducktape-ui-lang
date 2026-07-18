@@ -698,23 +698,23 @@ pub enum TaskTransform {
 #[derive(Clone, Debug)]
 pub enum PaneOperation {
     Maximize {
-        pane: String,
+        pane: PaneReference,
     },
     Restore,
     Maximized,
     Adjacent {
-        pane: String,
+        pane: PaneReference,
         edge: PaneEdge,
     },
     Swap {
-        first: String,
-        second: String,
+        first: PaneReference,
+        second: PaneReference,
     },
     Close {
-        pane: String,
+        pane: PaneReference,
     },
     Move {
-        pane: String,
+        pane: PaneReference,
         edge: PaneEdge,
     },
     Resize {
@@ -722,16 +722,22 @@ pub enum PaneOperation {
         ratio: Expr,
     },
     Drop {
-        pane: String,
-        target: String,
+        pane: PaneReference,
+        target: PaneReference,
         edge: Option<PaneEdge>,
     },
     Split {
-        target: String,
-        pane: String,
+        target: PaneReference,
+        pane: PaneReference,
         axis: PaneAxis,
         ratio: Expr,
     },
+}
+
+#[derive(Clone, Debug)]
+pub enum PaneReference {
+    Static(String),
+    Dynamic { template: String, key: Expr },
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -951,6 +957,7 @@ pub enum ViewNode {
         configuration: PaneConfiguration,
         options: PaneGridOptions,
         panes: Vec<PaneView>,
+        templates: Vec<PaneTemplate>,
         span: Span,
     },
     Text {
@@ -2320,10 +2327,20 @@ pub enum PaneConfiguration {
 #[derive(Clone, Debug)]
 pub struct PaneView {
     pub name: String,
+    pub maximized: Option<String>,
     pub content: Box<ViewNode>,
     pub title: Option<PaneTitle>,
     pub styles: Vec<String>,
     pub style: ContainerStyleOptions,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug)]
+pub struct PaneTemplate {
+    pub item: String,
+    pub items: String,
+    pub key: Expr,
+    pub pane: PaneView,
     pub span: Span,
 }
 

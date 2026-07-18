@@ -2011,7 +2011,7 @@ fn parse_pane_operation(source: &str, line: &Line) -> Result<Statement, Error> {
         .ok_or_else(|| error("E188", line, "pane operation target must use `#grid`"))?;
     let grid = identifier(grid, line)?;
     let pane = |index: usize| {
-        identifier(
+        parse_pane_reference(
             parts
                 .get(index)
                 .ok_or_else(|| error("E188", line, "pane operation is missing a pane name"))?,
@@ -2106,6 +2106,26 @@ fn parse_pane_operation(source: &str, line: &Line) -> Result<Statement, Error> {
             .map(|route| parse_route(route.trim(), line))
             .transpose()?,
         span: Span::line(line.number),
+    })
+}
+
+fn parse_pane_reference(source: &str, line: &Line) -> Result<PaneReference, Error> {
+    if !source.contains('(') {
+        return Ok(PaneReference::Static(identifier(source, line)?));
+    }
+    let (template, args) = parse_signature(source, line)
+        .map_err(|_| error("E188", line, "dynamic pane references use `template(key)`"))?;
+    let mut args = parse_expr_list(&args, line)?;
+    if args.len() != 1 {
+        return Err(error(
+            "E188",
+            line,
+            "dynamic pane references require exactly one key",
+        ));
+    }
+    Ok(PaneReference::Dynamic {
+        template,
+        key: args.remove(0),
     })
 }
 
@@ -2932,9 +2952,14 @@ fn parse_pane_view(
     if !names.insert(name.clone()) {
         return Err(error("E187", line, format!("duplicate pane `{name}`")));
     }
+    let mut maximized = None;
     let mut style = ContainerStyleOptions::default();
     for part in style_parts {
-        if !parse_container_style_option(part, &mut style, line)? {
+        if let Some(value) = part.strip_prefix("maximized=") {
+            if maximized.replace(identifier(value, line)?).is_some() {
+                return Err(error("E187", line, "duplicate pane `maximized` binding"));
+            }
+        } else if !parse_container_style_option(part, &mut style, line)? {
             return Err(error(
                 "E187",
                 line,
@@ -2965,6 +2990,7 @@ fn parse_pane_view(
     };
     panes.push(PaneView {
         name: name.clone(),
+        maximized,
         content,
         title,
         styles,
@@ -3228,6 +3254,52 @@ fn parse_closed_pane(
     Ok(())
 }
 
+fn parse_pane_template(
+    line: &Line,
+    names: &mut std::collections::HashSet<String>,
+) -> Result<PaneTemplate, Error> {
+    let (core, styles) = split_style_utilities(&line.text);
+    let parts = split_words(core);
+    if parts.len() < 5 || parts[0] != "pane" || parts[2] != "in" {
+        return Err(error(
+            "E187",
+            line,
+            "dynamic pane templates use `pane item in state by=item.id`",
+        ));
+    }
+    let key = parts[4].strip_prefix("by=").ok_or_else(|| {
+        error(
+            "E187",
+            line,
+            "dynamic pane templates use `pane item in state by=item.id`",
+        )
+    })?;
+    let item = identifier(&parts[1], line)?;
+    let items = identifier(&parts[3], line)?;
+    let mut panes = Vec::new();
+    parse_pane_view(&item, &parts[5..], styles, line, names, &mut panes)?;
+    let pane = panes.pop().expect("pane template was parsed");
+    if pane.maximized.as_deref() == Some(item.as_str()) {
+        return Err(error(
+            "E187",
+            line,
+            "pane `maximized` binding must differ from its template item",
+        ));
+    }
+    Ok(PaneTemplate {
+        item,
+        items,
+        key: parse_expr(strip_wrapping_parens(key), line)?,
+        pane,
+        span: Span::line(line.number),
+    })
+}
+
+fn is_pane_template(line: &Line) -> bool {
+    let (core, _) = split_style_utilities(&line.text);
+    split_words(core).get(2).map(String::as_str) == Some("in")
+}
+
 fn parse_pane_grid(parts: &[String], styles: Vec<String>, line: &Line) -> Result<ViewNode, Error> {
     if !styles.is_empty() {
         return Err(error(
@@ -3320,6 +3392,7 @@ fn parse_pane_grid(parts: &[String], styles: Vec<String>, line: &Line) -> Result
     let mut names = std::collections::HashSet::new();
     let mut splits = std::collections::HashSet::new();
     let mut panes = Vec::new();
+    let mut templates = Vec::new();
     let configuration = if let Some(axis) = legacy_axis {
         if children.len() < 2 {
             return Err(error(
@@ -3339,7 +3412,11 @@ fn parse_pane_grid(parts: &[String], styles: Vec<String>, line: &Line) -> Result
             ));
         }
         for pane in &children[2..] {
-            parse_closed_pane(pane, &mut names, &mut panes)?;
+            if is_pane_template(pane) {
+                templates.push(parse_pane_template(pane, &mut names)?);
+            } else {
+                parse_closed_pane(pane, &mut names, &mut panes)?;
+            }
         }
         PaneConfiguration::Split {
             name: None,
@@ -3366,7 +3443,11 @@ fn parse_pane_grid(parts: &[String], styles: Vec<String>, line: &Line) -> Result
         let configuration =
             parse_pane_configuration(configuration, &mut names, &mut splits, &mut panes)?;
         for pane in closed {
-            parse_closed_pane(pane, &mut names, &mut panes)?;
+            if is_pane_template(pane) {
+                templates.push(parse_pane_template(pane, &mut names)?);
+            } else {
+                parse_closed_pane(pane, &mut names, &mut panes)?;
+            }
         }
         configuration
     };
@@ -3375,6 +3456,7 @@ fn parse_pane_grid(parts: &[String], styles: Vec<String>, line: &Line) -> Result
         configuration,
         options,
         panes,
+        templates,
         span: Span::line(line.number),
     })
 }
