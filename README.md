@@ -90,6 +90,8 @@ native styling, image URI access, link events, and typed custom viewers.
 The showcase also contains a typed structured table with arbitrary header and
 cell subtrees, an automatically bound syntax-highlighted text editor, and
 structured keyboard press/release/modifier subscriptions.
+It also compiles the full tree through an explicit app renderer type and a Rust
+component that borrows `str` and `bool` props into its returned `Element`.
 It also exercises native system information/theme tasks and theme-change
 subscriptions, standard/primary clipboard reads and writes, and every checked
 window effect/query task. Compile fixtures cover every native window,
@@ -148,7 +150,7 @@ cargo fmt --all
 
 ## Status
 
-This is an executable v1.34 language slice, not yet a complete iced replacement.
+This is an executable v1.35 language slice, not yet a complete iced replacement.
 It implements typed extern data/actions, state, handlers, async tasks, pure
 components with named props, default children, named structural slots, and
 React-like qualified compound children, scoped IDs, relative
@@ -174,7 +176,7 @@ output-dependent typed task flows, and iced code generation, including native
 `done`/`none` sources, output `map`, `map-error`, and fallible `collect`, plus checked startup
 font embedding, complete iced font descriptors, stateful
 native Canvas programs, and typed native wgpu Shader programs.
-Owned extern Elements may also implement the complete advanced Overlay trait,
+Owned or borrowed extern Elements may also implement the complete advanced Overlay trait,
 including nested overlays and custom index ordering.
 Static and direct dynamic app IDs also support
 direct focus, cursor, selection, and scroll tasks. Static application and

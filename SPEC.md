@@ -1,4 +1,4 @@
-# Ice Language Specification 1.34
+# Ice Language Specification 1.35
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 1.34 syntax.
+marked “planned” is a design constraint, not accepted 1.35 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 1.34.
+  block comments are not part of 1.35.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -135,7 +135,7 @@ app_decl       = "app" PascalName (INDENT app_setting*)?
 app_setting    = "title" expr | "theme" expr
                | ("background" | "text-color") expr
                | "id" string | "font" string
-               | "executor" rust_path
+               | ("executor" | "renderer") rust_path
                | "default-text-size" number | "scale-factor" expr
                | ("antialiasing" | "vsync") bool
                | window_decl
@@ -180,6 +180,9 @@ extern_item    = struct_sig | function_sig | extern_component_sig
 struct_sig     = PascalName "(" field_list? ")"
 field_list     = field ("," field)*
 field          = name ":" type
+extern_component_field_list
+               = extern_component_field ("," extern_component_field)*
+extern_component_field = name ":" "&"? type
 type           = "bool" | "i64" | "f64" | "str" | "bytes" | "image"
                | "markdown" | "editor" | "event" | "instant" | "window-id"
                | "key" | "physical-key" | "key-location" | "key-modifiers"
@@ -195,7 +198,7 @@ type           = "bool" | "i64" | "f64" | "str" | "bytes" | "image"
                | "combo[" type "]"
 function_sig   = name "(" field_list? ")" "->" type ("!" type)?
 extern_component_sig
-               = "component" name "(" field_list? ")" "->" type
+               = "component" name "(" extern_component_field_list? ")" "->" type
 extern_selector_sig
                = "selector" name "(" field_list? ")" "->" type
 extern_shader_sig
@@ -937,6 +940,7 @@ app Tasks
   text-color app_text
   id "dev.ducktape.ice.tasks"
   executor iced::executor::Default
+  renderer crate::backend::AppRenderer
   font "assets/Inter-Regular.ttf"
   font "assets/Inter-Bold.ttf"
   default-text-size 16
@@ -990,6 +994,10 @@ configuration.
 `executor` is a Rust type path passed to iced's typed `Application::executor`;
 rustc reports a local generated-code error when the type is missing or does not
 implement `iced::Executor`.
+`renderer` selects the app's concrete `iced::program::Renderer` type. It
+defaults to `iced::Renderer`; generated view and extern `Element` signatures
+use the selected type, so rustc checks its renderer, compositor, text, and
+headless contracts at the generated boundary.
 Each `font` path is relative to the root `.ice` file, must name an existing
 file during `cargo ice check`, and lowers to iced's startup
 `.font(include_bytes!(...))` builder. Repeating the same path is rejected;
@@ -1010,7 +1018,7 @@ maximum size. `icon-rgba` embeds a relative raw RGBA file without an image
 codec; width and height are positive integers, and generated Rust rejects a
 byte length other than `width × height × 4`. `cargo ice check` reports a
 mismatch at the icon declaration, and generated Rust repeats the check at
-compile time. Encoded icon formats remain outside 1.34.
+compile time. Encoded icon formats remain outside 1.35.
 
 Application boot presets are structured top-level declarations:
 
@@ -1561,7 +1569,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 1.34 message payloads.
+`Clone` for 1.35 message payloads.
 
 Declared `sync` functions are checked, synchronous Rust calls available in
 Ice expressions. They are the small escape hatch for pure domain conversions
@@ -1585,6 +1593,7 @@ expressions in Ice:
 ```ice
 extern crate::backend
   component native_help(active:bool) -> bool
+  component borrowed_help(label:&str, active:&bool) -> bool
   selector by_kind(kind:str) -> str
   shader status_shader(speed:f64) -> bool
   task copy_text(text:str) -> unit
@@ -1619,6 +1628,8 @@ Their Rust signatures are:
 
 ```rust
 fn native_help(active: bool) -> iced::Element<'static, bool>;
+fn borrowed_help<'a>(label: &'a str, active: &'a bool)
+    -> iced::Element<'a, bool, iced::Theme, AppRenderer>;
 fn by_kind(kind: String) -> impl iced::widget::selector::Selector<Output = String>;
 fn status_shader(speed: f64) -> impl iced::widget::shader::Program<bool>;
 fn copy_text(text: String) -> iced::Task<()>;
@@ -1654,8 +1665,12 @@ fn view_menu(theme: &iced::Theme, active: bool) -> iced::overlay::menu::Style;
 fn workspace_panes(theme: &iced::Theme, active: bool) -> iced::widget::pane_grid::Style;
 ```
 
-An extern component receives owned props and returns a default-renderer
-`Element<'static, Event>`. A shader factory returns any concrete
+An extern component parameter without `&` is owned. `&str`, `&bytes`, and
+`&[T]` lower to borrowed slices; any other `&T` parameter lowers to a shared
+Rust reference. A component may therefore return `Element<'a, Event, Theme,
+Renderer>` borrowing app state, while owned-only components may return
+`Element<'static, Event, Theme, Renderer>`. Both use the app's configured
+renderer. A shader factory returns any concrete
 `shader::Program<Event>`; Ice constructs the native `Shader`, exposes its full
 width/height builder API, and maps the program's published event through a
 checked route:
@@ -2493,10 +2508,12 @@ component instance scope.
 
 ### Extern components and subscriptions
 
-An extern component is an owned Rust `Element` adapter:
+An extern component is a typed Rust `Element` adapter with owned or borrowed
+parameters:
 
 ```ice
 extern native_help(external_hover) -> external_hover_changed _
+extern borrowed_help(draft, external_hover) -> external_hover_changed _
 ```
 
 Its arguments and emitted payload are checked against the declaration. A
@@ -3330,7 +3347,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 1.34 does not claim that remapping.
+extern line; 1.35 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -3351,12 +3368,13 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 1.34 native backend is enough for CRUD/settings-style screens, selection,
+The 1.35 native backend is enough for CRUD/settings-style screens, selection,
 media, hover overlays, declarative canvas geometry, and common pointer events,
-not all of iced. It still lacks borrowed custom widgets and a custom renderer
-boundary. [`COVERAGE.md`](COVERAGE.md) is the exact versioned ledger.
+not all of iced. Borrowed custom widgets and an application-wide renderer type
+are supported; a windowless `iced::Daemon` root is the next uncovered runtime
+surface. [`COVERAGE.md`](COVERAGE.md) is the exact versioned ledger.
 
-The language must not grow one ad-hoc syntax form for every iced API. Thirty-two
+The language must not grow one ad-hoc syntax form for every iced API. Thirty-three
 typed Rust boundaries cover domain work, native elements and programs, runtime
 tasks and subscriptions, Markdown viewers, and native style callbacks without
 admitting arbitrary Rust into expressions or duplicating iced in the core

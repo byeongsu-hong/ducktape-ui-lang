@@ -19,6 +19,9 @@ mod backend {
     pub type SliderNumber = f32;
 
     #[cfg(test)]
+    pub type AppRenderer = iced::Renderer;
+
+    #[cfg(test)]
     pub fn keyboard_value(
         key: iced::keyboard::Key,
         _: iced::keyboard::key::Physical,
@@ -433,6 +436,20 @@ mod backend {
         ))
         .on_enter(true)
         .on_exit(false)
+        .into()
+    }
+
+    #[cfg(test)]
+    pub fn borrowed_help<'a>(
+        label: &'a str,
+        active: &'a bool,
+    ) -> iced::Element<'a, bool, iced::Theme, AppRenderer> {
+        iced::widget::button(iced::widget::text(if label.is_empty() {
+            "Borrowed extern component"
+        } else {
+            label
+        }))
+        .on_press(!*active)
         .into()
     }
 

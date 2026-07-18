@@ -15,12 +15,13 @@ counts toward the row below.
 
 ## Typed system reachability
 
-Ice 1.34 has thirty-two checked Rust boundaries:
+Ice 1.35 has thirty-three checked Rust boundaries:
 
 | Boundary | Rust ABI | Covers |
 | --- | --- | --- |
 | `name(args)` | `async fn(...) -> Output` or `Result<Output, Error>` | domain I/O and arbitrary futures through native `Task::perform` |
-| `component name(args)` | `fn(...) -> Element<'static, Event>` | any owned default-renderer widget tree, including custom widgets |
+| `component name(args)` | `fn<'a>(..., &'a T, ...) -> Element<'a, Event, Theme, Renderer>` or an owned `'static` form | any owned or app-state-borrowing widget tree using the configured theme and renderer, including custom widgets |
+| app `renderer rust_path` | concrete `iced::program::Renderer` type | application-wide custom graphics renderer/compositor selection, propagated through every generated `Element` and checked by rustc |
 | `selector name(args)` | `fn(...) -> impl widget::selector::Selector<Output = Event>` | custom native matching over every widget candidate with arbitrary checked outputs |
 | `shader name(args)` | `fn(...) -> impl shader::Program<Event>` | native wgpu primitives, pipeline/storage, state, events, redraw, capture, and mouse interaction |
 | `task name(args)` | `fn(...) -> Task<Event>` or `Task<Result<Event, Error>>` | widget/window/clipboard/font/system operations and arbitrary task composition |
@@ -103,7 +104,8 @@ public behavior has direct documented Ice syntax and tests.
 
 | iced surface | Ice status | Current representation / missing work |
 | --- | --- | --- |
-| application settings | native | state-dependent title, all built-in/custom theme selection, base background/text style and guarded scale-factor callbacks; application ID, custom typed executor, ordered checked font byte preloads, default text size/font, antialiasing, vsync, codec-free checked RGBA icons, complete initial/named window settings including structured Linux, Windows, macOS, and Wasm fields, structured state/task boot presets and run |
+| application settings | native | state-dependent title, all built-in/custom theme selection, base background/text style and guarded scale-factor callbacks; application ID, custom typed executor and renderer, ordered checked font byte preloads, default text size/font, antialiasing, vsync, codec-free checked RGBA icons, complete initial/named window settings including structured Linux, Windows, macOS, and Wasm fields, structured state/task boot presets and run |
+| `Daemon` | missing | no windowless root/lifecycle adapter; generated roots currently use `iced::application` and require an initial window |
 | `Theme` and styles | native | all 22 built-in default-renderer themes, generated app palettes, typed native factories including `custom`/`custom_with_fn` and complete extended-palette logic, app/nested selection, checked color tokens and utilities, complete widget-native catalogs, concrete style fields, and typed runtime callbacks |
 | `Task` | native | complete public `iced::Task` construction and composition through async/task/stream/sip externs, direct `done`/`none`, system/clipboard/font/widget/window tasks, `batch`, `chain`, abortable handles including abort-on-drop/query, `map`, output-dependent `then`, optional-or-result `and_then`, `map_err`, result-preserving `collect`, `discard`, and `units`; `future`/`stream` identity forms are represented by perform/run extern sources, and default/unit conversion by `none` |
 | `Subscription` | native | complete application-facing construction and composition: typed arbitrary adapters, `none`, `batch`, checked conditional activation/status filters, direct every/repeat timers, native `listen`/`listen_with`/`listen_raw` generic events, input-method/keyboard/mouse/touch/window sources (with optional typed IDs on all eleven discrete window events) and system theme changes, typed `run`/`run_with` workers, custom `Recipe` factories through `from_recipe`, raw `EventStream` filters with hashable identity, `with` identity context, typed `map` routing, noncapturing typed `filter_map`, and `units`; advanced `into_recipes` is runtime-consumer plumbing rather than subscription construction or behavior |
@@ -121,8 +123,8 @@ public behavior has direct documented Ice syntax and tests.
 | `Padding` | native | zero/default, uniform/per-side/axis constructors, f32/u16-equivalent scalar and axis conversions, exact Pixels conversion, every side and x/y projection, all six native builder methods, `fit`, Size conversion, Rectangle expansion/shrinking, equality, and typed extern passage cover the complete public behavior |
 | `Degrees` / `Radians` | native | numeric construction and f64 projection, equality/order including native angle-left scalar comparison, full range constants and containment, Degrees scaling, exact Degrees-to-Radians conversion, PI/display, every native Radians mixed arithmetic form including remainder and reverse scalar multiplication, both `to_distance` points, geometry rotation/vertex integration, and typed extern passage cover the complete public behavior |
 | `Transformation` | native | identity/default, orthographic, translate, scale, inverse, scale/translation inspection, composition, lossless matrix conversion, equality, typed extern passage, and native application to every supported geometry and pointer value cover the complete public behavior |
-| custom widget | partial | typed owned `Element<'static, Event>` adapter plus owned alternate-Theme subtrees; borrowed elements and custom Renderer remain |
-| custom renderer | missing | renderer/graphics backend escape hatch |
+| custom widget | native | typed owned or app-state-borrowing `Element` adapters with checked event routing, selected Theme/Renderer propagation, alternate-Theme subtrees, and the complete advanced Widget/Overlay escape hatch |
+| custom renderer | native | checked application-wide concrete `iced::program::Renderer` type path propagated through every generated `Element`, including extern components, shaders, alternate themes, and editor adapters |
 
 The free `iced_runtime::task` constructors such as `oneshot`, `channel`,
 `blocking`, and `effect` are not re-exported by `iced::task`; they are outside

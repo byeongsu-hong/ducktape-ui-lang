@@ -412,6 +412,7 @@ fn parse_app_settings(line: &Line) -> Result<AppSettings, Error> {
             "text-color" => set!(text_color, app_expression(value, item)?),
             "id" => set!(id, string_literal(value, item)?),
             "executor" => set!(executor, rust_path(value, item)?),
+            "renderer" => set!(renderer, rust_path(value, item)?),
             "font" => {
                 let path = string_literal(value, item)?;
                 if path.is_empty()
@@ -1089,12 +1090,25 @@ fn parse_extern_fn(
     let name = identifier(source[..source.find('(').unwrap_or(0)].trim(), line)?;
     let params_source = &source[source.find('(').unwrap_or(0) + 1..close];
     let mut params = Vec::new();
+    let mut borrowed = Vec::new();
     if !params_source.trim().is_empty() {
         for param in split_top(params_source, ',') {
             let Some((name, ty)) = param.split_once(':') else {
                 return Err(error("E021", line, "function parameters use `name:type`"));
             };
-            params.push((identifier(name.trim(), line)?, parse_type(ty.trim(), line)?));
+            let ty = ty.trim();
+            let (is_borrowed, ty) = ty
+                .strip_prefix('&')
+                .map_or((false, ty), |ty| (true, ty.trim_start()));
+            if is_borrowed && kind != ExternKind::Component {
+                return Err(error(
+                    "E021",
+                    line,
+                    "only extern component parameters may borrow with `&type`",
+                ));
+            }
+            params.push((identifier(name.trim(), line)?, parse_type(ty, line)?));
+            borrowed.push(is_borrowed);
         }
     }
     let rest = source[close + 1..].trim();
@@ -1174,6 +1188,7 @@ fn parse_extern_fn(
         rust_path: format!("{namespace}::{name}"),
         name,
         params,
+        borrowed,
         progress,
         output,
         error: error_ty,
@@ -9103,6 +9118,38 @@ view
     }
 
     #[test]
+    fn parses_borrowed_component_parameters() {
+        let source = r#"app Borrowed
+extern crate::backend
+  Item(label:str)
+  component native_row(label:&str, items:&[Item], active:&bool) -> bool
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  label = "Borrowed"
+  items:[Item] = []
+  active = false
+on changed(next)
+view
+  extern native_row(label, items, active) -> changed _
+"#;
+        let document = parse(source).unwrap();
+        assert_eq!(document.functions[0].borrowed, vec![true, true, true]);
+        assert_eq!(document.functions[0].params[0].1, Type::Str);
+        assert_eq!(
+            document.functions[0].params[1].1,
+            Type::List(Box::new(Type::Named("Item".into())))
+        );
+
+        let error = parse(&source.replace("component native_row", "sync native_row")).unwrap_err();
+        assert_eq!(error.code, "E021");
+        assert!(error.message.contains("only extern component parameters"));
+    }
+
+    #[test]
     fn parses_all_native_time_operations() {
         let source = include_str!("../../../examples/iced-app/src/ui/timer.ice");
         let document = parse(source).unwrap();
@@ -9747,6 +9794,7 @@ view
   text-color "#abcdef"
   id "dev.example.demo"
   executor iced::executor::Default
+  renderer crate::backend::Renderer
   font "assets/Brand.ttf"
   font "assets/Icons.otf"
   default-text-size 15
@@ -9787,6 +9835,10 @@ view
         assert_eq!(
             document.settings.executor.as_deref(),
             Some("iced::executor::Default")
+        );
+        assert_eq!(
+            document.settings.renderer.as_deref(),
+            Some("crate::backend::Renderer")
         );
         assert!(matches!(
             document
