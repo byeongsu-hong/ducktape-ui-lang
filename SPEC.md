@@ -1,4 +1,4 @@
-# Ice Language Specification 1.37
+# Ice Language Specification 1.38
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 1.37 syntax.
+marked “planned” is a design constraint, not accepted 1.38 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 1.37.
+  block comments are not part of 1.38.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -184,10 +184,11 @@ extern_component_field_list
                = extern_component_field ("," extern_component_field)*
 extern_component_field = name ":" "&"? type
 type           = "bool" | "i64" | "f64" | "str" | "bytes" | "image"
+               | "image-allocation" | "image-memory" | "image-error"
                | "markdown" | "editor" | "event" | "instant" | "window-id"
                | "key" | "physical-key" | "key-location" | "key-modifiers"
                | "pixels" | "padding" | "degrees" | "radians"
-               | "point" | "point-u32" | "vector" | "size"
+               | "point" | "point-u32" | "vector" | "size" | "size-u32"
                | "rectangle" | "rectangle-u32"
                | "transformation" | "mouse-button" | "mouse-cursor"
                | "mouse-click" | "touch-finger"
@@ -309,6 +310,7 @@ statement      = name "=" expr ("at" expr)?
                | "task clipboard" ("read" | "read-primary") "->" route
                | "task clipboard" ("write" | "write-primary") expr
                | "task font load" expr "->" route
+               | "task image allocate" expr "->" route "|" route
                | "task widget" widget_operation ("->" route)?
                | "pane" "#" name pane_operation ("->" route)?
                | window_task
@@ -327,6 +329,7 @@ task_source    = ("run" | "task" | "stream") call
                | "task system" ("info" | "theme")
                | "task clipboard" ("read" | "read-primary")
                | "task font load" expr
+               | "task image allocate" expr
 flow_item      = "map" name "->" expr
                | ("then" | "and-then") name "->" task_source
                | "map-error" name "->" expr
@@ -345,6 +348,7 @@ native_task    = "task time now" "->" route
                | "task clipboard" ("read" | "read-primary") "->" route
                | "task clipboard" ("write" | "write-primary") expr
                | "task font load" expr "->" route
+               | "task image allocate" expr "->" route "|" route
                | "task widget" widget_operation ("->" route)?
                | "pane" "#" name pane_operation ("->" route)?
                | window_task
@@ -1026,7 +1030,7 @@ maximum size. `icon-rgba` embeds a relative raw RGBA file without an image
 codec; width and height are positive integers, and generated Rust rejects a
 byte length other than `width × height × 4`. `cargo ice check` reports a
 mismatch at the icon declaration, and generated Rust repeats the check at
-compile time. Encoded icon formats remain outside 1.37.
+compile time. Encoded icon formats remain outside 1.38.
 
 Use `daemon Name` instead of `app Name` for an iced daemon that starts without
 an initial window and remains alive after all windows close. A daemon rejects
@@ -1573,6 +1577,11 @@ button "Add" disabled=(loading || empty(trim(draft))) -> submit
 | `animation[bool]` | `iced::Animation<bool>` |
 | `animation[f64]` | `iced::Animation<f32>`; expressions convert at the Ice numeric boundary |
 | `animation[Name]` | `iced::Animation<crate::...::Name>`; rustc verifies `Copy + PartialEq + iced::animation::Float` |
+| `image` | `iced::widget::image::Handle` |
+| `image-allocation` | `iced::widget::image::Allocation` |
+| `image-memory` | `Weak<iced::advanced::image::Memory>` |
+| `image-error` | `iced::widget::image::Error` |
+| `size-u32` | `iced::Size<u32>` |
 | `instant` | `iced::time::Instant` |
 | `window-id` | `iced::window::Id` |
 | `markdown` | `iced::widget::markdown::Content` |
@@ -1604,7 +1613,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 1.37 message payloads.
+`Clone` for 1.38 message payloads.
 
 Declared `sync` functions are checked, synchronous Rust calls available in
 Ice expressions. They are the small escape hatch for pure domain conversions
@@ -1870,6 +1879,8 @@ The expression language contains:
   `transform.point(point, transformation)`;
 - native units such as `pixels(value)`, `padding.all(value)`, `degrees(value)`,
   and `radians(value)`;
+- image allocation retention with `image.downgrade(allocation) -> image-memory`
+  and `image.upgrade(memory) -> image-allocation?`;
 - animation queries `animation.value(state)`,
   `animation.animating(state[, at])`,
   `animation.interpolate(bool_state, start, end[, at])` for matching `f64` or
@@ -1896,8 +1907,34 @@ view
   image pixel crop=(0, 0, 1, 1)
 ```
 
-There is no arbitrary Rust expression, method call, closure, allocation API, or
-implicit truthiness. New operations either belong in a small universal builtin
+Explicit allocation prevents the first-frame delay of lazily uploaded image
+handles. Hold the returned allocation for as long as the guarantee is needed:
+
+```ice
+state
+  handle:image = rgba(1, 1, bytes(ff 00 ff ff))
+  allocation:image-allocation? = none
+  failure:image-error? = none
+
+on prepare
+  task image allocate handle -> ready _ | failed _
+
+on ready(value)
+  allocation = some(value)
+
+on failed(error)
+  failure = some(error)
+```
+
+`image-allocation` exposes `.handle` and exact `.size:size-u32`; `size-u32`
+exposes integer `.width` and `.height`. `image-error` preserves the native
+value and exposes `.kind` (`invalid`, `inaccessible`, `unsupported`, `empty`,
+or `out-of-memory`) plus its display `.message`. Downgrade/upgrade expose the
+native weak-memory lifecycle. This task requires iced's `image` Cargo feature,
+not only `image-without-codecs`.
+
+There is no arbitrary Rust expression, method call, closure, general allocation
+API, or implicit truthiness. New operations either belong in a small universal builtin
 set or behind a typed extern function.
 
 ## 7. Handlers and effects
@@ -2042,7 +2079,7 @@ on start
 ```
 
 `from` accepts an extern `run`, `task`, or `stream` source and the built-in
-system, clipboard-read, and font-load tasks. It also accepts `done expr` and
+system, clipboard-read, font-load, and image-allocation tasks. It also accepts `done expr` and
 `none Type`, which lower directly to `Task::done` and `Task::none`:
 
 ```ice
@@ -3064,6 +3101,16 @@ on load_font
 The expression must be `bytes`, the success payload is `unit`, and the task is
 treated as infallible because iced's current `font::Error` has no variants.
 
+Image preallocation is a fallible native task:
+
+```ice
+task image allocate handle -> allocated _ | allocation_failed _
+```
+
+Success carries `image-allocation`; failure carries the exact `image-error`.
+Both routes are required, and the task composes inside task groups, abortable
+tasks, and typed task flows.
+
 Widget operation tasks target checked IDs in the app view:
 
 ```ice
@@ -3427,7 +3474,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 1.37 does not claim that remapping.
+extern line; 1.38 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -3448,7 +3495,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 1.37 native backend covers both windowed applications and windowless
+The 1.38 native backend covers both windowed applications and windowless
 daemons alongside CRUD/settings-style screens, selection, media, hover
 overlays, declarative canvas geometry, and pointer events. Borrowed custom
 widgets and an application-wide renderer type remain the escape hatch for

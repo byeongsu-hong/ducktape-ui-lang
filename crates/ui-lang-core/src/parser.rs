@@ -2045,6 +2045,16 @@ fn parse_effect_call(
             "__ice_font_load".into(),
             vec![parse_expr(value.trim(), line)?],
         ))
+    } else if kind == EffectKind::Task
+        && let Some(value) = call.strip_prefix("image allocate ")
+    {
+        if value.trim().is_empty() {
+            return Err(error("E050", line, "image allocation requires a handle"));
+        }
+        Ok((
+            "__ice_image_allocate".into(),
+            vec![parse_expr(value.trim(), line)?],
+        ))
     } else if call.starts_with("system ") {
         Err(error(
             "E050",
@@ -2062,6 +2072,12 @@ fn parse_effect_call(
             "E050",
             line,
             "font task must be `task font load bytes -> loaded`",
+        ))
+    } else if call.starts_with("image ") {
+        Err(error(
+            "E050",
+            line,
+            "image task must be `task image allocate handle -> ready _ | failed _`",
         ))
     } else if call.starts_with("time ") {
         Err(error("E050", line, "time task must be `task time now`"))
@@ -8576,6 +8592,9 @@ fn parse_type(source: &str, line: &Line) -> Result<Type, Error> {
         "str" => Type::Str,
         "bytes" => Type::Bytes,
         "image" => Type::Image,
+        "image-allocation" => Type::ImageAllocation,
+        "image-memory" => Type::ImageMemory,
+        "image-error" => Type::ImageError,
         "markdown" => Type::Markdown,
         "editor" => Type::Editor,
         "event" => Type::Event,
@@ -8591,6 +8610,7 @@ fn parse_type(source: &str, line: &Line) -> Result<Type, Error> {
         "point-u32" => Type::PointU32,
         "vector" => Type::Vector,
         "size" => Type::Size,
+        "size-u32" => Type::SizeU32,
         "rectangle" => Type::Rectangle,
         "rectangle-u32" => Type::RectangleU32,
         "transformation" => Type::Transformation,
@@ -9196,6 +9216,29 @@ fn error(code: &'static str, line: &Line, message: impl Into<String>) -> Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_native_image_allocation_types_and_task() {
+        let source = include_str!("../../../examples/iced-app/src/ui/image_allocation.ice");
+        let document = parse(source).unwrap();
+        assert_eq!(
+            document.states[1].ty,
+            Type::Option(Box::new(Type::ImageAllocation))
+        );
+        assert_eq!(
+            document.states[2].ty,
+            Type::Option(Box::new(Type::ImageMemory))
+        );
+        assert_eq!(
+            document.states[4].ty,
+            Type::Option(Box::new(Type::ImageError))
+        );
+        assert!(matches!(
+            &document.handlers[0].statements[0],
+            Statement::Run { function, args, error: Some(_), .. }
+                if function == "__ice_image_allocate" && args.len() == 1
+        ));
+    }
 
     #[test]
     fn parses_native_animation_configuration_and_explicit_time() {

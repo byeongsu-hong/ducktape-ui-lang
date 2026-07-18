@@ -1782,6 +1782,47 @@ mod animation {
 }
 
 #[cfg(test)]
+mod image_allocation {
+    ui_lang::include_app!("src/ui/image_allocation.ice");
+
+    #[test]
+    fn constructs_native_allocation_and_preserves_exact_errors() {
+        use iced::futures::StreamExt;
+
+        let (mut app, _) = ImageAllocation::__boot();
+        let task = app.__update(__ImageAllocationMessage::Allocate);
+        assert_eq!(task.units(), 1);
+        let mut stream = iced_runtime::task::into_stream(task).unwrap();
+        let message = iced::futures::executor::block_on(async move {
+            let iced_runtime::Action::Image(iced_runtime::image::Action::Allocate(_, sender)) =
+                stream.next().await.unwrap()
+            else {
+                panic!("expected native image allocation action")
+            };
+            sender
+                .send(Err(iced::widget::image::Error::Unsupported))
+                .unwrap();
+            let iced_runtime::Action::Output(message) = stream.next().await.unwrap() else {
+                panic!("expected routed allocation error")
+            };
+            message
+        });
+        assert_eq!(
+            app.__update(__ImageAllocationMessage::AllocateFlow).units(),
+            1
+        );
+        let _ = app.__update(message);
+        assert_eq!(app.error_kind, "unsupported");
+        assert_eq!(app.error_message, "loading images is unsupported");
+        assert!(matches!(
+            app.failure,
+            Some(iced::widget::image::Error::Unsupported)
+        ));
+        let _ = app.__view();
+    }
+}
+
+#[cfg(test)]
 mod canvas_events {
     ui_lang::include_app!("src/ui/canvas_events.ice");
 

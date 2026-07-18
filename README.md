@@ -118,6 +118,8 @@ Key files:
 - [`animation.ice`](examples/iced-app/src/ui/animation.ice) declares native
   boolean/numeric animation state with checked easing, timing, projection, and
   active-frame driving;
+- [`image_allocation.ice`](examples/iced-app/src/ui/image_allocation.ice)
+  preallocates image handles and retains exact native allocation/error values;
 - [`task_map.ice`](examples/iced-app/src/ui/task_map.ice) executes native task
   output/optional mapping and fallible error preservation;
 - [`theme_factory.ice`](examples/iced-app/src/ui/theme_factory.ice) executes a
@@ -153,7 +155,7 @@ cargo fmt --all
 
 ## Status
 
-This is an executable v1.37 language slice, not yet a complete iced replacement.
+This is an executable v1.38 language slice, not yet a complete iced replacement.
 It implements typed extern data/actions, state, handlers, async tasks, pure
 components with named props, default children, named structural slots, and
 React-like qualified compound children, scoped IDs, relative

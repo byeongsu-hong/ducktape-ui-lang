@@ -3807,6 +3807,10 @@ fn lazy_hashable(ty: &Type) -> bool {
         | Type::WidgetTarget
         | Type::TaskHandle
         | Type::Image
+        | Type::ImageAllocation
+        | Type::ImageMemory
+        | Type::ImageError
+        | Type::SizeU32
         | Type::Unit
         | Type::Unknown => false,
     }
@@ -5620,14 +5624,27 @@ fn infer_runs(
                     "stream routes accept at most one `_`; read other state in the handler",
                 ));
             }
-            if let Some(output) = builtin_task_output(*kind, function, args, span)? {
+            if let Some((output, builtin_error)) = builtin_task_type(*kind, function, args, span)? {
                 infer_route(success, Some(output), &unknown_env, document, signatures)?;
-                if error.is_some() {
-                    return Err(Error::new(
-                        "E131",
-                        span,
-                        "built-in tasks are infallible and cannot have an error route",
-                    ));
+                match (builtin_error, error) {
+                    (Some(error_ty), Some(route)) => {
+                        infer_route(route, Some(error_ty), &unknown_env, document, signatures)?
+                    }
+                    (Some(_), None) => {
+                        return Err(Error::new(
+                            "E131",
+                            span,
+                            "fallible built-in task requires an error route",
+                        ));
+                    }
+                    (None, Some(_)) => {
+                        return Err(Error::new(
+                            "E131",
+                            span,
+                            "infallible built-in task cannot have an error route",
+                        ));
+                    }
+                    (None, None) => {}
                 }
                 continue;
             }
@@ -6007,11 +6024,17 @@ fn check_handler(
                         format!("{effect} must be the final statement in a handler"),
                     ));
                 }
-                if builtin_task_output(*kind, function, args, span)?.is_some() {
+                if builtin_task_type(*kind, function, args, span)?.is_some() {
                     if function == "__ice_font_load" {
                         require_type(
                             &expr_type(&args[0], &env, document, span)?,
                             &Type::Bytes,
+                            span,
+                        )?;
+                    } else if function == "__ice_image_allocate" {
+                        require_type(
+                            &expr_type(&args[0], &env, document, span)?,
+                            &Type::Image,
                             span,
                         )?;
                     }
@@ -6649,26 +6672,36 @@ fn check_call_args(
     Ok(())
 }
 
-fn builtin_task_output(
+fn builtin_task_type(
     kind: EffectKind,
     function: &str,
     args: &[Expr],
     span: &Span,
-) -> Result<Option<Type>, Error> {
+) -> Result<Option<(Type, Option<Type>)>, Error> {
     let output = match (kind, function) {
-        (EffectKind::Task, "__ice_system_info") => Some(Type::SystemInfo),
-        (EffectKind::Task, "__ice_system_theme") => Some(Type::Str),
-        (EffectKind::Task, "__ice_time_now") => Some(Type::Instant),
+        (EffectKind::Task, "__ice_system_info") => Some((Type::SystemInfo, None)),
+        (EffectKind::Task, "__ice_system_theme") => Some((Type::Str, None)),
+        (EffectKind::Task, "__ice_time_now") => Some((Type::Instant, None)),
         (EffectKind::Task, "__ice_clipboard_read" | "__ice_clipboard_read_primary") => {
-            Some(Type::Option(Box::new(Type::Str)))
+            Some((Type::Option(Box::new(Type::Str)), None))
         }
-        (EffectKind::Task, "__ice_font_load") => Some(Type::Unit),
+        (EffectKind::Task, "__ice_font_load") => Some((Type::Unit, None)),
+        (EffectKind::Task, "__ice_image_allocate") => {
+            Some((Type::ImageAllocation, Some(Type::ImageError)))
+        }
         _ => None,
     };
-    if function == "__ice_font_load" && args.len() != 1 {
-        return Err(Error::new("E142", span, "font load expects one argument"));
+    if matches!(function, "__ice_font_load" | "__ice_image_allocate") && args.len() != 1 {
+        return Err(Error::new(
+            "E142",
+            span,
+            "this built-in task expects one argument",
+        ));
     }
-    if output.is_some() && function != "__ice_font_load" && !args.is_empty() {
+    if output.is_some()
+        && !matches!(function, "__ice_font_load" | "__ice_image_allocate")
+        && !args.is_empty()
+    {
         return Err(Error::new(
             "E142",
             span,
@@ -6700,15 +6733,21 @@ fn task_source_type(
             args,
             span,
         } => {
-            if let Some(output) = builtin_task_output(*kind, function, args, span)? {
+            if let Some((output, error)) = builtin_task_type(*kind, function, args, span)? {
                 if function == "__ice_font_load" {
                     require_type(
                         &expr_type(&args[0], env, document, span)?,
                         &Type::Bytes,
                         span,
                     )?;
+                } else if function == "__ice_image_allocate" {
+                    require_type(
+                        &expr_type(&args[0], env, document, span)?,
+                        &Type::Image,
+                        span,
+                    )?;
                 }
-                return Ok((output, None));
+                return Ok((output, error));
             }
             let action = extern_function(document, function, (*kind).into(), span)?;
             check_call_args(action, args, env, document, span)?;
@@ -7094,6 +7133,14 @@ pub(crate) fn expr_type(
             Ok(ty)
         }
         Expr::Call { name, args } => match name.as_str() {
+            "image.downgrade" => {
+                check_builtin_args(name, args, &[Type::ImageAllocation], env, document, span)?;
+                Ok(Type::ImageMemory)
+            }
+            "image.upgrade" => {
+                check_builtin_args(name, args, &[Type::ImageMemory], env, document, span)?;
+                Ok(Type::Option(Box::new(Type::ImageAllocation)))
+            }
             "animation.value" => {
                 check_animation_instant(name, args, 1, false, env, document, span)?;
                 animation_inner(&args[0], env, document, span)
@@ -8258,6 +8305,10 @@ fn field_type(ty: &Type, field: &str, document: &Document, span: &Span) -> Resul
             "values" => Some(Type::List(Box::new(Type::F64))),
             _ => None,
         },
+        Type::SizeU32 => match field {
+            "width" | "height" => Some(Type::I64),
+            _ => None,
+        },
         Type::Rectangle => match field {
             "x" | "y" | "width" | "height" => Some(Type::F64),
             "center" | "position" => Some(Type::Point),
@@ -8302,6 +8353,15 @@ fn field_type(ty: &Type, field: &str, document: &Document, span: &Span) -> Resul
             "cpu_brand" | "graphics_backend" | "graphics_adapter" => Some(Type::Str),
             "cpu_cores" | "memory_used" => Some(Type::Option(Box::new(Type::I64))),
             "memory_total" => Some(Type::I64),
+            _ => None,
+        },
+        Type::ImageAllocation => match field {
+            "handle" => Some(Type::Image),
+            "size" => Some(Type::SizeU32),
+            _ => None,
+        },
+        Type::ImageError => match field {
+            "kind" | "message" => Some(Type::Str),
             _ => None,
         },
         Type::WidgetTarget => match field {
@@ -8602,6 +8662,22 @@ fn type_error(span: &Span, expected: &Type, actual: &Type) -> Error {
 #[cfg(test)]
 mod tests {
     use crate::{PaneConfiguration, Type, ViewNode, analyze};
+
+    #[test]
+    fn checks_native_image_allocation_results_and_errors() {
+        let source = include_str!("../../../examples/iced-app/src/ui/image_allocation.ice");
+        let document = analyze(source).unwrap();
+        assert_eq!(document.handlers[1].params[0].ty, Type::ImageAllocation);
+        assert_eq!(document.handlers[2].params[0].ty, Type::ImageError);
+
+        let error = analyze(&source.replace(" | failed _", "")).unwrap_err();
+        assert_eq!(error.code, "E131");
+        assert!(error.message.contains("requires an error route"));
+
+        let error = analyze(&source.replace("allocate handle", "allocate width")).unwrap_err();
+        assert_eq!(error.code, "E101");
+        assert!(error.message.contains("expected `image`"));
+    }
 
     #[test]
     fn rejects_invalid_animation_boundaries_before_codegen() {
