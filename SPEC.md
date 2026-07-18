@@ -1,4 +1,4 @@
-# Ice Language Specification 0.94
+# Ice Language Specification 0.95
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.94 syntax.
+marked “planned” is a design constraint, not accepted 0.95 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.94.
+  block comments are not part of 0.95.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -131,11 +131,13 @@ document       = app_decl extern_decl? theme_decl qr_decl* state_decl?
 
 app_decl       = "app" PascalName (INDENT app_setting*)?
 app_setting    = "title" string | "id" string | "font" string
+               | "executor" rust_path
                | ("default-text-size" | "scale-factor") number
                | ("antialiasing" | "vsync") bool
                | window_decl
 window_decl    = "window" INDENT window_setting*
 window_setting = ("size" | "min-size" | "max-size") number number
+               | "icon-rgba" string u32 u32
                | "position" ("default" | "centered" | number number)
                | "level" ("normal" | "always-on-bottom" | "always-on-top")
                | ("maximized" | "fullscreen" | "visible" | "resizable"
@@ -804,6 +806,7 @@ Application configuration is static and lives under the app declaration:
 app Tasks
   title "Ice Tasks"
   id "dev.ducktape.ice.tasks"
+  executor iced::executor::Default
   font "assets/Inter-Regular.ttf"
   font "assets/Inter-Bold.ttf"
   default-text-size 16
@@ -811,6 +814,7 @@ app Tasks
   vsync true
   scale-factor 1
   window
+    icon-rgba "assets/app.rgba" 32 32
     size 960 720
     min-size 480 360
     max-size 1920 1080
@@ -819,17 +823,24 @@ app Tasks
 ```
 
 The application values lower to iced `Settings` and builder configuration.
+`executor` is a Rust type path passed to iced's typed `Application::executor`;
+rustc reports a local generated-code error when the type is missing or does not
+implement `iced::Executor`.
 Each `font` path is relative to the root `.ice` file, must name an existing
 file during `cargo ice check`, and lowers to iced's startup
 `.font(include_bytes!(...))` builder. Repeating the same path is rejected;
 different files may be loaded in declaration order.
-The window block covers every cross-platform `window::Settings` field except
-the binary icon: initial/minimum/maximum size, maximized/fullscreen state,
+The window block covers every cross-platform `window::Settings` field:
+initial/minimum/maximum size, maximized/fullscreen state,
 default/centered/fixed position, visibility, resizability, close/minimize
 buttons, decorations, transparency, blur, level, and close-request behavior.
 Sizes, text size, and scale factor must be positive; minimum size cannot exceed
-maximum size. Window icons and platform-specific settings are not part of
-0.94.
+maximum size. `icon-rgba` embeds a relative raw RGBA file without an image
+codec; width and height are positive integers, and generated Rust rejects a
+byte length other than `width × height × 4`. `cargo ice check` reports a
+mismatch at the icon declaration, and generated Rust repeats the check at
+compile time. Encoded icon formats and platform-specific settings are not part
+of 0.95.
 
 Media fixed lengths, rotation, opacity, scale, and radius are `f64`; rotation
 is radians and defaults to floating layout behavior, while `solid(angle)` makes
@@ -1248,7 +1259,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.94 message payloads.
+`Clone` for 0.95 message payloads.
 
 Declared `sync` functions are checked, synchronous Rust calls available in
 Ice expressions. They are the small escape hatch for pure domain conversions
@@ -2255,7 +2266,7 @@ snap/end; and absolute scroll-to/scroll-by. Effects have no route and
 non-negative `i64`; relative offsets are `f64` in `0.0..=1.0`; absolute
 offsets are unrestricted `f64`. Targets must be real static IDs in the app
 scope. Repeated/component scopes and the feature-gated selector API remain
-outside 0.94.
+outside 0.95.
 
 Persistent pane grids expose their native layout-state operations directly in
 handlers:
@@ -2302,7 +2313,8 @@ and constraints, resizability, maximize/minimize state, position and movement,
 all modes, decorations, user attention, focus, level, system menu, mouse
 passthrough, monitor size, and automatic tabbing. Positive sizes and bool
 arguments are checked before Rust generation. New-window IDs, open/oldest/latest,
-icons, raw handles, screenshots, and callbacks remain outside 0.94.
+runtime icon changes, raw handles, screenshots, and callbacks remain outside
+0.95.
 
 Every iced window event has a direct subscription form:
 
@@ -2455,7 +2467,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 0.94 does not claim that remapping.
+extern line; 0.95 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -2476,7 +2488,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 0.94 native backend is enough for CRUD/settings-style screens, selection,
+The 0.95 native backend is enough for CRUD/settings-style screens, selection,
 media, hover overlays, declarative canvas geometry, and common pointer events,
 not all of iced. It still lacks direct syntax for arbitrary custom overlays,
 multiple windows, and custom widgets. [`COVERAGE.md`](COVERAGE.md) is

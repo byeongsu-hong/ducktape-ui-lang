@@ -123,6 +123,7 @@ pub struct Document {
 pub struct AppSettings {
     pub title: Option<String>,
     pub id: Option<String>,
+    pub executor: Option<String>,
     pub fonts: Vec<FontAsset>,
     pub default_text_size: Option<f64>,
     pub antialiasing: Option<bool>,
@@ -153,7 +154,17 @@ pub struct WindowSettings {
     pub transparent: Option<bool>,
     pub blur: Option<bool>,
     pub level: Option<WindowLevel>,
+    pub icon: Option<WindowIcon>,
     pub exit_on_close_request: Option<bool>,
+}
+
+#[derive(Clone, Debug)]
+pub struct WindowIcon {
+    pub path: String,
+    pub width: u32,
+    pub height: u32,
+    pub byte_len: usize,
+    pub span: Span,
 }
 
 #[derive(Clone, Copy, Debug)]

@@ -192,6 +192,7 @@ fn parse_app_settings(line: &Line) -> Result<AppSettings, Error> {
         match name {
             "title" => set!(title, string_literal(value, item)?),
             "id" => set!(id, string_literal(value, item)?),
+            "executor" => set!(executor, rust_path(value, item)?),
             "font" => {
                 let path = string_literal(value, item)?;
                 if path.is_empty()
@@ -268,6 +269,7 @@ fn parse_window_settings(line: &Line) -> Result<WindowSettings, Error> {
                     }
                 }
             ),
+            "icon-rgba" => set!(icon, config_window_icon(value, item)?),
             "exit-on-close-request" => {
                 set!(exit_on_close_request, config_bool(value, item)?)
             }
@@ -291,6 +293,56 @@ fn parse_window_settings(line: &Line) -> Result<WindowSettings, Error> {
         ));
     }
     Ok(settings)
+}
+
+fn config_window_icon(source: &str, line: &Line) -> Result<WindowIcon, Error> {
+    let parts = split_words(source);
+    if parts.len() != 3 {
+        return Err(error(
+            "E015",
+            line,
+            "window icon-rgba expects `\"relative/path.rgba\" width height`",
+        ));
+    }
+    let path = string_literal(&parts[0], line)?;
+    if path.is_empty() || path.contains('\\') || std::path::Path::new(&path).is_absolute() {
+        return Err(error(
+            "E015",
+            line,
+            "window icon paths must be non-empty relative `/` paths",
+        ));
+    }
+    let dimension = |value: &str| {
+        value
+            .parse::<u32>()
+            .ok()
+            .filter(|value| *value > 0)
+            .ok_or_else(|| {
+                error(
+                    "E015",
+                    line,
+                    "window icon dimensions must be positive integers",
+                )
+            })
+    };
+    let width = dimension(&parts[1])?;
+    let height = dimension(&parts[2])?;
+    let byte_len = usize::try_from(width)
+        .ok()
+        .and_then(|width| {
+            usize::try_from(height)
+                .ok()
+                .and_then(|height| width.checked_mul(height))
+        })
+        .and_then(|pixels| pixels.checked_mul(4))
+        .ok_or_else(|| error("E015", line, "window icon dimensions are too large"))?;
+    Ok(WindowIcon {
+        path,
+        width,
+        height,
+        byte_len,
+        span: Span::line(line.number),
+    })
 }
 
 fn set_setting<T>(slot: &mut Option<T>, value: T, name: &str, line: &Line) -> Result<(), Error> {
@@ -8349,6 +8401,7 @@ view
             r#"app Demo
   title "Configured"
   id "dev.example.demo"
+  executor iced::executor::Default
   font "assets/Brand.ttf"
   font "assets/Icons.otf"
   default-text-size 15
@@ -8356,6 +8409,7 @@ view
   vsync false
   scale-factor 1.25
   window
+    icon-rgba "assets/app.rgba" 2 1
     size 960 720
     min-size 480 360
     max-size 1920 1080
@@ -8365,6 +8419,10 @@ view
         );
         let document = parse(&source).unwrap();
         assert_eq!(document.settings.title.as_deref(), Some("Configured"));
+        assert_eq!(
+            document.settings.executor.as_deref(),
+            Some("iced::executor::Default")
+        );
         assert_eq!(document.settings.scale_factor, Some(1.25));
         assert_eq!(document.settings.fonts.len(), 2);
         assert_eq!(document.settings.fonts[0].path, "assets/Brand.ttf");
@@ -8372,6 +8430,11 @@ view
         assert_eq!(window.size, Some((960.0, 720.0)));
         assert!(matches!(window.position, Some(WindowPosition::Centered)));
         assert!(matches!(window.level, Some(WindowLevel::AlwaysOnTop)));
+        let icon = window.icon.unwrap();
+        assert_eq!(
+            (icon.path.as_str(), icon.width, icon.height, icon.byte_len),
+            ("assets/app.rgba", 2, 1, 8)
+        );
 
         let error = parse(&source.replace("min-size 480 360", "min-size 2000 360")).unwrap_err();
         assert_eq!(error.code, "E015");
@@ -8405,6 +8468,21 @@ view
                 .unwrap_err();
         assert_eq!(error.code, "E015");
         assert!(error.message.contains("relative `/` paths"));
+
+        let error = parse(&source.replace(
+            "icon-rgba \"assets/app.rgba\" 2 1",
+            "icon-rgba \"assets/app.rgba\" 2 0",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E015");
+        assert!(error.message.contains("positive integers"));
+
+        let error = parse(&source.replace(
+            "executor iced::executor::Default",
+            "executor iced::bad-path",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E073");
     }
 
     #[test]
