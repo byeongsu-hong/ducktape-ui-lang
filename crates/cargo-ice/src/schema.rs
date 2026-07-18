@@ -55,11 +55,7 @@ const COMPLETIONS: &[Completion] = &[
     Completion::new("scroll", "layout", "scroll\n  $0"),
     Completion::new("container", "layout", "container\n  $0"),
     Completion::new("text", "widget", "text ${1:\"Text\"}"),
-    Completion::new(
-        "input",
-        "widget",
-        "input \"${1:Placeholder}\" <-> ${2:state}",
-    ),
+    Completion::new("input", "widget", "input \"${1:Label}\" <-> ${2:state}"),
     Completion::new("button", "widget", "button \"${1:Label}\" -> ${2:handler}"),
     Completion::new(
         "checkbox",
@@ -379,7 +375,7 @@ fn construct_schema(item: &Completion) -> Value {
         ),
         "input" => details(
             &["view"],
-            "input \"<placeholder>\" [#<id>] <-> <state> [<property>=<value> ...] [@<semantic-utility> ...]",
+            "input \"<label>\" [#<id>] <-> <state> [<property>=<value> ...] [@<semantic-utility> ...]",
             child_shape(0, None, "optional-status-extension"),
             json!({ "required": true, "operator": "<->", "target": "state-identifier" }),
             no_route(),
@@ -916,6 +912,18 @@ mod tests {
         assert_eq!(find("view")["children"]["min"], 1);
         assert_eq!(find("scroll")["children"]["max"], 1);
         assert_eq!(find("input")["binding"]["operator"], "<->");
+        assert!(
+            find("input")["insertText"]
+                .as_str()
+                .unwrap()
+                .contains("${1:Label}")
+        );
+        assert!(
+            find("input")["syntax"]
+                .as_str()
+                .unwrap()
+                .contains("\"<label>\"")
+        );
         assert_eq!(find("button")["route"]["required"], true);
         assert_eq!(
             find("run")["route"]["failure"]["requiredWhen"],
