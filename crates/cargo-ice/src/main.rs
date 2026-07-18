@@ -50,7 +50,6 @@ fn run() -> Result<(), String> {
     match command {
         "fmt" => {
             let roots = app_files(&files)?;
-            analyze(&roots)?;
             if check_only {
                 cargo(&["fmt", "--all", "--", "--check"])?;
             } else {
@@ -70,6 +69,7 @@ fn run() -> Result<(), String> {
             if check_only && !changed.is_empty() {
                 return Err(format!("unformatted .ice files:\n{}", changed.join("\n")));
             }
+            analyze(&roots)?;
             if check_only {
                 println!("formatting is clean for {} .ice file(s)", files.len());
             } else {
