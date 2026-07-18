@@ -1402,33 +1402,49 @@ fn infer_view(
             span,
             ..
         } => {
-            for expr in [value, min, max, step] {
-                require_type(&expr_type(expr, env, document, span)?, &Type::F64, span)?;
+            let value_type = expr_type(value, env, document, span)?;
+            if !matches!(&value_type, Type::F64 | Type::Named(_)) {
+                return Err(Error::new(
+                    "E125",
+                    span,
+                    "slider values must be f64 or an extern numeric type",
+                ));
+            }
+            for expr in [min, max, step] {
+                require_type(&expr_type(expr, env, document, span)?, &value_type, span)?;
             }
             for expr in [&options.default, &options.shift_step]
                 .into_iter()
                 .flatten()
             {
-                require_type(&expr_type(expr, env, document, span)?, &Type::F64, span)?;
+                require_type(&expr_type(expr, env, document, span)?, &value_type, span)?;
             }
-            require_literal_range(step, f64::EPSILON, None, "slider step", span)?;
-            if let Some(shift_step) = &options.shift_step {
-                require_literal_range(shift_step, f64::EPSILON, None, "slider shift step", span)?;
-            }
-            if let (Some(min), Some(max)) = (f64_literal(min), f64_literal(max))
-                && min > max
-            {
-                return Err(Error::new("E128", span, "slider min cannot exceed max"));
-            }
-            if let Some(default) = options.default.as_ref().and_then(f64_literal)
-                && (f64_literal(min).is_some_and(|min| default < min)
-                    || f64_literal(max).is_some_and(|max| default > max))
-            {
-                return Err(Error::new(
-                    "E128",
-                    span,
-                    "slider default is outside its range",
-                ));
+            if value_type == Type::F64 {
+                require_literal_range(step, f64::EPSILON, None, "slider step", span)?;
+                if let Some(shift_step) = &options.shift_step {
+                    require_literal_range(
+                        shift_step,
+                        f64::EPSILON,
+                        None,
+                        "slider shift step",
+                        span,
+                    )?;
+                }
+                if let (Some(min), Some(max)) = (f64_literal(min), f64_literal(max))
+                    && min > max
+                {
+                    return Err(Error::new("E128", span, "slider min cannot exceed max"));
+                }
+                if let Some(default) = options.default.as_ref().and_then(f64_literal)
+                    && (f64_literal(min).is_some_and(|min| default < min)
+                        || f64_literal(max).is_some_and(|max| default > max))
+                {
+                    return Err(Error::new(
+                        "E128",
+                        span,
+                        "slider default is outside its range",
+                    ));
+                }
             }
             for (length, fluid, label) in [
                 (&options.width, !*vertical, "slider width"),
@@ -1461,7 +1477,7 @@ fn infer_view(
                 check_call_args(function, &style.args, env, document, span)?;
             }
             check_slider_styles(&options.style, env, document, span)?;
-            infer_route(route, Some(Type::F64), env, document, signatures)?;
+            infer_route(route, Some(value_type), env, document, signatures)?;
             if let Some(release) = release {
                 infer_route(release, None, env, document, signatures)?;
             }
@@ -8238,6 +8254,8 @@ view
     fn checks_slider_options_and_rejects_invalid_ranges() {
         let source = r#"app Controls
 extern crate::backend
+  SliderNumber()
+  sync slider_number(value:f64) -> SliderNumber
   slider-style dynamic_slider(active:bool)
 theme
   background #000000
@@ -8246,9 +8264,12 @@ theme
   danger #ff0000
 state
   amount = 50.0
+  precise:SliderNumber = slider_number(50.0)
   active = true
 on changed(next)
   amount = next
+on precise_changed(next)
+  precise = next
 view
   col
     slider amount min=0.0 max=100.0 step=5.0 default=50.0 shift-step=1.0 width=fill(2) height=20.0 style=dynamic_slider(active) -> changed _
@@ -8256,8 +8277,10 @@ view
       hovered rail-start=foreground rail-end=background rail-radius-tr=3.0 rail-radius-br=3.0 rail-radius-bl=2.0 handle=rect(12) handle-color=foreground handle-radius=3.0 handle-radius-tl=1.0 handle-radius-tr=2.0 handle-radius-br=3.0 handle-radius-bl=4.0
       dragged rail-start=danger handle=circle(8.0) handle-color=danger
     slider amount min=0.0 max=100.0 step=5.0 default=50.0 shift-step=1.0 vertical width=20.0 height=fill -> changed _
+    slider precise min=slider_number(0.0) max=slider_number(100.0) step=slider_number(5.0) default=slider_number(50.0) shift-step=slider_number(1.0) -> precise_changed _
 "#;
-        analyze(source).unwrap();
+        let document = analyze(source).unwrap();
+        assert_eq!(document.handlers[1].params[0].ty.display(), "SliderNumber");
 
         let bad_step = source.replace("step=5.0", "step=0.0");
         let error = analyze(&bad_step).unwrap_err();
@@ -8301,6 +8324,13 @@ view
         let error =
             analyze(&source.replace("style=dynamic_slider(active)", "style=primary")).unwrap_err();
         assert_eq!(error.code, "E076");
+
+        let error = analyze(&source.replace("step=slider_number(5.0)", "step=5.0")).unwrap_err();
+        assert_eq!(error.code, "E101");
+
+        let error = analyze(&source.replace("amount = 50.0", "amount = 50")).unwrap_err();
+        assert_eq!(error.code, "E125");
+        assert!(error.message.contains("extern numeric type"));
     }
 
     #[test]

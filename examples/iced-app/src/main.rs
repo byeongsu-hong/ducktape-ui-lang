@@ -16,6 +16,9 @@ mod backend {
     }
 
     #[cfg(test)]
+    pub type SliderNumber = f32;
+
+    #[cfg(test)]
     #[derive(Clone, Debug, PartialEq)]
     pub struct NetworkError {
         pub message: String,
@@ -69,6 +72,11 @@ mod backend {
 
         task.done = done;
         Ok(tasks.clone())
+    }
+
+    #[cfg(test)]
+    pub fn slider_number(value: f64) -> SliderNumber {
+        value as SliderNumber
     }
 
     pub fn describe_window(window: &dyn iced::window::Window, prefix: String) -> String {
