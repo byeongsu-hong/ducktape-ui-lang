@@ -16,6 +16,7 @@ extern crate::backend
   toggler-style notification_toggler(busy:bool)
   radio-style view_radio(busy:bool)
   container-style summary_container(busy:bool)
+  svg-style status_svg(active:bool)
   task copy_text(text:str) -> unit ! AppError
   subscription app_events() -> bool
 
@@ -483,7 +484,7 @@ view
           image encoded_image width=24.0 height=48.0 fit=cover filter=nearest
           image memory_image width=48.0 height=48.0 fit=cover filter=nearest rotation=solid(0.1) radius=8.0 radius-tl=2.0 radius-br=2.0 crop=(0, 0, 1, 2)
           viewer memory_image width=160.0 height=96.0 fit=contain filter=nearest padding=4.0 min-scale=0.5 max-scale=8.0 scale-step=0.25
-          svg "examples/iced-app/assets/ice.svg" width=48.0 height=48.0 fit=contain opacity=0.9 color=foreground hover=primary
+          svg "examples/iced-app/assets/ice.svg" width=48.0 height=48.0 fit=contain opacity=0.9 color=foreground hover=primary style=status_svg(loading)
           svg "<svg xmlns='http://www.w3.org/2000/svg' width='1' height='1'><rect width='1' height='1'/></svg>" memory width=16.0 height=16.0 color=foreground hover=primary
           svg bytes(3c 73 76 67 2f 3e) memory width=16.0 height=16.0 color=foreground hover=primary
           tooltip position=bottom gap=4.0 padding=8.0 delay=100 snap=true style=rounded background=linear(1.57, surface@0.0, background@1.0) text=foreground border=border border-width=1.0 radius=8.0 radius-tl=4.0 shadow=black/50 shadow-x=0.0 shadow-y=4.0 shadow-blur=12.0 pixel-snap=true

@@ -128,6 +128,13 @@ pub fn parse(source: &str) -> Result<Document, Error> {
                         &path,
                         ExternKind::ContainerStyle,
                     )?);
+                } else if let Some(source) = item.text.strip_prefix("svg-style ") {
+                    functions.push(parse_extern_fn(
+                        &format!("{source} -> unit"),
+                        item,
+                        &path,
+                        ExternKind::SvgStyle,
+                    )?);
                 } else if item.text.chars().next().is_some_and(char::is_uppercase) {
                     structs.push(parse_extern_struct(item, &path)?);
                 } else {
@@ -1058,6 +1065,7 @@ fn parse_extern_fn(
                 | ExternKind::TogglerStyle
                 | ExternKind::RadioStyle
                 | ExternKind::ContainerStyle
+                | ExternKind::SvgStyle
         )
     {
         return Err(error(
@@ -4637,6 +4645,16 @@ fn parse_media(
                 return Err(error("E085", line, "hover is only available on svg"));
             }
             options.svg_hover_color = Some((value != "none").then(|| value.to_owned()));
+        } else if let Some(value) = part.strip_prefix("style=") {
+            if media_kind != MediaKind::Svg {
+                return Err(error("E085", line, "style is only available on svg"));
+            }
+            let (function, args) = parse_signature(value, line)
+                .map_err(|_| error("E085", line, "svg style must be a declared style call"))?;
+            options.svg_style = Some(ExternCall {
+                function,
+                args: parse_expr_list(&args, line)?,
+            });
         } else if let Some(value) = part.strip_prefix("filter=") {
             if media_kind == MediaKind::Svg {
                 return Err(error(

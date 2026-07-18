@@ -2322,6 +2322,11 @@ fn infer_view(
                     ));
                 }
             }
+            if let Some(style) = &options.svg_style {
+                let function =
+                    extern_function(document, &style.function, ExternKind::SvgStyle, span)?;
+                check_call_args(function, &style.args, env, document, span)?;
+            }
         }
         ViewNode::Tooltip {
             options,
@@ -5548,6 +5553,7 @@ fn extern_function<'a>(
                 ExternKind::TogglerStyle => "toggler style",
                 ExternKind::RadioStyle => "radio style",
                 ExternKind::ContainerStyle => "container style",
+                ExternKind::SvgStyle => "svg style",
             };
             Error::new("E130", span, format!("unknown extern {label} `{name}`"))
         })
@@ -9250,6 +9256,44 @@ view
             "image \"photo.ppm\" memory",
         );
         let error = analyze(&source).unwrap_err();
+        assert_eq!(error.code, "E085");
+        assert!(error.message.contains("only available on svg"));
+    }
+
+    #[test]
+    fn checks_svg_style_calls() {
+        let source = r#"app Demo
+extern crate::backend
+  svg-style dynamic_svg(active:bool)
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  active = true
+view
+  svg "icon.svg" style=dynamic_svg(active)
+"#;
+        analyze(source).unwrap();
+
+        let error = analyze(&source.replace("dynamic_svg(active)", "missing(active)")).unwrap_err();
+        assert_eq!(error.code, "E130");
+        assert!(error.message.contains("svg style"));
+
+        let error = analyze(&source.replace("dynamic_svg(active)", "dynamic_svg(1)")).unwrap_err();
+        assert_eq!(error.code, "E101");
+
+        let error =
+            analyze(&source.replace("style=dynamic_svg(active)", "style=primary")).unwrap_err();
+        assert_eq!(error.code, "E085");
+        assert!(error.message.contains("declared style call"));
+
+        let error = analyze(&source.replace(
+            "svg \"icon.svg\" style=dynamic_svg(active)",
+            "image \"icon.svg\" style=dynamic_svg(active)",
+        ))
+        .unwrap_err();
         assert_eq!(error.code, "E085");
         assert!(error.message.contains("only available on svg"));
     }

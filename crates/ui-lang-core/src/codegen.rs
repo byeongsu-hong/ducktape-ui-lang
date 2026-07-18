@@ -965,6 +965,26 @@ fn generate_extern_probes(out: &mut String, document: &Document) {
                 )
                 .unwrap();
             }
+            ExternKind::SvgStyle => {
+                let params = if params.is_empty() {
+                    "theme: &::iced::Theme, status: ::iced::widget::svg::Status".into()
+                } else {
+                    format!(
+                        "theme: &::iced::Theme, status: ::iced::widget::svg::Status, {params}"
+                    )
+                };
+                let args = if args.is_empty() {
+                    "theme, status".into()
+                } else {
+                    format!("theme, status, {args}")
+                };
+                writeln!(
+                    out,
+                    "#[allow(dead_code)] fn __ui_lang_check_svg_style_{}({params}) {{ let _: ::iced::widget::svg::Style = {}({args}); }}",
+                    item.name, item.rust_path
+                )
+                .unwrap();
+            }
         }
     }
 }
@@ -3593,24 +3613,72 @@ fn render_node(
                 )
                 .unwrap();
             }
-            if *kind == MediaKind::Svg
-                && (options.svg_color.is_some() || options.svg_hover_color.is_some())
-            {
-                let idle = options
-                    .svg_color
+            if *kind == MediaKind::Svg {
+                let custom = options
+                    .svg_style
                     .as_ref()
-                    .map(|color| format!("Some({})", theme_color(document, color)))
-                    .unwrap_or_else(|| "None".to_owned());
-                let hovered = match &options.svg_hover_color {
-                    Some(Some(color)) => format!("Some({})", theme_color(document, color)),
-                    Some(None) => "None".to_owned(),
-                    None => idle.clone(),
-                };
-                write!(
-                    code,
-                    ".style(|_, __status| ::iced::widget::svg::Style {{ color: match __status {{ ::iced::widget::svg::Status::Idle => {idle}, ::iced::widget::svg::Status::Hovered => {hovered} }} }})"
-                )
-                .unwrap();
+                    .map(|style| {
+                        let function = document
+                            .functions
+                            .iter()
+                            .find(|item| {
+                                item.name == style.function && item.kind == ExternKind::SvgStyle
+                            })
+                            .expect("checker validates svg style");
+                        let args = style
+                            .args
+                            .iter()
+                            .map(|arg| expr_code(arg, env, document, ValueMode::Owned))
+                            .collect::<Result<Vec<_>, _>>()?;
+                        Ok::<_, Error>(format!(
+                            "{}(__theme, __status{})",
+                            function.rust_path,
+                            args.iter()
+                                .map(|arg| format!(", {arg}"))
+                                .collect::<String>()
+                        ))
+                    })
+                    .transpose()?;
+                let has_colors = options.svg_color.is_some() || options.svg_hover_color.is_some();
+                if !has_colors {
+                    if let Some(custom) = custom {
+                        write!(code, ".style(move |__theme, __status| {custom})").unwrap();
+                    }
+                } else {
+                    let base = custom
+                        .unwrap_or_else(|| "::iced::widget::svg::Style::default()".to_owned());
+                    let idle = options
+                        .svg_color
+                        .as_ref()
+                        .map(|color| format!("Some({})", theme_color(document, color)));
+                    let hovered = match &options.svg_hover_color {
+                        Some(Some(color)) => {
+                            Some(format!("Some({})", theme_color(document, color)))
+                        }
+                        Some(None) => Some("None".to_owned()),
+                        None => idle.clone(),
+                    };
+                    write!(
+                        code,
+                        ".style(move |__theme, __status| {{ let mut __style = {base}; match __status {{"
+                    )
+                    .unwrap();
+                    if let Some(idle) = idle {
+                        write!(
+                            code,
+                            " ::iced::widget::svg::Status::Idle => __style.color = {idle},"
+                        )
+                        .unwrap();
+                    }
+                    if let Some(hovered) = hovered {
+                        write!(
+                            code,
+                            " ::iced::widget::svg::Status::Hovered => __style.color = {hovered},"
+                        )
+                        .unwrap();
+                    }
+                    code.push_str(" _ => {} } __style })");
+                }
             }
             if let Some(filter) = options.filter {
                 let filter = match filter {
@@ -12070,12 +12138,15 @@ view
     #[test]
     fn lowers_media_tooltip_and_pointer_events() {
         let source = r#"app Media
+extern crate::backend
+  svg-style dynamic_svg(active:bool)
 theme
   background #000000
   foreground #ffffff
   primary #333333
   danger #ff0000
 state
+  active = true
   encoded_image = encoded(bytes(50 36 0a))
   rgba_image = rgba(1, 1, bytes(ff 00 00 ff))
 on entered
@@ -12090,7 +12161,7 @@ view
     image rgba_image
     viewer encoded_image width=fill(2) height=120.0 fit=contain filter=linear padding=8.0 min-scale=0.5 max-scale=4.0 scale-step=0.25
     viewer "photo.ppm" width=64.0 height=64.0
-    svg "icon.svg" width=48.0 height=shrink fit=scale-down rotation=0.1 opacity=0.9 color=foreground hover=primary
+    svg "icon.svg" width=48.0 height=shrink fit=scale-down rotation=0.1 opacity=0.9 color=foreground hover=primary style=dynamic_svg(active)
     svg "<svg/>" memory width=16.0 color=foreground hover=none
     svg bytes(3c 73 76 67 2f 3e) memory width=16.0
     tooltip position=cursor gap=2.0 padding=5.0 delay=100 snap=false style=success background=linear(1.57, background@0.0, primary/25@1.0) text=foreground border=primary/75 border-width=1.0 radius=5.0 radius-tl=2.0 shadow=black/50 shadow-x=-1.0 shadow-y=2.0 shadow-blur=8.0 pixel-snap=true
@@ -12119,9 +12190,17 @@ view
         assert!(generated.contains(
             "svg::Handle::from_memory(::std::vec![0x3cu8, 0x73u8, 0x76u8, 0x67u8, 0x2fu8, 0x3eu8])"
         ));
-        assert!(generated.contains("svg::Status::Idle => Some(::iced::Color"));
-        assert!(generated.contains("svg::Status::Hovered => Some(::iced::Color"));
-        assert!(generated.contains("svg::Status::Hovered => None"));
+        assert!(generated.contains("crate::backend::dynamic_svg(__theme, __status, self.active)"));
+        assert!(generated.contains("fn __ui_lang_check_svg_style_dynamic_svg"));
+        assert!(generated.contains("svg::Status::Idle => __style.color = Some(::iced::Color"));
+        assert!(generated.contains("svg::Status::Hovered => __style.color = Some(::iced::Color"));
+        assert!(generated.contains("svg::Status::Hovered => __style.color = None"));
+        let default_svg = compile(
+            &source.replace(" style=dynamic_svg(active)", ""),
+            "media.ice",
+        )
+        .unwrap();
+        assert!(default_svg.contains("let mut __style = ::iced::widget::svg::Style::default()"));
         assert!(generated.contains("tooltip::Position::FollowCursor"));
         assert!(generated.contains(".delay(::std::time::Duration::from_millis(100 as u64))"));
         assert!(generated.contains("container::success(__theme)"));
