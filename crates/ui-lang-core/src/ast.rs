@@ -445,6 +445,7 @@ pub enum ExternKind {
     ScrollStyle,
     PickListStyle,
     MenuStyle,
+    PaneGridStyle,
 }
 
 #[derive(Clone, Debug)]
@@ -2364,6 +2365,7 @@ pub struct PaneGridOptions {
     pub resize_leeway: Option<Expr>,
     pub draggable: bool,
     pub click: Option<Route>,
+    pub custom_style: Option<ExternCall>,
     pub style: PaneGridStyle,
 }
 

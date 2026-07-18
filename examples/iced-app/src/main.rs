@@ -686,6 +686,13 @@ mod backend {
     }
 
     #[cfg(test)]
+    pub fn workspace_panes(theme: &iced::Theme, active: bool) -> iced::widget::pane_grid::Style {
+        let mut style = iced::widget::pane_grid::default(theme);
+        style.hovered_split.width = if active { 5.0 } else { 2.0 };
+        style
+    }
+
+    #[cfg(test)]
     impl<'a> iced::widget::markdown::Viewer<'a, String> for DocsViewer {
         fn on_link_click(url: iced::widget::markdown::Uri) -> String {
             url
@@ -1029,6 +1036,15 @@ mod showcase {
             iced::Size::new(100.0, 100.0),
         );
         assert_eq!(regions[&split].2, 0.45);
+    }
+
+    #[test]
+    fn constructs_a_native_pane_grid_style() {
+        let style = crate::backend::workspace_panes(&iced::Theme::Dark, true);
+        assert_eq!(style.hovered_split.width, 5.0);
+
+        let (app, _) = Showcase::__boot();
+        let _ = app.__view();
     }
 }
 

@@ -1235,6 +1235,24 @@ fn generate_extern_probes(out: &mut String, document: &Document) {
                 )
                 .unwrap();
             }
+            ExternKind::PaneGridStyle => {
+                let params = if params.is_empty() {
+                    "theme: &::iced::Theme".into()
+                } else {
+                    format!("theme: &::iced::Theme, {params}")
+                };
+                let args = if args.is_empty() {
+                    "theme".into()
+                } else {
+                    format!("theme, {args}")
+                };
+                writeln!(
+                    out,
+                    "#[allow(dead_code)] fn __ui_lang_check_pane_grid_style_{}({params}) {{ let _: ::iced::widget::pane_grid::Style = {}({args}); }}",
+                    item.name, item.rust_path
+                )
+                .unwrap();
+            }
         }
     }
 }
@@ -5083,13 +5101,20 @@ fn render_pane_grid(
         )
         .unwrap();
     }
-    append_pane_grid_style(&mut code, &options.style, env, document)?;
+    append_pane_grid_style(
+        &mut code,
+        &options.style,
+        options.custom_style.as_ref(),
+        env,
+        document,
+    )?;
     Ok(format!("{code}.into()"))
 }
 
 fn append_pane_grid_style(
     code: &mut String,
     style: &PaneGridStyle,
+    custom: Option<&ExternCall>,
     env: &HashMap<String, Binding>,
     document: &Document,
 ) -> Result<(), Error> {
@@ -5098,20 +5123,51 @@ fn append_pane_grid_style(
         || style.region_radius_top_right.is_some()
         || style.region_radius_bottom_right.is_some()
         || style.region_radius_bottom_left.is_some();
-    if style.region_background.is_none()
-        && style.region_border.is_none()
-        && style.region_border_width.is_none()
-        && !has_radius
-        && style.hovered_split.is_none()
-        && style.hovered_split_width.is_none()
-        && style.picked_split.is_none()
-        && style.picked_split_width.is_none()
-    {
+    let has_typed = style.region_background.is_some()
+        || style.region_border.is_some()
+        || style.region_border_width.is_some()
+        || has_radius
+        || style.hovered_split.is_some()
+        || style.hovered_split_width.is_some()
+        || style.picked_split.is_some()
+        || style.picked_split_width.is_some();
+    let custom = custom
+        .map(|style| {
+            let function = document
+                .functions
+                .iter()
+                .find(|item| item.name == style.function && item.kind == ExternKind::PaneGridStyle)
+                .expect("checker validates pane-grid style");
+            let args = style
+                .args
+                .iter()
+                .map(|arg| expr_code(arg, env, document, ValueMode::Owned))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok::<_, Error>(format!(
+                "{}(__theme{})",
+                function.rust_path,
+                args.iter()
+                    .map(|arg| format!(", {arg}"))
+                    .collect::<String>()
+            ))
+        })
+        .transpose()?;
+    if !has_typed && custom.is_none() {
         return Ok(());
     }
-    code.push_str(
-        ".style(move |__theme| { let mut __style = ::iced::widget::pane_grid::default(__theme);",
-    );
+    if !has_typed {
+        write!(
+            code,
+            ".style(move |__theme| {})",
+            custom.expect("custom style is present")
+        )
+        .unwrap();
+        return Ok(());
+    }
+    let base = custom.unwrap_or_else(|| "::iced::widget::pane_grid::default(__theme)".into());
+    code.push_str(".style(move |__theme| { let mut __style = ");
+    code.push_str(&base);
+    code.push(';');
     if let Some(background) = &style.region_background {
         write!(
             code,
@@ -12459,6 +12515,8 @@ view
     #[test]
     fn lowers_structured_pane_titles_and_dynamic_controls() {
         let source = r#"app Workspace
+extern crate::backend
+  pane-grid-style dynamic_panes(active:bool)
 theme
   background #000000
   foreground #ffffff
@@ -12466,9 +12524,10 @@ theme
   danger #ff0000
 state
   filter = ""
+  active = true
 on close
 view
-  pane-grid #work split=vertical
+  pane-grid #work split=vertical style=dynamic_panes(active)
     style
       hovered-region background=linear(0.785, primary/25@0.0, background@0.5, danger@1.0) border=foreground border-width=2.0 radius=4.0 radius-tl=1.0 radius-tr=2.0 radius-br=3.0 radius-bl=4.0
       hovered-split color=primary width=3.0
@@ -12491,6 +12550,8 @@ view
         text "Editor body"
 "#;
         let generated = compile(source, "workspace.ice").unwrap();
+        assert!(generated.contains("__ui_lang_check_pane_grid_style_dynamic_panes"));
+        assert!(generated.contains("crate::backend::dynamic_panes(__theme, self.active)"));
         assert!(generated.contains("pane_grid::Content::new(__pane_content).style"));
         assert!(generated.contains(".title_bar(::iced::widget::pane_grid::TitleBar::new"));
         assert!(generated.contains("top: 6.0 as f32"));
@@ -12501,7 +12562,7 @@ view
         assert!(generated.contains(".always_show_controls().style"));
         assert!(generated.contains("__BindFilter"));
         assert!(generated.contains("format!(\"{}/filter\""));
-        assert!(generated.contains("pane_grid::default(__theme)"));
+        assert!(generated.contains("let mut __style = crate::backend::dynamic_panes"));
         assert!(generated.contains("__style.hovered_region.background"));
         assert!(generated.contains("::iced::gradient::Linear::new(0.785 as f32)"));
         assert!(generated.contains(".add_stop(0.5 as f32"));
