@@ -4484,6 +4484,13 @@ fn render_node(
                     mouse_interaction_code(interaction)
                 )
                 .unwrap();
+            } else if let Some(interaction) = &options.interaction_expr {
+                write!(
+                    code,
+                    ".interaction({})",
+                    expr_code(interaction, env, document, ValueMode::Owned)?
+                )
+                .unwrap();
             }
             Ok(format!("{code}.into() }}"))
         }
@@ -6515,11 +6522,17 @@ fn render_canvas(
         message,
         use_cache,
     )?;
-    let interaction = if let Some(interaction) = &options.interaction_expr {
-        let interaction = expr_code(interaction, &canvas_env, document, ValueMode::Owned)?;
-        format!(
-            "{{ let __interaction = {interaction}; __ice_canvas_interaction(__interaction.as_str()) }}"
-        )
+    let interaction = if let Some(value) = &options.interaction_expr {
+        let interaction = expr_code(value, &canvas_env, document, ValueMode::Owned)?;
+        if expr_type(value, &env_types(&canvas_env), document, &Span::line(1))?
+            == Type::MouseInteraction
+        {
+            interaction
+        } else {
+            format!(
+                "{{ let __interaction = {interaction}; __ice_canvas_interaction(__interaction.as_str()) }}"
+            )
+        }
     } else {
         format!(
             "::iced::mouse::Interaction::{}",
@@ -7995,6 +8008,12 @@ fn native_field_projection(ty: &Type, field: &str, code: &str) -> Option<(String
             ),
             Type::Str,
         ),
+        (Type::MouseInteraction, "kind") => (
+            format!(
+                "match ({code}) {{ ::iced::mouse::Interaction::None => \"none\", ::iced::mouse::Interaction::Hidden => \"hidden\", ::iced::mouse::Interaction::Idle => \"idle\", ::iced::mouse::Interaction::ContextMenu => \"context-menu\", ::iced::mouse::Interaction::Help => \"help\", ::iced::mouse::Interaction::Pointer => \"pointer\", ::iced::mouse::Interaction::Progress => \"progress\", ::iced::mouse::Interaction::Wait => \"wait\", ::iced::mouse::Interaction::Cell => \"cell\", ::iced::mouse::Interaction::Crosshair => \"crosshair\", ::iced::mouse::Interaction::Text => \"text\", ::iced::mouse::Interaction::Alias => \"alias\", ::iced::mouse::Interaction::Copy => \"copy\", ::iced::mouse::Interaction::Move => \"move\", ::iced::mouse::Interaction::NoDrop => \"no-drop\", ::iced::mouse::Interaction::NotAllowed => \"not-allowed\", ::iced::mouse::Interaction::Grab => \"grab\", ::iced::mouse::Interaction::Grabbing => \"grabbing\", ::iced::mouse::Interaction::ResizingHorizontally => \"resize-horizontal\", ::iced::mouse::Interaction::ResizingVertically => \"resize-vertical\", ::iced::mouse::Interaction::ResizingDiagonallyUp => \"resize-diagonal-up\", ::iced::mouse::Interaction::ResizingDiagonallyDown => \"resize-diagonal-down\", ::iced::mouse::Interaction::ResizingColumn => \"resize-column\", ::iced::mouse::Interaction::ResizingRow => \"resize-row\", ::iced::mouse::Interaction::AllScroll => \"all-scroll\", ::iced::mouse::Interaction::ZoomIn => \"zoom-in\", ::iced::mouse::Interaction::ZoomOut => \"zoom-out\" }}.to_owned()"
+            ),
+            Type::Str,
+        ),
         (Type::Length, "fill_factor") => (format!("({code}).fill_factor() as i64"), Type::I64),
         (Type::Length, "is_fill") => (format!("({code}).is_fill()"), Type::Bool),
         (Type::Length, "kind") => (
@@ -8208,6 +8227,7 @@ fn expr_code(
                     | Type::FontWeight
                     | Type::FontStretch
                     | Type::FontStyle
+                    | Type::MouseInteraction
                     | Type::Length
                     | Type::Alignment
                     | Type::HorizontalAlignment
@@ -8461,6 +8481,37 @@ fn expr_code(
             "font_style.normal" | "font_style.italic" | "font_style.oblique" => format!(
                 "::iced::font::Style::{}",
                 pascal(name.strip_prefix("font_style.").expect("checked prefix"))
+            ),
+            "interaction.default" => "::iced::mouse::Interaction::default()".into(),
+            "interaction.none"
+            | "interaction.hidden"
+            | "interaction.idle"
+            | "interaction.context_menu"
+            | "interaction.help"
+            | "interaction.pointer"
+            | "interaction.progress"
+            | "interaction.wait"
+            | "interaction.cell"
+            | "interaction.crosshair"
+            | "interaction.text"
+            | "interaction.alias"
+            | "interaction.copy"
+            | "interaction.move"
+            | "interaction.no_drop"
+            | "interaction.not_allowed"
+            | "interaction.grab"
+            | "interaction.grabbing"
+            | "interaction.resize_horizontal"
+            | "interaction.resize_vertical"
+            | "interaction.resize_diagonal_up"
+            | "interaction.resize_diagonal_down"
+            | "interaction.resize_column"
+            | "interaction.resize_row"
+            | "interaction.all_scroll"
+            | "interaction.zoom_in"
+            | "interaction.zoom_out" => format!(
+                "::iced::mouse::Interaction::{}",
+                first_class_mouse_interaction_code(name)
             ),
             "length.fill" => "::iced::Length::Fill".into(),
             "length.shrink" => "::iced::Length::Shrink".into(),
@@ -11984,6 +12035,21 @@ fn mouse_interaction_code(interaction: MouseInteraction) -> &'static str {
     }
 }
 
+fn first_class_mouse_interaction_code(name: &str) -> String {
+    let name = name
+        .strip_prefix("interaction.")
+        .expect("checked interaction builtin");
+    match name {
+        "resize_horizontal" => "ResizingHorizontally".into(),
+        "resize_vertical" => "ResizingVertically".into(),
+        "resize_diagonal_up" => "ResizingDiagonallyUp".into(),
+        "resize_diagonal_down" => "ResizingDiagonallyDown".into(),
+        "resize_column" => "ResizingColumn".into(),
+        "resize_row" => "ResizingRow".into(),
+        _ => pascal(name),
+    }
+}
+
 fn binding_variant(binding: &str) -> String {
     format!("__Bind{}", pascal(binding))
 }
@@ -12719,6 +12785,48 @@ mod tests {
             "::iced::font::Family::Name(_) => \"named\"",
             "::iced::font::Family::Name(__value) => ::std::option::Option::Some(__value.to_owned())",
             "::iced::widget::lazy((self.returned_font,",
+        ] {
+            assert!(generated.contains(expected), "missing {expected}");
+        }
+    }
+
+    #[test]
+    fn lowers_every_native_mouse_interaction() {
+        let source = include_str!("../../../examples/iced-app/src/ui/mouse_interaction.ice");
+        let generated = compile(source, "mouse_interaction.ice").unwrap();
+        for expected in [
+            "::iced::mouse::Interaction::default()",
+            "::iced::mouse::Interaction::None",
+            "::iced::mouse::Interaction::Hidden",
+            "::iced::mouse::Interaction::Idle",
+            "::iced::mouse::Interaction::ContextMenu",
+            "::iced::mouse::Interaction::Help",
+            "::iced::mouse::Interaction::Pointer",
+            "::iced::mouse::Interaction::Progress",
+            "::iced::mouse::Interaction::Wait",
+            "::iced::mouse::Interaction::Cell",
+            "::iced::mouse::Interaction::Crosshair",
+            "::iced::mouse::Interaction::Text",
+            "::iced::mouse::Interaction::Alias",
+            "::iced::mouse::Interaction::Copy",
+            "::iced::mouse::Interaction::Move",
+            "::iced::mouse::Interaction::NoDrop",
+            "::iced::mouse::Interaction::NotAllowed",
+            "::iced::mouse::Interaction::Grab",
+            "::iced::mouse::Interaction::Grabbing",
+            "::iced::mouse::Interaction::ResizingHorizontally",
+            "::iced::mouse::Interaction::ResizingVertically",
+            "::iced::mouse::Interaction::ResizingDiagonallyUp",
+            "::iced::mouse::Interaction::ResizingDiagonallyDown",
+            "::iced::mouse::Interaction::ResizingColumn",
+            "::iced::mouse::Interaction::ResizingRow",
+            "::iced::mouse::Interaction::AllScroll",
+            "::iced::mouse::Interaction::ZoomIn",
+            "::iced::mouse::Interaction::ZoomOut",
+            "crate::backend::interaction_round_trip(::iced::mouse::Interaction::Pointer)",
+            "::iced::mouse::Interaction::Pointer => \"pointer\"",
+            "::iced::widget::mouse_area(__mouse_content).interaction(self.returned)",
+            "if (false) || __cursor.is_over(__bounds) { self.returned }",
         ] {
             assert!(generated.contains(expected), "missing {expected}");
         }

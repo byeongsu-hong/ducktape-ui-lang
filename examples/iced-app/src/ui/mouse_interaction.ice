@@ -1,0 +1,50 @@
+app NativeMouseInteraction
+
+extern crate::backend
+  sync interaction_round_trip(value:mouse-interaction) -> mouse-interaction
+
+theme
+  background #111827
+  foreground #f9fafb
+  primary #60a5fa
+  danger #f87171
+
+state
+  default_value:mouse-interaction = interaction.default()
+  returned:mouse-interaction = interaction.default()
+  basic:[mouse-interaction] = []
+  feedback:[mouse-interaction] = []
+  precision:[mouse-interaction] = []
+  actions:[mouse-interaction] = []
+  grabbing:[mouse-interaction] = []
+  resize_axes:[mouse-interaction] = []
+  resize_diagonal:[mouse-interaction] = []
+  resize_grid:[mouse-interaction] = []
+  navigation:[mouse-interaction] = []
+  kind = ""
+  values_equal = false
+  values_ordered = false
+
+on inspect
+  default_value = interaction.default()
+  returned = interaction_round_trip(interaction.pointer())
+  basic = [interaction.none(), interaction.hidden(), interaction.idle()]
+  feedback = [interaction.context_menu(), interaction.help(), interaction.progress(), interaction.wait()]
+  precision = [interaction.cell(), interaction.crosshair(), interaction.text()]
+  actions = [interaction.alias(), interaction.copy(), interaction.move()]
+  grabbing = [interaction.no_drop(), interaction.not_allowed(), interaction.grab(), interaction.grabbing()]
+  resize_axes = [interaction.resize_horizontal(), interaction.resize_vertical()]
+  resize_diagonal = [interaction.resize_diagonal_up(), interaction.resize_diagonal_down()]
+  resize_grid = [interaction.resize_column(), interaction.resize_row()]
+  navigation = [interaction.all_scroll(), interaction.zoom_in(), interaction.zoom_out()]
+  kind = returned.kind
+  values_equal = returned == interaction.pointer()
+  values_ordered = interaction.none() < interaction.pointer()
+
+view
+  col @p-4 gap-2
+    button "Inspect" -> inspect
+    mouse cursor=(returned)
+      text kind
+    canvas width=64.0 height=32.0 cursor=(returned)
+      rect x=0.0 y=0.0 width=canvas_width height=canvas_height fill=primary

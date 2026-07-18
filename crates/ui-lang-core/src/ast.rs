@@ -103,6 +103,7 @@ pub enum Type {
     Rectangle,
     RectangleU32,
     Transformation,
+    MouseInteraction,
     MouseButton,
     MouseCursor,
     MouseClick,
@@ -185,6 +186,7 @@ impl Type {
             Self::Rectangle => "::iced::Rectangle".into(),
             Self::RectangleU32 => "::iced::Rectangle<u32>".into(),
             Self::Transformation => "::iced::Transformation".into(),
+            Self::MouseInteraction => "::iced::mouse::Interaction".into(),
             Self::MouseButton => "::iced::mouse::Button".into(),
             Self::MouseCursor => "::iced::mouse::Cursor".into(),
             Self::MouseClick => "::iced::advanced::mouse::Click".into(),
@@ -263,6 +265,7 @@ impl Type {
             Self::Rectangle => "rectangle".into(),
             Self::RectangleU32 => "rectangle-u32".into(),
             Self::Transformation => "transformation".into(),
+            Self::MouseInteraction => "mouse-interaction".into(),
             Self::MouseButton => "mouse-button".into(),
             Self::MouseCursor => "mouse-cursor".into(),
             Self::MouseClick => "mouse-click".into(),
@@ -2094,6 +2097,7 @@ pub struct MouseAreaOptions {
     pub scroll: Option<Route>,
     pub exit: Option<Route>,
     pub interaction: Option<MouseInteraction>,
+    pub interaction_expr: Option<Expr>,
 }
 
 #[derive(Clone, Debug, Default)]

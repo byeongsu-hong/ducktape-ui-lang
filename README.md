@@ -108,6 +108,8 @@ Key files:
 - [`tasks.ice`](examples/iced-app/src/ui/tasks.ice) is the readable root;
 - [`pointer_values.ice`](examples/iced-app/src/ui/pointer_values.ice) preserves
   native pointer values through state, events, and Rust externs;
+- [`mouse_interaction.ice`](examples/iced-app/src/ui/mouse_interaction.ice)
+  preserves every native mouse interaction and passes typed values to widgets;
 - [`transformation_values.ice`](examples/iced-app/src/ui/transformation_values.ice)
   composes and applies native iced geometry transformations;
 - [`geometry_values.ice`](examples/iced-app/src/ui/geometry_values.ice)
@@ -158,8 +160,9 @@ Key files:
   [`shadow.rs`](examples/iced-app/src/shadow.rs), with larger surfaces such as
   [`border_radius.rs`](examples/iced-app/src/border_radius.rs) and
   [`background_gradient.rs`](examples/iced-app/src/background_gradient.rs), or
-  [`font_values.rs`](examples/iced-app/src/font_values.rs), instead of growing a
-  monolithic entry point;
+  [`font_values.rs`](examples/iced-app/src/font_values.rs) and
+  [`mouse_interaction.rs`](examples/iced-app/src/mouse_interaction.rs), instead
+  of growing a monolithic entry point;
 - [`SPEC.md`](SPEC.md) defines the implemented language.
 
 ## Tooling
@@ -186,7 +189,7 @@ cargo fmt --all
 
 ## Status
 
-This is an executable v1.48 language slice, not yet a complete iced replacement.
+This is an executable v1.49 language slice, not yet a complete iced replacement.
 It implements typed extern data/actions, state, handlers, async tasks, pure
 components with named props, default children, named structural slots, and
 React-like qualified compound children, scoped IDs, relative

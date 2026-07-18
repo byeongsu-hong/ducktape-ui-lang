@@ -15,6 +15,8 @@ mod font_values;
 #[cfg(test)]
 mod length;
 #[cfg(test)]
+mod mouse_interaction;
+#[cfg(test)]
 mod rotation;
 #[cfg(test)]
 mod shadow;
@@ -142,6 +144,9 @@ mod backend {
 
     #[cfg(test)]
     pub use crate::length::length_round_trip;
+
+    #[cfg(test)]
+    pub use crate::mouse_interaction::interaction_round_trip;
 
     #[cfg(test)]
     pub use crate::rotation::rotation_round_trip;
