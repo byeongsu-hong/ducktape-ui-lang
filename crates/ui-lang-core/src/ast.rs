@@ -363,6 +363,7 @@ pub enum ExternKind {
     Subscription,
     Window,
     MarkdownViewer,
+    ProgressStyle,
 }
 
 #[derive(Clone, Debug)]
@@ -1085,12 +1086,12 @@ pub struct MarkdownOptions {
     pub h6_size: Option<Expr>,
     pub code_size: Option<Expr>,
     pub spacing: Option<Expr>,
-    pub viewer: Option<MarkdownViewerCall>,
+    pub viewer: Option<ExternCall>,
     pub style: MarkdownStyleOptions,
 }
 
 #[derive(Clone, Debug)]
-pub struct MarkdownViewerCall {
+pub struct ExternCall {
     pub function: String,
     pub args: Vec<Expr>,
 }
@@ -1512,6 +1513,7 @@ pub struct ProgressOptions {
     pub length: Option<LengthValue>,
     pub girth: Option<LengthValue>,
     pub style: Option<ProgressStyle>,
+    pub custom_style: Option<ExternCall>,
     pub background: Option<BackgroundValue>,
     pub bar: Option<BackgroundValue>,
     pub border_color: Option<String>,

@@ -1,4 +1,4 @@
-# Ice Language Specification 1.02
+# Ice Language Specification 1.03
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 1.02 syntax.
+marked “planned” is a design constraint, not accepted 1.03 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 1.02.
+  block comments are not part of 1.03.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -164,6 +164,7 @@ extern_item    = struct_sig | function_sig | extern_component_sig
                | extern_sip_sig | extern_recipe_sig | extern_event_filter_sig
                | extern_sync_sig | extern_subscription_sig
                | extern_window_sig | extern_markdown_viewer_sig
+               | extern_progress_style_sig
 struct_sig     = PascalName "(" field_list? ")"
 field_list     = field ("," field)*
 field          = name ":" type
@@ -190,6 +191,8 @@ extern_subscription_sig
 extern_window_sig = "window" name "(" field_list? ")" "->" type
 extern_markdown_viewer_sig
                = "markdown-viewer" name "(" field_list? ")" "->" type
+extern_progress_style_sig
+               = "progress-style" name "(" field_list? ")"
 
 theme_decl     = "theme" INDENT color_entry+
 color_entry    = name color
@@ -616,8 +619,8 @@ progress       = "progress" expr progress_property* styles?
 progress_property
                = ("min=" | "max=") expr
                | ("length=" | "girth=") length | "vertical"
-               | "style=" ("primary" | "secondary" | "success"
-                 | "warning" | "danger")
+               | "style=" (("primary" | "secondary" | "success"
+                 | "warning" | "danger") | call)
                | ("background=" | "bar=") background_value
                | "border=" color_ref
                | ("border-width=" | "radius=" | "radius-tl="
@@ -928,7 +931,7 @@ maximum size. `icon-rgba` embeds a relative raw RGBA file without an image
 codec; width and height are positive integers, and generated Rust rejects a
 byte length other than `width × height × 4`. `cargo ice check` reports a
 mismatch at the icon declaration, and generated Rust repeats the check at
-compile time. Encoded icon formats remain outside 1.02.
+compile time. Encoded icon formats remain outside 1.03.
 
 Application boot presets are structured top-level declarations:
 
@@ -1116,6 +1119,21 @@ danger presets. Checked solid or linear backgrounds can override the track and
 filled bar; a checked theme color overrides the border. Border width and
 uniform/per-corner radii are non-negative f64 values.
 Literal reversed ranges are rejected before generation.
+
+A declared progress style call may replace the preset while keeping those
+field overrides:
+
+```ice
+extern crate::backend
+  progress-style loading_progress(active:bool)
+
+progress amount style=loading_progress(loading) bar=primary
+```
+
+Its Rust function receives the current `&iced::Theme` before its declared
+owned arguments and returns `iced::widget::progress_bar::Style`. Ice installs
+it as the native runtime style callback, which is also the default Theme's
+advanced class representation.
 
 `radio` accepts bool, i64, f64, str, or extern values and sends that typed value
 to its route. `selected=` remains an explicit bool expression, so groups can use
@@ -1378,7 +1396,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 1.02 message payloads.
+`Clone` for 1.03 message payloads.
 
 Declared `sync` functions are checked, synchronous Rust calls available in
 Ice expressions. They are the small escape hatch for pure domain conversions
@@ -1396,7 +1414,7 @@ This declaration requires
 actual Rust signature. A sync function cannot declare `! Error` because it
 returns its value directly.
 
-Twelve typed iced adapters expose framework capabilities without embedding Rust
+Thirteen typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
 
 ```ice
@@ -1410,6 +1428,7 @@ extern crate::backend
   event-filter runtime_event() -> str
   subscription app_events() -> bool
   markdown-viewer docs_viewer(prefix:str) -> str
+  progress-style loading_progress(active:bool)
 ```
 
 Their Rust signatures are:
@@ -1424,6 +1443,7 @@ fn events(channel: i64) -> impl iced::advanced::subscription::Recipe<Output = St
 fn runtime_event(event: iced::advanced::subscription::Event) -> Option<String>;
 fn app_events() -> iced::Subscription<bool>;
 fn docs_viewer(prefix: String) -> impl for<'a> iced::widget::markdown::Viewer<'a, String>;
+fn loading_progress(theme: &iced::Theme, active: bool) -> iced::widget::progress_bar::Style;
 ```
 
 An extern component receives owned props and returns a default-renderer
@@ -1447,13 +1467,15 @@ declared payload. A subscription adapter returns `Subscription<Event>`.
 default-renderer `Viewer` for every item lifetime. `viewer=docs_viewer(args)`
 switches the Markdown node to native `view_with`; its declared output type is
 the checked route payload. The viewer owns customization of images, headings,
-paragraphs, code blocks, lists, quotes, rules, and tables.
+paragraphs, code blocks, lists, quotes, rules, and tables. `progress-style`
+receives the current Theme implicitly and returns one native progress Style;
+generated code uses it directly as the widget's runtime style callback.
 
 Generated probes type-check every declaration
 against the actual Rust item. Extern component, shader, recipe, event-filter,
-sync, subscription, window, and Markdown viewer declarations are infallible;
-errors are ordinary event payloads when an adapter needs them. Shader programs retain native control of
-`State`, `Primitive`, GPU
+sync, subscription, window, Markdown viewer, and progress style declarations
+are infallible; errors are ordinary event payloads when an adapter needs them.
+Shader programs retain native control of `State`, `Primitive`, GPU
 pipeline/storage, event actions, redraws, capture, and mouse interaction. The
 consumer must enable iced's `wgpu` feature.
 
@@ -1736,7 +1758,7 @@ The implemented native nodes are:
 | `checkbox` | string label, bool value/route, disabled, sizing/typography/wrapping/font, custom icon, four presets and complete checked-aware status styles |
 | `toggler` | string label, bool value/route, disabled, sizing/typography/wrapping/font/alignment and complete checked-aware status styles |
 | `slider` | `f64` value/range/default/normal+shift steps, direction-aware sizing, change/release routes and nested status styles |
-| `progress` | `f64` value/range, all length/girth variants, vertical axis, five presets and color/border/radius style overrides |
+| `progress` | `f64` value/range, all length/girth variants, vertical axis, five presets, complete concrete style overrides and typed native runtime style callbacks |
 | `radio` | string label, bool/i64/f64/str/extern value route, bool selection, complete sizing/typography/font and selected-aware status styles |
 | `pick` | `[T]` options, `T?` selection, complete typography/handle/status/menu configuration, `T`-payload route |
 | `combo` | searchable/replaced `combo[T]` state, `T?` selection, complete typography/icon/input/menu styles and all routes |
@@ -2394,7 +2416,7 @@ snap/end; and absolute scroll-to/scroll-by. Effects have no route and
 non-negative `i64`; relative offsets are `f64` in `0.0..=1.0`; absolute
 offsets are unrestricted `f64`. Targets must be real static IDs in the app
 scope. Repeated/component scopes and the feature-gated selector API remain
-outside 1.02.
+outside 1.03.
 
 Persistent pane grids expose their native layout-state operations directly in
 handlers:
@@ -2648,7 +2670,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 1.02 does not claim that remapping.
+extern line; 1.03 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -2669,7 +2691,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 1.02 native backend is enough for CRUD/settings-style screens, selection,
+The 1.03 native backend is enough for CRUD/settings-style screens, selection,
 media, hover overlays, declarative canvas geometry, and common pointer events,
 not all of iced. It still lacks direct syntax for arbitrary custom overlays,
 and custom widgets. [`COVERAGE.md`](COVERAGE.md) is the exact versioned ledger.
