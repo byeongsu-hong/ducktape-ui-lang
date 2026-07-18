@@ -1,4 +1,4 @@
-# Ice Language Specification 1.42
+# Ice Language Specification 1.43
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 1.42 syntax.
+marked “planned” is a design constraint, not accepted 1.43 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 1.42.
+  block comments are not part of 1.43.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -192,6 +192,7 @@ type           = "bool" | "i64" | "f64" | "str" | "bytes" | "image"
                | "rotation"
                | "content-fit"
                | "color"
+               | "length"
                | "point" | "point-u32" | "vector" | "size" | "size-u32"
                | "rectangle" | "rectangle-u32"
                | "transformation" | "mouse-button" | "mouse-cursor"
@@ -1036,7 +1037,7 @@ maximum size. `icon-rgba` embeds a relative raw RGBA file without an image
 codec; width and height are positive integers, and generated Rust rejects a
 byte length other than `width × height × 4`. `cargo ice check` reports a
 mismatch at the icon declaration, and generated Rust repeats the check at
-compile time. Encoded icon formats remain outside 1.42.
+compile time. Encoded icon formats remain outside 1.43.
 
 Use `daemon Name` instead of `app Name` for an iced daemon that starts without
 an initial window and remains alive after all windows close. A daemon rejects
@@ -1102,7 +1103,10 @@ handler is needed:
 viewer memory_image width=fill height=240.0 fit=contain filter=nearest padding=8.0 min-scale=0.5 max-scale=8.0 scale-step=0.1
 ```
 Every `length` position accepts fixed `f64`, `fill`, `fill(N)` portions with a
-decimal `u16`, or `shrink`; out-of-range portions fail during parsing.
+decimal `u16`, `shrink`, or a checked first-class `length` expression;
+out-of-range compact portions fail during parsing. Grid width and the short
+axis of a horizontal/vertical slider remain fixed pixels because those iced
+builders accept `Pixels`, not `Length`.
 `rule` exposes all four iced fill modes. Percent is checked in `0.0..=100.0`;
 padding is `u16`. Its default/weak preset can be overridden by a checked theme
 color token (including `/0..100` opacity), uniform or per-corner non-negative
@@ -1594,6 +1598,7 @@ button "Add" disabled=(loading || empty(trim(draft))) -> submit
 | `rotation` | `iced::Rotation` |
 | `content-fit` | `iced::ContentFit` |
 | `color` | `iced::Color` |
+| `length` | `iced::Length` |
 | `instant` | `iced::time::Instant` |
 | `window-id` | `iced::window::Id` |
 | `markdown` | `iced::widget::markdown::Content` |
@@ -1625,7 +1630,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 1.42 message payloads.
+`Clone` for 1.43 message payloads.
 
 Declared `sync` functions are checked, synchronous Rust calls available in
 Ice expressions. They are the small escape hatch for pure domain conversions
@@ -1896,6 +1901,8 @@ The expression language contains:
 - native content fitting with all `fit.*` variants and `fit.apply`;
 - native color values with `color.*` construction, conversion, parsing,
   mutation, luminance, contrast, and readability operations;
+- native layout lengths with `length.*` variants, conversions, queries, and
+  composition;
 - image allocation retention with `image.downgrade(allocation) -> image-memory`
   and `image.upgrade(memory) -> image-allocation?`;
 - debug timing with `debug.active(span_state) -> bool` and
@@ -3053,6 +3060,22 @@ call iced's exact WCAG calculations. Colors support equality and typed extern
 passage. They are deliberately rejected as lazy identities because native
 `Color` contains floating-point channels and does not implement `Hash`.
 
+`length.fill()`, `length.fill_portion(u16 literal)`, `length.shrink()`, and
+`length.fixed(f64)` construct every native variant. Dynamic `i64` portions use
+`length.try_fill_portion(value) -> length?`, which returns `none` outside the
+native `u16` range. `length.from_f64`, `length.from_pixels`, and
+`length.from_u32` call all three native conversions; dynamic unsigned units use
+`length.try_from_u32(value) -> length?` without wrapping.
+
+A length exposes `.fill_factor`, `.is_fill`, `.kind`, optional `.portion`, and
+optional `.fixed` projections. `length.fluid(value)` and
+`length.enclose(value, other)` call the exact native layout methods. Lengths
+support equality and typed extern passage, and may be used directly in every
+view property whose iced builder accepts `Length`; the compact `fill`,
+`fill(N)`, `shrink`, and numeric spellings remain equivalent sugar. Native
+floating fixed lengths do not implement `Hash`, so lengths are rejected as lazy
+identities.
+
 The default iced `f32` geometry API has direct checked expressions:
 
 ```ice
@@ -3559,7 +3582,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 1.42 does not claim that remapping.
+extern line; 1.43 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -3580,7 +3603,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 1.42 native backend covers both windowed applications and windowless
+The 1.43 native backend covers both windowed applications and windowless
 daemons alongside CRUD/settings-style screens, selection, media, hover
 overlays, declarative canvas geometry, and pointer events. Borrowed custom
 widgets and an application-wide renderer type remain the escape hatch for
