@@ -119,6 +119,8 @@ Key files:
   typed native Theme factory for app and nested custom themes;
 - [`alternate_theme.ice`](examples/iced-app/src/ui/alternate_theme.ice) embeds a
   subtree using a different Rust Theme type;
+- [`native_overlay.ice`](examples/iced-app/src/ui/native_overlay.ice) proves the
+  typed Element escape hatch with a custom indexed Overlay;
 - [`main.rs`](examples/iced-app/src/main.rs) owns the Rust backend;
 - [`SPEC.md`](SPEC.md) defines the implemented language.
 
@@ -146,7 +148,7 @@ cargo fmt --all
 
 ## Status
 
-This is an executable v1.30 language slice, not yet a complete iced replacement.
+This is an executable v1.31 language slice, not yet a complete iced replacement.
 It implements typed extern data/actions, state, handlers, async tasks, pure
 components with named props, default children, named structural slots, and
 React-like qualified compound children, scoped IDs, relative
@@ -172,6 +174,8 @@ output-dependent typed task flows, and iced code generation, including native
 `done`/`none` sources, output `map`, `map-error`, and fallible `collect`, plus checked startup
 font embedding, complete iced font descriptors, stateful
 native Canvas programs, and typed native wgpu Shader programs.
+Owned extern Elements may also implement the complete advanced Overlay trait,
+including nested overlays and custom index ordering.
 Static and direct dynamic app IDs also support
 direct focus, cursor, selection, and scroll tasks. Static application and
 cross-platform initial window settings compile to native iced configuration.
