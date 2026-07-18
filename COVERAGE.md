@@ -15,7 +15,7 @@ counts toward the row below.
 
 ## Typed system reachability
 
-Ice 1.46 has thirty-three checked Rust boundaries:
+Ice 1.47 has thirty-three checked Rust boundaries:
 
 | Boundary | Rust ABI | Covers |
 | --- | --- | --- |
@@ -128,6 +128,7 @@ public behavior has direct documented Ice syntax and tests.
 | `Rotation` | native | exact floating/solid/default/f32 conversion, radians/degrees/kind projection, native `radians_mut` update, equality, size application, typed extern passage, and direct Image/SVG builder input cover the complete public enum behavior |
 | `ContentFit` | native | all five variants/default, compact kind/native display, equality/hashable lazy identity, exact size fitting, typed extern passage, and direct Image/SVG/Viewer builder input cover the complete public enum behavior |
 | `Color` | native | default/constants, normalized/static and dynamically checked 8-bit/linear/array constructors, all accepted hexadecimal parse forms with optional rejection, exact channel/RGBA8/linear/display projections, inverse/in-place inversion/alpha scaling, luminance/contrast/readability, equality, and typed extern passage cover the complete public behavior; native floating channels correctly remain unavailable as lazy hash identities |
+| `Background` / `Gradient` / `Linear` / `ColorStop` | native | both background variants, every background conversion and alpha scaling, the complete current linear-only gradient enum, linear construction from f32/radians, native sorted single/multiple stop insertion including invalid/eight-stop behavior, alpha scaling, exact optional-stop array projection, every field, equality, typed extern passage, and equivalent solid/linear style sugar cover the complete public behavior; floating values correctly remain unavailable as lazy identities |
 | `Length` | native | all four variants, static/dynamically checked portion and u32 construction, exact f32/Pixels/u32 conversions, fill factor/fluidity/kind/payload projections, fluid/enclose operations, equality, typed extern passage, and direct passage through every builder that accepts native Length cover the complete public behavior; pixel-only Grid width and slider short axes retain numeric checks, and floating fixed values correctly remain unavailable as lazy hash identities |
 | `Alignment` / `Horizontal` / `Vertical` | native | every variant, every bidirectional native conversion, compact kind projection, equality, hashable lazy identity, typed extern passage, and equivalent compact view-property sugar cover the complete public behavior |
 | `Border` / `Radius` | native | default/exact border construction, all three border free constructors and builders, every radius free constructor and builder, all four radius numeric conversions with safe dynamic integer forms, native corner-array conversion and scaling, every field, equality, typed extern passage, and equivalent compact style sugar cover the complete public behavior; floating values correctly remain unavailable as lazy identities |

@@ -3816,6 +3816,10 @@ fn lazy_hashable(ty: &Type) -> bool {
         | Type::Radians
         | Type::Rotation
         | Type::Color
+        | Type::Background
+        | Type::Gradient
+        | Type::LinearGradient
+        | Type::ColorStop
         | Type::Length
         | Type::Border
         | Type::Radius
@@ -7433,6 +7437,96 @@ pub(crate) fn expr_type(
                 check_builtin_args(name, args, &[Type::Color, Type::Color], env, document, span)?;
                 Ok(Type::Bool)
             }
+            "color_stop.default" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::ColorStop)
+            }
+            "color_stop" => {
+                check_builtin_args(name, args, &[Type::F64, Type::Color], env, document, span)?;
+                Ok(Type::ColorStop)
+            }
+            "linear" => {
+                if args.len() != 1 {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        "linear expects one f64 or radians angle",
+                    ));
+                }
+                require_radians_value(&args[0], env, document, span)?;
+                Ok(Type::LinearGradient)
+            }
+            "linear.add_stop" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::LinearGradient, Type::F64, Type::Color],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::LinearGradient)
+            }
+            "linear.add_stops" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::LinearGradient, Type::List(Box::new(Type::ColorStop))],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::LinearGradient)
+            }
+            "linear.scale_alpha" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::LinearGradient, Type::F64],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::LinearGradient)
+            }
+            "gradient.linear" | "gradient.from_linear" => {
+                check_builtin_args(name, args, &[Type::LinearGradient], env, document, span)?;
+                Ok(Type::Gradient)
+            }
+            "gradient.scale_alpha" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::Gradient, Type::F64],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::Gradient)
+            }
+            "background.color" | "background.from_color" => {
+                check_builtin_args(name, args, &[Type::Color], env, document, span)?;
+                Ok(Type::Background)
+            }
+            "background.gradient" | "background.from_gradient" => {
+                check_builtin_args(name, args, &[Type::Gradient], env, document, span)?;
+                Ok(Type::Background)
+            }
+            "background.from_linear" => {
+                check_builtin_args(name, args, &[Type::LinearGradient], env, document, span)?;
+                Ok(Type::Background)
+            }
+            "background.scale_alpha" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::Background, Type::F64],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::Background)
+            }
             "length.fill" | "length.shrink" => {
                 check_builtin_args(name, args, &[], env, document, span)?;
                 Ok(Type::Length)
@@ -8789,6 +8883,10 @@ pub(crate) fn expr_type(
                         && matches!(
                             left,
                             Type::Padding
+                                | Type::Background
+                                | Type::Gradient
+                                | Type::LinearGradient
+                                | Type::ColorStop
                                 | Type::Border
                                 | Type::Radius
                                 | Type::Shadow
@@ -8949,6 +9047,29 @@ fn field_type(ty: &Type, field: &str, document: &Document, span: &Span) -> Resul
             "rgba8" => Some(Type::List(Box::new(Type::I64))),
             "linear" => Some(Type::List(Box::new(Type::F64))),
             "display" => Some(Type::Str),
+            _ => None,
+        },
+        Type::Background => match field {
+            "kind" => Some(Type::Str),
+            "color" => Some(Type::Option(Box::new(Type::Color))),
+            "gradient" => Some(Type::Option(Box::new(Type::Gradient))),
+            _ => None,
+        },
+        Type::Gradient => match field {
+            "kind" => Some(Type::Str),
+            "linear" => Some(Type::LinearGradient),
+            _ => None,
+        },
+        Type::LinearGradient => match field {
+            "angle" => Some(Type::Radians),
+            "stops" => Some(Type::List(Box::new(Type::Option(Box::new(
+                Type::ColorStop,
+            ))))),
+            _ => None,
+        },
+        Type::ColorStop => match field {
+            "offset" => Some(Type::F64),
+            "color" => Some(Type::Color),
             _ => None,
         },
         Type::Length => match field {
@@ -9411,6 +9532,24 @@ mod tests {
         .unwrap_err();
         assert_eq!(error.code, "E153");
         assert!(error.message.contains("does not accept `radius`"));
+    }
+
+    #[test]
+    fn checks_native_background_and_gradient_values() {
+        let source = include_str!("../../../examples/iced-app/src/ui/background_gradient.ice");
+        analyze(source).unwrap();
+
+        let error = analyze(&source.replace("linear(radians(0.75))", "linear(true)")).unwrap_err();
+        assert_eq!(error.code, "E101");
+        assert!(error.message.contains("expected `f64` or `radians`"));
+
+        let error = analyze(&source.replace(
+            "backgrounds_equal = from_linear_background == returned_background",
+            "backgrounds_equal = from_linear_background < returned_background",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E153");
+        assert!(error.message.contains("does not accept `background`"));
     }
 
     #[test]
