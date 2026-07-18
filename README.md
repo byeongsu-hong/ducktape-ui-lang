@@ -131,7 +131,7 @@ cargo fmt --all
 
 ## Status
 
-This is an executable v1.19 language slice, not yet a complete iced replacement.
+This is an executable v1.20 language slice, not yet a complete iced replacement.
 It implements typed extern data/actions, state, handlers, async tasks, pure
 components with named props, default children, named structural slots, and
 React-like qualified compound children, scoped IDs, relative
@@ -154,7 +154,7 @@ output-dependent typed task flows, and iced code generation, including native
 `done`/`none` sources, `map-error`, and fallible `collect`, plus checked startup
 font embedding, complete iced font descriptors, stateful
 native Canvas programs, and typed native wgpu Shader programs.
-Static app IDs also support
+Static and direct dynamic app IDs also support
 direct focus, cursor, selection, and scroll tasks. Static application and
 cross-platform initial window settings compile to native iced configuration.
 Raster images accept stable path, encoded-memory, and RGBA handles plus native

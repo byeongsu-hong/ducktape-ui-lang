@@ -2079,12 +2079,14 @@ fn parse_widget_operation(source: &str, line: &Line) -> Result<Statement, Error>
         let value = parts
             .get(index)
             .ok_or_else(|| error("E052", line, "widget operation is missing `#id`"))?;
-        kebab_identifier(
-            value
-                .strip_prefix('#')
-                .ok_or_else(|| error("E052", line, "widget operation target must use `#id`"))?,
-            line,
-        )
+        if !value.starts_with('#') {
+            return Err(error(
+                "E052",
+                line,
+                "widget operation target must use `#id` or `#id(key)`",
+            ));
+        }
+        parse_id(value, line)
     };
     let expr = |index: usize| {
         parse_expr(
@@ -8905,6 +8907,39 @@ view
         .unwrap_err();
         assert_eq!(error.code, "E050");
         assert!(error.message.contains("exactly one"));
+    }
+
+    #[test]
+    fn parses_dynamic_widget_operation_ids() {
+        let source = r#"app Operations
+theme
+  background #000000
+state
+  selected = 1
+  value = ""
+on focus
+  task widget focus #field(selected)
+view
+  input "Value" #field(selected) <-> value
+"#;
+        let document = parse(source).unwrap();
+        let Statement::WidgetOperation {
+            operation: WidgetOperation::Focus { id },
+            ..
+        } = &document.handlers[0].statements[0]
+        else {
+            panic!("expected dynamic focus operation");
+        };
+        assert_eq!(id.name, "field");
+        assert!(matches!(
+            id.key.as_ref(),
+            Some(Expr::Path(path)) if path == &["selected"]
+        ));
+
+        let error =
+            parse(&source.replace("focus #field(selected)", "focus field(selected)")).unwrap_err();
+        assert_eq!(error.code, "E052");
+        assert!(error.message.contains("#id(key)"));
     }
 
     #[test]

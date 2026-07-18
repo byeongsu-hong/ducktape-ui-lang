@@ -799,6 +799,32 @@ mod generic_events {
 }
 
 #[cfg(test)]
+mod dynamic_widget_operations {
+    ui_lang::include_app!("src/ui/dynamic_widget_operations.ice");
+
+    #[test]
+    fn constructs_dynamic_widget_tasks() {
+        let (mut app, _) = DynamicOperations::__boot();
+        for message in [
+            __DynamicOperationsMessage::Focus,
+            __DynamicOperationsMessage::FocusNamed,
+            __DynamicOperationsMessage::Check,
+            __DynamicOperationsMessage::Front,
+            __DynamicOperationsMessage::End,
+            __DynamicOperationsMessage::Cursor,
+            __DynamicOperationsMessage::All,
+            __DynamicOperationsMessage::Range,
+            __DynamicOperationsMessage::Snap,
+            __DynamicOperationsMessage::SnapEnd,
+            __DynamicOperationsMessage::ScrollTo,
+            __DynamicOperationsMessage::ScrollBy,
+        ] {
+            assert_eq!(app.__update(message).units(), 1);
+        }
+    }
+}
+
+#[cfg(test)]
 mod font_events {
     ui_lang::include_app!("src/ui/font_events.ice");
 }
