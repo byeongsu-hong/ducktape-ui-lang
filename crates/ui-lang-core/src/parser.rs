@@ -79,6 +79,13 @@ pub fn parse(source: &str) -> Result<Document, Error> {
                     )?);
                 } else if let Some(source) = item.text.strip_prefix("window ") {
                     functions.push(parse_extern_fn(source, item, &path, ExternKind::Window)?);
+                } else if let Some(source) = item.text.strip_prefix("markdown-viewer ") {
+                    functions.push(parse_extern_fn(
+                        source,
+                        item,
+                        &path,
+                        ExternKind::MarkdownViewer,
+                    )?);
                 } else if item.text.chars().next().is_some_and(char::is_uppercase) {
                     structs.push(parse_extern_struct(item, &path)?);
                 } else {
@@ -1002,12 +1009,13 @@ fn parse_extern_fn(
                 | ExternKind::Sync
                 | ExternKind::Subscription
                 | ExternKind::Window
+                | ExternKind::MarkdownViewer
         )
     {
         return Err(error(
             "E023",
             line,
-            "extern components, shaders, recipes, event filters, sync functions, subscriptions, and window callbacks cannot declare an error type",
+            "extern components, shaders, recipes, event filters, sync functions, subscriptions, window callbacks, and markdown viewers cannot declare an error type",
         ));
     }
     Ok(ExternFn {
@@ -1422,6 +1430,20 @@ fn parse_statement(line: &Line) -> Result<Statement, Error> {
         return Err(error("E050", line, "sip requires an extern call"));
     }
     ensure_leaf(line)?;
+    if let Some(source) = line.text.strip_prefix("markdown ") {
+        let Some((target, value)) = split_top_marker(source, " append ") else {
+            return Err(error(
+                "E050",
+                line,
+                "markdown mutation uses `markdown state append text`",
+            ));
+        };
+        return Ok(Statement::MarkdownAppend {
+            target: identifier(target.trim(), line)?,
+            value: parse_expr(value.trim(), line)?,
+            span: Span::line(line.number),
+        });
+    }
     if let Some(condition) = line.text.strip_prefix("return if ") {
         return Ok(Statement::ReturnIf {
             condition: parse_expr(condition, line)?,
@@ -3394,7 +3416,6 @@ fn parse_markdown(
     route: Option<&str>,
     line: &Line,
 ) -> Result<ViewNode, Error> {
-    ensure_leaf(line)?;
     if !styles.is_empty() {
         return Err(error(
             "E097",
@@ -3417,17 +3438,27 @@ fn parse_markdown(
         let (name, value) = part
             .split_once('=')
             .ok_or_else(|| error("E097", line, format!("unknown markdown property `{part}`")))?;
-        let value = parse_expr(strip_wrapping_parens(value), line)?;
         match name {
-            "text-size" => options.text_size = Some(value),
-            "h1-size" => options.h1_size = Some(value),
-            "h2-size" => options.h2_size = Some(value),
-            "h3-size" => options.h3_size = Some(value),
-            "h4-size" => options.h4_size = Some(value),
-            "h5-size" => options.h5_size = Some(value),
-            "h6-size" => options.h6_size = Some(value),
-            "code-size" => options.code_size = Some(value),
-            "spacing" => options.spacing = Some(value),
+            "text-size" => {
+                options.text_size = Some(parse_expr(strip_wrapping_parens(value), line)?)
+            }
+            "h1-size" => options.h1_size = Some(parse_expr(strip_wrapping_parens(value), line)?),
+            "h2-size" => options.h2_size = Some(parse_expr(strip_wrapping_parens(value), line)?),
+            "h3-size" => options.h3_size = Some(parse_expr(strip_wrapping_parens(value), line)?),
+            "h4-size" => options.h4_size = Some(parse_expr(strip_wrapping_parens(value), line)?),
+            "h5-size" => options.h5_size = Some(parse_expr(strip_wrapping_parens(value), line)?),
+            "h6-size" => options.h6_size = Some(parse_expr(strip_wrapping_parens(value), line)?),
+            "code-size" => {
+                options.code_size = Some(parse_expr(strip_wrapping_parens(value), line)?)
+            }
+            "spacing" => options.spacing = Some(parse_expr(strip_wrapping_parens(value), line)?),
+            "viewer" => {
+                let (function, args) = parse_signature(value, line)?;
+                options.viewer = Some(MarkdownViewerCall {
+                    function,
+                    args: parse_expr_list(&args, line)?,
+                });
+            }
             _ => {
                 return Err(error(
                     "E097",
@@ -3437,12 +3468,74 @@ fn parse_markdown(
             }
         }
     }
+    options.style = match line.children.as_slice() {
+        [] => MarkdownStyleOptions::default(),
+        [style] => parse_markdown_style(style)?,
+        _ => {
+            return Err(error(
+                "E097",
+                line,
+                "markdown accepts at most one `style` child",
+            ));
+        }
+    };
     Ok(ViewNode::Markdown {
         content: identifier(content, line)?,
-        options,
+        options: Box::new(options),
         route: parse_route(route, line)?,
         span: Span::line(line.number),
     })
+}
+
+fn parse_markdown_style(line: &Line) -> Result<MarkdownStyleOptions, Error> {
+    ensure_leaf(line)?;
+    let parts = split_words(&line.text);
+    if parts.first().map(String::as_str) != Some("style") {
+        return Err(error("E097", line, "markdown child must be `style`"));
+    }
+    let mut style = MarkdownStyleOptions::default();
+    let parse = |value: &str| parse_expr(strip_wrapping_parens(value), line);
+    for part in &parts[1..] {
+        let Some((name, value)) = part.split_once('=') else {
+            return Err(error(
+                "E097",
+                line,
+                format!("unknown markdown style property `{part}`"),
+            ));
+        };
+        match name {
+            "font" => style.font = Some(parse_font_preset(value, line)?),
+            "inline-code-background" => {
+                style.inline_code_background = Some(parse_background_value(value, line)?)
+            }
+            "inline-code-color" => style.inline_code_color = Some(value.to_owned()),
+            "inline-code-font" => style.inline_code_font = Some(parse_font_preset(value, line)?),
+            "code-block-font" => style.code_block_font = Some(parse_font_preset(value, line)?),
+            "link" => style.link_color = Some(value.to_owned()),
+            "inline-code-padding" => style.inline_code_padding.all = Some(parse(value)?),
+            "inline-code-padding-x" => style.inline_code_padding.x = Some(parse(value)?),
+            "inline-code-padding-y" => style.inline_code_padding.y = Some(parse(value)?),
+            "inline-code-padding-top" => style.inline_code_padding.top = Some(parse(value)?),
+            "inline-code-padding-right" => style.inline_code_padding.right = Some(parse(value)?),
+            "inline-code-padding-bottom" => style.inline_code_padding.bottom = Some(parse(value)?),
+            "inline-code-padding-left" => style.inline_code_padding.left = Some(parse(value)?),
+            "inline-code-border" => style.inline_code_border_color = Some(value.to_owned()),
+            "inline-code-border-width" => style.inline_code_border_width = Some(parse(value)?),
+            "inline-code-radius" => style.inline_code_radius = Some(parse(value)?),
+            "inline-code-radius-tl" => style.inline_code_radius_top_left = Some(parse(value)?),
+            "inline-code-radius-tr" => style.inline_code_radius_top_right = Some(parse(value)?),
+            "inline-code-radius-br" => style.inline_code_radius_bottom_right = Some(parse(value)?),
+            "inline-code-radius-bl" => style.inline_code_radius_bottom_left = Some(parse(value)?),
+            _ => {
+                return Err(error(
+                    "E097",
+                    line,
+                    format!("unknown markdown style property `{name}`"),
+                ));
+            }
+        }
+    }
+    Ok(style)
 }
 
 fn parse_lazy(parts: &[String], styles: Vec<String>, line: &Line) -> Result<ViewNode, Error> {

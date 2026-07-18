@@ -1882,7 +1882,16 @@ fn infer_view(
                     require_literal_range(value, min, None, label, span)?;
                 }
             }
-            infer_route(route, Some(Type::Str), env, document, signatures)?;
+            check_markdown_style(&options.style, env, document, span)?;
+            let payload = if let Some(viewer) = &options.viewer {
+                let function =
+                    extern_function(document, &viewer.function, ExternKind::MarkdownViewer, span)?;
+                check_call_args(function, &viewer.args, env, document, span)?;
+                function.output.clone()
+            } else {
+                Type::Str
+            };
+            infer_route(route, Some(payload), env, document, signatures)?;
         }
         ViewNode::TextEditor {
             binding,
@@ -3545,6 +3554,71 @@ fn check_container_style_options(
     Ok(())
 }
 
+fn check_markdown_style(
+    style: &MarkdownStyleOptions,
+    env: &HashMap<String, Type>,
+    document: &Document,
+    span: &Span,
+) -> Result<(), Error> {
+    for font in [
+        style.font.as_ref(),
+        style.inline_code_font.as_ref(),
+        style.code_block_font.as_ref(),
+    ] {
+        check_font(font, document, span)?;
+    }
+    if let Some(background) = &style.inline_code_background {
+        check_background_value(
+            background,
+            env,
+            document,
+            span,
+            "E139",
+            "markdown inline code",
+        )?;
+    }
+    for (color, label) in [
+        (&style.inline_code_color, "markdown inline code"),
+        (
+            &style.inline_code_border_color,
+            "markdown inline code border",
+        ),
+        (&style.link_color, "markdown link"),
+    ] {
+        if let Some(color) = color
+            && !valid_theme_color(color, document)
+        {
+            return Err(Error::new(
+                "E139",
+                span,
+                format!("unknown {label} color `{color}`"),
+            ));
+        }
+    }
+    for value in [
+        style.inline_code_padding.all.as_ref(),
+        style.inline_code_padding.x.as_ref(),
+        style.inline_code_padding.y.as_ref(),
+        style.inline_code_padding.top.as_ref(),
+        style.inline_code_padding.right.as_ref(),
+        style.inline_code_padding.bottom.as_ref(),
+        style.inline_code_padding.left.as_ref(),
+        style.inline_code_border_width.as_ref(),
+        style.inline_code_radius.as_ref(),
+        style.inline_code_radius_top_left.as_ref(),
+        style.inline_code_radius_top_right.as_ref(),
+        style.inline_code_radius_bottom_right.as_ref(),
+        style.inline_code_radius_bottom_left.as_ref(),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+        require_literal_range(value, 0.0, None, "markdown style metric", span)?;
+    }
+    Ok(())
+}
+
 fn check_float_style_options(
     style: &FloatStyleOptions,
     env: &HashMap<String, Type>,
@@ -4848,6 +4922,17 @@ fn check_handler(
                     require_type(&actual, expected, span)?;
                 }
             }
+            Statement::MarkdownAppend {
+                target,
+                value,
+                span,
+            } => {
+                let expected = states.get(target).ok_or_else(|| {
+                    Error::new("E140", span, format!("unknown markdown state `{target}`"))
+                })?;
+                require_type(expected, &Type::Markdown, span)?;
+                require_type(&expr_type(value, &env, document, span)?, &Type::Str, span)?;
+            }
             Statement::ReturnIf { condition, span } => {
                 require_type(
                     &expr_type(condition, &env, document, span)?,
@@ -5352,6 +5437,7 @@ fn invalid_task_producer(statement: &Statement) -> Option<&Span> {
             statements.iter().find_map(invalid_task_producer)
         }
         Statement::Assign { .. }
+        | Statement::MarkdownAppend { .. }
         | Statement::ReturnIf { .. }
         | Statement::Abort { .. }
         | Statement::PaneOperation { .. } => Some(statement_span(statement)),
@@ -5377,6 +5463,7 @@ fn require_task_handle_state(
 fn statement_span(statement: &Statement) -> &Span {
     match statement {
         Statement::Assign { span, .. }
+        | Statement::MarkdownAppend { span, .. }
         | Statement::ReturnIf { span, .. }
         | Statement::Run { span, .. }
         | Statement::Sip { span, .. }
@@ -5424,6 +5511,7 @@ fn extern_function<'a>(
                 ExternKind::Sync => "sync function",
                 ExternKind::Subscription => "subscription",
                 ExternKind::Window => "window callback",
+                ExternKind::MarkdownViewer => "markdown viewer",
             };
             Error::new("E130", span, format!("unknown extern {label} `{name}`"))
         })
@@ -5725,6 +5813,21 @@ pub(crate) fn expr_type(
                 }
                 require_type(&expr_type(&args[0], env, document, span)?, &Type::Str, span)?;
                 Ok(Type::Markdown)
+            }
+            "markdown_images" => {
+                if args.len() != 1 {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        "markdown_images expects one argument",
+                    ));
+                }
+                require_type(
+                    &expr_type(&args[0], env, document, span)?,
+                    &Type::Markdown,
+                    span,
+                )?;
+                Ok(Type::List(Box::new(Type::Str)))
             }
             "editor" => {
                 if args.len() != 1 {
@@ -7192,6 +7295,9 @@ view
     #[test]
     fn checks_markdown_content_settings_and_links() {
         let source = r##"app Docs
+font ui family=sans
+extern crate::backend
+  markdown-viewer docs_viewer(prefix:str) -> str
 theme
   background #000000
   foreground #ffffff
@@ -7199,11 +7305,16 @@ theme
   danger #ff0000
 state
   docs:markdown = "# Hello [world](https://example.com)"
+  images:[str] = []
 on open(url)
 on reset
   docs = markdown("# Reset")
+on extend
+  markdown docs append "\n![Ice](asset://ice)"
+  images = markdown_images(docs)
 view
-  markdown docs text-size=16.0 h1-size=32.0 h2-size=28.0 h3-size=24.0 h4-size=20.0 h5-size=18.0 h6-size=16.0 code-size=13.0 spacing=12.0 -> open _
+  markdown docs text-size=16.0 h1-size=32.0 h2-size=28.0 h3-size=24.0 h4-size=20.0 h5-size=18.0 h6-size=16.0 code-size=13.0 spacing=12.0 viewer=docs_viewer("docs") -> open _
+    style font=ui inline-code-background=linear(1.57, background@0.0, primary@1.0) inline-code-color=foreground inline-code-font=mono code-block-font=mono link=primary inline-code-padding=2.0 inline-code-padding-x=3.0 inline-code-padding-y=4.0 inline-code-padding-top=5.0 inline-code-padding-right=6.0 inline-code-padding-bottom=7.0 inline-code-padding-left=8.0 inline-code-border=primary inline-code-border-width=1.0 inline-code-radius=4.0 inline-code-radius-tl=1.0 inline-code-radius-tr=2.0 inline-code-radius-br=3.0 inline-code-radius-bl=4.0
 "##;
         let document = analyze(source).unwrap();
         assert_eq!(document.states[0].ty.display(), "markdown");
@@ -7215,6 +7326,30 @@ view
         let error = analyze(&source.replace("markdown docs", "markdown missing")).unwrap_err();
         assert_eq!(error.code, "E139");
         assert!(error.message.contains("unknown markdown state"));
+
+        let error = analyze(&source.replace("markdown docs append", "markdown missing append"))
+            .unwrap_err();
+        assert_eq!(error.code, "E140");
+        assert!(error.message.contains("unknown markdown state"));
+
+        let error = analyze(&source.replace(
+            "markdown docs append \"\\n![Ice](asset://ice)\"",
+            "markdown docs append true",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E101");
+
+        let error = analyze(&source.replace("viewer=docs_viewer", "viewer=missing")).unwrap_err();
+        assert_eq!(error.code, "E130");
+        assert!(error.message.contains("markdown viewer"));
+
+        let error = analyze(&source.replace("link=primary", "link=missing")).unwrap_err();
+        assert_eq!(error.code, "E139");
+        assert!(error.message.contains("markdown link"));
+
+        let error =
+            analyze(&source.replace("markdown_images(docs)", "markdown_images(true)")).unwrap_err();
+        assert_eq!(error.code, "E101");
     }
 
     #[test]
