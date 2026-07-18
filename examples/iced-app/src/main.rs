@@ -825,6 +825,27 @@ mod dynamic_widget_operations {
 }
 
 #[cfg(test)]
+mod scoped_widget_operations {
+    ui_lang::include_app!("src/ui/scoped_widget_operations.ice");
+
+    #[test]
+    fn constructs_scoped_widget_tasks() {
+        let (mut app, _) = ScopedOperations::__boot();
+        for message in [
+            __ScopedOperationsMessage::FocusComponent,
+            __ScopedOperationsMessage::FocusDefault,
+            __ScopedOperationsMessage::FocusSlot,
+            __ScopedOperationsMessage::FocusKeyed,
+            __ScopedOperationsMessage::FocusHeader,
+            __ScopedOperationsMessage::FocusCell,
+            __ScopedOperationsMessage::SnapPane,
+        ] {
+            assert_eq!(app.__update(message).units(), 1);
+        }
+    }
+}
+
+#[cfg(test)]
 mod font_events {
     ui_lang::include_app!("src/ui/font_events.ice");
 }

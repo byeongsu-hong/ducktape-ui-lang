@@ -2075,18 +2075,11 @@ fn parse_widget_operation(source: &str, line: &Line) -> Result<Statement, Error>
     let (source, route) = split_top_marker(source, "->")
         .map_or((source, None), |(source, route)| (source, Some(route)));
     let parts = split_words(source);
-    let id = |index: usize| {
+    let target = |index: usize| {
         let value = parts
             .get(index)
             .ok_or_else(|| error("E052", line, "widget operation is missing `#id`"))?;
-        if !value.starts_with('#') {
-            return Err(error(
-                "E052",
-                line,
-                "widget operation target must use `#id` or `#id(key)`",
-            ));
-        }
-        parse_id(value, line)
+        parse_widget_target(value, line)
     };
     let expr = |index: usize| {
         parse_expr(
@@ -2101,33 +2094,35 @@ fn parse_widget_operation(source: &str, line: &Line) -> Result<Statement, Error>
     let operation = match parts.first().map(String::as_str) {
         Some("focus-previous") if parts.len() == 1 => WidgetOperation::FocusPrevious,
         Some("focus-next") if parts.len() == 1 => WidgetOperation::FocusNext,
-        Some("focus") if parts.len() == 2 => WidgetOperation::Focus { id: id(1)? },
-        Some("focused") if parts.len() == 2 => WidgetOperation::Focused { id: id(1)? },
-        Some("cursor-front") if parts.len() == 2 => WidgetOperation::CursorFront { id: id(1)? },
-        Some("cursor-end") if parts.len() == 2 => WidgetOperation::CursorEnd { id: id(1)? },
+        Some("focus") if parts.len() == 2 => WidgetOperation::Focus { target: target(1)? },
+        Some("focused") if parts.len() == 2 => WidgetOperation::Focused { target: target(1)? },
+        Some("cursor-front") if parts.len() == 2 => {
+            WidgetOperation::CursorFront { target: target(1)? }
+        }
+        Some("cursor-end") if parts.len() == 2 => WidgetOperation::CursorEnd { target: target(1)? },
         Some("cursor") if parts.len() == 3 => WidgetOperation::Cursor {
-            id: id(1)?,
+            target: target(1)?,
             position: expr(2)?,
         },
-        Some("select-all") if parts.len() == 2 => WidgetOperation::SelectAll { id: id(1)? },
+        Some("select-all") if parts.len() == 2 => WidgetOperation::SelectAll { target: target(1)? },
         Some("select") if parts.len() == 4 => WidgetOperation::Select {
-            id: id(1)?,
+            target: target(1)?,
             start: expr(2)?,
             end: expr(3)?,
         },
         Some("snap") if parts.len() == 4 => WidgetOperation::Snap {
-            id: id(1)?,
+            target: target(1)?,
             x: expr(2)?,
             y: expr(3)?,
         },
-        Some("snap-end") if parts.len() == 2 => WidgetOperation::SnapEnd { id: id(1)? },
+        Some("snap-end") if parts.len() == 2 => WidgetOperation::SnapEnd { target: target(1)? },
         Some("scroll-to") if parts.len() == 4 => WidgetOperation::ScrollTo {
-            id: id(1)?,
+            target: target(1)?,
             x: expr(2)?,
             y: expr(3)?,
         },
         Some("scroll-by") if parts.len() == 4 => WidgetOperation::ScrollBy {
-            id: id(1)?,
+            target: target(1)?,
             x: expr(2)?,
             y: expr(3)?,
         },
@@ -2146,6 +2141,42 @@ fn parse_widget_operation(source: &str, line: &Line) -> Result<Statement, Error>
             .transpose()?,
         span: Span::line(line.number),
     })
+}
+
+fn parse_widget_target(source: &str, line: &Line) -> Result<WidgetTarget, Error> {
+    let source = source.strip_prefix('#').ok_or_else(|| {
+        error(
+            "E052",
+            line,
+            "widget operation target must use `#id`, `#id(key)`, or `#scope/id`",
+        )
+    })?;
+    let segments = split_top(source, '/')
+        .into_iter()
+        .map(|segment| {
+            let segment = segment.strip_prefix('#').unwrap_or(segment);
+            if segment.is_empty() {
+                return Err(error("E052", line, "widget target contains an empty scope"));
+            }
+            if segment.contains('(') {
+                parse_id(segment, line)
+            } else if kebab_identifier(segment, line).is_ok()
+                || component_identifier(segment, line).is_ok()
+            {
+                Ok(Id {
+                    name: segment.into(),
+                    key: None,
+                })
+            } else {
+                Err(error(
+                    "E052",
+                    line,
+                    format!("invalid widget target scope `{segment}`"),
+                ))
+            }
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(WidgetTarget { segments })
 }
 
 fn parse_window_operation(source: &str, line: &Line) -> Result<Statement, Error> {
@@ -8918,26 +8949,35 @@ state
   selected = 1
   value = ""
 on focus
-  task widget focus #field(selected)
+  task widget focus #outer(selected)/inner/field
 view
   input "Value" #field(selected) <-> value
 "#;
         let document = parse(source).unwrap();
         let Statement::WidgetOperation {
-            operation: WidgetOperation::Focus { id },
+            operation: WidgetOperation::Focus { target },
             ..
         } = &document.handlers[0].statements[0]
         else {
             panic!("expected dynamic focus operation");
         };
-        assert_eq!(id.name, "field");
+        assert_eq!(target.segments.len(), 3);
+        let id = &target.segments[0];
+        assert_eq!(id.name, "outer");
         assert!(matches!(
             id.key.as_ref(),
             Some(Expr::Path(path)) if path == &["selected"]
         ));
+        assert_eq!(target.segments[1].name, "inner");
+        assert!(target.segments[1].key.is_none());
+        assert_eq!(target.segments[2].name, "field");
+        assert!(target.segments[2].key.is_none());
 
-        let error =
-            parse(&source.replace("focus #field(selected)", "focus field(selected)")).unwrap_err();
+        let error = parse(&source.replace(
+            "focus #outer(selected)/inner/field",
+            "focus outer(selected)/inner/field",
+        ))
+        .unwrap_err();
         assert_eq!(error.code, "E052");
         assert!(error.message.contains("#id(key)"));
     }

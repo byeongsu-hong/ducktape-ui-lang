@@ -64,8 +64,6 @@ pub fn check(document: &mut Document) -> Result<(), Error> {
 
     let mut ids = HashSet::new();
     infer_view(&document.view, &states, document, &mut signatures, &mut ids)?;
-    let operation_ids = static_widget_ids(&document.view);
-    let dynamic_operation_ids = dynamic_widget_ids(&document.view, &states, document)?;
     let pane_grids = static_pane_grids(&document.view)?;
     for component in &document.components {
         if let Some(span) = pane_grid_span(&component.root) {
@@ -79,6 +77,7 @@ pub fn check(document: &mut Document) -> Result<(), Error> {
         let mut ids = HashSet::new();
         infer_view(&component.root, &env, document, &mut signatures, &mut ids)?;
     }
+    let operation_ids = widget_operation_ids(&document.view, &states, document)?;
     controlled_state_bindings(document, false)?;
     controlled_state_bindings(document, true)?;
     infer_subscriptions(document, &states, &mut signatures)?;
@@ -104,14 +103,7 @@ pub fn check(document: &mut Document) -> Result<(), Error> {
     }
 
     for handler in document.handlers.iter().chain(&preset_handlers) {
-        check_handler(
-            handler,
-            &states,
-            document,
-            &operation_ids,
-            &dynamic_operation_ids,
-            &pane_grids,
-        )?;
+        check_handler(handler, &states, document, &operation_ids, &pane_grids)?;
     }
     Ok(())
 }
@@ -182,100 +174,61 @@ fn valid_app_color(value: &str) -> bool {
     matches!(hex.len(), 3 | 4 | 6 | 8) && hex.chars().all(|value| value.is_ascii_hexdigit())
 }
 
-fn static_widget_ids(root: &ViewNode) -> HashSet<String> {
-    fn insert(id: &Option<Id>, output: &mut HashSet<String>) {
-        if let Some(Id { name, key: None }) = id {
-            output.insert(name.clone());
-        }
-    }
-    fn collect(node: &ViewNode, output: &mut HashSet<String>) {
-        match node {
-            ViewNode::Layout { id, children, .. } => {
-                insert(id, output);
-                for child in children {
-                    collect(child, output);
-                }
-            }
-            ViewNode::Container { id, content, .. } => {
-                insert(id, output);
-                collect(content, output);
-            }
-            ViewNode::Input { id, .. }
-            | ViewNode::Checkbox { id, .. }
-            | ViewNode::TextEditor { id, .. } => insert(id, output),
-            ViewNode::Button { id, content, .. } => {
-                insert(id, output);
-                if let Some(content) = content {
-                    collect(content, output);
-                }
-            }
-            ViewNode::If { children, .. } => {
-                for child in children {
-                    collect(child, output);
-                }
-            }
-            ViewNode::Tooltip { content, tip, .. } => {
-                collect(content, output);
-                collect(tip, output);
-            }
-            ViewNode::Overlay { content, layer, .. } => {
-                collect(content, output);
-                collect(layer, output);
-            }
-            ViewNode::PaneGrid { name, panes, .. } => {
-                output.insert(name.clone());
-                for pane in panes {
-                    for node in pane.nodes() {
-                        collect(node, output);
-                    }
-                }
-            }
-            ViewNode::MouseArea { content, .. }
-            | ViewNode::Theme { content, .. }
-            | ViewNode::Float { content, .. }
-            | ViewNode::Pin { content, .. }
-            | ViewNode::Sensor { content, .. }
-            | ViewNode::Lazy { child: content, .. } => collect(content, output),
-            ViewNode::Responsive { content, .. } => match content {
-                ResponsiveContent::Breakpoint { narrow, wide, .. } => {
-                    collect(narrow, output);
-                    collect(wide, output);
-                }
-                ResponsiveContent::Size { content, .. } => collect(content, output),
-            },
-            _ => {}
-        }
-    }
-    let mut output = HashSet::new();
-    collect(root, &mut output);
-    output
+type WidgetIdPath = Vec<(String, Option<Type>)>;
+
+#[derive(Clone)]
+struct WidgetIdSlot {
+    entries: Vec<(String, ViewNode, HashMap<String, Type>)>,
+    parent: Option<Box<Self>>,
 }
 
-fn dynamic_widget_ids(
+fn widget_operation_ids(
     root: &ViewNode,
     env: &HashMap<String, Type>,
     document: &Document,
-) -> Result<Vec<(String, Type)>, Error> {
-    fn insert(
+) -> Result<Vec<WidgetIdPath>, Error> {
+    fn segment(
+        id: &Id,
+        env: &HashMap<String, Type>,
+        document: &Document,
+        span: &Span,
+    ) -> Result<(String, Option<Type>), Error> {
+        Ok((
+            id.name.clone(),
+            id.key
+                .as_ref()
+                .map(|key| expr_type(key, env, document, span))
+                .transpose()?,
+        ))
+    }
+
+    fn scoped(
+        scope: &WidgetIdPath,
         id: &Option<Id>,
         env: &HashMap<String, Type>,
         document: &Document,
         span: &Span,
-        output: &mut Vec<(String, Type)>,
+    ) -> Result<WidgetIdPath, Error> {
+        let mut scope = scope.clone();
+        if let Some(id) = id {
+            scope.push(segment(id, env, document, span)?);
+        }
+        Ok(scope)
+    }
+
+    fn record(
+        scope: &WidgetIdPath,
+        id: &Option<Id>,
+        env: &HashMap<String, Type>,
+        document: &Document,
+        span: &Span,
+        output: &mut Vec<WidgetIdPath>,
     ) -> Result<(), Error> {
-        let Some(Id {
-            name,
-            key: Some(key),
-        }) = id
-        else {
-            return Ok(());
-        };
-        let ty = expr_type(key, env, document, span)?;
-        if !output
-            .iter()
-            .any(|entry| entry == &(name.clone(), ty.clone()))
-        {
-            output.push((name.clone(), ty));
+        if id.is_some() {
+            let path = scoped(scope, id, env, document, span)?;
+            if !output.contains(&path) {
+                output.push(path);
+            }
         }
         Ok(())
     }
@@ -284,7 +237,10 @@ fn dynamic_widget_ids(
         node: &ViewNode,
         env: &HashMap<String, Type>,
         document: &Document,
-        output: &mut Vec<(String, Type)>,
+        scope: &WidgetIdPath,
+        slot: Option<&WidgetIdSlot>,
+        components: &mut Vec<(String, Span)>,
+        output: &mut Vec<WidgetIdPath>,
     ) -> Result<(), Error> {
         match node {
             ViewNode::Layout {
@@ -295,30 +251,39 @@ fn dynamic_widget_ids(
                 ..
             } => {
                 if *kind == Layout::Scroll {
-                    insert(id, env, document, span, output)?;
+                    record(scope, id, env, document, span, output)?;
                 }
-                if id.is_none() {
-                    for child in children {
-                        collect(child, env, document, output)?;
-                    }
+                let child_scope = scoped(scope, id, env, document, span)?;
+                for child in children {
+                    collect(child, env, document, &child_scope, slot, components, output)?;
                 }
             }
             ViewNode::Input { id, span, .. } | ViewNode::TextEditor { id, span, .. } => {
-                insert(id, env, document, span, output)?;
+                record(scope, id, env, document, span, output)?;
             }
-            ViewNode::Container { id, content, .. }
+            ViewNode::Container {
+                id, content, span, ..
+            }
             | ViewNode::Button {
                 id,
                 content: Some(content),
+                span,
                 ..
             } => {
-                if id.is_none() {
-                    collect(content, env, document, output)?;
-                }
+                let child_scope = scoped(scope, id, env, document, span)?;
+                collect(
+                    content,
+                    env,
+                    document,
+                    &child_scope,
+                    slot,
+                    components,
+                    output,
+                )?;
             }
             ViewNode::If { children, .. } => {
                 for child in children {
-                    collect(child, env, document, output)?;
+                    collect(child, env, document, scope, slot, components, output)?;
                 }
             }
             ViewNode::For {
@@ -333,8 +298,36 @@ fn dynamic_widget_ids(
                 let mut child_env = env.clone();
                 child_env.insert(item.clone(), *inner);
                 for child in children {
-                    collect(child, &child_env, document, output)?;
+                    collect(child, &child_env, document, scope, slot, components, output)?;
                 }
+            }
+            ViewNode::KeyedColumn {
+                item,
+                items,
+                key,
+                child,
+                span,
+                ..
+            } => {
+                let Type::List(inner) = expr_type(items, env, document, span)? else {
+                    unreachable!("checker validates keyed lists")
+                };
+                let mut child_env = env.clone();
+                child_env.insert(item.clone(), *inner);
+                let mut child_scope = scope.clone();
+                child_scope.push((
+                    "key".into(),
+                    Some(expr_type(key, &child_env, document, span)?),
+                ));
+                collect(
+                    child,
+                    &child_env,
+                    document,
+                    &child_scope,
+                    slot,
+                    components,
+                    output,
+                )?;
             }
             ViewNode::Lazy {
                 dependency,
@@ -344,25 +337,136 @@ fn dynamic_widget_ids(
             } => {
                 let mut child_env = env.clone();
                 child_env.insert(binding.clone(), expr_type(dependency, env, document, span)?);
-                collect(child, &child_env, document, output)?;
+                collect(child, &child_env, document, scope, slot, components, output)?;
             }
             ViewNode::Tooltip { content, tip, .. } => {
-                collect(content, env, document, output)?;
-                collect(tip, env, document, output)?;
+                collect(content, env, document, scope, slot, components, output)?;
+                collect(tip, env, document, scope, slot, components, output)?;
             }
             ViewNode::Overlay { content, layer, .. } => {
-                collect(content, env, document, output)?;
-                collect(layer, env, document, output)?;
+                collect(content, env, document, scope, slot, components, output)?;
+                collect(layer, env, document, scope, slot, components, output)?;
+            }
+            ViewNode::PaneGrid { panes, .. } => {
+                for pane in panes {
+                    let mut pane_scope = scope.clone();
+                    pane_scope.push((pane.name.clone(), None));
+                    for node in pane.nodes() {
+                        collect(node, env, document, &pane_scope, slot, components, output)?;
+                    }
+                }
+            }
+            ViewNode::Table {
+                item,
+                rows,
+                columns,
+                span,
+                ..
+            } => {
+                let Type::List(inner) = expr_type(rows, env, document, span)? else {
+                    unreachable!("checker validates table rows")
+                };
+                let mut cell_env = env.clone();
+                cell_env.insert(item.clone(), *inner);
+                for column in columns {
+                    let mut header_scope = scope.clone();
+                    header_scope.push(("header".into(), Some(Type::I64)));
+                    collect(
+                        &column.header,
+                        env,
+                        document,
+                        &header_scope,
+                        slot,
+                        components,
+                        output,
+                    )?;
+                    let mut cell_scope = scope.clone();
+                    cell_scope.push(("row".into(), Some(Type::I64)));
+                    cell_scope.push(("column".into(), Some(Type::I64)));
+                    collect(
+                        &column.cell,
+                        &cell_env,
+                        document,
+                        &cell_scope,
+                        slot,
+                        components,
+                        output,
+                    )?;
+                }
+            }
+            ViewNode::Component {
+                name,
+                id,
+                slots,
+                span,
+                ..
+            } => {
+                let call = (name.clone(), span.clone());
+                if components.contains(&call) {
+                    return Err(Error::new(
+                        "E122",
+                        span,
+                        format!("recursive component `{name}` cannot define widget targets"),
+                    ));
+                }
+                let component = document
+                    .components
+                    .iter()
+                    .find(|component| component.name == *name)
+                    .expect("checker validates component names");
+                let mut component_scope = scope.clone();
+                if let Some(id) = id {
+                    component_scope.push(segment(id, env, document, span)?);
+                } else {
+                    component_scope.push((name.clone(), None));
+                }
+                let component_env = component.params.iter().cloned().collect();
+                let component_slot = (!slots.is_empty()).then(|| WidgetIdSlot {
+                    entries: slots
+                        .iter()
+                        .map(|slot| (slot.name.clone(), (*slot.content).clone(), env.clone()))
+                        .collect(),
+                    parent: slot.cloned().map(Box::new),
+                });
+                components.push(call);
+                collect(
+                    &component.root,
+                    &component_env,
+                    document,
+                    &component_scope,
+                    component_slot.as_ref(),
+                    components,
+                    output,
+                )?;
+                components.pop();
+            }
+            ViewNode::Slot { name, .. } => {
+                if let Some(slot) = slot
+                    && let Some((_, content, content_env)) =
+                        slot.entries.iter().find(|(entry, ..)| entry == name)
+                {
+                    collect(
+                        content,
+                        content_env,
+                        document,
+                        scope,
+                        slot.parent.as_deref(),
+                        components,
+                        output,
+                    )?;
+                }
             }
             ViewNode::MouseArea { content, .. }
             | ViewNode::Theme { content, .. }
             | ViewNode::Float { content, .. }
             | ViewNode::Pin { content, .. }
-            | ViewNode::Sensor { content, .. } => collect(content, env, document, output)?,
+            | ViewNode::Sensor { content, .. } => {
+                collect(content, env, document, scope, slot, components, output)?;
+            }
             ViewNode::Responsive { content, .. } => match content {
                 ResponsiveContent::Breakpoint { narrow, wide, .. } => {
-                    collect(narrow, env, document, output)?;
-                    collect(wide, env, document, output)?;
+                    collect(narrow, env, document, scope, slot, components, output)?;
+                    collect(wide, env, document, scope, slot, components, output)?;
                 }
                 ResponsiveContent::Size {
                     width,
@@ -372,7 +476,9 @@ fn dynamic_widget_ids(
                     let mut child_env = env.clone();
                     child_env.insert(width.clone(), Type::F64);
                     child_env.insert(height.clone(), Type::F64);
-                    collect(content, &child_env, document, output)?;
+                    collect(
+                        content, &child_env, document, scope, slot, components, output,
+                    )?;
                 }
             },
             _ => {}
@@ -381,7 +487,15 @@ fn dynamic_widget_ids(
     }
 
     let mut output = Vec::new();
-    collect(root, env, document, &mut output)?;
+    collect(
+        root,
+        env,
+        document,
+        &Vec::new(),
+        None,
+        &mut Vec::new(),
+        &mut output,
+    )?;
     Ok(output)
 }
 
@@ -5301,8 +5415,7 @@ fn check_handler(
     handler: &Handler,
     states: &HashMap<String, Type>,
     document: &Document,
-    operation_ids: &HashSet<String>,
-    dynamic_operation_ids: &[(String, Type)],
+    operation_ids: &[WidgetIdPath],
     pane_grids: &HashMap<String, HashSet<String>>,
 ) -> Result<(), Error> {
     let mut env = states.clone();
@@ -5437,7 +5550,6 @@ fn check_handler(
                         states,
                         document,
                         operation_ids,
-                        dynamic_operation_ids,
                         pane_grids,
                     )?;
                 }
@@ -5454,7 +5566,6 @@ fn check_handler(
                     states,
                     document,
                     operation_ids,
-                    dynamic_operation_ids,
                     pane_grids,
                 )?;
             }
@@ -5485,64 +5596,120 @@ fn check_handler(
                 }
                 let target = match operation {
                     WidgetOperation::FocusPrevious | WidgetOperation::FocusNext => None,
-                    WidgetOperation::Focus { id }
-                    | WidgetOperation::Focused { id }
-                    | WidgetOperation::CursorFront { id }
-                    | WidgetOperation::CursorEnd { id }
-                    | WidgetOperation::Cursor { id, .. }
-                    | WidgetOperation::SelectAll { id }
-                    | WidgetOperation::Select { id, .. }
-                    | WidgetOperation::Snap { id, .. }
-                    | WidgetOperation::SnapEnd { id }
-                    | WidgetOperation::ScrollTo { id, .. }
-                    | WidgetOperation::ScrollBy { id, .. } => Some(id),
+                    WidgetOperation::Focus { target }
+                    | WidgetOperation::Focused { target }
+                    | WidgetOperation::CursorFront { target }
+                    | WidgetOperation::CursorEnd { target }
+                    | WidgetOperation::Cursor { target, .. }
+                    | WidgetOperation::SelectAll { target }
+                    | WidgetOperation::Select { target, .. }
+                    | WidgetOperation::Snap { target, .. }
+                    | WidgetOperation::SnapEnd { target }
+                    | WidgetOperation::ScrollTo { target, .. }
+                    | WidgetOperation::ScrollBy { target, .. } => Some(target),
                 };
-                if let Some(id) = target {
-                    if let Some(key) = &id.key {
-                        let ty = expr_type(key, &env, document, span)?;
-                        if !matches!(ty, Type::I64 | Type::Str) {
+                if let Some(target) = target {
+                    let mut actual = Vec::with_capacity(target.segments.len());
+                    for segment in &target.segments {
+                        let key = segment
+                            .key
+                            .as_ref()
+                            .map(|key| expr_type(key, &env, document, span))
+                            .transpose()?;
+                        if let Some(key) = &key
+                            && !matches!(key, Type::Bool | Type::I64 | Type::F64 | Type::Str)
+                        {
                             return Err(Error::new(
                                 "E172",
                                 span,
-                                "dynamic widget operation keys must be i64 or str",
+                                "widget target keys must be bool, i64, f64, or str",
                             ));
                         }
-                        let expected = dynamic_operation_ids
-                            .iter()
-                            .filter(|(name, _)| name == &id.name)
-                            .map(|(_, ty)| ty)
-                            .collect::<Vec<_>>();
-                        if expected.is_empty() {
-                            return Err(Error::new(
-                                "E172",
-                                span,
-                                format!("unknown dynamic app widget `#{}(key)`", id.name),
+                        actual.push((segment.name.clone(), key));
+                    }
+                    let matches = operation_ids.iter().any(|expected| {
+                        expected.len() == actual.len()
+                            && expected.iter().zip(&actual).all(
+                                |((expected_name, expected_key), (name, key))| {
+                                    expected_name == name
+                                        && match (expected_key, key) {
+                                            (None, None) => true,
+                                            (Some(expected), Some(actual)) => {
+                                                compatible(expected, actual)
+                                            }
+                                            _ => false,
+                                        }
+                                },
                             )
-                            .hint("declare the same dynamic ID on an input, editor, or scroll in the app view"));
-                        }
-                        if !expected.iter().any(|expected| compatible(expected, &ty)) {
+                    });
+                    if !matches {
+                        let label = format!(
+                            "#{}",
+                            target
+                                .segments
+                                .iter()
+                                .map(|segment| if segment.key.is_some() {
+                                    format!("{}(key)", segment.name)
+                                } else {
+                                    segment.name.clone()
+                                })
+                                .collect::<Vec<_>>()
+                                .join("/")
+                        );
+                        let same_shape = operation_ids
+                            .iter()
+                            .filter(|expected| {
+                                expected.len() == actual.len()
+                                    && expected.iter().zip(&actual).all(
+                                        |((expected_name, expected_key), (name, key))| {
+                                            expected_name == name
+                                                && expected_key.is_some() == key.is_some()
+                                        },
+                                    )
+                            })
+                            .collect::<Vec<_>>();
+                        let mismatch = (!same_shape.is_empty())
+                            .then(|| {
+                                (0..actual.len()).find(|index| {
+                                    let Some(actual) = &actual[*index].1 else {
+                                        return false;
+                                    };
+                                    same_shape.iter().all(|path| {
+                                        path[*index]
+                                            .1
+                                            .as_ref()
+                                            .is_some_and(|expected| !compatible(expected, actual))
+                                    })
+                                })
+                            })
+                            .flatten();
+                        if let Some(index) = mismatch {
+                            let expected = same_shape
+                                .iter()
+                                .filter_map(|path| path[index].1.as_ref())
+                                .map(Type::display)
+                                .collect::<HashSet<_>>();
                             return Err(Error::new(
                                 "E172",
                                 span,
                                 format!(
-                                    "dynamic app widget `#{}` expects key type {}, got `{}`",
-                                    id.name,
+                                    "widget target segment `{}` expects key type {}, got `{}`",
+                                    actual[index].0,
                                     expected
-                                        .iter()
-                                        .map(|ty| format!("`{}`", ty.display()))
+                                        .into_iter()
+                                        .map(|ty| format!("`{ty}`"))
                                         .collect::<Vec<_>>()
                                         .join(" or "),
-                                    ty.display()
+                                    actual[index].1.as_ref().unwrap().display()
                                 ),
                             ));
                         }
-                    } else if !operation_ids.contains(&id.name) {
                         return Err(Error::new(
                             "E172",
                             span,
-                            format!("unknown static app widget `#{}`", id.name),
+                            format!("unknown app widget target `{label}`"),
                         )
-                        .hint("declare this ID in the app view; nested component IDs need a scoped selector"));
+                        .hint("use the full component, layout, keyed, table, or pane identity path from the app view"));
                     }
                 }
                 match (operation, route) {
@@ -9922,7 +10089,34 @@ view
         let error = analyze(&source.replacen("focus #field(selected)", "focus #field(true)", 1))
             .unwrap_err();
         assert_eq!(error.code, "E172");
-        assert!(error.message.contains("must be i64 or str"));
+        assert!(error.message.contains("expects key type `i64`, got `bool`"));
+    }
+
+    #[test]
+    fn checks_scoped_widget_operations() {
+        let source = include_str!("../../../examples/iced-app/src/ui/scoped_widget_operations.ice");
+        analyze(source).unwrap();
+
+        let error = analyze(&source.replacen("/inner/field", "/inner/missing", 1)).unwrap_err();
+        assert_eq!(error.code, "E172");
+        assert!(error.message.contains("#outer(key)/inner/missing"));
+
+        let error = analyze(&source.replacen("#outer(selected)", "#outer(value)", 1)).unwrap_err();
+        assert_eq!(error.code, "E172");
+        assert!(
+            error
+                .message
+                .contains("segment `outer` expects key type `i64`, got `str`")
+        );
+
+        let error = analyze(&source.replacen(
+            "#row(row_index)/column(column_index)/cell",
+            "#column(column_index)/row(row_index)/cell",
+            1,
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E172");
+        assert!(error.message.contains("unknown app widget target"));
     }
 
     #[test]

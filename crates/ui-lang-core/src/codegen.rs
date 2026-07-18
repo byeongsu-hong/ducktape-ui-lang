@@ -2385,19 +2385,7 @@ fn generate_statements(
                 operation, route, ..
             } => {
                 has_task = true;
-                let id = |id: &Id| {
-                    if id.key.is_some() {
-                        Ok::<_, Error>(format!(
-                            "::iced::widget::Id::from({})",
-                            id_code(id, &rust_string(&document.app), env, document)?
-                        ))
-                    } else {
-                        Ok(format!(
-                            "::iced::widget::Id::new({})",
-                            rust_string(&format!("{}/{}", document.app, id.name))
-                        ))
-                    }
-                };
+                let id = |target: &WidgetTarget| widget_target_code(target, env, document);
                 let value = |value: &Expr, cast: &str| {
                     Ok::<_, Error>(format!(
                         "({}) as {cast}",
@@ -2411,11 +2399,11 @@ fn generate_statements(
                     WidgetOperation::FocusNext => {
                         format!("::iced::widget::operation::focus_next::<{message}>()")
                     }
-                    WidgetOperation::Focus { id: target } => format!(
+                    WidgetOperation::Focus { target } => format!(
                         "::iced::widget::operation::focus::<{message}>({})",
                         id(target)?
                     ),
-                    WidgetOperation::Focused { id: target } => {
+                    WidgetOperation::Focused { target } => {
                         let route = route.as_ref().expect("checker requires focused route");
                         let message_code = route_code(route, "value", env, document, message)?;
                         format!(
@@ -2423,53 +2411,46 @@ fn generate_statements(
                             id(target)?
                         )
                     }
-                    WidgetOperation::CursorFront { id: target } => format!(
+                    WidgetOperation::CursorFront { target } => format!(
                         "::iced::widget::operation::move_cursor_to_front::<{message}>({})",
                         id(target)?
                     ),
-                    WidgetOperation::CursorEnd { id: target } => format!(
+                    WidgetOperation::CursorEnd { target } => format!(
                         "::iced::widget::operation::move_cursor_to_end::<{message}>({})",
                         id(target)?
                     ),
-                    WidgetOperation::Cursor {
-                        id: target,
-                        position,
-                    } => format!(
+                    WidgetOperation::Cursor { target, position } => format!(
                         "::iced::widget::operation::move_cursor_to::<{message}>({}, {})",
                         id(target)?,
                         value(position, "usize")?
                     ),
-                    WidgetOperation::SelectAll { id: target } => format!(
+                    WidgetOperation::SelectAll { target } => format!(
                         "::iced::widget::operation::select_all::<{message}>({})",
                         id(target)?
                     ),
-                    WidgetOperation::Select {
-                        id: target,
-                        start,
-                        end,
-                    } => format!(
+                    WidgetOperation::Select { target, start, end } => format!(
                         "::iced::widget::operation::select_range::<{message}>({}, {}, {})",
                         id(target)?,
                         value(start, "usize")?,
                         value(end, "usize")?
                     ),
-                    WidgetOperation::Snap { id: target, x, y } => format!(
+                    WidgetOperation::Snap { target, x, y } => format!(
                         "::iced::widget::operation::snap_to::<{message}>({}, ::iced::widget::operation::RelativeOffset {{ x: {}, y: {} }})",
                         id(target)?,
                         value(x, "f32")?,
                         value(y, "f32")?
                     ),
-                    WidgetOperation::SnapEnd { id: target } => format!(
+                    WidgetOperation::SnapEnd { target } => format!(
                         "::iced::widget::operation::snap_to_end::<{message}>({})",
                         id(target)?
                     ),
-                    WidgetOperation::ScrollTo { id: target, x, y } => format!(
+                    WidgetOperation::ScrollTo { target, x, y } => format!(
                         "::iced::widget::operation::scroll_to::<{message}>({}, ::iced::widget::operation::AbsoluteOffset {{ x: {}, y: {} }})",
                         id(target)?,
                         value(x, "f32")?,
                         value(y, "f32")?
                     ),
-                    WidgetOperation::ScrollBy { id: target, x, y } => format!(
+                    WidgetOperation::ScrollBy { target, x, y } => format!(
                         "::iced::widget::operation::scroll_by::<{message}>({}, ::iced::widget::operation::AbsoluteOffset {{ x: {}, y: {} }})",
                         id(target)?,
                         value(x, "f32")?,
@@ -5336,7 +5317,7 @@ fn render_keyed_column(
         },
     );
     let key = expr_code(key, &child_env, document, ValueMode::Owned)?;
-    let child_scope = format!("format!(\"{{}}/key({{:?}})\", {scope}, __key)");
+    let child_scope = format!("format!(\"{{}}/key({{}})\", {scope}, __key)");
     let child = render_node(child, document, message, &child_env, &child_scope, slot)?;
     let mut code = format!(
         "{{ let mut __children: ::std::vec::Vec<_> = ::std::vec::Vec::new(); for {item} in {items}.iter() {{ let __key = {key}; let __child: ::iced::Element<'_, {message}> = {child}; __children.push((__key, __child)); }} let __layout = ::iced::widget::keyed_column(__children)"
@@ -9721,6 +9702,33 @@ fn id_code(
     }
 }
 
+fn widget_target_code(
+    target: &WidgetTarget,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<String, Error> {
+    if target.segments.iter().all(|segment| segment.key.is_none()) {
+        return Ok(format!(
+            "::iced::widget::Id::new({})",
+            rust_string(&format!(
+                "{}/{}",
+                document.app,
+                target
+                    .segments
+                    .iter()
+                    .map(|segment| segment.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join("/")
+            ))
+        ));
+    }
+    let mut scope = rust_string(&document.app);
+    for segment in &target.segments {
+        scope = id_code(segment, &scope, env, document)?;
+    }
+    Ok(format!("::iced::widget::Id::from({scope})"))
+}
+
 #[derive(Default)]
 struct Style {
     width_fill: bool,
@@ -10735,7 +10743,7 @@ view
         assert!(generated.contains(".height(120.0 as f32)"));
         assert!(generated.contains(".max_width(640.0 as f32)"));
         assert!(generated.contains(".align_items(::iced::Alignment::End)"));
-        assert!(generated.contains("format!(\"{}/key({:?})\""));
+        assert!(generated.contains("format!(\"{}/key({})\""));
     }
 
     #[test]
@@ -12480,6 +12488,28 @@ view
         assert!(generated.contains(
             ".id(::iced::widget::Id::from(format!(\"{}/list({})\", \"DynamicOperations\", id)))"
         ));
+    }
+
+    #[test]
+    fn lowers_scoped_widget_operations() {
+        let source = include_str!("../../../examples/iced-app/src/ui/scoped_widget_operations.ice");
+        let generated = compile(source, "scoped_widget_operations.ice").unwrap();
+
+        for id in [
+            "Id::new(\"ScopedOperations/Field/field\")",
+            "Id::new(\"ScopedOperations/frame/inner-frame/slot-field\")",
+            "Id::new(\"ScopedOperations/details/list\")",
+        ] {
+            assert!(generated.contains(id), "missing {id}");
+        }
+        for path in [
+            "format!(\"{}/field\", format!(\"{}/inner\", format!(\"{}/outer({})\", \"ScopedOperations\", self.selected)))",
+            "format!(\"{}/field\", format!(\"{}/key({})\", \"ScopedOperations\", self.selected))",
+            "format!(\"{}/filter\", format!(\"{}/header({})\", \"ScopedOperations\", self.column_index))",
+            "format!(\"{}/cell\", format!(\"{}/column({})\", format!(\"{}/row({})\", \"ScopedOperations\", self.row_index), self.column_index))",
+        ] {
+            assert!(generated.contains(path), "missing {path}");
+        }
     }
 
     #[test]

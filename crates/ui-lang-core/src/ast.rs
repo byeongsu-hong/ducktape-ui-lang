@@ -676,17 +676,53 @@ pub enum PaneEdge {
 pub enum WidgetOperation {
     FocusPrevious,
     FocusNext,
-    Focus { id: Id },
-    Focused { id: Id },
-    CursorFront { id: Id },
-    CursorEnd { id: Id },
-    Cursor { id: Id, position: Expr },
-    SelectAll { id: Id },
-    Select { id: Id, start: Expr, end: Expr },
-    Snap { id: Id, x: Expr, y: Expr },
-    SnapEnd { id: Id },
-    ScrollTo { id: Id, x: Expr, y: Expr },
-    ScrollBy { id: Id, x: Expr, y: Expr },
+    Focus {
+        target: WidgetTarget,
+    },
+    Focused {
+        target: WidgetTarget,
+    },
+    CursorFront {
+        target: WidgetTarget,
+    },
+    CursorEnd {
+        target: WidgetTarget,
+    },
+    Cursor {
+        target: WidgetTarget,
+        position: Expr,
+    },
+    SelectAll {
+        target: WidgetTarget,
+    },
+    Select {
+        target: WidgetTarget,
+        start: Expr,
+        end: Expr,
+    },
+    Snap {
+        target: WidgetTarget,
+        x: Expr,
+        y: Expr,
+    },
+    SnapEnd {
+        target: WidgetTarget,
+    },
+    ScrollTo {
+        target: WidgetTarget,
+        x: Expr,
+        y: Expr,
+    },
+    ScrollBy {
+        target: WidgetTarget,
+        x: Expr,
+        y: Expr,
+    },
+}
+
+#[derive(Clone, Debug)]
+pub struct WidgetTarget {
+    pub segments: Vec<Id>,
 }
 
 #[derive(Clone, Debug)]
