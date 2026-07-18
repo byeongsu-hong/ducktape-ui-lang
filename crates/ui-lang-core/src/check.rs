@@ -4059,6 +4059,7 @@ fn native_subscription_payloads(source: &SubscriptionSource) -> Option<Vec<Type>
         SubscriptionSource::Repeat { .. }
         | SubscriptionSource::Run { .. }
         | SubscriptionSource::Recipe { .. }
+        | SubscriptionSource::Events { .. }
         | SubscriptionSource::Extern { .. } => return None,
     })
 }
@@ -4180,6 +4181,26 @@ fn infer_subscriptions(
                 let source =
                     extern_function(document, function, ExternKind::Recipe, &subscription.span)?;
                 check_call_args(source, args, states, document, &subscription.span)?;
+                vec![source.output.clone()]
+            }
+            SubscriptionSource::Events { id, filter } => {
+                let source = extern_function(
+                    document,
+                    filter,
+                    ExternKind::EventFilter,
+                    &subscription.span,
+                )?;
+                let id = expr_type(id, states, document, &subscription.span)?;
+                if !lazy_hashable(&id) {
+                    return Err(Error::new(
+                        "E129",
+                        &subscription.span,
+                        format!(
+                            "raw event identity must be hashable, got `{}`",
+                            id.display()
+                        ),
+                    ));
+                }
                 vec![source.output.clone()]
             }
             SubscriptionSource::Extern { function, args } => {
@@ -5177,6 +5198,7 @@ fn extern_function<'a>(
                 ExternKind::Stream => "stream",
                 ExternKind::Sip => "sip",
                 ExternKind::Recipe => "recipe",
+                ExternKind::EventFilter => "event filter",
                 ExternKind::Sync => "sync function",
                 ExternKind::Subscription => "subscription",
             };
@@ -6306,6 +6328,7 @@ extern crate::backend
   stream coordinates(value:f64) -> i64
   stream fallible() -> str ! AppError
   recipe snapshot(value:i64) -> str
+  event-filter raw_event() -> str
 theme
   background #000000
   foreground #ffffff
@@ -6326,6 +6349,7 @@ subscribe
   run fallible() -> observed _
   run numbers(count) -> number _
   recipe snapshot(count) -> text _
+  events count using=raw_event -> text _
 view
   text count
 "#;
@@ -6379,6 +6403,16 @@ view
             .unwrap_err();
         assert_eq!(error.code, "E130");
         assert!(error.message.contains("extern recipe"));
+
+        let error =
+            analyze(&source.replace("events count using=raw_event", "events 1.5 using=raw_event"))
+                .unwrap_err();
+        assert_eq!(error.code, "E129");
+        assert!(error.message.contains("event identity must be hashable"));
+
+        let error = analyze(&source.replace("using=raw_event", "using=missing")).unwrap_err();
+        assert_eq!(error.code, "E130");
+        assert!(error.message.contains("event filter"));
     }
 
     #[test]

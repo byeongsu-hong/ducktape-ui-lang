@@ -282,6 +282,7 @@ pub enum ExternKind {
     Stream,
     Sip,
     Recipe,
+    EventFilter,
     Sync,
     Subscription,
 }
@@ -310,6 +311,7 @@ pub enum SubscriptionSource {
     Repeat { function: String, milliseconds: u64 },
     Run { function: String, args: Vec<Expr> },
     Recipe { function: String, args: Vec<Expr> },
+    Events { id: Expr, filter: String },
     Extern { function: String, args: Vec<Expr> },
     InputMethod(InputMethodEvent),
     Keyboard(KeyboardEvent),

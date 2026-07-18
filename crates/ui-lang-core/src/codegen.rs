@@ -551,6 +551,13 @@ fn task_source_uses_system(source: &TaskSource, name: &str) -> bool {
 }
 
 fn generate_extern_probes(out: &mut String, document: &Document) {
+    if document
+        .functions
+        .iter()
+        .any(|item| item.kind == ExternKind::EventFilter)
+    {
+        writeln!(out, "#[cfg(not(target_arch = \"wasm32\"))] type __IceEventStream<T> = ::iced::futures::stream::BoxStream<'static, T>; #[cfg(target_arch = \"wasm32\")] type __IceEventStream<T> = ::iced::futures::stream::LocalBoxStream<'static, T>;").unwrap();
+    }
     for item in &document.structs {
         writeln!(
             out,
@@ -639,6 +646,21 @@ fn generate_extern_probes(out: &mut String, document: &Document) {
                 item.name, item.rust_path
             )
             .unwrap(),
+            ExternKind::EventFilter => {
+                let recipe = format!("__IceEventFilter{}", pascal(&item.name));
+                writeln!(
+                    out,
+                    "#[allow(dead_code)] fn __ui_lang_check_event_filter_{}() {{ let _: fn(::iced::advanced::subscription::Event) -> ::std::option::Option<{output}> = {}; }}",
+                    item.name, item.rust_path
+                )
+                .unwrap();
+                writeln!(
+                    out,
+                    "struct {recipe}<I> {{ id: I }} impl<I: ::std::hash::Hash + 'static> ::iced::advanced::subscription::Recipe for {recipe}<I> {{ type Output = {output}; fn hash(&self, state: &mut ::iced::advanced::subscription::Hasher) {{ ::std::hash::Hash::hash(&::std::any::TypeId::of::<Self>(), state); ::std::hash::Hash::hash(&self.id, state); }} fn stream(self: ::std::boxed::Box<Self>, input: ::iced::advanced::subscription::EventStream) -> __IceEventStream<Self::Output> {{ ::std::boxed::Box::pin(::iced::futures::StreamExt::filter_map(input, |event| ::iced::futures::future::ready({}(event)))) }} }}",
+                    item.rust_path
+                )
+                .unwrap();
+            }
             ExternKind::Sync => writeln!(
                 out,
                 "#[allow(dead_code)] fn __ui_lang_check_sync_{}({params}) {{ let _: {output} = {}({args}); }}",
@@ -847,6 +869,7 @@ fn subscription_payload_arity(source: &SubscriptionSource) -> usize {
         | SubscriptionSource::Repeat { .. }
         | SubscriptionSource::Run { .. }
         | SubscriptionSource::Recipe { .. }
+        | SubscriptionSource::Events { .. }
         | SubscriptionSource::Extern { .. }
         | SubscriptionSource::Keyboard(_)
         | SubscriptionSource::SystemTheme => 1,
@@ -1047,6 +1070,22 @@ fn generate_subscription(
                     .collect::<Result<Vec<_>, _>>()?
                     .join(", ");
                 writeln!(out, "::iced::advanced::subscription::from_recipe({}({args})){transforms}.map(move |__value| {route}),", source.rust_path).unwrap();
+            }
+            SubscriptionSource::Events { id, filter } => {
+                let _source = document
+                    .functions
+                    .iter()
+                    .find(|item| item.name == *filter && item.kind == ExternKind::EventFilter)
+                    .ok_or_else(|| {
+                        Error::new(
+                            "E130",
+                            &subscription.span,
+                            format!("unknown event filter `{filter}`"),
+                        )
+                    })?;
+                let id = expr_code(id, &env, document, ValueMode::Owned)?;
+                let recipe = format!("__IceEventFilter{}", pascal(filter));
+                writeln!(out, "::iced::advanced::subscription::from_recipe({recipe} {{ id: {id} }}){transforms}.map(move |__value| {route}),").unwrap();
             }
             SubscriptionSource::Extern { function, args } => {
                 let source = document
@@ -8929,6 +8968,7 @@ extern crate::backend
   stream range(start:i64, limit:i64) -> i64
   stream fallible() -> str ! AppError
   recipe snapshot(id:i64) -> str
+  event-filter raw_event() -> str
 theme
   background #000000
   foreground #ffffff
@@ -8947,6 +8987,7 @@ subscribe
   run numbers(3) -> number _
   run range(1, 3) -> number _
   recipe snapshot(3) -> text _
+  events 3 using=raw_event -> text _
 view
   text "Streams"
 "#;
@@ -8968,6 +9009,10 @@ view
         assert!(generated.contains("fn __ui_lang_check_recipe_snapshot"));
         assert!(generated.contains(
             "advanced::subscription::from_recipe(crate::backend::snapshot(3)).map(move |__value| __StreamsMessage::Text(__value))"
+        ));
+        assert!(generated.contains("fn __ui_lang_check_event_filter_raw_event"));
+        assert!(generated.contains(
+            "advanced::subscription::from_recipe(__IceEventFilterRawEvent { id: 3 }).map(move |__value| __StreamsMessage::Text(__value))"
         ));
     }
 
