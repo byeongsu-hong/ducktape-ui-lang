@@ -1952,6 +1952,10 @@ fn generate_statements(
                 let code = expr_code(value, env, document, ValueMode::Owned)?;
                 writeln!(out, "{state}.{target}.push_str(&{code});").unwrap();
             }
+            Statement::ComboPush { target, value, .. } => {
+                let code = expr_code(value, env, document, ValueMode::Owned)?;
+                writeln!(out, "{state}.{target}.push({code});").unwrap();
+            }
             Statement::ReturnIf { condition, .. } => {
                 let code = expr_code(condition, env, document, ValueMode::Owned)?;
                 writeln!(out, "if {code} {{ return ::iced::Task::none(); }}").unwrap();
@@ -11215,6 +11219,8 @@ on opened
 on closed
 on reset
   modes = ["Timeline"]
+on add
+  combo modes push "Calendar"
 view
   combo modes selected "Search modes" width=fill menu-height=120.0 padding=8.0 text-size=14.0 line-height=1.2 shaping=advanced font=ui input=searched hover=hovered open=opened close=closed style=dynamic_input(busy) menu-style=dynamic_menu(busy) -> selected _
     active background=background border=foreground border-width=1.0 radius=4.0 icon=primary placeholder=danger value=foreground selection=primary
@@ -11260,6 +11266,7 @@ view
         assert!(generated.contains(
             "self.modes = ::iced::widget::combo_box::State::new(::std::vec![\"Timeline\".to_owned()]);"
         ));
+        assert!(generated.contains("self.modes.push(\"Calendar\".to_owned());"));
     }
 
     #[test]
