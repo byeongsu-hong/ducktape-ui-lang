@@ -1,4 +1,4 @@
-# Ice Language Specification 1.09
+# Ice Language Specification 1.10
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 1.09 syntax.
+marked “planned” is a design constraint, not accepted 1.10 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 1.09.
+  block comments are not part of 1.10.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -752,8 +752,9 @@ tooltip        = "tooltip" tooltip_property* INDENT node node
 tooltip_property
                = "position=" ("top" | "bottom" | "left" | "right" | "cursor")
                | "gap=" expr | "padding=" expr | "delay=" expr | "snap=" expr
-               | "style=" ("transparent" | "rounded" | "bordered" | "dark"
+               | "style=" (("transparent" | "rounded" | "bordered" | "dark"
                  | "primary" | "secondary" | "success" | "warning" | "danger")
+                 | name "(" expr_list? ")")
                | "background=" background_value
                | ("text=" | "border=" | "shadow=") color_ref
                | ("border-width=" | "radius=" | "radius-tl="
@@ -947,7 +948,7 @@ maximum size. `icon-rgba` embeds a relative raw RGBA file without an image
 codec; width and height are positive integers, and generated Rust rejects a
 byte length other than `width × height × 4`. `cargo ice check` reports a
 mismatch at the icon declaration, and generated Rust repeats the check at
-compile time. Encoded icon formats remain outside 1.09.
+compile time. Encoded icon formats remain outside 1.10.
 
 Application boot presets are structured top-level declarations:
 
@@ -1197,7 +1198,10 @@ or linear background plus theme colors can override the preset's background,
 text, border, and shadow. Border width, shadow
 blur, and uniform/per-corner radii are non-negative f64 values; shadow x/y may
 be negative. `pixel-snap=` controls the container style's pixel-grid snap and is
-separate from the tooltip overlay's viewport `snap=` behavior.
+separate from the tooltip overlay's viewport `snap=` behavior. A declared
+`container-style` call may replace the preset because iced uses the same
+`container::Style` callback for tooltip surfaces; concrete tooltip properties
+override the callback result.
 
 `pick` requires a homogeneous `[T]` options expression and a matching optional
 `T?` selection. Its main route carries `T`; `open=` and `close=` routes carry no
@@ -1429,7 +1433,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 1.09 message payloads.
+`Clone` for 1.10 message payloads.
 
 Declared `sync` functions are checked, synchronous Rust calls available in
 Ice expressions. They are the small escape hatch for pure domain conversions
@@ -1822,7 +1826,7 @@ The implemented native nodes are:
 | `image` | raster path or encoded/RGBA handle with every concrete sizing/fit/filter/floating-or-solid rotation/opacity/scale/expand/per-corner-radius/crop property |
 | `viewer` | interactive image zoom/pan with path/handle sources and complete sizing/fit/filter/padding/scale configuration |
 | `svg` | SVG path or UTF-8/raw-byte memory expression with typed layout, idle/hover color properties, and a typed native runtime style callback |
-| `tooltip` | exactly two children (content then tip), full positioning/timing plus preset, color, border, radius, shadow and pixel-snap styles |
+| `tooltip` | exactly two children (content then tip), full positioning/timing, every concrete container style field, and typed native runtime style callbacks |
 | `mouse` | one child; all button/enter/move/scroll/exit events and every iced cursor interaction |
 | `canvas` | declarative native geometry, raster/SVG drawing, path building, transforms, clipping, typed control flow, grouped dependency caches and pointer events |
 | `theme` | one child with default/app/all built-in iced themes and checked text color plus solid/linear background |
@@ -2475,7 +2479,7 @@ snap/end; and absolute scroll-to/scroll-by. Effects have no route and
 non-negative `i64`; relative offsets are `f64` in `0.0..=1.0`; absolute
 offsets are unrestricted `f64`. Targets must be real static IDs in the app
 scope. Repeated/component scopes and the feature-gated selector API remain
-outside 1.09.
+outside 1.10.
 
 Persistent pane grids expose their native layout-state operations directly in
 handlers:
@@ -2729,7 +2733,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 1.09 does not claim that remapping.
+extern line; 1.10 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -2750,7 +2754,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 1.09 native backend is enough for CRUD/settings-style screens, selection,
+The 1.10 native backend is enough for CRUD/settings-style screens, selection,
 media, hover overlays, declarative canvas geometry, and common pointer events,
 not all of iced. It still lacks direct syntax for arbitrary custom overlays,
 and custom widgets. [`COVERAGE.md`](COVERAGE.md) is the exact versioned ledger.

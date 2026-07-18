@@ -2404,6 +2404,11 @@ fn infer_view(
                     span,
                 )?;
             }
+            if let Some(style) = &options.custom_style {
+                let function =
+                    extern_function(document, &style.function, ExternKind::ContainerStyle, span)?;
+                check_call_args(function, &style.args, env, document, span)?;
+            }
             infer_view(content, env, document, signatures, ids)?;
             infer_view(tip, env, document, signatures, ids)?;
         }
@@ -8231,14 +8236,17 @@ view
     #[test]
     fn checks_tooltip_style_and_rejects_invalid_values() {
         let source = r#"app Hints
+extern crate::backend
+  container-style tooltip_surface(active:bool)
 theme
   background #000000
   foreground #ffffff
   primary #333333
   danger #ff0000
 state
+  active = true
 view
-  tooltip position=bottom style=rounded background=linear(1.57, background@0.0, primary/25@1.0) text=foreground border=primary/75 border-width=1.0 radius=5.0 radius-tl=2.0 radius-tr=3.0 radius-br=4.0 radius-bl=5.0 shadow=black/50 shadow-x=-1.0 shadow-y=2.0 shadow-blur=8.0 pixel-snap=true
+  tooltip position=bottom style=tooltip_surface(active) background=linear(1.57, background@0.0, primary/25@1.0) text=foreground border=primary/75 border-width=1.0 radius=5.0 radius-tl=2.0 radius-tr=3.0 radius-br=4.0 radius-bl=5.0 shadow=black/50 shadow-x=-1.0 shadow-y=2.0 shadow-blur=8.0 pixel-snap=true
     text "Hover"
     text "Tip"
 "#;
@@ -8259,10 +8267,21 @@ view
         assert_eq!(error.code, "E128");
         assert!(error.message.contains("tooltip shadow blur"));
 
-        let bad_style = source.replace("style=rounded", "style=unknown");
+        analyze(&source.replace("style=tooltip_surface(active)", "style=rounded")).unwrap();
+
+        let unknown = source.replace("tooltip_surface(active)", "missing(active)");
+        let error = analyze(&unknown).unwrap_err();
+        assert_eq!(error.code, "E130");
+        assert!(error.message.contains("container style"));
+
+        let wrong_arg = source.replace("tooltip_surface(active)", "tooltip_surface(1)");
+        let error = analyze(&wrong_arg).unwrap_err();
+        assert_eq!(error.code, "E101");
+
+        let bad_style = source.replace("style=tooltip_surface(active)", "style=unknown");
         let error = analyze(&bad_style).unwrap_err();
         assert_eq!(error.code, "E086");
-        assert!(error.message.contains("tooltip style must be"));
+        assert!(error.message.contains("declared container style call"));
     }
 
     #[test]
