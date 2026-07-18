@@ -33,6 +33,22 @@ on child_sized(width, height)
   child_width = width
   child_height = height
 
+on read_raw_window_id
+  task window raw-id -> raw_window_id_read _
+
+on raw_window_id_read(value)
+  raw_window_id = value
+
+on capture_window
+  task window screenshot -> window_captured _ _ _ _
+
+on window_captured(pixels, width, height, scale)
+  window_snapshot = rgba(width, height, pixels)
+  snapshot_ready = true
+  snapshot_width = width
+  snapshot_height = height
+  snapshot_scale = scale
+
 on about_toggled(next)
   about_open = next
 

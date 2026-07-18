@@ -2271,6 +2271,30 @@ fn generate_statements(
                     WindowOperation::SystemMenu => {
                         format!("::iced::window::show_system_menu::<{message}>({id})")
                     }
+                    WindowOperation::RawId => {
+                        let route = route.as_ref().expect("checker requires window route");
+                        let message_code =
+                            route_code(route, "value.to_string()", env, document, message)?;
+                        format!(
+                            "::iced::window::raw_id::<{message}>({id}).map(move |value| {message_code})"
+                        )
+                    }
+                    WindowOperation::Screenshot => {
+                        let route = route.as_ref().expect("checker requires window route");
+                        let message_code = ordered_route_code(
+                            route,
+                            &[
+                                "value.rgba.to_vec()",
+                                "value.size.width as i64",
+                                "value.size.height as i64",
+                                "value.scale_factor as f64",
+                            ],
+                            env,
+                            document,
+                            message,
+                        )?;
+                        format!("::iced::window::screenshot({id}).map(move |value| {message_code})")
+                    }
                     WindowOperation::MousePassthrough(enabled) => {
                         let enabled = bool_value(enabled)?;
                         format!(
@@ -10887,6 +10911,8 @@ on optional_bool_read(value)
 on optional_pair_read(x, y)
 on scale_read(value)
 on mode_read(value)
+on raw_id_read(value)
+on screenshot_read(pixels, width, height, scale)
 on opened(id)
   task window size target=id -> size_read _ _
 on selected(id)
@@ -10952,6 +10978,10 @@ on level_window
   task window level always-on-top
 on system_menu_window
   task window system-menu
+on read_raw_id
+  task window raw-id -> raw_id_read _
+on capture_window
+  task window screenshot -> screenshot_read _ _ _ _
 on passthrough_window
   task window mouse-passthrough false
 on read_monitor
@@ -10990,6 +11020,8 @@ view
             "window::gain_focus",
             "window::set_level",
             "window::show_system_menu",
+            "window::raw_id",
+            "window::screenshot",
             "window::enable_mouse_passthrough",
             "window::disable_mouse_passthrough",
             "window::monitor_size",
@@ -11003,6 +11035,10 @@ view
         assert!(generated.contains("::iced::window::open(::std::default::Default::default())"));
         assert!(generated.contains("::iced::window::size(id).map"));
         assert!(generated.contains("::iced::window::close::<__WindowTasksMessage>(id)"));
+        assert!(generated.contains("value.to_string()"));
+        assert!(generated.contains("value.rgba.to_vec()"));
+        assert!(generated.contains("value.size.width as i64"));
+        assert!(generated.contains("value.scale_factor as f64"));
         assert!(generated.contains("window::oldest().and_then"));
 
         let error = compile(
@@ -11046,6 +11082,16 @@ view
         )
         .unwrap_err();
         assert_eq!(error.code, "E101");
+
+        let error = compile(
+            &source.replace(
+                "task window screenshot -> screenshot_read _ _ _ _",
+                "task window screenshot -> screenshot_read _ _ _",
+            ),
+            "window_tasks.ice",
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "E129");
     }
 
     #[test]

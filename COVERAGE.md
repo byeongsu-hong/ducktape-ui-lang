@@ -15,7 +15,7 @@ counts toward the row below.
 
 ## Typed system reachability
 
-Ice 0.97 has nine checked Rust boundaries:
+Ice 0.98 has nine checked Rust boundaries:
 
 | Boundary | Rust ABI | Covers |
 | --- | --- | --- |
@@ -89,7 +89,7 @@ public behavior has direct documented Ice syntax and tests.
 | fonts | native | ordered app-level relative font files are checked and embedded into iced's startup loader; runtime bytes lower to native `font::load`; every family/weight/stretch/style descriptor, checked named reference, application default and all widget font setters are covered |
 | system | native | current theme task, theme-change subscription, and every information field with optionality preserved; information requires iced's `sysinfo` feature |
 | time | native | `instant` maps to iced's native monotonic value; `task time now`, payload-producing `every`, and typed async `repeat` cover the complete enabled `iced::time` task/subscription API with checked positive `ms`/`s` durations (`repeat` requires iced's `tokio` feature) |
-| window | partial | every cross-platform initial and named-open setting including codec-free RGBA icons; typed `window-id`, open/oldest/latest, direct targeting for every per-window close/drag/resize/constraints/state/move/mode/focus/level/menu/attention/passthrough/monitor task, automatic tabbing, and all 12 event forms; runtime icon changes, event-source IDs, raw handle, screenshot, callbacks and platform settings missing |
+| window | partial | every cross-platform initial and named-open setting including codec-free RGBA icons; typed `window-id`, open/oldest/latest, direct targeting for every per-window close/drag/resize/constraints/state/move/mode/focus/level/menu/attention/passthrough/monitor/raw-ID/screenshot task, automatic tabbing, lossless RGBA screenshot payloads, and all 12 event forms; runtime icon changes, event-source IDs, raw callbacks/handles and platform settings missing |
 | event routing | partial | all five iced `Event` families have direct structured subscriptions, a typed raw `advanced::subscription::Event` filter boundary with window ID/status, a raw Subscription adapter, and `Captured`/`Ignored` filters; generic event values inside Ice remain missing |
 | keyboard | partial | direct subscriptions cover press, release and modifier-change events with logical/modified/physical key, location, text, repeat and every modifier query; typed key enums, constructors, matching and latin translation remain |
 | mouse/touch | partial | every mouse and touch event has a direct typed subscription; native mouse-area events and all cursor interactions are covered; low-level `Cursor` and `Click` construction remain custom-widget concerns |

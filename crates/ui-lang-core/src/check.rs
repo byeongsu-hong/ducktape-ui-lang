@@ -4378,6 +4378,17 @@ fn infer_runs(
                     document,
                     signatures,
                 )?,
+                WindowOperation::RawId => {
+                    infer_route(route, Some(Type::Str), &unknown_env, document, signatures)?
+                }
+                WindowOperation::Screenshot => infer_ordered_payload_route(
+                    route,
+                    &[Type::Bytes, Type::I64, Type::I64, Type::F64],
+                    &unknown_env,
+                    document,
+                    signatures,
+                    "window screenshot",
+                )?,
                 WindowOperation::Size => infer_ordered_payload_route(
                     route,
                     &[Type::F64, Type::F64],
@@ -5067,6 +5078,8 @@ fn check_handler(
                         | WindowOperation::Position
                         | WindowOperation::ScaleFactor
                         | WindowOperation::Mode
+                        | WindowOperation::RawId
+                        | WindowOperation::Screenshot
                         | WindowOperation::MonitorSize
                 );
                 if let WindowOperation::Open(Some(name)) = operation

@@ -638,6 +638,8 @@ pub enum WindowOperation {
     Focus,
     SetLevel(WindowLevel),
     SystemMenu,
+    RawId,
+    Screenshot,
     MousePassthrough(Expr),
     MonitorSize,
     AutomaticTabbing(Expr),
