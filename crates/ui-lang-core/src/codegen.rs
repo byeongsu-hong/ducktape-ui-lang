@@ -14,6 +14,16 @@ pub fn generate(document: &Document, source_path: &str) -> Result<String, Error>
         rust_string(source_path)
     )
     .unwrap();
+    writeln!(
+        out,
+        "type __IceRenderer = {}; type __IceElement<'a, Message, Theme = ::iced::Theme> = ::iced::Element<'a, Message, Theme, __IceRenderer>;",
+        document
+            .settings
+            .renderer
+            .as_deref()
+            .unwrap_or("::iced::Renderer")
+    )
+    .unwrap();
     generate_keyboard_types(&mut out, document);
     generate_system_types(&mut out, document);
     generate_widget_selector_types(&mut out, document);
@@ -775,6 +785,15 @@ fn task_source_uses_system(source: &TaskSource, name: &str) -> bool {
     matches!(source, TaskSource::Effect { function, .. } if function == name)
 }
 
+fn borrowed_type(ty: &Type, document: &Document) -> String {
+    match ty {
+        Type::Str => "&'a str".into(),
+        Type::Bytes => "&'a [u8]".into(),
+        Type::List(inner) => format!("&'a [{}]", inner.rust(&document.structs)),
+        _ => format!("&'a {}", ty.rust(&document.structs)),
+    }
+}
+
 fn generate_extern_probes(out: &mut String, document: &Document) {
     if document
         .functions
@@ -802,11 +821,20 @@ fn generate_extern_probes(out: &mut String, document: &Document) {
         writeln!(out, "}}").unwrap();
     }
     for item in &document.functions {
+        let borrowed_component = item.kind == ExternKind::Component
+            && item.borrowed.iter().copied().any(|borrowed| borrowed);
         let params = item
             .params
             .iter()
             .enumerate()
-            .map(|(index, (_, ty))| format!("arg{index}: {}", ty.rust(&document.structs)))
+            .map(|(index, (_, ty))| {
+                let ty = if item.borrowed[index] {
+                    borrowed_type(ty, document)
+                } else {
+                    ty.rust(&document.structs)
+                };
+                format!("arg{index}: {ty}")
+            })
             .collect::<Vec<_>>()
             .join(", ");
         let args = (0..item.params.len())
@@ -832,13 +860,16 @@ fn generate_extern_probes(out: &mut String, document: &Document) {
             .unwrap(),
             ExternKind::Component => writeln!(
                 out,
-                "#[allow(dead_code)] fn __ui_lang_check_component_{}({params}) {{ let _: ::iced::Element<'static, {output}> = {}({args}); }}",
-                item.name, item.rust_path
+                "#[allow(dead_code)] fn __ui_lang_check_component_{}{}({params}) {{ let _: __IceElement<'{}, {output}> = {}({args}); }}",
+                item.name,
+                if borrowed_component { "<'a>" } else { "" },
+                if borrowed_component { "a" } else { "static" },
+                item.rust_path
             )
             .unwrap(),
             ExternKind::Shader => writeln!(
                 out,
-                "#[allow(dead_code)] fn __ui_lang_check_shader_{}({params}) {{ let __program = {}({args}); fn __accept<P: ::iced::widget::shader::Program<{output}>>(_: &P) {{}} __accept(&__program); let _: ::iced::Element<'static, {output}> = ::iced::widget::Shader::new(__program).into(); }}",
+                "#[allow(dead_code)] fn __ui_lang_check_shader_{}({params}) {{ let __program = {}({args}); fn __accept<P: ::iced::widget::shader::Program<{output}>>(_: &P) {{}} __accept(&__program); let _: __IceElement<'static, {output}> = ::iced::widget::Shader::new(__program).into(); }}",
                 item.name, item.rust_path
             )
             .unwrap(),
@@ -912,7 +943,7 @@ fn generate_extern_probes(out: &mut String, document: &Document) {
             .unwrap(),
             ExternKind::Themer => writeln!(
                 out,
-                "#[allow(dead_code)] fn __ui_lang_check_themer_{}({params}) {{ let (__theme, __content, __text_color, __background) = {}({args}); fn __accept<T: ::iced::theme::Base>(_: &::std::option::Option<T>, _: &::iced::Element<'static, {output}, T>, _: &::std::option::Option<fn(&T) -> ::iced::Color>, _: &::std::option::Option<fn(&T) -> ::iced::Background>) {{}} __accept(&__theme, &__content, &__text_color, &__background); }}",
+                "#[allow(dead_code)] fn __ui_lang_check_themer_{}({params}) {{ let (__theme, __content, __text_color, __background) = {}({args}); fn __accept<T: ::iced::theme::Base>(_: &::std::option::Option<T>, _: &__IceElement<'static, {output}, T>, _: &::std::option::Option<fn(&T) -> ::iced::Color>, _: &::std::option::Option<fn(&T) -> ::iced::Background>) {{}} __accept(&__theme, &__content, &__text_color, &__background); }}",
                 item.name, item.rust_path
             )
             .unwrap(),
@@ -960,7 +991,7 @@ fn generate_extern_probes(out: &mut String, document: &Document) {
             }
             ExternKind::EditorHighlighter => writeln!(
                 out,
-                "#[allow(dead_code)] fn __ui_lang_check_editor_highlighter_{}({params}) {{ let __content = ::iced::widget::text_editor::Content::new(); let __editor = ::iced::widget::text_editor(&__content).on_action(|_| ()); let _: ::iced::Element<'_, ()> = {}(__editor{}).into(); }}",
+                "#[allow(dead_code)] fn __ui_lang_check_editor_highlighter_{}({params}) {{ let __content = ::iced::widget::text_editor::Content::new(); let __editor = ::iced::widget::text_editor(&__content).on_action(|_| ()); let _: __IceElement<'_, ()> = {}(__editor{}).into(); }}",
                 item.name,
                 item.rust_path,
                 if args.is_empty() {
@@ -2058,7 +2089,7 @@ fn generate_view(out: &mut String, document: &Document, message: &str) -> Result
     )?;
     writeln!(
         out,
-        "fn __view(&self) -> ::iced::Element<'_, {message}> {{ {root} }}"
+        "fn __view(&self) -> __IceElement<'_, {message}> {{ {root} }}"
     )
     .unwrap();
     Ok(())
@@ -3358,7 +3389,7 @@ fn render_node(
                 )
             };
             let mut code = format!(
-                "{{ let __button_content: ::iced::Element<'_, {message}> = {content}; ::iced::widget::button(__button_content)"
+                "{{ let __button_content: __IceElement<'_, {message}> = {content}; ::iced::widget::button(__button_content)"
             );
             if let Some(padding) = style.padding_code() {
                 write!(code, ".padding({padding})").unwrap();
@@ -3931,7 +3962,23 @@ fn render_node(
                 })?;
             let args = args
                 .iter()
-                .map(|arg| expr_code(arg, env, document, ValueMode::Owned))
+                .enumerate()
+                .map(|(index, arg)| {
+                    if component.borrowed[index] {
+                        let arg = expr_code(arg, env, document, ValueMode::Borrowed)?;
+                        let borrow = if matches!(
+                            component.params[index].1,
+                            Type::Str | Type::Bytes | Type::List(_)
+                        ) {
+                            "::std::convert::AsRef::as_ref"
+                        } else {
+                            "::std::borrow::Borrow::borrow"
+                        };
+                        Ok(format!("{borrow}(&({arg}))"))
+                    } else {
+                        expr_code(arg, env, document, ValueMode::Owned)
+                    }
+                })
                 .collect::<Result<Vec<_>, _>>()?
                 .join(", ");
             let mapped = if let Some(route) = route {
@@ -3968,7 +4015,7 @@ fn render_node(
                 format!("{message}::__ExternNoop")
             };
             Ok(format!(
-                "{{ let (__theme, __content, __text_color, __background) = {}({args}); let mut __themer = ::iced::widget::themer(__theme, __content); if let ::std::option::Option::Some(__text_color) = __text_color {{ __themer = __themer.text_color(__text_color); }} if let ::std::option::Option::Some(__background) = __background {{ __themer = __themer.background(__background); }} let __themed: ::iced::Element<'_, {}> = __themer.into(); __themed.map(move |__value| {mapped}).into() }}",
+                "{{ let (__theme, __content, __text_color, __background) = {}({args}); let mut __themer = ::iced::widget::themer(__theme, __content); if let ::std::option::Option::Some(__text_color) = __text_color {{ __themer = __themer.text_color(__text_color); }} if let ::std::option::Option::Some(__background) = __background {{ __themer = __themer.background(__background); }} let __themed: __IceElement<'_, {}> = __themer.into(); __themed.map(move |__value| {mapped}).into() }}",
                 themer.rust_path,
                 themer.output.rust(&document.structs)
             ))
@@ -4005,7 +4052,7 @@ fn render_node(
                 format!("{message}::__ExternNoop")
             };
             Ok(format!(
-                "{{ let __shader: ::iced::Element<'_, {output}> = {code}.into(); __shader.map(move |__value| {mapped}).into() }}"
+                "{{ let __shader: __IceElement<'_, {output}> = {code}.into(); __shader.map(move |__value| {mapped}).into() }}"
             ))
         }
         ViewNode::Media {
@@ -4229,7 +4276,7 @@ fn render_node(
             let delay = expr_code(&options.delay_ms, env, document, ValueMode::Owned)?;
             let snap = expr_code(&options.snap, env, document, ValueMode::Owned)?;
             let mut code = format!(
-                "{{ let __tooltip_content: ::iced::Element<'_, {message}> = {content}; let __tooltip_tip: ::iced::Element<'_, {message}> = {tip}; ::iced::widget::tooltip(__tooltip_content, __tooltip_tip, ::iced::widget::tooltip::Position::{position}).gap({gap} as f32).padding({padding} as f32).delay(::std::time::Duration::from_millis({delay} as u64)).snap_within_viewport({snap})"
+                "{{ let __tooltip_content: __IceElement<'_, {message}> = {content}; let __tooltip_tip: __IceElement<'_, {message}> = {tip}; ::iced::widget::tooltip(__tooltip_content, __tooltip_tip, ::iced::widget::tooltip::Position::{position}).gap({gap} as f32).padding({padding} as f32).delay(::std::time::Duration::from_millis({delay} as u64)).snap_within_viewport({snap})"
             );
             append_tooltip_style(&mut code, options, env, document)?;
             code.push_str(".into() }");
@@ -4240,7 +4287,7 @@ fn render_node(
         } => {
             let content = render_node(content, document, message, env, scope, slot)?;
             let mut code = format!(
-                "{{ let __mouse_content: ::iced::Element<'_, {message}> = {content}; ::iced::widget::mouse_area(__mouse_content)"
+                "{{ let __mouse_content: __IceElement<'_, {message}> = {content}; ::iced::widget::mouse_area(__mouse_content)"
             );
             for (route, method) in [
                 (&options.press, "on_press"),
@@ -4323,7 +4370,7 @@ fn render_node(
         } => {
             let content = render_node(content, document, message, env, scope, slot)?;
             let mut code = format!(
-                "{{ let __theme_content: ::iced::Element<'_, {message}> = {content}; ::iced::widget::themer({}, __theme_content)",
+                "{{ let __theme_content: __IceElement<'_, {message}> = {content}; ::iced::widget::themer({}, __theme_content)",
                 theme_preset_code(preset, env, document)?
             );
             if let Some(color) = text {
@@ -4372,7 +4419,7 @@ fn render_node(
             let x = expr_code(x, &translate_env, document, ValueMode::Owned)?;
             let y = expr_code(y, &translate_env, document, ValueMode::Owned)?;
             let mut code = format!(
-                "{{ let __float_content: ::iced::Element<'_, {message}> = {content}; let __float = ::iced::widget::float(__float_content).scale({scale} as f32).translate(move |__original, __viewport| ::iced::Vector::new({x} as f32, {y} as f32))"
+                "{{ let __float_content: __IceElement<'_, {message}> = {content}; let __float = ::iced::widget::float(__float_content).scale({scale} as f32).translate(move |__original, __viewport| ::iced::Vector::new({x} as f32, {y} as f32))"
             );
             append_float_style(&mut code, style, env, document)?;
             Ok(format!("{code}; __float.into() }}"))
@@ -4389,7 +4436,7 @@ fn render_node(
             let x = expr_code(x, env, document, ValueMode::Owned)?;
             let y = expr_code(y, env, document, ValueMode::Owned)?;
             let mut code = format!(
-                "{{ let __pin_content: ::iced::Element<'_, {message}> = {content}; ::iced::widget::pin(__pin_content).x({x} as f32).y({y} as f32)"
+                "{{ let __pin_content: __IceElement<'_, {message}> = {content}; ::iced::widget::pin(__pin_content).x({x} as f32).y({y} as f32)"
             );
             if let Some(width) = width {
                 write!(code, ".width({})", length_code(width, env, document)?).unwrap();
@@ -4404,7 +4451,7 @@ fn render_node(
         } => {
             let content = render_node(content, document, message, env, scope, slot)?;
             let mut code = format!(
-                "{{ let __sensor_content: ::iced::Element<'_, {message}> = {content}; ::iced::widget::sensor(__sensor_content)"
+                "{{ let __sensor_content: __IceElement<'_, {message}> = {content}; ::iced::widget::sensor(__sensor_content)"
             );
             if let Some(route) = &options.show {
                 write!(
@@ -4472,7 +4519,7 @@ fn render_node(
                     let narrow = render_node(narrow, document, message, env, scope, slot)?;
                     let wide = render_node(wide, document, message, env, scope, slot)?;
                     format!(
-                        "move |__size| {{ let __responsive: ::iced::Element<'_, {message}> = if __size.width < {breakpoint} as f32 {{ {narrow} }} else {{ {wide} }}; __responsive }}"
+                        "move |__size| {{ let __responsive: __IceElement<'_, {message}> = if __size.width < {breakpoint} as f32 {{ {narrow} }} else {{ {wide} }}; __responsive }}"
                     )
                 }
                 ResponsiveContent::Size {
@@ -4499,7 +4546,7 @@ fn render_node(
                     );
                     let content = render_node(content, document, message, &child_env, scope, slot)?;
                     format!(
-                        "move |__size| {{ let __responsive: ::iced::Element<'_, {message}> = {content}; __responsive }}"
+                        "move |__size| {{ let __responsive: __IceElement<'_, {message}> = {content}; __responsive }}"
                     )
                 }
             };
@@ -4556,7 +4603,7 @@ fn render_node(
             )?;
             let dependency_rust = dependency_type.rust(&document.structs);
             Ok(format!(
-                "::iced::widget::lazy(({dependency}, ({scope}).to_owned()), move |__dependency| {{ let {binding}: {dependency_rust} = __dependency.0.clone(); let __lazy_scope = __dependency.1.clone(); let __lazy_content: ::iced::Element<'static, {message}> = {child}; __lazy_content }}).into()"
+                "::iced::widget::lazy(({dependency}, ({scope}).to_owned()), move |__dependency| {{ let {binding}: {dependency_rust} = __dependency.0.clone(); let __lazy_scope = __dependency.1.clone(); let __lazy_content: __IceElement<'static, {message}> = {child}; __lazy_content }}).into()"
             ))
         }
         ViewNode::Markdown {
@@ -4992,7 +5039,7 @@ fn render_container(
         code
     };
     Ok(format!(
-        "{{ let __container_content: ::iced::Element<'_, {message}> = {content}; {code}.into() }}"
+        "{{ let __container_content: __IceElement<'_, {message}> = {content}; {code}.into() }}"
     ))
 }
 
@@ -5028,7 +5075,7 @@ fn render_overlay(
     };
     let noop = format!("{message}::__ExternNoop");
     Ok(format!(
-        "{{ let __overlay_base: ::iced::Element<'_, {message}> = {content}; if {visible} {{ let __overlay_layer: ::iced::Element<'_, {message}> = {layer}; let __overlay_backdrop = ::iced::widget::container(::iced::widget::space()).width(::iced::Fill).height(::iced::Fill).style(|_| ::iced::widget::container::Style {{ background: ::std::option::Option::Some(::iced::Background::Color({backdrop})), ..::iced::widget::container::Style::default() }}); let __overlay_backdrop: ::iced::Element<'_, {message}> = ::iced::widget::mouse_area(__overlay_backdrop).on_press({dismiss}).on_release({noop}).on_right_press({noop}).on_right_release({noop}).on_middle_press({noop}).on_middle_release({noop}).on_scroll(|_| {noop}).into(); let __overlay_panel = ::iced::widget::mouse_area(__overlay_layer).on_press({noop}).on_release({noop}).on_right_press({noop}).on_right_release({noop}).on_middle_press({noop}).on_middle_release({noop}).on_scroll(|_| {noop}); let __overlay_panel: ::iced::Element<'_, {message}> = ::iced::widget::container(__overlay_panel).width(::iced::Fill).height(::iced::Fill).padding({padding} as f32).align_x(::iced::alignment::Horizontal::{align_x}).align_y(::iced::alignment::Vertical::{align_y}).into(); let __overlay_surface: ::iced::Element<'_, {message}> = ::iced::widget::Stack::new().width(::iced::Fill).height(::iced::Fill).push(__overlay_backdrop).push(__overlay_panel).into(); ::iced::widget::Stack::new().width(::iced::Fill).height(::iced::Fill).push(__overlay_base).push(::iced::widget::float(__overlay_surface).translate(|_, _| ::iced::Vector::new(::core::f32::EPSILON, 0.0))).into() }} else {{ __overlay_base }} }}"
+        "{{ let __overlay_base: __IceElement<'_, {message}> = {content}; if {visible} {{ let __overlay_layer: __IceElement<'_, {message}> = {layer}; let __overlay_backdrop = ::iced::widget::container(::iced::widget::space()).width(::iced::Fill).height(::iced::Fill).style(|_| ::iced::widget::container::Style {{ background: ::std::option::Option::Some(::iced::Background::Color({backdrop})), ..::iced::widget::container::Style::default() }}); let __overlay_backdrop: __IceElement<'_, {message}> = ::iced::widget::mouse_area(__overlay_backdrop).on_press({dismiss}).on_release({noop}).on_right_press({noop}).on_right_release({noop}).on_middle_press({noop}).on_middle_release({noop}).on_scroll(|_| {noop}).into(); let __overlay_panel = ::iced::widget::mouse_area(__overlay_layer).on_press({noop}).on_release({noop}).on_right_press({noop}).on_right_release({noop}).on_middle_press({noop}).on_middle_release({noop}).on_scroll(|_| {noop}); let __overlay_panel: __IceElement<'_, {message}> = ::iced::widget::container(__overlay_panel).width(::iced::Fill).height(::iced::Fill).padding({padding} as f32).align_x(::iced::alignment::Horizontal::{align_x}).align_y(::iced::alignment::Vertical::{align_y}).into(); let __overlay_surface: __IceElement<'_, {message}> = ::iced::widget::Stack::new().width(::iced::Fill).height(::iced::Fill).push(__overlay_backdrop).push(__overlay_panel).into(); ::iced::widget::Stack::new().width(::iced::Fill).height(::iced::Fill).push(__overlay_base).push(::iced::widget::float(__overlay_surface).translate(|_, _| ::iced::Vector::new(::core::f32::EPSILON, 0.0))).into() }} else {{ __overlay_base }} }}"
     ))
 }
 
@@ -5358,7 +5405,7 @@ fn render_pane_content(
     slot: Option<&SlotContext>,
 ) -> Result<String, Error> {
     let body = render_node(&pane.content, document, message, env, scope, slot)?;
-    let mut declarations = format!("let __pane_content: ::iced::Element<'_, {message}> = {body};");
+    let mut declarations = format!("let __pane_content: __IceElement<'_, {message}> = {body};");
     let mut content = String::from("::iced::widget::pane_grid::Content::new(__pane_content)");
     if let Some(style) = container_surface_style_value(
         &Style::parse(&pane.styles, document),
@@ -5373,7 +5420,7 @@ fn render_pane_content(
         let title_content = render_node(&title.content, document, message, env, scope, slot)?;
         write!(
             declarations,
-            " let __pane_title: ::iced::Element<'_, {message}> = {title_content};"
+            " let __pane_title: __IceElement<'_, {message}> = {title_content};"
         )
         .unwrap();
         let mut title_bar = String::from("::iced::widget::pane_grid::TitleBar::new(__pane_title)");
@@ -5384,14 +5431,14 @@ fn render_pane_content(
             let controls = render_node(controls, document, message, env, scope, slot)?;
             write!(
                 declarations,
-                " let __pane_controls: ::iced::Element<'_, {message}> = {controls};"
+                " let __pane_controls: __IceElement<'_, {message}> = {controls};"
             )
             .unwrap();
             if let Some(compact) = &title.compact_controls {
                 let compact = render_node(compact, document, message, env, scope, slot)?;
                 write!(
                     declarations,
-                    " let __pane_compact_controls: ::iced::Element<'_, {message}> = {compact};"
+                    " let __pane_compact_controls: __IceElement<'_, {message}> = {compact};"
                 )
                 .unwrap();
                 title_bar.push_str(".controls(::iced::widget::pane_grid::Controls::dynamic(__pane_controls, __pane_compact_controls))");
@@ -5592,7 +5639,7 @@ fn render_table(
             slot,
         )?;
         let mut code = format!(
-            "{{ let __table_header: ::iced::Element<'_, {message}> = {header}; ::iced::widget::table::column(__table_header, move |(__row, {item}): (usize, {row_rust})| -> ::iced::Element<'_, {message}> {{ {cell} }})"
+            "{{ let __table_header: __IceElement<'_, {message}> = {header}; ::iced::widget::table::column(__table_header, move |(__row, {item}): (usize, {row_rust})| -> __IceElement<'_, {message}> {{ {cell} }})"
         );
         if let Some(width) = &column.width {
             write!(code, ".width({})", length_code(width, env, document)?).unwrap();
@@ -5682,7 +5729,7 @@ fn render_keyed_column(
     let child_scope = format!("format!(\"{{}}/key({{}})\", {scope}, __key)");
     let child = render_node(child, document, message, &child_env, &child_scope, slot)?;
     let mut code = format!(
-        "{{ let mut __children: ::std::vec::Vec<_> = ::std::vec::Vec::new(); for {item} in {items}.iter() {{ let __key = {key}; let __child: ::iced::Element<'_, {message}> = {child}; __children.push((__key, __child)); }} let __layout = ::iced::widget::keyed_column(__children)"
+        "{{ let mut __children: ::std::vec::Vec<_> = ::std::vec::Vec::new(); for {item} in {items}.iter() {{ let __key = {key}; let __child: __IceElement<'_, {message}> = {child}; __children.push((__key, __child)); }} let __layout = ::iced::widget::keyed_column(__children)"
     );
     if let Some(spacing) = &options.spacing {
         write!(
@@ -5848,11 +5895,11 @@ fn render_layout(
             write!(code, ".height({})", length_code(height, env, document)?).unwrap();
         }
         return Ok(format!(
-            "{{ let __scroll_content: ::iced::Element<'_, {message}> = {child}; {code}.into() }}"
+            "{{ let __scroll_content: __IceElement<'_, {message}> = {child}; {code}.into() }}"
         ));
     }
 
-    let mut body = String::from("{ let mut __children: ::std::vec::Vec<::iced::Element<'_, ");
+    let mut body = String::from("{ let mut __children: ::std::vec::Vec<__IceElement<'_, ");
     write!(body, "{message}>> = ::std::vec::Vec::new();").unwrap();
     let child_scope = id.as_ref().map_or_else(
         || Ok(scope.to_owned()),
@@ -12073,7 +12120,7 @@ view
 "#;
         let generated = compile(source, "themer.ice").unwrap();
         assert!(generated.contains(
-            "fn __ui_lang_check_themer_alternate_panel(arg0: bool) { let (__theme, __content, __text_color, __background) = crate::backend::alternate_panel(arg0); fn __accept<T: ::iced::theme::Base>(_: &::std::option::Option<T>, _: &::iced::Element<'static, bool, T>"
+            "fn __ui_lang_check_themer_alternate_panel(arg0: bool) { let (__theme, __content, __text_color, __background) = crate::backend::alternate_panel(arg0); fn __accept<T: ::iced::theme::Base>(_: &::std::option::Option<T>, _: &__IceElement<'static, bool, T>"
         ));
         assert!(
             generated.contains("let mut __themer = ::iced::widget::themer(__theme, __content)")
@@ -12238,7 +12285,7 @@ view
                 .contains("::iced::widget::lazy((self.title.clone(), (\"LazyDemo\").to_owned())")
         );
         assert!(generated.contains("let cached: ::std::string::String = __dependency.0.clone()"));
-        assert!(generated.contains("let __lazy_content: ::iced::Element<'static,"));
+        assert!(generated.contains("let __lazy_content: __IceElement<'static,"));
         assert!(generated.contains("let __lazy_scope = __dependency.1.clone()"));
     }
 
@@ -13307,7 +13354,7 @@ view
     disabled background=background text=foreground
 "#;
         let generated = compile(source, "actions.ice").unwrap();
-        assert!(generated.contains("let __button_content: ::iced::Element"));
+        assert!(generated.contains("let __button_content: __IceElement"));
         assert!(generated.contains("::iced::widget::row(__children)"));
         assert!(generated.contains(".width(::iced::Fill).height(48.0 as f32)"));
         assert!(generated.contains(".padding(8.0 as f32).clip(true)"));
@@ -13561,9 +13608,11 @@ view
     #[test]
     fn lowers_typed_iced_extern_boundaries() {
         let source = r#"app Interop
+  renderer crate::backend::Renderer
 extern crate::backend
   Failure(code:i64)
   component native_meter(value:f64) -> f64
+  component borrowed_meter(label:&str, values:&[f64], active:&bool) -> f64
   component passive() -> unit
   shader native_shader(value:f64) -> bool
   shader passive_shader() -> unit
@@ -13577,6 +13626,8 @@ theme
   danger #ff0000
 state
   amount = 1.0
+  label = "Borrowed"
+  values:[f64] = [1.0, 2.0]
   count = 0
   seen = false
 on changed(next)
@@ -13599,6 +13650,7 @@ subscribe
 view
   col
     extern native_meter(amount) -> changed _
+    extern borrowed_meter(label, values, seen) -> changed _
     extern passive()
     shader native_shader(amount) width=fill height=64.0 -> shaded _
     shader passive_shader()
@@ -13606,7 +13658,10 @@ view
     button "Save" -> save
 "#;
         let generated = compile(source, "interop.ice").unwrap();
-        assert!(generated.contains("::iced::Element<'static, f64>"));
+        assert!(generated.contains("type __IceRenderer = crate::backend::Renderer"));
+        assert!(generated.contains("__IceElement<'static, f64>"));
+        assert!(generated.contains("fn __ui_lang_check_component_borrowed_meter<'a>(arg0: &'a str, arg1: &'a [f64], arg2: &'a bool)"));
+        assert!(generated.contains("let _: __IceElement<'a, f64>"));
         assert!(generated.contains("::iced::Task<()>"));
         assert!(generated.contains("::iced::Subscription<bool>"));
         assert!(generated.contains("fn __ui_lang_check_shader_native_shader"));
@@ -13619,6 +13674,7 @@ view
         assert!(generated.contains(".width(::iced::Fill).height(64.0 as f32)"));
         assert!(generated.contains(".subscription(Self::__subscription)"));
         assert!(generated.contains("native_meter(self.amount).map"));
+        assert!(generated.contains("borrowed_meter(::std::convert::AsRef::as_ref(&(self.label)), ::std::convert::AsRef::as_ref(&(self.values)), ::std::borrow::Borrow::borrow(&(self.seen))).map"));
         assert!(generated.contains("passive().map(move |__value| __InteropMessage::__ExternNoop)"));
         assert!(generated.contains("focus_next().map(|value| __InteropMessage::Focused)"));
         assert!(generated.contains("save().map(|result| match result"));

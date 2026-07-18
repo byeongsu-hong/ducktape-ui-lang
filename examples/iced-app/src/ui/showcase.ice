@@ -1,4 +1,5 @@
 app Showcase
+  renderer crate::backend::AppRenderer
 
 font ui family=sans weight=medium stretch=normal style=normal default=true
 
@@ -12,6 +13,7 @@ extern crate::backend
   set_task_done(id:i64, done:bool) -> [Task] ! AppError
   sync slider_number(value:f64) -> SliderNumber
   component native_help(active:bool) -> bool
+  component borrowed_help(label:&str, active:&bool) -> bool
   markdown-viewer docs_viewer(prefix:str) -> str
   editor-binding editor_keys(readonly:bool) -> EditorCommand
   editor-highlighter editor_highlight(token:str)
@@ -530,6 +532,7 @@ view
         progress volume length=fill girth=24.0 style=loading_progress(loading) background=linear(1.57, background@0.0, surface@1.0) bar=linear(0.0, primary@0.0, foreground@1.0) border=foreground border-width=1.0 radius=4.0 radius-tl=2.0
         progress volume vertical length=120.0 girth=20.0 style=warning background=linear(1.57, background@0.0, surface@1.0) bar=linear(0.0, danger@0.0, primary@1.0) radius=3.0
         extern native_help(external_hover) -> external_hover_changed _
+        extern borrowed_help(draft, external_hover) -> external_hover_changed _
         if event_seen
           text "External subscription active" @text-xs text-muted
         row width=fill height=shrink spacing=12.0 padding-y=4.0 align=center clip=false wrap wrap-spacing=8.0 wrap-align=start
