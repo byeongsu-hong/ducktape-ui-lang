@@ -1,0 +1,47 @@
+app NativeContentFit
+
+extern crate::backend
+  sync content_fit_round_trip(value:content-fit) -> content-fit
+
+theme
+  background #111827
+  foreground #f9fafb
+  primary #60a5fa
+  danger #f87171
+
+state
+  pixel:image = rgba(1, 1, bytes(ff 00 ff ff))
+  default_fit:content-fit = fit.default()
+  contain_fit:content-fit = fit.default()
+  cover_fit:content-fit = fit.default()
+  fill_fit:content-fit = fit.default()
+  none_fit:content-fit = fit.default()
+  scale_down_fit:content-fit = fit.default()
+  round_trip:content-fit = fit.default()
+  applied_size:size = size.zero()
+  kind = ""
+  display = ""
+  equal = false
+
+on inspect
+  default_fit = fit.default()
+  contain_fit = fit.contain()
+  cover_fit = fit.cover()
+  fill_fit = fit.fill()
+  none_fit = fit.none()
+  scale_down_fit = fit.scale_down()
+  round_trip = content_fit_round_trip(cover_fit)
+  applied_size = fit.apply(contain_fit, size(100.0, 50.0), size(80.0, 80.0))
+  kind = scale_down_fit.kind
+  display = scale_down_fit.display
+  equal = default_fit == contain_fit
+
+view
+  col @p-4 gap-2
+    button "Inspect" -> inspect
+    image pixel width=48.0 height=48.0 fit=round_trip
+    viewer pixel width=48.0 height=48.0 fit=scale_down_fit
+    svg "<svg/>" memory width=48.0 height=48.0 fit=fill_fit
+    text kind
+    text display
+    text applied_size.width

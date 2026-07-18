@@ -77,6 +77,7 @@ pub enum Type {
     Degrees,
     Radians,
     Rotation,
+    ContentFit,
     Point,
     PointU32,
     Vector,
@@ -141,6 +142,7 @@ impl Type {
             Self::Degrees => "::iced::Degrees".into(),
             Self::Radians => "::iced::Radians".into(),
             Self::Rotation => "::iced::Rotation".into(),
+            Self::ContentFit => "::iced::ContentFit".into(),
             Self::Point => "::iced::Point".into(),
             Self::PointU32 => "::iced::Point<u32>".into(),
             Self::Vector => "::iced::Vector".into(),
@@ -201,6 +203,7 @@ impl Type {
             Self::Degrees => "degrees".into(),
             Self::Radians => "radians".into(),
             Self::Rotation => "rotation".into(),
+            Self::ContentFit => "content-fit".into(),
             Self::Point => "point".into(),
             Self::PointU32 => "point-u32".into(),
             Self::Vector => "vector".into(),
@@ -1942,7 +1945,7 @@ pub enum MediaKind {
 pub struct MediaOptions {
     pub width: Option<LengthValue>,
     pub height: Option<LengthValue>,
-    pub fit: Option<ContentFit>,
+    pub fit: Option<Expr>,
     pub rotation: Option<Expr>,
     pub rotation_solid: bool,
     pub opacity: Option<Expr>,
@@ -1971,15 +1974,6 @@ pub enum LengthValue {
     FillPortion(u16),
     Shrink,
     Fixed(Expr),
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ContentFit {
-    Contain,
-    Cover,
-    Fill,
-    None,
-    ScaleDown,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
