@@ -135,6 +135,13 @@ pub fn parse(source: &str) -> Result<Document, Error> {
                         &path,
                         ExternKind::SvgStyle,
                     )?);
+                } else if let Some(source) = item.text.strip_prefix("input-style ") {
+                    functions.push(parse_extern_fn(
+                        &format!("{source} -> unit"),
+                        item,
+                        &path,
+                        ExternKind::InputStyle,
+                    )?);
                 } else if item.text.chars().next().is_some_and(char::is_uppercase) {
                     structs.push(parse_extern_struct(item, &path)?);
                 } else {
@@ -1066,6 +1073,7 @@ fn parse_extern_fn(
                 | ExternKind::RadioStyle
                 | ExternKind::ContainerStyle
                 | ExternKind::SvgStyle
+                | ExternKind::InputStyle
         )
     {
         return Err(error(
@@ -6781,6 +6789,13 @@ fn parse_input(parts: &[String], styles: Vec<String>, line: &Line) -> Result<Vie
             });
         } else if let Some(value) = part.strip_prefix("font=") {
             options.font = Some(parse_font_preset(value, line)?);
+        } else if let Some(value) = part.strip_prefix("style=") {
+            let (function, args) = parse_signature(value, line)
+                .map_err(|_| error("E065", line, "input style must be a declared style call"))?;
+            options.custom_style = Some(ExternCall {
+                function,
+                args: parse_expr_list(&args, line)?,
+            });
         } else if let Some(value) = part.strip_prefix("icon=") {
             let value = string_literal(value, line)?;
             let mut chars = value.chars();

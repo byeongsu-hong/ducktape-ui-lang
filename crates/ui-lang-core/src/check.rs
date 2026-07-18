@@ -1260,6 +1260,11 @@ fn infer_view(
             }
             check_font(options.font.as_ref(), document, span)?;
             check_text_input_icon(options.icon.as_ref(), env, document, "input")?;
+            if let Some(style) = &options.custom_style {
+                let function =
+                    extern_function(document, &style.function, ExternKind::InputStyle, span)?;
+                check_call_args(function, &style.args, env, document, span)?;
+            }
             check_text_input_styles(&options.style, env, document, span, "input")?;
             check_styles(styles, document, span, StyleTarget::Input)?;
         }
@@ -5559,6 +5564,7 @@ fn extern_function<'a>(
                 ExternKind::RadioStyle => "radio style",
                 ExternKind::ContainerStyle => "container style",
                 ExternKind::SvgStyle => "svg style",
+                ExternKind::InputStyle => "input style",
             };
             Error::new("E130", span, format!("unknown extern {label} `{name}`"))
         })
@@ -8453,6 +8459,8 @@ view
     #[test]
     fn checks_extended_text_input_routes_and_properties() {
         let source = r#"app Form
+extern crate::backend
+  input-style dynamic_input(disabled:bool)
 font ui family=sans
 theme
   background #000000
@@ -8467,7 +8475,7 @@ on submitted
 on pasted(next)
   value = next
 view
-  input "Secret" #secret <-> value hint="Paste token" disabled=disabled secure=secure submit=submitted paste=pasted width=240.0 padding=8.0 text-size=14.0 line-height=1.2 align=center font=mono
+  input "Secret" #secret <-> value hint="Paste token" disabled=disabled secure=secure submit=submitted paste=pasted width=240.0 padding=8.0 text-size=14.0 line-height=1.2 align=center font=mono style=dynamic_input(disabled)
     active background=background border=foreground border-width=1.0 radius=4.0 icon=primary placeholder=danger value=foreground selection=primary
     hovered background=background icon=foreground placeholder=danger value=foreground selection=primary
     focused background=background border=primary
@@ -8477,6 +8485,20 @@ view
 "#;
         let document = analyze(source).unwrap();
         assert_eq!(document.handlers[1].params[0].ty.display(), "str");
+
+        let error =
+            analyze(&source.replace("dynamic_input(disabled)", "missing(disabled)")).unwrap_err();
+        assert_eq!(error.code, "E130");
+        assert!(error.message.contains("input style"));
+
+        let error = analyze(&source.replace("dynamic_input(disabled)", "dynamic_input(value)"))
+            .unwrap_err();
+        assert_eq!(error.code, "E101");
+
+        let error =
+            analyze(&source.replace("style=dynamic_input(disabled)", "style=primary")).unwrap_err();
+        assert_eq!(error.code, "E065");
+        assert!(error.message.contains("declared style call"));
     }
 
     #[test]

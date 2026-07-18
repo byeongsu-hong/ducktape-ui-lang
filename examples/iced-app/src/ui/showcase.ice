@@ -17,6 +17,7 @@ extern crate::backend
   radio-style view_radio(busy:bool)
   container-style summary_container(busy:bool)
   svg-style status_svg(active:bool)
+  input-style form_input(disabled:bool)
   task copy_text(text:str) -> unit ! AppError
   subscription app_events() -> bool
 
@@ -433,7 +434,7 @@ view
         text "draft focused" @text-sm text-muted
 
     row @w-full items-center gap-3
-      input "New task" #new-task <-> draft hint="What needs doing?" disabled=loading secure=false submit=submit paste=draft_pasted width=fill text-size=14.0 line-height=1.2 align=left font=ui @px-4 py-3 bg-surface border border-border rounded-lg focus:border-primary
+      input "New task" #new-task <-> draft hint="What needs doing?" disabled=loading secure=false submit=submit paste=draft_pasted width=fill text-size=14.0 line-height=1.2 align=left font=ui style=form_input(loading) @px-4 py-3 bg-surface border border-border rounded-lg focus:border-primary
         active background=surface border=border border-width=1.0 radius=8.0 icon=primary placeholder=muted value=foreground selection=primary
         hovered background=surface border=foreground icon=primary placeholder=muted value=foreground selection=primary
         focused background=surface border=primary border-width=2.0 radius=8.0

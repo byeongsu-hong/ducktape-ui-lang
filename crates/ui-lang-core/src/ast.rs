@@ -370,6 +370,7 @@ pub enum ExternKind {
     RadioStyle,
     ContainerStyle,
     SvgStyle,
+    InputStyle,
 }
 
 #[derive(Clone, Debug)]
@@ -1225,6 +1226,7 @@ pub struct InputOptions {
     pub align: Option<InputAlignment>,
     pub font: Option<FontPreset>,
     pub icon: Option<TextInputIcon>,
+    pub custom_style: Option<ExternCall>,
     pub style: Box<TextInputStyleSet>,
 }
 
