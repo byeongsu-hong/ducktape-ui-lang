@@ -8671,6 +8671,7 @@ fn parse_type(source: &str, line: &Line) -> Result<Type, Error> {
         "instant" => Type::Instant,
         "window-id" => Type::WindowId,
         "window-position" => Type::WindowPosition,
+        "redraw-request" => Type::RedrawRequest,
         "window-direction" => Type::WindowDirection,
         "window-level" => Type::WindowLevel,
         "window-mode" => Type::WindowMode,
@@ -9434,6 +9435,21 @@ mod tests {
         assert!(matches!(
             &document.handlers[0].statements[3],
             Statement::Assign { value: Expr::Call { name, .. }, .. } if name == "event_status.merge"
+        ));
+    }
+
+    #[test]
+    fn parses_first_class_native_redraw_request() {
+        let source = include_str!("../../../examples/iced-app/src/ui/redraw_request.ice");
+        let document = parse(source).unwrap();
+        assert_eq!(document.functions[0].params[0].1, Type::RedrawRequest);
+        assert_eq!(document.functions[0].output, Type::RedrawRequest);
+        assert_eq!(document.functions[1].output, Type::Instant);
+        assert_eq!(document.states[0].ty, Type::RedrawRequest);
+        assert_eq!(document.states[4].ty, Type::Option(Box::new(Type::Instant)));
+        assert!(matches!(
+            &document.handlers[0].statements[1],
+            Statement::Assign { value: Expr::Call { name, .. }, .. } if name == "redraw_request.at"
         ));
     }
 

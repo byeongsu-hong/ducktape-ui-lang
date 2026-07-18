@@ -19,6 +19,8 @@ mod length;
 #[cfg(test)]
 mod mouse_interaction;
 #[cfg(test)]
+mod redraw_request;
+#[cfg(test)]
 mod rotation;
 #[cfg(test)]
 mod scroll_delta;
@@ -158,6 +160,9 @@ mod backend {
 
     #[cfg(test)]
     pub use crate::mouse_interaction::interaction_round_trip;
+
+    #[cfg(test)]
+    pub use crate::redraw_request::{redraw_now, redraw_round_trip};
 
     #[cfg(test)]
     pub use crate::rotation::rotation_round_trip;
