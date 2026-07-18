@@ -1,4 +1,4 @@
-# Ice Language Specification 1.29
+# Ice Language Specification 1.30
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 1.29 syntax.
+marked “planned” is a design constraint, not accepted 1.30 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 1.29.
+  block comments are not part of 1.30.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -164,7 +164,7 @@ extern_item    = struct_sig | function_sig | extern_component_sig
                | extern_shader_sig | extern_task_sig | extern_stream_sig
                | extern_sip_sig | extern_recipe_sig | extern_event_filter_sig
                | extern_sync_sig | extern_subscription_sig
-               | extern_theme_sig
+               | extern_theme_sig | extern_themer_sig
                | extern_window_sig | extern_markdown_viewer_sig
                | extern_text_style_sig | extern_slider_style_sig
                | extern_progress_style_sig
@@ -209,6 +209,7 @@ extern_sync_sig = "sync" name "(" field_list? ")" "->" type
 extern_subscription_sig
                = "subscription" name "(" field_list? ")" "->" type
 extern_theme_sig = "theme" name "(" field_list? ")"
+extern_themer_sig = "themer" name "(" field_list? ")" "->" type
 extern_window_sig = "window" name "(" field_list? ")" "->" type
 extern_markdown_viewer_sig
                = "markdown-viewer" name "(" field_list? ")" "->" type
@@ -407,7 +408,8 @@ node           = layout | text | input | button | checkbox | toggler
                | slider | progress | radio | pick_list | combo_box
                | rule | qr_code | space | float | pin | sensor | responsive
                | media | tooltip | mouse_area | canvas | theme_boundary
-               | component_call | slot | extern_component_call | shader_view
+               | component_call | slot | extern_component_call | themer_view
+               | shader_view
                | if_node | for_node
                | keyed_column | lazy_node | markdown_view | table_view
                | editor_view | container | overlay | rich_text | pane_grid
@@ -904,6 +906,7 @@ named_slot     = name ":" INDENT node
 slot           = "slot" name?
 extern_component_call
                = "extern" name "(" expr_list? ")" ("->" route)?
+themer_view    = "themer" name "(" expr_list? ")" ("->" route)?
 shader_view    = "shader" name "(" expr_list? ")"
                  (("width=" | "height=") length)* ("->" route)?
 if_node        = "if" expr INDENT node+
@@ -1000,7 +1003,7 @@ maximum size. `icon-rgba` embeds a relative raw RGBA file without an image
 codec; width and height are positive integers, and generated Rust rejects a
 byte length other than `width × height × 4`. `cargo ice check` reports a
 mismatch at the icon declaration, and generated Rust repeats the check at
-compile time. Encoded icon formats remain outside 1.29.
+compile time. Encoded icon formats remain outside 1.30.
 
 Application boot presets are structured top-level declarations:
 
@@ -1551,7 +1554,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 1.29 message payloads.
+`Clone` for 1.30 message payloads.
 
 Declared `sync` functions are checked, synchronous Rust calls available in
 Ice expressions. They are the small escape hatch for pure domain conversions
@@ -1569,7 +1572,7 @@ This declaration requires
 actual Rust signature. A sync function cannot declare `! Error` because it
 returns its value directly.
 
-Thirty typed iced adapters expose framework capabilities without embedding Rust
+Thirty-one typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
 
 ```ice
@@ -1584,6 +1587,7 @@ extern crate::backend
   event-filter runtime_event() -> str
   subscription app_events() -> bool
   theme app_theme(dark:bool)
+  themer alternate_panel(active:bool) -> bool
   markdown-viewer docs_viewer(prefix:str) -> str
   editor-binding editor_keys(readonly:bool) -> EditorCommand
   editor-highlighter editor_highlight(token:str)
@@ -1616,6 +1620,12 @@ fn events(channel: i64) -> impl iced::advanced::subscription::Recipe<Output = St
 fn runtime_event(event: iced::advanced::subscription::Event) -> Option<String>;
 fn app_events() -> iced::Subscription<bool>;
 fn app_theme(dark: bool) -> iced::Theme;
+fn alternate_panel(active: bool) -> (
+    Option<AlternateTheme>,
+    iced::Element<'static, bool, AlternateTheme>,
+    Option<fn(&AlternateTheme) -> iced::Color>,
+    Option<fn(&AlternateTheme) -> iced::Background>,
+);
 fn docs_viewer(prefix: String) -> impl for<'a> iced::widget::markdown::Viewer<'a, String>;
 fn editor_keys(event: iced::widget::text_editor::KeyPress, readonly: bool) -> Option<iced::widget::text_editor::Binding<EditorCommand>>;
 fn editor_highlight<'a, Message: 'a>(editor: iced::widget::text_editor::TextEditor<'a, iced::advanced::text::highlighter::PlainText, Message>, token: String) -> impl Into<iced::Element<'a, Message>>;
@@ -1664,6 +1674,19 @@ arguments may come from app state or the local component scope. The same
 factory is valid in the app `theme` setting and around one nested subtree, so
 Rust can construct `Theme::custom`, `Theme::custom_with_fn`, or any built-in
 theme while retaining full `Palette` and `Extended` palette logic.
+`themer` applies any Rust `Theme: iced::theme::Base` to a Rust-owned subtree
+while the surrounding Ice app keeps its normal Theme. Its factory returns the
+optional alternate Theme, an `Element` using that exact Theme type, and
+optional Theme-dependent text-color and background function pointers. The
+generated probe verifies all four tuple fields use the same Theme type; the
+view lowers through native `widget::themer`, applies both callbacks when
+present, and maps the declared event through an ordinary checked route.
+
+```ice
+view
+  themer alternate_panel(active) -> alternate_changed _
+```
+
 `markdown-viewer` returns one concrete viewer implementing iced's default-theme,
 default-renderer `Viewer` for every item lifetime. `viewer=docs_viewer(args)`
 switches the Markdown node to native `view_with`; its declared output type is
@@ -1695,7 +1718,7 @@ pick-list/combo overlay menu Style.
 
 Generated probes type-check every declaration
 against the actual Rust item. Extern component, shader, recipe, event-filter,
-sync, selector, subscription, theme, window, Markdown viewer, editor extension, and widget style declarations are
+sync, selector, subscription, theme, themer, window, Markdown viewer, editor extension, and widget style declarations are
 infallible; errors are ordinary event payloads when an adapter needs them.
 Shader programs retain native control of `State`, `Primitive`, GPU
 pipeline/storage, event actions, redraws, capture, and mouse interaction. The
@@ -3219,7 +3242,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 1.29 does not claim that remapping.
+extern line; 1.30 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -3240,12 +3263,12 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 1.29 native backend is enough for CRUD/settings-style screens, selection,
+The 1.30 native backend is enough for CRUD/settings-style screens, selection,
 media, hover overlays, declarative canvas geometry, and common pointer events,
 not all of iced. It still lacks direct syntax for arbitrary custom overlays,
 and custom widgets. [`COVERAGE.md`](COVERAGE.md) is the exact versioned ledger.
 
-The language must not grow one ad-hoc syntax form for every iced API. Thirty
+The language must not grow one ad-hoc syntax form for every iced API. Thirty-one
 typed Rust boundaries cover domain work, native elements and programs, runtime
 tasks and subscriptions, Markdown viewers, and native style callbacks without
 admitting arbitrary Rust into expressions or duplicating iced in the core
@@ -3261,6 +3284,7 @@ iced runtime operation  -> typed Rust Task adapter
 repeated task output     -> typed Rust Stream/Sipper adapter
 event/stream source      -> typed Rust Subscription adapter
 native default theme     -> typed Rust Theme factory
+alternate themed subtree -> typed Rust Themer adapter
 domain and I/O           -> typed Rust async extern
 pure domain conversion   -> typed Rust sync extern
 native window handle     -> typed Rust window callback
@@ -3291,6 +3315,9 @@ are executed by
 Native app and nested custom Theme construction with extended-palette logic is
 executed by
 [`examples/iced-app/src/ui/theme_factory.ice`](examples/iced-app/src/ui/theme_factory.ice).
+An alternate Rust Theme type, its Theme-dependent base callbacks, and the
+native Themer bridge are executed by
+[`examples/iced-app/src/ui/alternate_theme.ice`](examples/iced-app/src/ui/alternate_theme.ice).
 Native transformation construction, matrix inspection, application, and extern
 passage are exercised by
 [`examples/iced-app/src/ui/transformation_values.ice`](examples/iced-app/src/ui/transformation_values.ice).

@@ -2811,6 +2811,35 @@ fn infer_view(
                 }
             }
         }
+        ViewNode::Themer {
+            function,
+            args,
+            route,
+            span,
+        } => {
+            let themer = extern_function(document, function, ExternKind::Themer, span)?;
+            check_call_args(themer, args, env, document, span)?;
+            match (&themer.output, route) {
+                (Type::Unit, None) => {}
+                (_, Some(route)) => infer_route(
+                    route,
+                    Some(themer.output.clone()),
+                    env,
+                    document,
+                    signatures,
+                )?,
+                (_, None) => {
+                    return Err(Error::new(
+                        "E126",
+                        span,
+                        format!(
+                            "themer `{function}` emits `{}` and requires a route",
+                            themer.output.display()
+                        ),
+                    ));
+                }
+            }
+        }
         ViewNode::Shader {
             function,
             args,
@@ -6273,6 +6302,7 @@ fn extern_function<'a>(
                 ExternKind::Sync => "sync function",
                 ExternKind::Subscription => "subscription",
                 ExternKind::Theme => "theme factory",
+                ExternKind::Themer => "themer",
                 ExternKind::Window => "window callback",
                 ExternKind::MarkdownViewer => "markdown viewer",
                 ExternKind::EditorBinding => "editor binding",
@@ -8251,6 +8281,41 @@ view
         let error = analyze(&source.replace("native_theme(!dark)", "missing(!dark)")).unwrap_err();
         assert_eq!(error.code, "E130");
         assert!(error.message.contains("theme factory"));
+    }
+
+    #[test]
+    fn checks_alternate_theme_subtrees() {
+        let source = r#"extern crate::backend
+  themer alternate_panel(active:bool) -> bool
+app Themes
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  active = true
+on changed(value)
+  active = value
+view
+  themer alternate_panel(active) -> changed _
+"#;
+        analyze(source).unwrap();
+
+        let error =
+            analyze(&source.replace("alternate_panel(active)", "alternate_panel(1)")).unwrap_err();
+        assert_eq!(error.code, "E101");
+        assert!(error.message.contains("expected `bool`"));
+
+        let error = analyze(&source.replace(" -> changed _", "")).unwrap_err();
+        assert_eq!(error.code, "E126");
+        assert!(error.message.contains("requires a route"));
+
+        let error =
+            analyze(&source.replace("themer alternate_panel(active)", "themer missing(active)"))
+                .unwrap_err();
+        assert_eq!(error.code, "E130");
+        assert!(error.message.contains("unknown extern themer `missing`"));
     }
 
     #[test]

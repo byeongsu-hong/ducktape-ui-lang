@@ -86,6 +86,8 @@ pub fn parse(source: &str) -> Result<Document, Error> {
                         &path,
                         ExternKind::Theme,
                     )?);
+                } else if let Some(source) = item.text.strip_prefix("themer ") {
+                    functions.push(parse_extern_fn(source, item, &path, ExternKind::Themer)?);
                 } else if let Some(source) = item.text.strip_prefix("window ") {
                     functions.push(parse_extern_fn(source, item, &path, ExternKind::Window)?);
                 } else if let Some(source) = item.text.strip_prefix("markdown-viewer ") {
@@ -1132,6 +1134,7 @@ fn parse_extern_fn(
                 | ExternKind::EventFilter
                 | ExternKind::Sync
                 | ExternKind::Subscription
+                | ExternKind::Themer
                 | ExternKind::Window
                 | ExternKind::MarkdownViewer
                 | ExternKind::EditorBinding
@@ -1155,7 +1158,7 @@ fn parse_extern_fn(
         return Err(error(
             "E023",
             line,
-            "extern components, shaders, recipes, event filters, sync functions, subscriptions, window callbacks, markdown viewers, editor bindings/highlighters, and widget styles cannot declare an error type",
+            "extern components, shaders, recipes, event filters, sync functions, subscriptions, themers, window callbacks, markdown viewers, editor bindings/highlighters, and widget styles cannot declare an error type",
         ));
     }
     Ok(ExternFn {
@@ -2438,6 +2441,7 @@ fn parse_view(line: &Line) -> Result<ViewNode, Error> {
                 | "rich-text"
                 | "editor"
                 | "extern"
+                | "themer"
                 | "shader"
         )
     {
@@ -2521,6 +2525,7 @@ fn parse_view(line: &Line) -> Result<ViewNode, Error> {
         "qr" => parse_qr_code(&parts, styles, line),
         "space" => parse_space(&parts, styles, line),
         "extern" => parse_extern_component(&parts, styles, route_source, line),
+        "themer" => parse_themer(&parts, styles, route_source, line),
         "shader" => parse_shader(&parts, styles, route_source, line),
         "image" | "svg" | "viewer" => parse_media(kind, &parts, styles, line),
         "tooltip" => parse_tooltip(&parts, styles, line),
@@ -6297,6 +6302,29 @@ fn parse_extern_component(
     })
 }
 
+fn parse_themer(
+    parts: &[String],
+    styles: Vec<String>,
+    route: Option<&str>,
+    line: &Line,
+) -> Result<ViewNode, Error> {
+    ensure_leaf(line)?;
+    if !styles.is_empty() || parts.len() != 2 {
+        return Err(error(
+            "E094",
+            line,
+            "themer uses `themer name(args) -> handler _` and owns its styling",
+        ));
+    }
+    let (function, args) = parse_signature(&parts[1], line)?;
+    Ok(ViewNode::Themer {
+        function,
+        args: parse_expr_list(&args, line)?,
+        route: route.map(|route| parse_route(route, line)).transpose()?,
+        span: Span::line(line.number),
+    })
+}
+
 fn parse_shader(
     parts: &[String],
     styles: Vec<String>,
@@ -9784,6 +9812,30 @@ view
                 preset: ThemePreset::Factory(ExternCall { ref function, .. }),
                 ..
             } if function == "native_theme"
+        ));
+    }
+
+    #[test]
+    fn parses_alternate_theme_subtrees() {
+        let source = r#"extern crate::backend
+  themer alternate_panel(active:bool) -> bool
+app Themes
+state
+  active = true
+on changed(value)
+  active = value
+view
+  themer alternate_panel(active) -> changed _
+"#;
+        let document = parse(source).unwrap();
+        assert_eq!(document.functions[0].kind, ExternKind::Themer);
+        assert!(matches!(
+            document.view,
+            ViewNode::Themer {
+                ref function,
+                route: Some(_),
+                ..
+            } if function == "alternate_panel"
         ));
     }
 
