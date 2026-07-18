@@ -611,6 +611,23 @@ mod backend {
     }
 
     #[cfg(test)]
+    pub fn event_name(event: iced::Event) -> String {
+        match event {
+            iced::Event::Keyboard(_) => "keyboard",
+            iced::Event::Mouse(_) => "mouse",
+            iced::Event::Window(_) => "window",
+            iced::Event::Touch(_) => "touch",
+            iced::Event::InputMethod(_) => "input-method",
+        }
+        .into()
+    }
+
+    #[cfg(test)]
+    pub fn event_label(event: iced::Event) -> Option<String> {
+        Some(event_name(event))
+    }
+
+    #[cfg(test)]
     pub fn app_events() -> iced::Subscription<bool> {
         iced::event::listen_with(|event, _status, _window| focus_event(event))
     }
@@ -768,6 +785,17 @@ mod touch_events {
 #[cfg(test)]
 mod input_method_events {
     ui_lang::include_app!("src/ui/input_method_events.ice");
+}
+
+#[cfg(test)]
+mod generic_events {
+    ui_lang::include_app!("src/ui/generic_events.ice");
+
+    #[test]
+    fn constructs_native_event_listeners() {
+        let (app, _) = GenericEvents::__boot();
+        assert_eq!(app.__subscription().units(), 5);
+    }
 }
 
 #[cfg(test)]

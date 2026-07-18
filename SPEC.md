@@ -1,4 +1,4 @@
-# Ice Language Specification 1.18
+# Ice Language Specification 1.19
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 1.18 syntax.
+marked “planned” is a design constraint, not accepted 1.19 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 1.18.
+  block comments are not part of 1.19.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -178,7 +178,7 @@ struct_sig     = PascalName "(" field_list? ")"
 field_list     = field ("," field)*
 field          = name ":" type
 type           = "bool" | "i64" | "f64" | "str" | "bytes" | "image"
-               | "markdown" | "editor" | "instant" | "window-id"
+               | "markdown" | "editor" | "event" | "instant" | "window-id"
                | "task-handle" | "unit"
                | PascalName
                | "[" type "]" | type "?" | "result[" type "," type "]"
@@ -364,6 +364,7 @@ subscription_source
                | "run" call
                | "recipe" call
                | "events" expr "using=" name
+               | "event" ("raw")? ("with-id")?
                | "input-method" input_method_event
                | "keyboard" ("press" | "release" | "modifiers")
                | "mouse" mouse_event
@@ -979,7 +980,7 @@ maximum size. `icon-rgba` embeds a relative raw RGBA file without an image
 codec; width and height are positive integers, and generated Rust rejects a
 byte length other than `width × height × 4`. `cargo ice check` reports a
 mismatch at the icon declaration, and generated Rust repeats the check at
-compile time. Encoded icon formats remain outside 1.18.
+compile time. Encoded icon formats remain outside 1.19.
 
 Application boot presets are structured top-level declarations:
 
@@ -1503,6 +1504,7 @@ button "Add" disabled=(loading || empty(trim(draft))) -> submit
 | `window-id` | `iced::window::Id` |
 | `markdown` | `iced::widget::markdown::Content` |
 | `editor` | `iced::widget::text_editor::Content` |
+| `event` | `iced::Event` |
 | `task-handle` | `iced::task::Handle` |
 | `Name` | the named struct in the extern namespace |
 | `unit` | `()` |
@@ -1529,7 +1531,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 1.18 message payloads.
+`Clone` for 1.19 message payloads.
 
 Declared `sync` functions are checked, synchronous Rust calls available in
 Ice expressions. They are the small escape hatch for pure domain conversions
@@ -2376,17 +2378,41 @@ Runtime event sources may also filter iced's dispatch status:
 
 ```ice
 subscribe
+  event status=any -> runtime_event _
+  event with-id status=ignored -> window_event _ _
   mouse moved status=captured -> drag_moved _ _
   keyboard press status=ignored when shortcuts_enabled -> key_pressed _
   window close-request status=any -> close_requested
 ```
 
 `captured` means a widget handled the event; `ignored` means none did; `any`
-accepts both. The modifier is available on input-method, keyboard, mouse,
-touch, and non-frame window events. Timers, system/extern subscriptions, and
-raw window frames have no iced event status and reject it. For compatibility,
-an omitted keyboard status keeps iced's ignored-only listener while the other
-direct input sources keep their previous any-status behavior.
+accepts both. The modifier is available on generic, input-method, keyboard,
+mouse, touch, and non-frame window events. Timers, system/extern subscriptions,
+and raw window frames have no iced event status and reject it. For compatibility,
+an omitted `event` or keyboard status keeps iced's ignored-only listener while
+the other direct input sources keep their previous any-status behavior.
+
+`event` carries the complete native `iced::Event` value across handlers and
+typed extern functions. Plain `event` lowers to `event::listen`; adding
+`status=` or `with-id` lowers to `event::listen_with`. `event raw` lowers to
+`event::listen_raw`, includes redraw requests, and therefore must be filtered
+or routed without causing another redraw; an unfiltered raw listener can loop
+forever. `with-id` prepends the originating `window-id`. The raw source defaults
+to any status, while a non-raw `with-id` source without `status=` preserves
+`listen` semantics by accepting ignored events only. Runtime system-theme
+changes are not `iced::Event` values and remain available through
+`system theme`.
+
+Generic events support the same transforms as every native source:
+
+```ice
+extern crate::backend
+  sync label_event(value:event) -> str?
+
+subscribe
+  event filter=label_event status=any -> labeled _
+  event raw with-id status=captured -> captured _ _
+```
 
 Every native or extern source also supports iced's identity and output
 transforms:
@@ -2610,7 +2636,7 @@ snap/end; and absolute scroll-to/scroll-by. Effects have no route and
 non-negative `i64`; relative offsets are `f64` in `0.0..=1.0`; absolute
 offsets are unrestricted `f64`. Targets must be real static IDs in the app
 scope. Repeated/component scopes and the feature-gated selector API remain
-outside 1.18.
+outside 1.19.
 
 Persistent pane grids expose their native layout-state operations directly in
 handlers:
@@ -2864,7 +2890,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 1.18 does not claim that remapping.
+extern line; 1.19 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -2885,7 +2911,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 1.18 native backend is enough for CRUD/settings-style screens, selection,
+The 1.19 native backend is enough for CRUD/settings-style screens, selection,
 media, hover overlays, declarative canvas geometry, and common pointer events,
 not all of iced. It still lacks direct syntax for arbitrary custom overlays,
 and custom widgets. [`COVERAGE.md`](COVERAGE.md) is the exact versioned ledger.
@@ -2920,7 +2946,7 @@ compile-tested widget example is
 [`examples/iced-app/src/ui/showcase.ice`](examples/iced-app/src/ui/showcase.ice).
 Together they exercise
 state inference, typed extern structs/functions, mount and result handlers,
-direct and component-prop input/editor binding, complete typed time tasks/subscriptions, typed conditional keyboard/mouse/touch/input-method/system subscriptions with status filters, system tasks, clipboard effects, `if`, `for`, native keyed columns and lazy subtrees, parsed Markdown, structured tables, pure components, structured and compound component composition,
+direct and component-prop input/editor binding, complete typed time tasks/subscriptions, typed generic/keyboard/mouse/touch/input-method/system subscriptions with status filters, system tasks, clipboard effects, `if`, `for`, native keyed columns and lazy subtrees, parsed Markdown, structured tables, pure components, structured and compound component composition,
 dynamic component IDs,
 theme utilities, disabled controls, fallible asynchronous tasks, complete
 wrapping row/column layouts, grids and fully sized underlay stacks, toggles,

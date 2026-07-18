@@ -1443,6 +1443,7 @@ fn subscription_payload_arity(source: &SubscriptionSource, window_id: bool) -> u
         | SubscriptionSource::Recipe { .. }
         | SubscriptionSource::Events { .. }
         | SubscriptionSource::Extern { .. }
+        | SubscriptionSource::Event { .. }
         | SubscriptionSource::Keyboard(_)
         | SubscriptionSource::SystemTheme => 1,
         SubscriptionSource::InputMethod(InputMethodEvent::Opened | InputMethodEvent::Closed)
@@ -1673,6 +1674,29 @@ fn generate_subscription(
                 let id = expr_code(id, &env, document, ValueMode::Owned)?;
                 let recipe = format!("__IceEventFilter{}", pascal(filter));
                 writeln!(out, "::iced::advanced::subscription::from_recipe({recipe} {{ id: {id} }}){transforms}.map(move |__value| {route}),").unwrap();
+            }
+            SubscriptionSource::Event { raw } => {
+                if !*raw && subscription.status.is_none() && !subscription.window_id {
+                    writeln!(
+                        out,
+                        "::iced::event::listen(){transforms}.map(move |__value| {route}),"
+                    )
+                    .unwrap();
+                } else {
+                    let value = if subscription.window_id {
+                        "::std::option::Option::Some((__id, __event))"
+                    } else {
+                        "::std::option::Option::Some(__event)"
+                    };
+                    let status = if *raw || subscription.status.is_some() {
+                        subscription.status
+                    } else {
+                        Some(EventStatus::Ignored)
+                    };
+                    let (filter, status) = event_status_filter(value, status);
+                    let listen = if *raw { "listen_raw" } else { "listen_with" };
+                    writeln!(out, "::iced::event::{listen}(|__event, {status}, __id| {{ {filter} }}){transforms}.map(move |__value| {route}),").unwrap();
+                }
             }
             SubscriptionSource::Extern { function, args } => {
                 let source = document
@@ -12114,6 +12138,43 @@ view
         ));
         assert!(generated.contains(".filter_map(|_| crate::backend::allow_frame())"));
         assert!(generated.contains("__TimerEventsMessage::Refreshed(__value.0, __value.1)"));
+    }
+
+    #[test]
+    fn lowers_generic_event_values_to_all_native_listeners() {
+        let source = r#"app Events
+extern crate::backend
+  sync event_name(value:event) -> str
+  sync event_label(value:event) -> str?
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+on received(value)
+on labeled(value)
+on identified(id, value)
+subscribe
+  event -> received _
+  event filter=event_label status=any -> labeled _
+  event with-id status=ignored -> identified _ _
+  event raw status=captured -> received _
+  event raw with-id -> identified _ _
+view
+  text "Events"
+"#;
+        let generated = compile(source, "events.ice").unwrap();
+        assert!(generated.contains("fn __ui_lang_check_sync_event_name"));
+        assert!(generated.contains("arg0: ::iced::Event"));
+        assert!(generated.contains("::iced::event::listen().map"));
+        assert!(generated.contains("::iced::event::listen_with"));
+        assert!(generated.contains("::iced::event::listen_raw"));
+        assert!(generated.contains("::iced::event::Status::Ignored"));
+        assert!(generated.contains("::iced::event::Status::Captured"));
+        assert!(generated.contains("Some((__id, __event))"));
+        assert!(generated.contains("filter_map(|__value| crate::backend::event_label(__value))"));
+        assert!(generated.contains("__EventsMessage::Received(__value)"));
+        assert!(generated.contains("__EventsMessage::Identified(__value.0, __value.1)"));
     }
 
     #[test]
