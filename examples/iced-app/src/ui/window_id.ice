@@ -26,7 +26,7 @@ on inspect
   values_ordered = first < second
 
 view
-  col @p-4 gap-2
+  col spacing=8.0 padding=16.0
     button "Inspect" -> inspect
     lazy first as cached
       text cached.display

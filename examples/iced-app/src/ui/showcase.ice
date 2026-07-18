@@ -99,11 +99,11 @@ state
   memory_image = rgba(2, 2, bytes(ff 00 00 ff 00 ff 00 ff 00 00 ff ff ff ff ff ff))
 
 component TaskRow(task:Task, loading:bool)
-  row #root @w-full items-center p-4 bg-surface border border-border rounded-lg
+  row #root padding=16.0 align=center @w-full bg-surface border border-border rounded-lg
     checkbox task.title checked=task.done disabled=loading style=task_checkbox(loading) size=18.0 width=fill spacing=8.0 text-size=14.0 line-height=1.2 shaping=auto wrapping=word-or-glyph font=default icon="✓" icon-size=12.0 icon-line-height=1.0 icon-shaping=basic -> toggle(task.id, _)
 
 component EditorPanel(content:editor, heading:str, busy:bool)
-  col @gap-2
+  col spacing=8.0
     input "Editor heading" <-> heading hint="Editor heading" disabled=busy
     editor #notes <-> content placeholder="Write notes" width=640.0 height=120.0 min-height=80.0 max-height=240.0 size=14.0 line-height=1.3 padding=8.0 wrapping=word font=ui highlighter=editor_highlight("fn") key-binding=editor_keys(busy) style=editor_surface(busy) disabled=busy -> editor_command _
       active background=surface border=border border-width=1.0 radius=8.0 placeholder=muted value=foreground selection=primary
@@ -465,14 +465,14 @@ subscribe
   system theme -> system_theme_changed _
 
 view
-  col @w-full h-full p-6 gap-6 bg-background
-    row @w-full items-center gap-3
-      text "Tasks" font=ui style=summary_text(loading) @text-2xl font-bold
+  col spacing=24.0 padding=24.0 @w-full h-full bg-background
+    row spacing=12.0 align=center @w-full
+      text "Tasks" font=ui style=summary_text(loading) size=24.0 @font-bold
       lazy tasks as cached_tasks
-        text len(cached_tasks) @text-sm text-muted
-      text last_key @text-sm text-muted
-      text system_theme @text-sm text-muted
-      text cpu_brand @text-sm text-muted
+        text len(cached_tasks) size=14.0 @text-muted
+      text last_key size=14.0 @text-muted
+      text system_theme size=14.0 @text-muted
+      text cpu_brand size=14.0 @text-muted
       button "Inspect system" -> inspect_system
       button "Read theme" -> read_system_theme
       button "Copy primary" -> copy_primary
@@ -484,41 +484,41 @@ view
       button "Toggle maximize" -> window_toggle_maximize
       button "Focus window" -> window_focus
       if draft_focused
-        text "draft focused" @text-sm text-muted
+        text "draft focused" size=14.0 @text-muted
 
-    row @w-full items-center gap-3
-      input "New task" #new-task <-> draft hint="What needs doing?" disabled=loading secure=false submit=submit paste=draft_pasted width=fill text-size=14.0 line-height=1.2 align=left font=ui style=form_input(loading) @px-4 py-3 bg-surface border border-border rounded-lg focus:border-primary
+    row spacing=12.0 align=center @w-full
+      input "New task" #new-task <-> draft hint="What needs doing?" disabled=loading secure=false submit=submit paste=draft_pasted width=fill text-size=14.0 line-height=1.2 align=left font=ui style=form_input(loading) @px-4 py-3
         active background=surface border=border border-width=1.0 radius=8.0 icon=primary placeholder=muted value=foreground selection=primary
-        hovered background=surface border=foreground icon=primary placeholder=muted value=foreground selection=primary
+        hovered background=surface border=foreground border-width=1.0 radius=10.0 icon=primary placeholder=muted value=foreground selection=primary
         focused background=surface border=primary border-width=2.0 radius=8.0
         focused-hovered background=surface border=primary border-width=2.0 radius=8.0
-        disabled background=background border=border icon=muted placeholder=muted value=muted selection=primary
+        disabled background=background border=border border-width=1.0 radius=10.0 icon=muted placeholder=muted value=muted selection=primary
         icon code="+" font=ui size=14.0 spacing=6.0 side=left
       button label="Copy draft" disabled=empty(trim(draft)) height=44.0 padding=8.0 clip=true @bg-surface text-foreground rounded-lg disabled:opacity-50 -> copy_draft
-        row @gap-2 items-center
-          text "Copy" @text-sm text-foreground
-          text "⌘C" @text-xs text-muted
+        row spacing=8.0 align=center
+          text "Copy" size=14.0 @text-foreground
+          text "⌘C" size=12.0 @text-muted
       button "Add" disabled=(loading || empty(trim(draft))) style=action_button(loading) @px-4 py-3 bg-primary text-white rounded-lg hover:bg-primary/90 pressed:bg-primary/70 disabled:opacity-50 -> submit
 
     if error != ""
-      row @w-full items-center gap-4 p-4 bg-danger rounded-lg
-        text error @text-sm text-white
+      row spacing=16.0 padding=16.0 align=center @w-full bg-danger rounded-lg
+        text error size=14.0 @text-white
         button "Retry" disabled=loading @px-4 py-2 bg-white text-danger rounded-md disabled:opacity-50 -> retry
 
     if loading
-      text "Working..." @text-sm text-muted
+      text "Working..." size=14.0 @text-muted
 
     if empty(tasks) && !loading
-      col @w-full items-center p-6 bg-surface border border-border rounded-lg
-        text "No tasks yet." @text-sm text-muted
+      col padding=24.0 align=center @w-full bg-surface border border-border rounded-lg
+        text "No tasks yet." size=14.0 @text-muted
 
-    container #summary style=summary_container(loading) width=fill height=80.0 max-width=720.0 max-height=120.0 align-x=center align-y=center clip=true padding=8.0 padding-left=12.0 background=linear(1.57, surface@0.0, background@1.0) text=muted border=primary border-width=1.0 radius=8.0 shadow=black/50 shadow-y=2.0 shadow-blur=6.0 pixel-snap=true @w-full bg-surface border border-border rounded-lg
-      text "A native container owns one structured child tree." @text-sm text-muted
+    container #summary style=summary_container(loading) width=fill height=80.0 max-width=720.0 max-height=120.0 align-x=center align-y=center clip=true padding=8.0 padding-left=12.0 background=linear(1.57, surface@0.0, background@1.0) text=muted border=primary border-width=1.0 radius=8.0 shadow=black/50 shadow-y=2.0 shadow-blur=6.0 pixel-snap=true
+      text "A native container owns one structured child tree." size=14.0 @text-muted
 
     rule horizontal thickness=1.0 style=weak fill=pad(12,4) color=border radius=2.0 snap=true
 
-    grid spacing=16.0 width=640.0 height=aspect(16.0,9.0) fluid=280.0 @w-full gap-4
-      col @w-full gap-2 p-4 bg-surface rounded-lg
+    grid spacing=16.0 width=640.0 height=aspect(16.0,9.0) fluid=280.0 @w-full
+      col spacing=8.0 padding=16.0 @w-full bg-surface rounded-lg
         text "Controls" width=fill height=30.0 size=18.0 line-height-px=22.0 font=default align-x=left align-y=center shaping=advanced wrapping=word @font-bold text-foreground
         theme tokyo-night text=white background=linear(1.57, background@0.0, surface@1.0)
           qr project_code total-size=112.0 cell=foreground background=surface
@@ -534,7 +534,7 @@ view
         extern native_help(external_hover) -> external_hover_changed _
         extern borrowed_help(draft, external_hover) -> external_hover_changed _
         if event_seen
-          text "External subscription active" @text-xs text-muted
+          text "External subscription active" size=12.0 @text-muted
         row width=fill height=shrink spacing=12.0 padding-y=4.0 align=center clip=false wrap wrap-spacing=8.0 wrap-align=start
           image "examples/iced-app/assets/checker.ppm" width=48.0 height=48.0 fit=cover filter=nearest radius=8.0
           image encoded_image width=24.0 height=48.0 fit=cover filter=nearest
@@ -545,19 +545,19 @@ view
           svg bytes(3c 73 76 67 2f 3e) memory width=16.0 height=16.0 color=foreground hover=primary
           tooltip position=bottom gap=4.0 padding=8.0 delay=100 snap=true style=summary_container(loading) background=linear(1.57, surface@0.0, background@1.0) text=foreground border=border border-width=1.0 radius=8.0 radius-tl=4.0 shadow=black/50 shadow-x=0.0 shadow-y=4.0 shadow-blur=12.0 pixel-snap=true
             mouse enter=native_enter exit=native_exit press=native_press move=native_move scroll=native_scroll cursor=pointer
-              text "Native pointer area" @text-sm text-foreground
-            col @p-2 bg-surface rounded-md
-              text "Native tooltip" @text-sm text-foreground
+              text "Native pointer area" size=14.0 @text-foreground
+            col padding=8.0 @bg-surface rounded-md
+              text "Native tooltip" size=14.0 @text-foreground
               if native_hover
-                text "Pointer is inside" @text-xs text-muted
-              text pointer_x @text-xs text-muted
+                text "Pointer is inside" size=12.0 @text-muted
+              text pointer_x size=12.0 @text-muted
       col width=fill height=shrink spacing=8.0 padding=16.0 max-width=672.0 align=start clip=false wrap wrap-spacing=8.0 wrap-align=start @bg-surface rounded-lg
-        text "View mode" @text-lg font-bold text-foreground
+        text "View mode" size=18.0 @font-bold text-foreground
         markdown help text-size=14.0 h1-size=28.0 h2-size=24.0 h3-size=20.0 h4-size=18.0 h5-size=16.0 h6-size=14.0 code-size=12.0 spacing=10.0 viewer=docs_viewer("showcase") -> docs_link _
           style font=ui inline-code-background=background inline-code-color=foreground inline-code-font=mono code-block-font=mono link=primary inline-code-padding=2.0 inline-code-padding-x=4.0 inline-code-padding-y=3.0 inline-code-border=border inline-code-border-width=1.0 inline-code-radius=4.0
-        row @items-center gap-2
+        row spacing=8.0 align=center
           button "Append Markdown image" -> extend_markdown
-          text len(help_images) @text-xs text-muted
+          text len(help_images) size=12.0 @text-muted
         EditorPanel(notes, editor_title, loading)
         pick display_modes display_mode placeholder="Choose a view" width=fill menu-height=160.0 padding=8.0 text-size=14.0 line-height=1.2 shaping=advanced font=ui open=picker_opened close=picker_closed style=view_picker(loading) menu-style=view_menu(loading) -> display_mode_changed _
           active text=foreground placeholder=muted handle=primary background=surface border=border border-width=1.0 radius=6.0
@@ -587,83 +587,83 @@ view
         button "Reset search options" -> reset_search_modes
         button "Add search option" -> add_search_mode
         if picker_open
-          text "Picker is open" @text-xs text-muted
+          text "Picker is open" size=12.0 @text-muted
         if mode_query != ""
-          text mode_query @text-xs text-muted
+          text mode_query size=12.0 @text-muted
         if hovered_mode != ""
-          text hovered_mode @text-xs text-muted
+          text hovered_mode size=12.0 @text-muted
         sensor show=panel_measured resize=panel_measured hide=panel_hidden key=mode_query anticipate=16.0 delay=10
           responsive size=(available_width, available_height) width=fill height=32.0
-            col @gap-2
+            col spacing=8.0
               if available_width < 360.0
-                text "Compact responsive view" @text-xs text-muted
+                text "Compact responsive view" size=12.0 @text-muted
               if available_width >= 360.0
-                row @gap-2
-                  text "Wide" @text-xs text-muted
-                  text available_height @text-xs text-muted
-                  text observed_width @text-xs text-muted
-                  text observed_height @text-xs text-muted
+                row spacing=8.0
+                  text "Wide" size=12.0 @text-muted
+                  text available_height size=12.0 @text-muted
+                  text observed_width size=12.0 @text-muted
+                  text observed_height size=12.0 @text-muted
         float scale=1.02 x=(viewport_width - original_width) y=-1.0 shadow=black/50 shadow-y=2.0 shadow-blur=4.0 radius=4.0
-          text "Floating label" @text-xs text-foreground
+          text "Floating label" size=12.0 @text-foreground
         pin width=fill height=28.0 x=4.0 y=4.0
-          text "Pinned label" @text-xs text-muted
+          text "Pinned label" size=12.0 @text-muted
         pin width=fill(2) height=shrink x=8.0 y=6.0
-          text "Pinned with flexible bounds" @text-xs text-muted
+          text "Pinned with flexible bounds" size=12.0 @text-muted
         radio "List" value=0 selected=(view_mode == 0) style=view_radio(loading) -> view_mode_changed _
         radio "Board" value=1 selected=(view_mode == 1) -> view_mode_changed _
         grid columns=2 height=shrink spacing=4.0 @w-full
-          text "Even" @text-xs text-muted
-          text "height" @text-xs text-muted
+          text "Even" size=12.0 @text-muted
+          text "height" size=12.0 @text-muted
         grid columns=1 height=fill @w-full
-          text "Fill height" @text-xs text-muted
+          text "Fill height" size=12.0 @text-muted
         grid columns=1 height=fill(2) @w-full
-          text "Fill portion height" @text-xs text-muted
+          text "Fill portion height" size=12.0 @text-muted
         grid columns=1 height=24.0 @w-full
-          text "Fixed height" @text-xs text-muted
+          text "Fixed height" size=12.0 @text-muted
         space width=fill(2) height=8.0
         stack clip=true width=fill height=shrink under=1 @p-4 bg-background rounded-lg
-          text "Stack underlay" @text-sm text-muted
-          text "Stack base" @text-sm text-muted
-          text "Stack overlay" @text-sm text-foreground
+          text "Stack underlay" size=14.0 @text-muted
+          text "Stack base" size=14.0 @text-muted
+          text "Stack overlay" size=14.0 @text-foreground
 
     pane-grid #nested_workspace width=fill height=180.0 spacing=4.0 resize=4.0 drag style=workspace_panes(loading)
       style
         picked-split width=4.0
       split workspace_root vertical ratio=0.65
         pane nested_files
-          text "Nested files" @text-sm text-muted
+          text "Nested files" size=14.0 @text-muted
         split editor_stack horizontal ratio=0.6
           pane nested_editor
-            col @gap-2
+            col spacing=8.0
               button "Open nested preview" -> open_nested_preview
               button "Resize editor split" -> resize_nested_editor
               button "Open task pane" -> open_task_pane
               button "Open mode pane" -> open_mode_pane
           pane nested_terminal
-            text "Nested terminal" @text-sm text-muted
+            text "Nested terminal" size=14.0 @text-muted
       pane nested_preview closed
-        col @gap-2
-          text "Dynamic preview" @text-sm text-foreground
+        col spacing=8.0
+          text "Dynamic preview" size=14.0 @text-foreground
           button "Close nested preview" -> close_nested_preview
       pane pane_task in tasks by=pane_task.id maximized=task_pane_maximized
         title
-          text pane_task.title @text-sm text-foreground
+          text pane_task.title size=14.0 @text-foreground
         controls
-          row @gap-2
+          row spacing=8.0
             button "Maximize" -> maximize_task_pane
             button "Close" -> close_task_pane pane_task.id
         content
-          col @gap-2
+          col spacing=8.0
             if task_pane_maximized
-              text "Maximized task pane" @text-sm text-foreground
+              text "Maximized task pane" size=14.0 @text-foreground
             TaskRow task=pane_task loading=loading
       pane mode_pane in display_modes by=mode_pane
         title
-          text mode_pane @text-sm text-foreground
+          text mode_pane size=14.0 @text-foreground
         controls
           button "Close" -> close_mode_pane mode_pane
         content
-          text "String-keyed runtime pane" @text-sm text-muted
+          text "String-keyed runtime pane" size=14.0 @text-muted
 
     scroll #task-list direction=vertical width=fill height=fill bar=visible bar-width=8.0 bar-margin=2.0 scroller-width=6.0 bar-spacing=2.0 anchor-y=start auto=true viewport=task_list_scrolled style=task_scroll(loading)
       keyed task in tasks by=task.id width=fill height=shrink spacing=8.0 padding=4.0 padding-left=8.0 max-width=720.0 align=center
@@ -686,7 +686,7 @@ view
         header
           text "Task" @font-bold text-foreground
         cell
-          text task.title @text-sm text-foreground
+          text task.title size=14.0 @text-foreground
       column width=120.0 align-x=center align-y=center
         header
           text "Done" @font-bold text-foreground

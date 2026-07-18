@@ -43,6 +43,6 @@ on inspect
   identity_equal = identity == transform.identity()
 
 view
-  col @p-4 gap-2
+  col spacing=8.0 padding=16.0
     text scale_factor
     text len(matrix)

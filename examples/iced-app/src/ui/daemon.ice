@@ -31,8 +31,8 @@ on quit
   exit
 
 component AgentWindow(id:window-id)
-  col @p-6 gap-4
-    text daemon_title(id) @text-xl font-bold
+  col spacing=16.0 padding=24.0
+    text daemon_title(id) size=20.0 @font-bold
     button "Quit" style=danger -> quit
 
 view

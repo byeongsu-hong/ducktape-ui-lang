@@ -42,7 +42,7 @@ on inspect
   values_ordered = interaction.none() < interaction.pointer()
 
 view
-  col @p-4 gap-2
+  col spacing=8.0 padding=16.0
     button "Inspect" -> inspect
     mouse cursor=(returned)
       text kind

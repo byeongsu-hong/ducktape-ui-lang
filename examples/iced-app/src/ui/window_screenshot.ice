@@ -61,7 +61,7 @@ on rgba_captured(pixels, width, height, scale)
   scale_factor = scale
 
 view
-  col @p-4 gap-2
+  col spacing=8.0 padding=16.0
     button "Inspect" -> inspect
     button "Capture native" -> capture_native
     button "Capture RGBA" -> capture_rgba

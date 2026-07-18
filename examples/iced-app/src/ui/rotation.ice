@@ -35,7 +35,7 @@ on inspect
   equal = default_rotation == rotation.floating(radians(0.0))
 
 view
-  col @p-4 gap-2
+  col spacing=8.0 padding=16.0
     button "Inspect" -> inspect
     image pixel width=48.0 height=48.0 rotation=solid_rotation
     svg "<svg/>" memory width=48.0 height=48.0 rotation=adjusted_rotation

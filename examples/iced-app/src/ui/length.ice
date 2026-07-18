@@ -55,7 +55,7 @@ on inspect
   equal = fixed_length == round_trip
 
 view
-  col width=fill_length height=shrink_length @p-4 gap-2
+  col width=fill_length height=shrink_length spacing=8.0 padding=16.0
     button "Inspect" width=from_f64 height=fixed_length -> inspect
     grid columns=1 width=96.0 height=portion_length spacing=2.0
       text kind width=enclosed_length height=shrink_length

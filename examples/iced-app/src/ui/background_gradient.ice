@@ -103,7 +103,7 @@ on inspect
   backgrounds_equal = from_linear_background == returned_background
 
 view
-  col @p-4 gap-2
+  col spacing=8.0 padding=16.0
     button "Inspect" -> inspect
     text stop_offset
     text gradient_kind

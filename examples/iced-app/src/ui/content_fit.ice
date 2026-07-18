@@ -37,7 +37,7 @@ on inspect
   equal = default_fit == contain_fit
 
 view
-  col @p-4 gap-2
+  col spacing=8.0 padding=16.0
     button "Inspect" -> inspect
     image pixel width=48.0 height=48.0 fit=round_trip
     viewer pixel width=48.0 height=48.0 fit=scale_down_fit

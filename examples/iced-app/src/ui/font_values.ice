@@ -80,7 +80,7 @@ on inspect
   fonts_equal = custom_font == returned_font
 
 view
-  col @p-4 gap-2
+  col spacing=8.0 padding=16.0
     button "Inspect" -> inspect
     lazy returned_font as cached_font
       text cached_font.family.kind

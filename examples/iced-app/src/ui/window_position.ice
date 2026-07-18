@@ -37,7 +37,7 @@ on inspect
   responsive_kind = responsive.kind
 
 view
-  col @p-4 gap-2
+  col spacing=8.0 padding=16.0
     button "Inspect" -> inspect
     text default_kind
     text centered_kind

@@ -28,7 +28,7 @@ on inspect
   equal = value == round_trip
 
 view
-  col @p-4 gap-2
+  col spacing=8.0 padding=16.0
     button "Inspect" -> inspect
     text blur
     text color_value.display

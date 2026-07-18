@@ -69,7 +69,7 @@ on inspect
   values_equal = returned_alignment == text_alignment.right()
 
 view
-  col @p-4 gap-2
+  col spacing=8.0 padding=16.0
     button "Inspect" -> inspect
     text alignment_kind
     text shaping_kind

@@ -90,7 +90,7 @@ on inspect
   equal = rgb == from3
 
 view
-  col @p-4 gap-2
+  col spacing=8.0 padding=16.0
     button "Inspect" -> inspect
     text display
     text red

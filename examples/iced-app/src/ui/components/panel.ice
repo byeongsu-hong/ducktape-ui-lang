@@ -1,4 +1,4 @@
 component Panel(title:str)
-  col @w-full gap-3 p-4 bg-surface border border-border rounded-lg
-    text title @text-lg font-bold text-foreground
+  col spacing=12.0 padding=16.0 @w-full bg-surface border border-border rounded-lg
+    text title size=18.0 @font-bold text-foreground
     slot

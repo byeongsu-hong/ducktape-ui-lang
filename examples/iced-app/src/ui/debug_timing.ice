@@ -22,7 +22,7 @@ on compute
   measured = debug.time_with("compute", value + 1)
 
 view
-  col @p-4 gap-2
+  col spacing=8.0 padding=16.0
     button "Begin" -> begin
     button "Finish" -> finish
     button "Compute" -> compute

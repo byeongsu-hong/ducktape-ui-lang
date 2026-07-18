@@ -51,7 +51,7 @@ on inspect
   modes_equal = returned_mode == window_mode.fullscreen()
 
 view
-  col @p-4 gap-2
+  col spacing=8.0 padding=16.0
     button "Inspect" -> inspect
     text direction_kind
     text level_kind

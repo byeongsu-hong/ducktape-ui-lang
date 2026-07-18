@@ -48,7 +48,7 @@ on flow_failed(message)
   error_message = message
 
 view
-  col @p-4 gap-2
+  col spacing=8.0 padding=16.0
     image handle width=64.0 height=64.0
     button "Allocate" -> allocate
     button "Allocate flow" -> allocate_flow

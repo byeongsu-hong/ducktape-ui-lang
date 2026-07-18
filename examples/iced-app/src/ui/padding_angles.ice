@@ -103,7 +103,7 @@ on inspect
   vertices_angle = rectangle.vertices_angle(point(0.0, 0.0), point(0.0, 4.0), point(-3.0, 0.0))
 
 view
-  col @p-4 gap-2
+  col spacing=8.0 padding=16.0
     text pixel_value.value
     text radians_display
     text padding_x
