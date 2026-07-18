@@ -1025,11 +1025,15 @@ compile time. Encoded icon formats remain outside 1.36.
 Use `daemon Name` instead of `app Name` for an iced daemon that starts without
 an initial window and remains alive after all windows close. A daemon rejects
 the unnamed `window` block; declare named window templates and open them from
-`on mount` or another handler. Standalone `exit` is a native `iced::exit()` task
-and must be the final statement in a handler (or a task-group member):
+`on mount` or another handler. The read-only `window:window-id` binding names
+the window currently being rendered and is available to the root view, title,
+theme, and scale-factor expressions. Pure components receive it explicitly as
+a typed prop. Standalone `exit` is a native `iced::exit()` task and must be the
+final statement in a handler (or a task-group member):
 
 ```ice
 daemon BackgroundAgent
+  title daemon_title(window)
   window dashboard
 
 on mount
@@ -1037,6 +1041,9 @@ on mount
 
 on quit
   exit
+
+view
+  AgentWindow id=window
 ```
 
 Application boot presets are structured top-level declarations:
