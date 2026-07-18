@@ -372,6 +372,8 @@ pub enum ExternKind {
     SvgStyle,
     InputStyle,
     ScrollStyle,
+    PickListStyle,
+    MenuStyle,
 }
 
 #[derive(Clone, Debug)]
@@ -1580,6 +1582,8 @@ pub struct PickListOptions {
     pub handle: Option<PickListHandle>,
     pub open: Option<Route>,
     pub close: Option<Route>,
+    pub custom_style: Option<ExternCall>,
+    pub custom_menu_style: Option<ExternCall>,
     pub style: Box<PickListStyleSet>,
     pub menu_style: Option<Box<MenuStyleOptions>>,
 }
@@ -1645,6 +1649,8 @@ pub struct ComboBoxOptions {
     pub hover: Option<Route>,
     pub open: Option<Route>,
     pub close: Option<Route>,
+    pub custom_style: Option<ExternCall>,
+    pub custom_menu_style: Option<ExternCall>,
     pub style: Box<TextInputStyleSet>,
     pub menu_style: Option<Box<MenuStyleOptions>>,
 }

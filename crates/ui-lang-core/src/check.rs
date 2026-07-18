@@ -1615,6 +1615,16 @@ fn infer_view(
             }
             check_font(options_config.font.as_ref(), document, span)?;
             check_pick_list_handle(options_config.handle.as_ref(), env, document, span)?;
+            if let Some(style) = &options_config.custom_style {
+                let function =
+                    extern_function(document, &style.function, ExternKind::PickListStyle, span)?;
+                check_call_args(function, &style.args, env, document, span)?;
+            }
+            if let Some(style) = &options_config.custom_menu_style {
+                let function =
+                    extern_function(document, &style.function, ExternKind::MenuStyle, span)?;
+                check_call_args(function, &style.args, env, document, span)?;
+            }
             check_pick_list_styles(options_config, env, document, span)?;
             infer_route(route, Some(*option_type), env, document, signatures)?;
             for route in [&options_config.open, &options_config.close]
@@ -1675,6 +1685,16 @@ fn infer_view(
             }
             check_font(options.font.as_ref(), document, span)?;
             check_text_input_icon(options.icon.as_ref(), env, document, "combo")?;
+            if let Some(style) = &options.custom_style {
+                let function =
+                    extern_function(document, &style.function, ExternKind::InputStyle, span)?;
+                check_call_args(function, &style.args, env, document, span)?;
+            }
+            if let Some(style) = &options.custom_menu_style {
+                let function =
+                    extern_function(document, &style.function, ExternKind::MenuStyle, span)?;
+                check_call_args(function, &style.args, env, document, span)?;
+            }
             check_text_input_styles(&options.style, env, document, span, "combo")?;
             check_menu_style(options.menu_style.as_deref(), env, document, span)?;
             for (route, payload, label) in [
@@ -5571,6 +5591,8 @@ fn extern_function<'a>(
                 ExternKind::SvgStyle => "svg style",
                 ExternKind::InputStyle => "input style",
                 ExternKind::ScrollStyle => "scroll style",
+                ExternKind::PickListStyle => "pick-list style",
+                ExternKind::MenuStyle => "menu style",
             };
             Error::new("E130", span, format!("unknown extern {label} `{name}`"))
         })
@@ -7011,6 +7033,9 @@ view
     #[test]
     fn checks_optional_selection_values() {
         let source = r#"app Demo
+extern crate::backend
+  pick-list-style dynamic_pick(busy:bool)
+  menu-style dynamic_menu(busy:bool)
 font ui family=sans
 theme
   background #000000
@@ -7018,13 +7043,14 @@ theme
   primary #333333
   danger #ff0000
 state
+  busy = false
   choices = ["List", "Board"]
   selected:str? = none
 on selected(next)
   selected = some(next)
 on opened
 view
-  pick choices selected placeholder="Choose" line-height=1.2 shaping=advanced font=ui open=opened -> selected _
+  pick choices selected placeholder="Choose" line-height=1.2 shaping=advanced font=ui open=opened style=dynamic_pick(busy) menu-style=dynamic_menu(busy) -> selected _
     active text=foreground placeholder=danger handle=primary background=background border=foreground border-width=1.0 radius=4.0
     hovered text=foreground
     opened text=foreground
@@ -7035,13 +7061,30 @@ view
       open code="⌃" font=ui size=12.0 line-height=1.0 shaping=advanced
 "#;
         let document = analyze(source).unwrap();
-        assert_eq!(document.states[0].ty.display(), "[str]");
-        assert_eq!(document.states[1].ty.display(), "str?");
+        assert_eq!(document.states[1].ty.display(), "[str]");
+        assert_eq!(document.states[2].ty.display(), "str?");
         assert_eq!(document.handlers[0].params[0].ty.display(), "str");
 
         let error = analyze(&source.replace("size=12.0", "size=-1.0")).unwrap_err();
         assert_eq!(error.code, "E128");
         assert!(error.message.contains("icon size"));
+
+        let error = analyze(&source.replace("dynamic_pick(busy)", "missing(busy)")).unwrap_err();
+        assert_eq!(error.code, "E130");
+        assert!(error.message.contains("pick-list style"));
+
+        let error = analyze(&source.replace("dynamic_menu(busy)", "missing(busy)")).unwrap_err();
+        assert_eq!(error.code, "E130");
+        assert!(error.message.contains("menu style"));
+
+        let error =
+            analyze(&source.replace("dynamic_pick(busy)", "dynamic_pick(1.0)")).unwrap_err();
+        assert_eq!(error.code, "E101");
+
+        let error =
+            analyze(&source.replace("style=dynamic_pick(busy)", "style=primary")).unwrap_err();
+        assert_eq!(error.code, "E087");
+        assert!(error.message.contains("declared style call"));
     }
 
     #[test]
@@ -7533,6 +7576,9 @@ view
     #[test]
     fn checks_combo_search_state_and_routes() {
         let source = r#"app Demo
+extern crate::backend
+  input-style dynamic_input(busy:bool)
+  menu-style dynamic_menu(busy:bool)
 font ui family=sans
 theme
   background #000000
@@ -7540,6 +7586,7 @@ theme
   primary #333333
   danger #ff0000
 state
+  busy = false
   modes:combo[str] = ["List", "Board"]
   selected:str? = none
   query = ""
@@ -7551,7 +7598,7 @@ on hovered(next)
 on opened
 on closed
 view
-  combo modes selected "Search modes" line-height=1.2 shaping=advanced font=ui input=searched hover=hovered open=opened close=closed -> selected _
+  combo modes selected "Search modes" line-height=1.2 shaping=advanced font=ui input=searched hover=hovered open=opened close=closed style=dynamic_input(busy) menu-style=dynamic_menu(busy) -> selected _
     active background=background border=foreground border-width=1.0 radius=4.0 icon=primary placeholder=danger value=foreground selection=primary
     hovered background=background icon=foreground placeholder=danger value=foreground selection=primary
     focused background=background border=primary
@@ -7561,7 +7608,7 @@ view
     icon code="⌕" font=ui size=12.0 spacing=6.0 side=right
 "#;
         let document = analyze(source).unwrap();
-        assert_eq!(document.states[0].ty.display(), "combo[str]");
+        assert_eq!(document.states[1].ty.display(), "combo[str]");
         assert_eq!(document.handlers[0].params[0].ty.display(), "str");
         assert_eq!(document.handlers[1].params[0].ty.display(), "str");
         assert_eq!(document.handlers[2].params[0].ty.display(), "str");

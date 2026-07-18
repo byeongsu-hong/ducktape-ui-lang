@@ -19,6 +19,8 @@ extern crate::backend
   svg-style status_svg(active:bool)
   input-style form_input(disabled:bool)
   scroll-style task_scroll(active:bool)
+  pick-list-style view_picker(active:bool)
+  menu-style view_menu(active:bool)
   task copy_text(text:str) -> unit ! AppError
   subscription app_events() -> bool
 
@@ -510,7 +512,7 @@ view
           focused background=surface border=primary border-width=2.0 radius=8.0
           focused-hovered background=surface border=primary border-width=2.0 radius=8.0
           disabled background=background border=border placeholder=muted value=muted selection=primary
-        pick display_modes display_mode placeholder="Choose a view" width=fill menu-height=160.0 padding=8.0 text-size=14.0 line-height=1.2 shaping=advanced font=ui open=picker_opened close=picker_closed -> display_mode_changed _
+        pick display_modes display_mode placeholder="Choose a view" width=fill menu-height=160.0 padding=8.0 text-size=14.0 line-height=1.2 shaping=advanced font=ui open=picker_opened close=picker_closed style=view_picker(loading) menu-style=view_menu(loading) -> display_mode_changed _
           active text=foreground placeholder=muted handle=primary background=surface border=border border-width=1.0 radius=6.0
           hovered text=foreground placeholder=muted handle=foreground background=background border=primary border-width=1.0 radius=6.0
           opened text=foreground placeholder=muted handle=primary background=surface border=primary border-width=1.0 radius=6.0
@@ -521,13 +523,13 @@ view
             open code="⌃" font=ui size=12.0 line-height=1.0 shaping=advanced
         if false
           col
-            pick display_modes display_mode -> display_mode_changed _
+            pick display_modes display_mode style=view_picker(loading) menu-style=view_menu(loading) -> display_mode_changed _
               handle arrow size=12.0
             pick display_modes display_mode -> display_mode_changed _
               handle static code="◆" font=ui size=12.0 line-height=1.0 shaping=basic
             pick display_modes display_mode -> display_mode_changed _
               handle none
-        combo searchable_modes display_mode "Search views" width=fill menu-height=160.0 padding=8.0 text-size=14.0 line-height=1.2 shaping=advanced font=ui input=mode_searched hover=mode_hovered open=picker_opened close=picker_closed -> display_mode_changed _
+        combo searchable_modes display_mode "Search views" width=fill menu-height=160.0 padding=8.0 text-size=14.0 line-height=1.2 shaping=advanced font=ui input=mode_searched hover=mode_hovered open=picker_opened close=picker_closed style=form_input(loading) menu-style=view_menu(loading) -> display_mode_changed _
           active background=surface border=border border-width=1.0 radius=6.0 icon=primary placeholder=muted value=foreground selection=primary
           hovered background=background border=primary border-width=1.0 radius=6.0 icon=foreground placeholder=muted value=foreground selection=primary
           focused background=surface border=primary border-width=1.0 radius=6.0 icon=primary placeholder=muted value=foreground selection=primary
