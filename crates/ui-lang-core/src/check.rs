@@ -3795,6 +3795,9 @@ fn lazy_hashable(ty: &Type) -> bool {
         | Type::MouseButton
         | Type::TouchFinger
         | Type::ContentFit
+        | Type::Alignment
+        | Type::HorizontalAlignment
+        | Type::VerticalAlignment
         | Type::Named(_) => true,
         Type::List(inner) | Type::Option(inner) => lazy_hashable(inner),
         Type::Result(output, error) => lazy_hashable(output) && lazy_hashable(error),
@@ -7397,6 +7400,41 @@ pub(crate) fn expr_type(
                 )?;
                 Ok(Type::Length)
             }
+            "alignment.start" | "alignment.center" | "alignment.end" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::Alignment)
+            }
+            "horizontal.left" | "horizontal.center" | "horizontal.right" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::HorizontalAlignment)
+            }
+            "vertical.top" | "vertical.center" | "vertical.bottom" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::VerticalAlignment)
+            }
+            "alignment.from_horizontal" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::HorizontalAlignment],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::Alignment)
+            }
+            "alignment.from_vertical" => {
+                check_builtin_args(name, args, &[Type::VerticalAlignment], env, document, span)?;
+                Ok(Type::Alignment)
+            }
+            "horizontal.from_alignment" => {
+                check_builtin_args(name, args, &[Type::Alignment], env, document, span)?;
+                Ok(Type::HorizontalAlignment)
+            }
+            "vertical.from_alignment" => {
+                check_builtin_args(name, args, &[Type::Alignment], env, document, span)?;
+                Ok(Type::VerticalAlignment)
+            }
             "fit.default" | "fit.contain" | "fit.cover" | "fit.fill" | "fit.none"
             | "fit.scale_down" => {
                 check_builtin_args(name, args, &[], env, document, span)?;
@@ -8661,6 +8699,10 @@ fn field_type(ty: &Type, field: &str, document: &Document, span: &Span) -> Resul
             "fixed" => Some(Type::Option(Box::new(Type::F64))),
             _ => None,
         },
+        Type::Alignment | Type::HorizontalAlignment | Type::VerticalAlignment => match field {
+            "kind" => Some(Type::Str),
+            _ => None,
+        },
         Type::Point => match field {
             "x" | "y" => Some(Type::F64),
             "values" => Some(Type::List(Box::new(Type::F64))),
@@ -9038,6 +9080,20 @@ fn type_error(span: &Span, expected: &Type, actual: &Type) -> Error {
 #[cfg(test)]
 mod tests {
     use crate::{PaneConfiguration, Type, ViewNode, analyze};
+
+    #[test]
+    fn checks_native_alignment_values_and_hashing() {
+        let source = include_str!("../../../examples/iced-app/src/ui/alignment.ice");
+        analyze(source).unwrap();
+
+        let error = analyze(&source.replace(
+            "to_vertical = vertical.from_alignment(alignment_round_trip(end))",
+            "to_vertical = vertical.from_alignment(right)",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E101");
+        assert!(error.message.contains("expected `alignment`"));
+    }
 
     #[test]
     fn checks_native_length_values_and_widget_passage() {
