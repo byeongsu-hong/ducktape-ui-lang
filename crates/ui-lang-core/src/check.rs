@@ -3540,7 +3540,10 @@ fn lazy_hashable(ty: &Type) -> bool {
         | Type::KeyPress
         | Type::KeyRelease
         | Type::Point
+        | Type::Vector
+        | Type::Size
         | Type::Rectangle
+        | Type::Transformation
         | Type::MouseCursor
         | Type::MouseClick
         | Type::SystemInfo
@@ -6567,6 +6570,14 @@ pub(crate) fn expr_type(
                 check_builtin_args(name, args, &[Type::F64, Type::F64], env, document, span)?;
                 Ok(Type::Point)
             }
+            "vector" => {
+                check_builtin_args(name, args, &[Type::F64, Type::F64], env, document, span)?;
+                Ok(Type::Vector)
+            }
+            "size" => {
+                check_builtin_args(name, args, &[Type::F64, Type::F64], env, document, span)?;
+                Ok(Type::Size)
+            }
             "rectangle" => {
                 check_builtin_args(
                     name,
@@ -6577,6 +6588,83 @@ pub(crate) fn expr_type(
                     span,
                 )?;
                 Ok(Type::Rectangle)
+            }
+            "transform.identity" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::Transformation)
+            }
+            "transform.orthographic" => {
+                let [Expr::I64(width), Expr::I64(height)] = args.as_slice() else {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        "transform.orthographic expects two integer literals",
+                    ));
+                };
+                if !(0..=u32::MAX as i64).contains(width) || !(0..=u32::MAX as i64).contains(height)
+                {
+                    return Err(Error::new(
+                        "E152",
+                        span,
+                        format!(
+                            "transform.orthographic dimensions must be in 0..={}",
+                            u32::MAX
+                        ),
+                    ));
+                }
+                Ok(Type::Transformation)
+            }
+            "transform.try_orthographic" => {
+                check_builtin_args(name, args, &[Type::I64, Type::I64], env, document, span)?;
+                Ok(Type::Option(Box::new(Type::Transformation)))
+            }
+            "transform.translate" => {
+                check_builtin_args(name, args, &[Type::F64, Type::F64], env, document, span)?;
+                Ok(Type::Transformation)
+            }
+            "transform.scale" => {
+                check_builtin_args(name, args, &[Type::F64], env, document, span)?;
+                Ok(Type::Transformation)
+            }
+            "transform.inverse" => {
+                check_builtin_args(name, args, &[Type::Transformation], env, document, span)?;
+                Ok(Type::Transformation)
+            }
+            "transform.compose" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::Transformation, Type::Transformation],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::Transformation)
+            }
+            "transform.point"
+            | "transform.vector"
+            | "transform.size"
+            | "transform.rectangle"
+            | "transform.cursor"
+            | "transform.click" => {
+                let value = match name.as_str() {
+                    "transform.point" => Type::Point,
+                    "transform.vector" => Type::Vector,
+                    "transform.size" => Type::Size,
+                    "transform.rectangle" => Type::Rectangle,
+                    "transform.cursor" => Type::MouseCursor,
+                    "transform.click" => Type::MouseClick,
+                    _ => unreachable!(),
+                };
+                check_builtin_args(
+                    name,
+                    args,
+                    &[value.clone(), Type::Transformation],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(value)
             }
             "mouse.button" => {
                 let [Expr::Str(value)] = args.as_slice() else {
@@ -7149,8 +7237,22 @@ fn field_type(ty: &Type, field: &str, document: &Document, span: &Span) -> Resul
             "x" | "y" => Some(Type::F64),
             _ => None,
         },
+        Type::Vector => match field {
+            "x" | "y" => Some(Type::F64),
+            _ => None,
+        },
+        Type::Size => match field {
+            "width" | "height" => Some(Type::F64),
+            _ => None,
+        },
         Type::Rectangle => match field {
             "x" | "y" | "width" | "height" => Some(Type::F64),
+            _ => None,
+        },
+        Type::Transformation => match field {
+            "scale_factor" => Some(Type::F64),
+            "translation" => Some(Type::Vector),
+            "matrix" => Some(Type::List(Box::new(Type::F64))),
             _ => None,
         },
         Type::MouseButton => match field {
@@ -7758,6 +7860,64 @@ view
                 "cursor_levitating = click == click",
                 "E153",
                 "mouse-click values are opaque",
+            ),
+        ] {
+            let error = analyze(&source.replacen(from, to, 1)).unwrap_err();
+            assert_eq!(error.code, code, "{from} -> {to}: {error:?}");
+            assert!(error.message.contains(message), "{from} -> {to}: {error:?}");
+        }
+    }
+
+    #[test]
+    fn checks_native_transformations() {
+        let source = include_str!("../../../examples/iced-app/src/ui/transformation_values.ice");
+        let document = analyze(source).unwrap();
+        assert_eq!(document.states[0].ty, Type::Transformation);
+        assert_eq!(document.states[6].ty, Type::Vector);
+        assert_eq!(document.states[11].ty, Type::Size);
+
+        for (from, to, code, message) in [
+            (
+                "transform.identity()",
+                "transform.identity(1)",
+                "E152",
+                "expects 0 argument(s)",
+            ),
+            (
+                "transform.orthographic(640, 480)",
+                "transform.orthographic(640.0, 480)",
+                "E152",
+                "expects two integer literals",
+            ),
+            (
+                "transform.orthographic(640, 480)",
+                "transform.orthographic(4294967296, 480)",
+                "E152",
+                "dimensions must be in 0..=4294967295",
+            ),
+            (
+                "transform.translate(10.0, 20.0)",
+                "transform.translate(true, 20.0)",
+                "E101",
+                "expected `f64`, got `bool`",
+            ),
+            (
+                "transform.scale(2.0))",
+                "point(2.0, 2.0))",
+                "E101",
+                "expected `transformation`, got `point`",
+            ),
+            (
+                "transform.point(point(1.0, 2.0), combined)",
+                "transform.point(combined, point(1.0, 2.0))",
+                "E101",
+                "expected `point`, got `transformation`",
+            ),
+            (
+                "translation = combined.translation",
+                "translation = combined.missing",
+                "E151",
+                "has no field `missing`",
             ),
         ] {
             let error = analyze(&source.replacen(from, to, 1)).unwrap_err();
