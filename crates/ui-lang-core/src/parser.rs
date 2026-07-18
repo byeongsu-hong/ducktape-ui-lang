@@ -8634,6 +8634,7 @@ fn parse_type(source: &str, line: &Line) -> Result<Type, Error> {
         "alignment" => Type::Alignment,
         "horizontal-alignment" => Type::HorizontalAlignment,
         "vertical-alignment" => Type::VerticalAlignment,
+        "shadow" => Type::Shadow,
         "point" => Type::Point,
         "point-u32" => Type::PointU32,
         "vector" => Type::Vector,
@@ -9253,6 +9254,19 @@ mod tests {
         assert_eq!(document.functions[1].params[0].1, Type::HorizontalAlignment);
         assert_eq!(document.functions[2].params[0].1, Type::VerticalAlignment);
         assert_eq!(document.states[0].ty, Type::Alignment);
+    }
+
+    #[test]
+    fn parses_first_class_native_shadow() {
+        let source = include_str!("../../../examples/iced-app/src/ui/shadow.ice");
+        let document = parse(source).unwrap();
+        assert_eq!(document.functions[0].params[0].1, Type::Shadow);
+        assert_eq!(document.functions[0].output, Type::Shadow);
+        assert_eq!(document.states[0].ty, Type::Shadow);
+        assert!(matches!(
+            &document.handlers[0].statements[1],
+            Statement::Assign { value: Expr::Call { name, .. }, .. } if name == "shadow.new"
+        ));
     }
 
     #[test]

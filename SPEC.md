@@ -1,4 +1,4 @@
-# Ice Language Specification 1.44
+# Ice Language Specification 1.45
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 1.44 syntax.
+marked “planned” is a design constraint, not accepted 1.45 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 1.44.
+  block comments are not part of 1.45.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -194,6 +194,7 @@ type           = "bool" | "i64" | "f64" | "str" | "bytes" | "image"
                | "color"
                | "length"
                | "alignment" | "horizontal-alignment" | "vertical-alignment"
+               | "shadow"
                | "point" | "point-u32" | "vector" | "size" | "size-u32"
                | "rectangle" | "rectangle-u32"
                | "transformation" | "mouse-button" | "mouse-cursor"
@@ -1038,7 +1039,7 @@ maximum size. `icon-rgba` embeds a relative raw RGBA file without an image
 codec; width and height are positive integers, and generated Rust rejects a
 byte length other than `width × height × 4`. `cargo ice check` reports a
 mismatch at the icon declaration, and generated Rust repeats the check at
-compile time. Encoded icon formats remain outside 1.44.
+compile time. Encoded icon formats remain outside 1.45.
 
 Use `daemon Name` instead of `app Name` for an iced daemon that starts without
 an initial window and remains alive after all windows close. A daemon rejects
@@ -1603,6 +1604,7 @@ button "Add" disabled=(loading || empty(trim(draft))) -> submit
 | `alignment` | `iced::Alignment` |
 | `horizontal-alignment` | `iced::alignment::Horizontal` |
 | `vertical-alignment` | `iced::alignment::Vertical` |
+| `shadow` | `iced::Shadow` |
 | `instant` | `iced::time::Instant` |
 | `window-id` | `iced::window::Id` |
 | `markdown` | `iced::widget::markdown::Content` |
@@ -1634,7 +1636,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 1.44 message payloads.
+`Clone` for 1.45 message payloads.
 
 Declared `sync` functions are checked, synchronous Rust calls available in
 Ice expressions. They are the small escape hatch for pure domain conversions
@@ -3089,6 +3091,13 @@ conversions. Each value exposes a compact `.kind`, supports equality, hashable
 lazy identity, and typed extern passage. Existing view properties keep their
 short `start/center/end`, `left/center/right`, and `top/center/bottom` sugar.
 
+`shadow.default()` constructs the native default. `shadow.new(color, offset,
+blur)` constructs an exact `iced::Shadow`; the checked arguments are `color`,
+`vector`, and `f64`, with narrowing to native `f32` only at code generation.
+A shadow exposes `.color`, `.offset`, and `.blur`, supports equality and typed
+extern passage, and is deliberately rejected as a lazy identity because its
+native color and blur fields contain floating-point values.
+
 The default iced `f32` geometry API has direct checked expressions:
 
 ```ice
@@ -3595,7 +3604,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 1.44 does not claim that remapping.
+extern line; 1.45 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -3616,7 +3625,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 1.44 native backend covers both windowed applications and windowless
+The 1.45 native backend covers both windowed applications and windowless
 daemons alongside CRUD/settings-style screens, selection, media, hover
 overlays, declarative canvas geometry, and pointer events. Borrowed custom
 widgets and an application-wide renderer type remain the escape hatch for
@@ -3664,6 +3673,10 @@ First-class pixels, padding, degrees, radians, range behavior, mixed native
 operators, distance conversion, geometry integration, and extern passage are
 exercised by
 [`examples/iced-app/src/ui/padding_angles.ice`](examples/iced-app/src/ui/padding_angles.ice).
+Complete native shadow construction, projections, equality, and extern passage
+are exercised by the split
+[`examples/iced-app/src/ui/shadow.ice`](examples/iced-app/src/ui/shadow.ice) and
+[`examples/iced-app/src/shadow.rs`](examples/iced-app/src/shadow.rs) fixture.
 Native `Task::map` output/optional conversion and fallible error preservation
 are executed by
 [`examples/iced-app/src/ui/task_map.ice`](examples/iced-app/src/ui/task_map.ice).
