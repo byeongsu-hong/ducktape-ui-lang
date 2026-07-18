@@ -113,6 +113,8 @@ Key files:
   unsigned snapping;
 - [`padding_angles.ice`](examples/iced-app/src/ui/padding_angles.ice) preserves
   native pixels, padding, degrees, and radians through operations and externs;
+- [`task_map.ice`](examples/iced-app/src/ui/task_map.ice) executes native task
+  output/optional mapping and fallible error preservation;
 - [`main.rs`](examples/iced-app/src/main.rs) owns the Rust backend;
 - [`SPEC.md`](SPEC.md) defines the implemented language.
 
@@ -140,7 +142,7 @@ cargo fmt --all
 
 ## Status
 
-This is an executable v1.27 language slice, not yet a complete iced replacement.
+This is an executable v1.28 language slice, not yet a complete iced replacement.
 It implements typed extern data/actions, state, handlers, async tasks, pure
 components with named props, default children, named structural slots, and
 React-like qualified compound children, scoped IDs, relative
@@ -161,7 +163,7 @@ callback boundary, lossless raw window IDs and RGBA screenshots, system and
 clipboard operations, native task cancellation,
 typed repeated task streams, typed progress-and-completion sippers,
 output-dependent typed task flows, and iced code generation, including native
-`done`/`none` sources, `map-error`, and fallible `collect`, plus checked startup
+`done`/`none` sources, output `map`, `map-error`, and fallible `collect`, plus checked startup
 font embedding, complete iced font descriptors, stateful
 native Canvas programs, and typed native wgpu Shader programs.
 Static and direct dynamic app IDs also support

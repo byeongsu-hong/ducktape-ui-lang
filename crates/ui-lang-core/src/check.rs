@@ -6377,6 +6377,20 @@ pub(crate) fn task_flow_type(
     let (mut output, mut error_ty) = task_source_type(source, document, root_env)?;
     for (index, transform) in transforms.iter().enumerate() {
         match transform {
+            TaskTransform::Map {
+                binding,
+                value,
+                span,
+            } => {
+                let env = HashMap::from([(binding.clone(), output)]);
+                output = expr_type(value, &env, document, span).map_err(|error| {
+                    if error.code == "E150" {
+                        error.hint(format!("map may only read its `{binding}` binding"))
+                    } else {
+                        error
+                    }
+                })?;
+            }
             TaskTransform::Then {
                 binding,
                 source,
@@ -8979,6 +8993,7 @@ on start
   parallel
     flow
       from stream numbers(limit)
+      map value -> value + 1
       then value -> task double(value)
       collect
       done -> collected _
@@ -8989,6 +9004,7 @@ on start
       done -> finished _
     flow
       from task fallible(2)
+      map value -> value + 1
       and-then value -> task fallible_double(value)
       done -> finished _
       error -> failed _
@@ -9033,6 +9049,15 @@ view
         .unwrap_err();
         assert_eq!(error.code, "E150");
         assert!(error.hint.unwrap().contains("only read its `value`"));
+
+        let error =
+            analyze(&source.replacen("map value -> value + 1", "map value -> limit + 1", 1))
+                .unwrap_err();
+        assert_eq!(error.code, "E150");
+        assert_eq!(
+            error.hint.as_deref(),
+            Some("map may only read its `value` binding")
+        );
     }
 
     #[test]

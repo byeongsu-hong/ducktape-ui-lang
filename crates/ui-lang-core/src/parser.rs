@@ -1732,6 +1732,17 @@ fn parse_task_flow(line: &Line) -> Result<Statement, Error> {
             });
             continue;
         }
+        if let Some(source) = item.text.strip_prefix("map ") {
+            let Some((binding, value)) = split_top_marker(source, "->") else {
+                return Err(error("E050", item, "map uses `map value -> expr`"));
+            };
+            transforms.push(TaskTransform::Map {
+                binding: identifier(binding.trim(), item)?,
+                value: parse_expr(value.trim(), item)?,
+                span: Span::line(item.number),
+            });
+            continue;
+        }
         if let Some(source) = item.text.strip_prefix("map-error ") {
             let Some((binding, value)) = split_top_marker(source, "->") else {
                 return Err(error(
@@ -1785,7 +1796,7 @@ fn parse_task_flow(line: &Line) -> Result<Statement, Error> {
             return Err(error(
                 "E050",
                 item,
-                "flow lines must be then, and-then, map-error, collect, discard, done, error, or units",
+                "flow lines must be map, then, and-then, map-error, collect, discard, done, error, or units",
             ));
         };
         let slot = match kind.trim() {
@@ -9426,6 +9437,7 @@ theme
 on start
   flow
     from stream numbers(3)
+    map value -> value + 1
     then value -> task double(value)
     collect
     done -> collected _
@@ -9453,9 +9465,10 @@ view
                 ..
             }
         ));
-        assert_eq!(transforms.len(), 2);
-        assert!(matches!(transforms[0], TaskTransform::Then { .. }));
-        assert!(matches!(transforms[1], TaskTransform::Collect { .. }));
+        assert_eq!(transforms.len(), 3);
+        assert!(matches!(transforms[0], TaskTransform::Map { .. }));
+        assert!(matches!(transforms[1], TaskTransform::Then { .. }));
+        assert!(matches!(transforms[2], TaskTransform::Collect { .. }));
         assert!(success.is_some());
         assert!(units.is_some());
 
@@ -9463,6 +9476,11 @@ view
             parse(&source.replace("    from stream numbers(3)", "    collect")).unwrap_err();
         assert_eq!(error.code, "E050");
         assert!(error.message.contains("first flow line"));
+
+        let error = parse(&source.replace("    map value -> value + 1", "    map value value + 1"))
+            .unwrap_err();
+        assert_eq!(error.code, "E050");
+        assert!(error.message.contains("map value -> expr"));
     }
 
     #[test]

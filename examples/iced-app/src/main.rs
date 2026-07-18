@@ -1350,6 +1350,37 @@ mod task_flow {
 }
 
 #[cfg(test)]
+mod task_map {
+    ui_lang::include_app!("src/ui/task_map.ice");
+
+    #[test]
+    fn maps_success_values_and_preserves_errors() {
+        use iced::futures::StreamExt;
+
+        let (mut app, _) = TaskMap::__boot();
+        let task = app.__update(__TaskMapMessage::Start);
+        let mut stream = iced_runtime::task::into_stream(task).unwrap();
+        let messages = iced::futures::executor::block_on(async move {
+            let mut messages = Vec::new();
+            while let Some(action) = stream.next().await {
+                if let iced_runtime::Action::Output(message) = action {
+                    messages.push(message);
+                }
+            }
+            messages
+        });
+        for message in messages {
+            let _ = app.__update(message);
+        }
+
+        assert_eq!(app.mapped, 5);
+        assert_eq!(app.mapped_optional, Some(2));
+        assert_eq!(app.mapped_result, 8);
+        assert_eq!(app.error, "task failed");
+    }
+}
+
+#[cfg(test)]
 mod timer {
     ui_lang::include_app!("src/ui/timer.ice");
 
