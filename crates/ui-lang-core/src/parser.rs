@@ -86,6 +86,27 @@ pub fn parse(source: &str) -> Result<Document, Error> {
                         &path,
                         ExternKind::MarkdownViewer,
                     )?);
+                } else if let Some(source) = item.text.strip_prefix("editor-binding ") {
+                    functions.push(parse_extern_fn(
+                        source,
+                        item,
+                        &path,
+                        ExternKind::EditorBinding,
+                    )?);
+                } else if let Some(source) = item.text.strip_prefix("editor-highlighter ") {
+                    functions.push(parse_extern_fn(
+                        &format!("{source} -> unit"),
+                        item,
+                        &path,
+                        ExternKind::EditorHighlighter,
+                    )?);
+                } else if let Some(source) = item.text.strip_prefix("editor-style ") {
+                    functions.push(parse_extern_fn(
+                        &format!("{source} -> unit"),
+                        item,
+                        &path,
+                        ExternKind::EditorStyle,
+                    )?);
                 } else if let Some(source) = item.text.strip_prefix("text-style ") {
                     functions.push(parse_extern_fn(
                         &format!("{source} -> unit"),
@@ -1103,6 +1124,9 @@ fn parse_extern_fn(
                 | ExternKind::Subscription
                 | ExternKind::Window
                 | ExternKind::MarkdownViewer
+                | ExternKind::EditorBinding
+                | ExternKind::EditorHighlighter
+                | ExternKind::EditorStyle
                 | ExternKind::TextStyle
                 | ExternKind::SliderStyle
                 | ExternKind::ProgressStyle
@@ -1121,7 +1145,7 @@ fn parse_extern_fn(
         return Err(error(
             "E023",
             line,
-            "extern components, shaders, recipes, event filters, sync functions, subscriptions, window callbacks, markdown viewers, and widget styles cannot declare an error type",
+            "extern components, shaders, recipes, event filters, sync functions, subscriptions, window callbacks, markdown viewers, editor bindings/highlighters, and widget styles cannot declare an error type",
         ));
     }
     Ok(ExternFn {
@@ -2295,6 +2319,7 @@ fn parse_view(line: &Line) -> Result<ViewNode, Error> {
                 | "combo"
                 | "markdown"
                 | "rich-text"
+                | "editor"
                 | "extern"
                 | "shader"
         )
@@ -2389,7 +2414,7 @@ fn parse_view(line: &Line) -> Result<ViewNode, Error> {
         "keyed" => parse_keyed_column(&parts, styles, line),
         "lazy" => parse_lazy(&parts, styles, line),
         "markdown" => parse_markdown(&parts, styles, route_source, line),
-        "editor" => parse_text_editor(&parts, styles, line),
+        "editor" => parse_text_editor(&parts, styles, route_source, line),
         "table" => parse_table(&parts, styles, line),
         "float" => parse_float(&parts, styles, line),
         "pin" => parse_pin(&parts, styles, line),
@@ -3314,6 +3339,7 @@ fn parse_component_call(
 fn parse_text_editor(
     parts: &[String],
     styles: Vec<String>,
+    route: Option<&str>,
     line: &Line,
 ) -> Result<ViewNode, Error> {
     if !styles.is_empty() {
@@ -3375,6 +3401,25 @@ fn parse_text_editor(
                 "inspired-github" => HighlightTheme::InspiredGithub,
                 _ => return Err(error("E099", line, "unknown editor highlight theme")),
             });
+        } else if let Some(value) = part.strip_prefix("highlighter=") {
+            let (function, args) = parse_signature(value, line)?;
+            options.highlighter = Some(ExternCall {
+                function,
+                args: parse_expr_list(&args, line)?,
+            });
+        } else if let Some(value) = part.strip_prefix("key-binding=") {
+            let (function, args) = parse_signature(value, line)?;
+            options.key_binding = Some(ExternCall {
+                function,
+                args: parse_expr_list(&args, line)?,
+            });
+        } else if let Some(value) = part.strip_prefix("style=") {
+            let (function, args) = parse_signature(value, line)
+                .map_err(|_| error("E099", line, "editor style must be a declared style call"))?;
+            options.custom_style = Some(ExternCall {
+                function,
+                args: parse_expr_list(&args, line)?,
+            });
         } else if let Some(value) = part.strip_prefix("disabled=") {
             disabled = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else {
@@ -3389,6 +3434,31 @@ fn parse_text_editor(
     if options.highlight.is_none() && options.highlight_theme.is_some() {
         return Err(error("E099", line, "highlight-theme requires highlight"));
     }
+    if options.highlight.is_some() && options.highlighter.is_some() {
+        return Err(error(
+            "E099",
+            line,
+            "editor accepts either highlight or highlighter, not both",
+        ));
+    }
+    options.key_binding_route = match (&options.key_binding, route) {
+        (Some(_), Some(route)) => Some(parse_route(route.trim(), line)?),
+        (Some(_), None) => {
+            return Err(error(
+                "E099",
+                line,
+                "key-binding requires `-> handler _` for custom bindings",
+            ));
+        }
+        (None, Some(_)) => {
+            return Err(error(
+                "E099",
+                line,
+                "an editor route requires key-binding=name(args)",
+            ));
+        }
+        (None, None) => None,
+    };
     for child in &line.children {
         let parts = split_words(&child.text);
         match parts.first().map(String::as_str) {
@@ -9322,6 +9392,54 @@ view
         let error = parse(&source).unwrap_err();
         assert_eq!(error.code, "E093");
         assert!(error.message.contains("needs a name"));
+    }
+
+    #[test]
+    fn parses_editor_extension_boundaries() {
+        let source = r#"app Notes
+extern crate::backend
+  EditorCommand(save:bool)
+  editor-binding editor_keys(readonly:bool) -> EditorCommand
+  editor-highlighter editor_highlight(language:str)
+  editor-style editor_surface(readonly:bool)
+state
+  body:editor = ""
+  readonly = false
+  language = "rs"
+on command(value)
+view
+  editor <-> body highlighter=editor_highlight(language) key-binding=editor_keys(readonly) style=editor_surface(readonly) -> command _
+"#;
+        let document = parse(source).unwrap();
+        assert_eq!(document.functions[0].kind, ExternKind::EditorBinding);
+        assert_eq!(document.functions[1].kind, ExternKind::EditorHighlighter);
+        assert_eq!(document.functions[2].kind, ExternKind::EditorStyle);
+        let ViewNode::TextEditor { options, .. } = &document.view else {
+            panic!("expected editor");
+        };
+        assert_eq!(
+            options.highlighter.as_ref().unwrap().function,
+            "editor_highlight"
+        );
+        assert_eq!(
+            options.key_binding.as_ref().unwrap().function,
+            "editor_keys"
+        );
+        assert_eq!(
+            options.custom_style.as_ref().unwrap().function,
+            "editor_surface"
+        );
+        assert!(options.key_binding_route.is_some());
+
+        let error = parse(&source.replace(" key-binding=editor_keys(readonly)", "")).unwrap_err();
+        assert!(error.message.contains("route requires key-binding"));
+
+        let error = parse(&source.replace(" -> command _", "")).unwrap_err();
+        assert!(error.message.contains("key-binding requires"));
+
+        let error =
+            parse(&source.replace(" highlighter=", " highlight=\"rs\" highlighter=")).unwrap_err();
+        assert!(error.message.contains("either highlight or highlighter"));
     }
 
     #[test]

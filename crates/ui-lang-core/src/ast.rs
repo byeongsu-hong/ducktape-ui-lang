@@ -363,6 +363,9 @@ pub enum ExternKind {
     Subscription,
     Window,
     MarkdownViewer,
+    EditorBinding,
+    EditorHighlighter,
+    EditorStyle,
     TextStyle,
     SliderStyle,
     ProgressStyle,
@@ -1145,6 +1148,10 @@ pub struct TextEditorOptions {
     pub font: Option<FontPreset>,
     pub highlight: Option<String>,
     pub highlight_theme: Option<HighlightTheme>,
+    pub highlighter: Option<ExternCall>,
+    pub key_binding: Option<ExternCall>,
+    pub key_binding_route: Option<Route>,
+    pub custom_style: Option<ExternCall>,
     pub style: Box<TextInputStyleSet>,
 }
 
