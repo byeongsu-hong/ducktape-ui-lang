@@ -123,6 +123,8 @@ Key files:
   construction, conversion, contrast, mutation, parsing, and extern passage;
 - [`length.ice`](examples/iced-app/src/ui/length.ice) preserves native length
   variants, conversions, queries, externs, and direct layout/widget passage;
+- [`alignment.ice`](examples/iced-app/src/ui/alignment.ice) preserves all native
+  axis-alignment variants, conversions, lazy identity, and extern passage;
 - [`animation.ice`](examples/iced-app/src/ui/animation.ice) declares native
   boolean/numeric animation state with checked easing, timing, projection, and
   active-frame driving;
@@ -143,7 +145,8 @@ Key files:
   [`rotation.rs`](examples/iced-app/src/rotation.rs) and
   [`content_fit.rs`](examples/iced-app/src/content_fit.rs), with new surfaces
   such as [`color.rs`](examples/iced-app/src/color.rs) and
-  [`length.rs`](examples/iced-app/src/length.rs), instead of growing it;
+  [`length.rs`](examples/iced-app/src/length.rs), plus
+  [`alignment.rs`](examples/iced-app/src/alignment.rs), instead of growing it;
 - [`SPEC.md`](SPEC.md) defines the implemented language.
 
 ## Tooling
@@ -170,7 +173,7 @@ cargo fmt --all
 
 ## Status
 
-This is an executable v1.43 language slice, not yet a complete iced replacement.
+This is an executable v1.44 language slice, not yet a complete iced replacement.
 It implements typed extern data/actions, state, handlers, async tasks, pure
 components with named props, default children, named structural slots, and
 React-like qualified compound children, scoped IDs, relative

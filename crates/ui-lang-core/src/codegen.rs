@@ -7916,6 +7916,24 @@ fn native_field_projection(ty: &Type, field: &str, code: &str) -> Option<(String
             ),
             Type::Option(Box::new(Type::F64)),
         ),
+        (Type::Alignment, "kind") => (
+            format!(
+                "match ({code}) {{ ::iced::Alignment::Start => \"start\", ::iced::Alignment::Center => \"center\", ::iced::Alignment::End => \"end\" }}.to_owned()"
+            ),
+            Type::Str,
+        ),
+        (Type::HorizontalAlignment, "kind") => (
+            format!(
+                "match ({code}) {{ ::iced::alignment::Horizontal::Left => \"left\", ::iced::alignment::Horizontal::Center => \"center\", ::iced::alignment::Horizontal::Right => \"right\" }}.to_owned()"
+            ),
+            Type::Str,
+        ),
+        (Type::VerticalAlignment, "kind") => (
+            format!(
+                "match ({code}) {{ ::iced::alignment::Vertical::Top => \"top\", ::iced::alignment::Vertical::Center => \"center\", ::iced::alignment::Vertical::Bottom => \"bottom\" }}.to_owned()"
+            ),
+            Type::Str,
+        ),
         (Type::Point | Type::Vector | Type::Size, "values") => (
             format!(
                 "::std::convert::Into::<[f32; 2]>::into({code}).into_iter().map(f64::from).collect::<::std::vec::Vec<_>>()"
@@ -8068,6 +8086,9 @@ fn expr_code(
                     | Type::ContentFit
                     | Type::Color
                     | Type::Length
+                    | Type::Alignment
+                    | Type::HorizontalAlignment
+                    | Type::VerticalAlignment
                     | Type::Point
                     | Type::PointU32
                     | Type::Vector
@@ -8231,6 +8252,27 @@ fn expr_code(
                 "({}).enclose({})",
                 expr_code(&args[0], env, document, ValueMode::Owned)?,
                 expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "alignment.start" => "::iced::Alignment::Start".into(),
+            "alignment.center" => "::iced::Alignment::Center".into(),
+            "alignment.end" => "::iced::Alignment::End".into(),
+            "horizontal.left" => "::iced::alignment::Horizontal::Left".into(),
+            "horizontal.center" => "::iced::alignment::Horizontal::Center".into(),
+            "horizontal.right" => "::iced::alignment::Horizontal::Right".into(),
+            "vertical.top" => "::iced::alignment::Vertical::Top".into(),
+            "vertical.center" => "::iced::alignment::Vertical::Center".into(),
+            "vertical.bottom" => "::iced::alignment::Vertical::Bottom".into(),
+            "alignment.from_horizontal" | "alignment.from_vertical" => format!(
+                "::iced::Alignment::from({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "horizontal.from_alignment" => format!(
+                "::iced::alignment::Horizontal::from({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "vertical.from_alignment" => format!(
+                "::iced::alignment::Vertical::from({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
             ),
             "fit.default" => "::iced::ContentFit::default()".into(),
             "fit.contain" => "::iced::ContentFit::Contain".into(),
@@ -12135,6 +12177,29 @@ fn pascal(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use crate::compile;
+
+    #[test]
+    fn lowers_every_native_alignment_operation() {
+        let source = include_str!("../../../examples/iced-app/src/ui/alignment.ice");
+        let generated = compile(source, "alignment.ice").unwrap();
+        for expected in [
+            "::iced::Alignment::Start",
+            "::iced::Alignment::Center",
+            "::iced::Alignment::End",
+            "::iced::alignment::Horizontal::Left",
+            "::iced::alignment::Horizontal::Center",
+            "::iced::alignment::Horizontal::Right",
+            "::iced::alignment::Vertical::Top",
+            "::iced::alignment::Vertical::Center",
+            "::iced::alignment::Vertical::Bottom",
+            "::iced::Alignment::from(",
+            "::iced::alignment::Horizontal::from(",
+            "::iced::alignment::Vertical::from(",
+            "crate::backend::alignment_round_trip(self.center)",
+        ] {
+            assert!(generated.contains(expected), "missing {expected}");
+        }
+    }
 
     #[test]
     fn lowers_every_native_length_operation() {

@@ -8631,6 +8631,9 @@ fn parse_type(source: &str, line: &Line) -> Result<Type, Error> {
         "content-fit" => Type::ContentFit,
         "color" => Type::Color,
         "length" => Type::Length,
+        "alignment" => Type::Alignment,
+        "horizontal-alignment" => Type::HorizontalAlignment,
+        "vertical-alignment" => Type::VerticalAlignment,
         "point" => Type::Point,
         "point-u32" => Type::PointU32,
         "vector" => Type::Vector,
@@ -9241,6 +9244,16 @@ fn error(code: &'static str, line: &Line, message: impl Into<String>) -> Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_first_class_native_alignments() {
+        let source = include_str!("../../../examples/iced-app/src/ui/alignment.ice");
+        let document = parse(source).unwrap();
+        assert_eq!(document.functions[0].params[0].1, Type::Alignment);
+        assert_eq!(document.functions[1].params[0].1, Type::HorizontalAlignment);
+        assert_eq!(document.functions[2].params[0].1, Type::VerticalAlignment);
+        assert_eq!(document.states[0].ty, Type::Alignment);
+    }
 
     #[test]
     fn parses_first_class_native_length() {
