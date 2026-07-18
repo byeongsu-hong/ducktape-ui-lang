@@ -7737,6 +7737,36 @@ fn pixel_value_code(
     )
 }
 
+fn pixel_scalar_code(
+    value: &Expr,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<String, Error> {
+    let code = expr_code(value, env, document, ValueMode::Owned)?;
+    Ok(
+        if expr_type(value, &env_types(env), document, &Span::line(1))? == Type::Pixels {
+            format!("({code}).0")
+        } else {
+            format!("({code}) as f32")
+        },
+    )
+}
+
+fn radius_value_code(
+    value: &Expr,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<String, Error> {
+    let code = expr_code(value, env, document, ValueMode::Owned)?;
+    Ok(
+        if expr_type(value, &env_types(env), document, &Span::line(1))? == Type::Radius {
+            code
+        } else {
+            format!("::iced::border::Radius::from(({code}) as f32)")
+        },
+    )
+}
+
 fn radians_value_code(
     value: &Expr,
     env: &HashMap<String, Binding>,
@@ -7934,6 +7964,18 @@ fn native_field_projection(ty: &Type, field: &str, code: &str) -> Option<(String
             ),
             Type::Str,
         ),
+        (Type::Border, "color") => (format!("({code}).color"), Type::Color),
+        (Type::Border, "width") => (format!("({code}).width as f64"), Type::F64),
+        (Type::Border, "radius") => (format!("({code}).radius"), Type::Radius),
+        (Type::Radius, "top_left" | "top_right" | "bottom_right" | "bottom_left") => {
+            (format!("({code}).{field} as f64"), Type::F64)
+        }
+        (Type::Radius, "values") => (
+            format!(
+                "::std::convert::Into::<[f32; 4]>::into({code}).into_iter().map(f64::from).collect::<::std::vec::Vec<_>>()"
+            ),
+            Type::List(Box::new(Type::F64)),
+        ),
         (Type::Shadow, "color") => (format!("({code}).color"), Type::Color),
         (Type::Shadow, "offset") => (format!("({code}).offset"), Type::Vector),
         (Type::Shadow, "blur") => (format!("({code}).blur_radius as f64"), Type::F64),
@@ -8092,6 +8134,8 @@ fn expr_code(
                     | Type::Alignment
                     | Type::HorizontalAlignment
                     | Type::VerticalAlignment
+                    | Type::Border
+                    | Type::Radius
                     | Type::Shadow
                     | Type::Point
                     | Type::PointU32
@@ -8278,6 +8322,102 @@ fn expr_code(
                 "::iced::alignment::Vertical::from({})",
                 expr_code(&args[0], env, document, ValueMode::Owned)?
             ),
+            "border.default" => "::iced::Border::default()".into(),
+            "border.new" => format!(
+                "::iced::Border {{ color: {}, width: {}, radius: {} }}",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                pixel_scalar_code(&args[1], env, document)?,
+                radius_value_code(&args[2], env, document)?
+            ),
+            "border.color" => format!(
+                "::iced::border::color({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "border.width" => format!(
+                "::iced::border::width({})",
+                pixel_value_code(&args[0], env, document)?
+            ),
+            "border.rounded" => format!(
+                "::iced::border::rounded({})",
+                radius_value_code(&args[0], env, document)?
+            ),
+            "border.with_color" => format!(
+                "({}).color({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "border.with_width" => format!(
+                "({}).width({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                pixel_value_code(&args[1], env, document)?
+            ),
+            "border.with_radius" => format!(
+                "({}).rounded({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                radius_value_code(&args[1], env, document)?
+            ),
+            "radius" => format!(
+                "::iced::border::radius({})",
+                pixel_value_code(&args[0], env, document)?
+            ),
+            "radius.new" => format!(
+                "::iced::border::Radius::new({})",
+                pixel_value_code(&args[0], env, document)?
+            ),
+            "radius.default" => "::iced::border::Radius::default()".into(),
+            "radius.top_left"
+            | "radius.top_right"
+            | "radius.bottom_right"
+            | "radius.bottom_left"
+            | "radius.top"
+            | "radius.bottom"
+            | "radius.left"
+            | "radius.right" => {
+                let function = name.strip_prefix("radius.").expect("checked prefix");
+                format!(
+                    "::iced::border::{function}({})",
+                    pixel_value_code(&args[0], env, document)?
+                )
+            }
+            "radius.with_top_left"
+            | "radius.with_top_right"
+            | "radius.with_bottom_right"
+            | "radius.with_bottom_left"
+            | "radius.with_top"
+            | "radius.with_bottom"
+            | "radius.with_left"
+            | "radius.with_right" => {
+                let method = name.strip_prefix("radius.with_").expect("checked prefix");
+                format!(
+                    "({}).{method}({})",
+                    expr_code(&args[0], env, document, ValueMode::Owned)?,
+                    pixel_value_code(&args[1], env, document)?
+                )
+            }
+            "radius.from_f64" => format!(
+                "::iced::border::Radius::from(({}) as f32)",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "radius.from_u8" | "radius.from_u32" => {
+                let Expr::I64(value) = &args[0] else {
+                    unreachable!("checker requires a radius integer literal")
+                };
+                let ty = name.strip_prefix("radius.from_").expect("checked prefix");
+                format!("::iced::border::Radius::from({value}{ty})")
+            }
+            "radius.from_i32" => format!(
+                "::iced::border::Radius::from(({}) as i32)",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "radius.try_from_u8" | "radius.try_from_u32" | "radius.try_from_i32" => {
+                let ty = name
+                    .strip_prefix("radius.try_from_")
+                    .expect("checked prefix");
+                format!(
+                    "<{ty}>::try_from(({}) as i64).ok().map(::iced::border::Radius::from)",
+                    expr_code(&args[0], env, document, ValueMode::Owned)?
+                )
+            }
             "shadow.default" => "::iced::Shadow::default()".into(),
             "shadow.new" => format!(
                 "::iced::Shadow {{ color: {}, offset: {}, blur_radius: ({}) as f32 }}",
@@ -9044,6 +9184,7 @@ fn expr_code(
                     Type::Pixels
                         | Type::Degrees
                         | Type::Radians
+                        | Type::Radius
                         | Type::Vector
                         | Type::Size
                         | Type::Rectangle
@@ -12225,6 +12366,62 @@ mod tests {
             "(self.value).color",
             "(self.value).offset",
             "(self.value).blur_radius as f64",
+        ] {
+            assert!(generated.contains(expected), "missing {expected}");
+        }
+    }
+
+    #[test]
+    fn lowers_every_native_border_and_radius_operation() {
+        let source = include_str!("../../../examples/iced-app/src/ui/border_radius.ice");
+        let generated = compile(source, "border_radius.ice").unwrap();
+        for expected in [
+            "::iced::Border::default()",
+            "::iced::Border { color: ::iced::Color::from_rgba(",
+            "width: (::iced::Pixels((2.0) as f32)).0",
+            "::iced::border::color(::iced::Color::BLACK)",
+            "::iced::border::width(::iced::Pixels((4.0) as f32))",
+            "::iced::border::rounded(::iced::border::Radius::from((5.0) as f32))",
+            ".color(::iced::Color::WHITE)",
+            ".width((6.0) as f32)",
+            ".rounded(::iced::border::radius((7.0) as f32))",
+            "crate::backend::border_round_trip(self.built_border)",
+            "(self.built_border).color",
+            "(self.built_border).width as f64",
+            "(self.built_border).radius",
+            "::iced::border::Radius::default()",
+            "::iced::border::radius(::iced::Pixels((2.0) as f32))",
+            "::iced::border::Radius::new((3.0) as f32)",
+            "::iced::border::top_left((1.0) as f32)",
+            "::iced::border::top_right(::iced::Pixels((2.0) as f32))",
+            "::iced::border::bottom_right((3.0) as f32)",
+            "::iced::border::bottom_left((4.0) as f32)",
+            "::iced::border::top((5.0) as f32)",
+            "::iced::border::bottom((6.0) as f32)",
+            "::iced::border::left((7.0) as f32)",
+            "::iced::border::right((8.0) as f32)",
+            ".top_left((1.0) as f32)",
+            ".top_right((2.0) as f32)",
+            ".bottom_right((3.0) as f32)",
+            ".bottom_left((4.0) as f32)",
+            ".top((5.0) as f32)",
+            ".bottom((6.0) as f32)",
+            ".left((7.0) as f32)",
+            ".right(::iced::Pixels((8.0) as f32))",
+            "::iced::border::Radius::from((9.0) as f32)",
+            "::iced::border::Radius::from(10u8)",
+            "::iced::border::Radius::from(11u32)",
+            "::iced::border::Radius::from(((-3)) as i32)",
+            "<u8>::try_from((self.unsigned_input) as i64)",
+            "<u32>::try_from((self.unsigned_input) as i64)",
+            "<i32>::try_from((self.signed_input) as i64)",
+            "crate::backend::radius_round_trip(self.built_radius)",
+            "self.uniform_radius * (2.0) as f32",
+            "::std::convert::Into::<[f32; 4]>::into(self.built_radius)",
+            "(self.built_radius).top_left as f64",
+            "(self.built_radius).top_right as f64",
+            "(self.built_radius).bottom_right as f64",
+            "(self.built_radius).bottom_left as f64",
         ] {
             assert!(generated.contains(expected), "missing {expected}");
         }

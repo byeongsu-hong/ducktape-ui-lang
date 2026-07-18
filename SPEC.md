@@ -1,4 +1,4 @@
-# Ice Language Specification 1.45
+# Ice Language Specification 1.46
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 1.45 syntax.
+marked “planned” is a design constraint, not accepted 1.46 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 1.45.
+  block comments are not part of 1.46.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -194,6 +194,7 @@ type           = "bool" | "i64" | "f64" | "str" | "bytes" | "image"
                | "color"
                | "length"
                | "alignment" | "horizontal-alignment" | "vertical-alignment"
+               | "border" | "radius"
                | "shadow"
                | "point" | "point-u32" | "vector" | "size" | "size-u32"
                | "rectangle" | "rectangle-u32"
@@ -1039,7 +1040,7 @@ maximum size. `icon-rgba` embeds a relative raw RGBA file without an image
 codec; width and height are positive integers, and generated Rust rejects a
 byte length other than `width × height × 4`. `cargo ice check` reports a
 mismatch at the icon declaration, and generated Rust repeats the check at
-compile time. Encoded icon formats remain outside 1.45.
+compile time. Encoded icon formats remain outside 1.46.
 
 Use `daemon Name` instead of `app Name` for an iced daemon that starts without
 an initial window and remains alive after all windows close. A daemon rejects
@@ -1604,6 +1605,8 @@ button "Add" disabled=(loading || empty(trim(draft))) -> submit
 | `alignment` | `iced::Alignment` |
 | `horizontal-alignment` | `iced::alignment::Horizontal` |
 | `vertical-alignment` | `iced::alignment::Vertical` |
+| `border` | `iced::Border` |
+| `radius` | `iced::border::Radius` |
 | `shadow` | `iced::Shadow` |
 | `instant` | `iced::time::Instant` |
 | `window-id` | `iced::window::Id` |
@@ -1636,7 +1639,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 1.45 message payloads.
+`Clone` for 1.46 message payloads.
 
 Declared `sync` functions are checked, synchronous Rust calls available in
 Ice expressions. They are the small escape hatch for pure domain conversions
@@ -3091,6 +3094,26 @@ conversions. Each value exposes a compact `.kind`, supports equality, hashable
 lazy identity, and typed extern passage. Existing view properties keep their
 short `start/center/end`, `left/center/right`, and `top/center/bottom` sugar.
 
+`border.default()` and `border.new(color, width, radius)` construct complete
+native values. `border.color`, `border.width`, and `border.rounded` map the
+three native free constructors; `border.with_color`, `border.with_width`, and
+`border.with_radius` map the three consuming builders. Width accepts `f64` or
+`pixels`; radius accepts `f64` or `radius`. A border exposes `.color`, `.width`,
+and `.radius`, supports equality and typed extern passage, and is not a lazy
+identity because it contains floating-point values.
+
+`radius(value)`, `radius.new(value)`, and `radius.default()` map the native free
+uniform constructor, associated constructor, and default respectively.
+`radius.top_left/top_right/bottom_right/bottom_left/top/bottom/left/right`
+construct each native partial shape; the matching `radius.with_*` forms take an
+existing radius first and call every consuming builder. Pixel inputs accept
+`f64` or `pixels`. `radius.from_f64/from_u8/from_u32/from_i32` preserve all four
+native conversions, with checked literal integer ranges; `radius.try_from_u8`,
+`radius.try_from_u32`, and `radius.try_from_i32` safely handle dynamic `i64`
+inputs. A radius exposes all four corner fields and `.values` in native corner
+order, supports equality, `radius * f64`, and typed extern passage, and is not a
+lazy identity because its corners are floating-point values.
+
 `shadow.default()` constructs the native default. `shadow.new(color, offset,
 blur)` constructs an exact `iced::Shadow`; the checked arguments are `color`,
 `vector`, and `f64`, with narrowing to native `f32` only at code generation.
@@ -3604,7 +3627,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 1.45 does not claim that remapping.
+extern line; 1.46 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -3625,7 +3648,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 1.45 native backend covers both windowed applications and windowless
+The 1.46 native backend covers both windowed applications and windowless
 daemons alongside CRUD/settings-style screens, selection, media, hover
 overlays, declarative canvas geometry, and pointer events. Borrowed custom
 widgets and an application-wide renderer type remain the escape hatch for
@@ -3677,6 +3700,11 @@ Complete native shadow construction, projections, equality, and extern passage
 are exercised by the split
 [`examples/iced-app/src/ui/shadow.ice`](examples/iced-app/src/ui/shadow.ice) and
 [`examples/iced-app/src/shadow.rs`](examples/iced-app/src/shadow.rs) fixture.
+Complete native border/radius construction, builders, conversions, fields, and
+extern passage are exercised by the split
+[`examples/iced-app/src/ui/border_radius.ice`](examples/iced-app/src/ui/border_radius.ice)
+and [`examples/iced-app/src/border_radius.rs`](examples/iced-app/src/border_radius.rs)
+fixture.
 Native `Task::map` output/optional conversion and fallible error preservation
 are executed by
 [`examples/iced-app/src/ui/task_map.ice`](examples/iced-app/src/ui/task_map.ice).

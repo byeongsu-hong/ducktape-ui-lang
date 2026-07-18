@@ -8634,6 +8634,8 @@ fn parse_type(source: &str, line: &Line) -> Result<Type, Error> {
         "alignment" => Type::Alignment,
         "horizontal-alignment" => Type::HorizontalAlignment,
         "vertical-alignment" => Type::VerticalAlignment,
+        "border" => Type::Border,
+        "radius" => Type::Radius,
         "shadow" => Type::Shadow,
         "point" => Type::Point,
         "point-u32" => Type::PointU32,
@@ -9266,6 +9268,22 @@ mod tests {
         assert!(matches!(
             &document.handlers[0].statements[1],
             Statement::Assign { value: Expr::Call { name, .. }, .. } if name == "shadow.new"
+        ));
+    }
+
+    #[test]
+    fn parses_first_class_native_border_and_radius() {
+        let source = include_str!("../../../examples/iced-app/src/ui/border_radius.ice");
+        let document = parse(source).unwrap();
+        assert_eq!(document.functions[0].params[0].1, Type::Border);
+        assert_eq!(document.functions[0].output, Type::Border);
+        assert_eq!(document.functions[1].params[0].1, Type::Radius);
+        assert_eq!(document.functions[1].output, Type::Radius);
+        assert_eq!(document.states[0].ty, Type::Border);
+        assert_eq!(document.states[9].ty, Type::Radius);
+        assert!(matches!(
+            &document.handlers[0].statements[1],
+            Statement::Assign { value: Expr::Call { name, .. }, .. } if name == "border.new"
         ));
     }
 
