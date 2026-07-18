@@ -171,6 +171,7 @@ impl Type {
 #[derive(Clone, Debug)]
 pub struct Document {
     pub app: String,
+    pub daemon: bool,
     pub settings: AppSettings,
     pub presets: Vec<Preset>,
     pub extern_path: Option<String>,
@@ -584,6 +585,9 @@ pub enum Statement {
     },
     ReturnIf {
         condition: Expr,
+        span: Span,
+    },
+    Exit {
         span: Span,
     },
     Run {

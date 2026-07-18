@@ -156,14 +156,20 @@ pub fn generate(document: &Document, source_path: &str) -> Result<String, Error>
         .map_or_else(String::new, |font| {
             format!(".default_font({})", font_decl_code(font))
         });
-    let title = document
-        .settings
-        .title
-        .as_ref()
-        .map_or("", |_| ".title(Self::__title)");
+    let title = document.settings.title.as_ref().map_or("", |_| {
+        if document.daemon {
+            ".title(Self::__daemon_title)"
+        } else {
+            ".title(Self::__title)"
+        }
+    });
     let settings = app_settings_code(&document.settings);
     let fonts = font_assets_code(&document.settings, source_path);
-    let window = window_settings_code(document.settings.window.as_ref(), source_path);
+    let window = if document.daemon {
+        String::new()
+    } else {
+        window_settings_code(document.settings.window.as_ref(), source_path)
+    };
     let executor = document
         .settings
         .executor
@@ -186,18 +192,30 @@ pub fn generate(document: &Document, source_path: &str) -> Result<String, Error>
                 .join(", ")
         )
     };
-    let scale_factor = document
-        .settings
-        .scale_factor
-        .as_ref()
-        .map_or("", |_| ".scale_factor(Self::__scale_factor)");
+    let scale_factor = document.settings.scale_factor.as_ref().map_or("", |_| {
+        if document.daemon {
+            ".scale_factor(Self::__daemon_scale_factor)"
+        } else {
+            ".scale_factor(Self::__scale_factor)"
+        }
+    });
     let style = if document.settings.background.is_some() || document.settings.text_color.is_some()
     {
         ".style(Self::__style)"
     } else {
         ""
     };
-    writeln!(out, "::iced::application(Self::__boot, Self::__update, Self::__view){title}{subscription}.theme(Self::__theme){style}{settings}{default_font}{fonts}{window}{scale_factor}{executor}{presets}.run()").unwrap();
+    let root = if document.daemon {
+        "::iced::daemon(Self::__boot, Self::__update, Self::__daemon_view)"
+    } else {
+        "::iced::application(Self::__boot, Self::__update, Self::__view)"
+    };
+    let theme = if document.daemon {
+        ".theme(Self::__daemon_theme)"
+    } else {
+        ".theme(Self::__theme)"
+    };
+    writeln!(out, "{root}{title}{subscription}{theme}{style}{settings}{default_font}{fonts}{window}{scale_factor}{executor}{presets}.run()").unwrap();
     writeln!(out, "}}").unwrap();
 
     generate_theme(&mut out, document)?;
@@ -1359,6 +1377,9 @@ fn generate_theme(out: &mut String, document: &Document) -> Result<(), Error> {
         writeln!(out, "Self::__app_theme()").unwrap();
     }
     writeln!(out, "}}").unwrap();
+    if document.daemon {
+        writeln!(out, "fn __daemon_theme(state: &Self, _window: ::iced::window::Id) -> ::iced::Theme {{ state.__theme() }}").unwrap();
+    }
     if let Some(setting) = &document.settings.title {
         let value = expr_code(&setting.value, &env, document, ValueMode::Owned)?;
         writeln!(
@@ -1366,6 +1387,9 @@ fn generate_theme(out: &mut String, document: &Document) -> Result<(), Error> {
             "fn __title(&self) -> ::std::string::String {{ {value} }}"
         )
         .unwrap();
+        if document.daemon {
+            writeln!(out, "fn __daemon_title(state: &Self, _window: ::iced::window::Id) -> ::std::string::String {{ state.__title() }}").unwrap();
+        }
     }
     if document.settings.background.is_some() || document.settings.text_color.is_some() {
         writeln!(out, "fn __style(&self, __theme: &::iced::Theme) -> ::iced::theme::Style {{ let mut __style = ::iced::theme::Base::base(__theme);").unwrap();
@@ -1387,6 +1411,9 @@ fn generate_theme(out: &mut String, document: &Document) -> Result<(), Error> {
             "fn __scale_factor(&self) -> f32 {{ (({value}) as f32).max(f32::EPSILON) }}"
         )
         .unwrap();
+        if document.daemon {
+            writeln!(out, "fn __daemon_scale_factor(state: &Self, _window: ::iced::window::Id) -> f32 {{ state.__scale_factor() }}").unwrap();
+        }
     }
     Ok(())
 }
@@ -2092,6 +2119,9 @@ fn generate_view(out: &mut String, document: &Document, message: &str) -> Result
         "fn __view(&self) -> __IceElement<'_, {message}> {{ {root} }}"
     )
     .unwrap();
+    if document.daemon {
+        writeln!(out, "fn __daemon_view<'a>(state: &'a Self, _window: ::iced::window::Id) -> __IceElement<'a, {message}> {{ state.__view() }}").unwrap();
+    }
     Ok(())
 }
 
@@ -2296,6 +2326,16 @@ fn generate_statements(
             Statement::ReturnIf { condition, .. } => {
                 let code = expr_code(condition, env, document, ValueMode::Owned)?;
                 writeln!(out, "if {code} {{ return ::iced::Task::none(); }}").unwrap();
+            }
+            Statement::Exit { .. } => {
+                has_task = true;
+                writeln!(
+                    out,
+                    "{}::iced::exit::<{message}>(){}",
+                    if return_task { "return " } else { "" },
+                    if return_task { ";" } else { "" }
+                )
+                .unwrap();
             }
             Statement::Run {
                 kind,
@@ -11584,6 +11624,41 @@ fn pascal(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use crate::compile;
+
+    #[test]
+    fn lowers_windowless_daemon_and_exit() {
+        let source = r#"daemon Agent
+  title "Background agent"
+  theme "dark"
+  scale-factor 1.25
+  window dashboard
+    size 800 600
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+on opened(id)
+on open
+  task window open dashboard -> opened _
+on quit
+  exit
+view
+  col
+    button "Open" -> open
+    button "Quit" -> quit
+"#;
+        let generated = compile(source, "agent.ice").unwrap();
+        assert!(
+            generated.contains("::iced::daemon(Self::__boot, Self::__update, Self::__daemon_view)")
+        );
+        assert!(generated.contains(".title(Self::__daemon_title)"));
+        assert!(generated.contains(".theme(Self::__daemon_theme)"));
+        assert!(generated.contains(".scale_factor(Self::__daemon_scale_factor)"));
+        assert!(generated.contains("return ::iced::exit::<__AgentMessage>();"));
+        assert!(!generated.contains("::iced::application("));
+        assert!(!generated.contains(".window("));
+    }
 
     #[test]
     fn lowers_complete_common_application_and_window_settings() {

@@ -5900,6 +5900,15 @@ fn check_handler(
                     span,
                 )?;
             }
+            Statement::Exit { span } => {
+                if index + 1 != handler.statements.len() {
+                    return Err(Error::new(
+                        "E141",
+                        span,
+                        "exit must be the final statement in a handler",
+                    ));
+                }
+            }
             Statement::Run {
                 kind,
                 function,
@@ -6416,7 +6425,8 @@ fn check_structured_tasks(handler: &Handler) -> Result<(), Error> {
 
 fn invalid_task_producer(statement: &Statement) -> Option<&Span> {
     match statement {
-        Statement::Run { .. }
+        Statement::Exit { .. }
+        | Statement::Run { .. }
         | Statement::Sip { .. }
         | Statement::TaskFlow { .. }
         | Statement::ClipboardWrite { .. }
@@ -6461,6 +6471,7 @@ fn statement_span(statement: &Statement) -> &Span {
         | Statement::MarkdownAppend { span, .. }
         | Statement::ComboPush { span, .. }
         | Statement::ReturnIf { span, .. }
+        | Statement::Exit { span }
         | Statement::Run { span, .. }
         | Statement::Sip { span, .. }
         | Statement::TaskFlow { span, .. }
@@ -8395,6 +8406,29 @@ fn type_error(span: &Span, expected: &Type, actual: &Type) -> Error {
 #[cfg(test)]
 mod tests {
     use crate::{PaneConfiguration, Type, ViewNode, analyze};
+
+    #[test]
+    fn checks_exit_is_a_final_native_task() {
+        let source = r#"daemon Agent
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+on quit
+  exit
+  ready = true
+state
+  ready = false
+view
+  button "Quit" -> quit
+"#;
+        let error = analyze(source).unwrap_err();
+        assert_eq!(error.code, "E141");
+        assert!(error.message.contains("exit must be the final statement"));
+
+        analyze(&source.replace("  exit\n  ready = true", "  exit")).unwrap();
+    }
 
     #[test]
     fn checks_native_timer_subscription() {

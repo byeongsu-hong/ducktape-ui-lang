@@ -13,6 +13,7 @@ struct Line {
 pub fn parse(source: &str) -> Result<Document, Error> {
     let lines = line_tree(source)?;
     let mut app = None;
+    let mut daemon = false;
     let mut settings = AppSettings::default();
     let mut presets = Vec::new();
     let mut extern_path = None;
@@ -28,11 +29,31 @@ pub fn parse(source: &str) -> Result<Document, Error> {
     let mut view = None;
 
     for line in &lines {
-        if let Some(name) = line.text.strip_prefix("app ") {
+        let root = line
+            .text
+            .strip_prefix("app ")
+            .map(|name| (name, false))
+            .or_else(|| line.text.strip_prefix("daemon ").map(|name| (name, true)));
+        if let Some((name, is_daemon)) = root {
             if app.replace(identifier(name.trim(), line)?).is_some() {
-                return Err(error("E002", line, "an app may only be declared once"));
+                return Err(error(
+                    "E002",
+                    line,
+                    "an app or daemon may only be declared once",
+                ));
             }
             settings = parse_app_settings(line)?;
+            if is_daemon
+                && let Some(window) = line.children.iter().find(|item| item.text == "window")
+            {
+                return Err(error(
+                    "E014",
+                    window,
+                    "a daemon has no initial window",
+                )
+                .hint("declare a named `window name` and open it with `task window open name -> handler _`"));
+            }
+            daemon = is_daemon;
         } else if let Some(name) = line.text.strip_prefix("preset ") {
             presets.push(parse_preset(name.trim(), line)?);
         } else if let Some(path) = line.text.strip_prefix("extern ") {
@@ -291,7 +312,14 @@ pub fn parse(source: &str) -> Result<Document, Error> {
 
     let span = Span::line(1);
     Ok(Document {
-        app: app.ok_or_else(|| Error::new("E006", &span, "missing `app Name` declaration"))?,
+        app: app.ok_or_else(|| {
+            Error::new(
+                "E006",
+                &span,
+                "missing `app Name` or `daemon Name` declaration",
+            )
+        })?,
+        daemon,
         settings,
         presets,
         extern_path,
@@ -1611,6 +1639,11 @@ fn parse_statement(line: &Line) -> Result<Statement, Error> {
         return Err(error("E050", line, "sip requires an extern call"));
     }
     ensure_leaf(line)?;
+    if line.text == "exit" {
+        return Ok(Statement::Exit {
+            span: Span::line(line.number),
+        });
+    }
     if let Some(source) = line.text.strip_prefix("combo ") {
         let Some((target, value)) = split_top_marker(source, " push ") else {
             return Err(error(
@@ -9108,6 +9141,7 @@ view
     fn parses_compact_app() {
         let document = parse(SOURCE).unwrap();
         assert_eq!(document.app, "Demo");
+        assert!(!document.daemon);
         assert_eq!(document.structs.len(), 1);
         assert_eq!(document.handlers.len(), 3);
         assert_eq!(document.qr_codes.len(), 1);
@@ -9115,6 +9149,30 @@ view
             document.qr_codes[0].data,
             QrPayload::Text("https://example.com/ice docs".into())
         );
+    }
+
+    #[test]
+    fn parses_daemon_root_and_exit() {
+        let source = r#"daemon Agent
+  window dashboard
+on quit
+  exit
+view
+  button "Quit" -> quit
+"#;
+        let document = parse(source).unwrap();
+        assert_eq!(document.app, "Agent");
+        assert!(document.daemon);
+        assert_eq!(document.settings.windows[0].name, "dashboard");
+        assert!(matches!(
+            document.handlers[0].statements[0],
+            Statement::Exit { .. }
+        ));
+
+        let error = parse(&source.replace("window dashboard", "window")).unwrap_err();
+        assert_eq!(error.code, "E014");
+        assert!(error.message.contains("no initial window"));
+        assert!(error.hint.unwrap().contains("window name"));
     }
 
     #[test]

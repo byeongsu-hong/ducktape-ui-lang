@@ -1723,3 +1723,15 @@ mod canvas_events {
         let _ = CanvasEvents::__boot();
     }
 }
+
+#[cfg(test)]
+mod daemon {
+    ui_lang::include_app!("src/ui/daemon.ice");
+
+    #[test]
+    fn constructs_window_open_and_exit_tasks() {
+        let (mut app, open) = BackgroundAgent::__boot();
+        assert_eq!(open.units(), 1);
+        assert_eq!(app.__update(__BackgroundAgentMessage::Quit).units(), 1);
+    }
+}
