@@ -54,6 +54,17 @@ view
           text child_height @text-sm text-muted
 
         row @w-full items-center gap-3
+          button "Capture window" style=secondary -> capture_window
+          button "Read raw ID" style=subtle -> read_raw_window_id
+          text raw_window_id @text-sm text-muted
+          if snapshot_ready
+            image window_snapshot width=160.0 height=90.0 fit=contain
+            text snapshot_width @text-sm text-muted
+            text "×" @text-sm text-muted
+            text snapshot_height @text-sm text-muted
+            text snapshot_scale @text-sm text-muted
+
+        row @w-full items-center gap-3
           input "New task" <-> draft hint="What needs doing?" disabled=loading submit=submit @w-full px-4 py-3 bg-surface border border-border rounded-lg
           button "Add" disabled=(loading || empty(trim(draft))) style=success @px-4 py-3 bg-primary text-white rounded-lg disabled:opacity-50 -> submit
             active background=linear(1.57, primary@0.0, surface@1.0) text=white border=primary border-width=1.0 radius=8.0 shadow=black/25 shadow-y=2.0 shadow-blur=4.0 pixel-snap=true

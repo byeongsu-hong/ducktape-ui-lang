@@ -130,7 +130,7 @@ cargo fmt --all
 
 ## Status
 
-This is an executable v0.97 language slice, not yet a complete iced replacement.
+This is an executable v0.98 language slice, not yet a complete iced replacement.
 It implements typed extern data/actions, state, handlers, async tasks, pure
 components with named props, default children, named structural slots, and
 React-like qualified compound children, scoped IDs, relative
@@ -143,7 +143,8 @@ status filtering, raw runtime-event filters, native stream/custom-recipe
 subscriptions and context/filter transforms, structured parallel/sequential
 tasks, structured boot presets, checked application executors and codec-free
 RGBA window icons, named multi-window settings, typed window IDs and directly
-targeted window tasks, system and clipboard operations, native task cancellation,
+targeted window tasks, lossless raw window IDs and RGBA screenshots, system and
+clipboard operations, native task cancellation,
 typed repeated task streams, typed progress-and-completion sippers,
 output-dependent typed task flows, and iced code generation, including native
 `done`/`none` sources, `map-error`, and fallible `collect`, plus checked startup

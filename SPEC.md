@@ -1,4 +1,4 @@
-# Ice Language Specification 0.97
+# Ice Language Specification 0.98
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.97 syntax.
+marked “planned” is a design constraint, not accepted 0.98 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.97.
+  block comments are not part of 0.98.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -277,7 +277,7 @@ pane_edge      = "top" | "left" | "right" | "bottom"
 window_task    = "task window" window_operation ("target=" expr)? ("->" route)?
 window_operation = "open" name? | "oldest" | "latest"
                  | "close" | "drag" | "toggle-maximize" | "toggle-decorations"
-                 | "focus" | "system-menu"
+                 | "focus" | "system-menu" | "raw-id" | "screenshot"
                  | "drag-resize" direction
                  | ("resize" | "move") expr expr
                  | ("resizable" | "maximize" | "minimize" | "mouse-passthrough"
@@ -858,7 +858,7 @@ codec; width and height are positive integers, and generated Rust rejects a
 byte length other than `width × height × 4`. `cargo ice check` reports a
 mismatch at the icon declaration, and generated Rust repeats the check at
 compile time. Encoded icon formats and platform-specific settings are not part
-of 0.97.
+of 0.98.
 
 Application boot presets are structured top-level declarations:
 
@@ -1298,7 +1298,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.97 message payloads.
+`Clone` for 0.98 message payloads.
 
 Declared `sync` functions are checked, synchronous Rust calls available in
 Ice expressions. They are the small escape hatch for pure domain conversions
@@ -2305,7 +2305,7 @@ snap/end; and absolute scroll-to/scroll-by. Effects have no route and
 non-negative `i64`; relative offsets are `f64` in `0.0..=1.0`; absolute
 offsets are unrestricted `f64`. Targets must be real static IDs in the app
 scope. Repeated/component scopes and the feature-gated selector API remain
-outside 0.97.
+outside 0.98.
 
 Persistent pane grids expose their native layout-state operations directly in
 handlers:
@@ -2350,6 +2350,15 @@ on find_oldest
 
 on find_latest
   task window latest -> latest_found _
+
+on inspect_raw_id
+  task window raw-id -> raw_id_read _
+
+on capture_window
+  task window screenshot -> window_captured _ _ _ _
+
+on window_captured(pixels, width, height, scale)
+  snapshot = rgba(width, height, pixels)
 ```
 
 `open` emits `window-id`; `oldest` and `latest` emit `window-id?`. They require
@@ -2361,13 +2370,18 @@ and does not accept a target.
 Other effects have no route and queries require one. `size` emits two `f64`
 values; `maximized` emits `bool`; `minimized` emits `bool?`; `position` and
 `monitor-size` each emit two `f64?` values; `scale-factor` emits `f64`; and
-`mode` emits `str`. Ice covers close, drag and all resize directions, resize
+`mode` emits `str`. `raw-id` emits the opaque platform `u64` identifier as a
+lossless `str`. `screenshot` emits RGBA `bytes`, physical `i64` width and
+height, then its `f64` scale factor; the bytes can feed directly into
+`rgba(width, height, pixels)`.
+
+Ice covers close, drag and all resize directions, resize
 and constraints, resizability, maximize/minimize state, position and movement,
 all modes, decorations, user attention, focus, level, system menu, mouse
 passthrough, monitor size, and automatic tabbing. Positive sizes, bool
 arguments, and target IDs are checked before Rust generation. Runtime icon
-changes, raw handles, screenshots, callbacks, and platform settings remain
-outside 0.97.
+changes, raw window callbacks/handles, and platform settings remain outside
+0.98.
 
 Every iced window event has a direct subscription form:
 
@@ -2520,7 +2534,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 0.97 does not claim that remapping.
+extern line; 0.98 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -2541,7 +2555,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 0.97 native backend is enough for CRUD/settings-style screens, selection,
+The 0.98 native backend is enough for CRUD/settings-style screens, selection,
 media, hover overlays, declarative canvas geometry, and common pointer events,
 not all of iced. It still lacks direct syntax for arbitrary custom overlays,
 window-specific event IDs, and custom widgets. [`COVERAGE.md`](COVERAGE.md) is

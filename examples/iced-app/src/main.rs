@@ -384,6 +384,21 @@ mod application {
         );
         assert_eq!((app.child_width, app.child_height), (640.0, 480.0));
     }
+
+    #[test]
+    fn constructs_window_capture_queries() {
+        let (mut app, _) = Tasks::__boot();
+        assert_eq!(app.__update(__TasksMessage::ReadRawWindowId).units(), 1);
+        assert_eq!(app.__update(__TasksMessage::CaptureWindow).units(), 1);
+
+        let pixels = vec![255, 0, 0, 255, 0, 255, 0, 255];
+        let _ = app.__update(__TasksMessage::WindowCaptured(pixels, 2, 1, 1.5));
+        let _ = app.__update(__TasksMessage::RawWindowIdRead("42".into()));
+        assert!(app.snapshot_ready);
+        assert_eq!((app.snapshot_width, app.snapshot_height), (2, 1));
+        assert_eq!(app.snapshot_scale, 1.5);
+        assert_eq!(app.raw_window_id, "42");
+    }
 }
 
 #[cfg(test)]

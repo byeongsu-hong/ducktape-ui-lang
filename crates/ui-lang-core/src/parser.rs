@@ -1844,6 +1844,8 @@ fn parse_window_operation(source: &str, line: &Line) -> Result<Statement, Error>
             _ => return Err(error("E053", line, "unknown window level")),
         }),
         Some("system-menu") if parts.len() == 1 => WindowOperation::SystemMenu,
+        Some("raw-id") if parts.len() == 1 => WindowOperation::RawId,
+        Some("screenshot") if parts.len() == 1 => WindowOperation::Screenshot,
         Some("mouse-passthrough") if parts.len() == 2 => {
             WindowOperation::MousePassthrough(expr(1)?)
         }
