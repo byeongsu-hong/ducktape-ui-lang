@@ -8014,6 +8014,42 @@ fn native_field_projection(ty: &Type, field: &str, code: &str) -> Option<(String
             ),
             Type::Str,
         ),
+        (Type::TextAlignment, "kind") => (
+            format!(
+                "match ({code}) {{ ::iced::widget::text::Alignment::Default => \"default\", ::iced::widget::text::Alignment::Left => \"left\", ::iced::widget::text::Alignment::Center => \"center\", ::iced::widget::text::Alignment::Right => \"right\", ::iced::widget::text::Alignment::Justified => \"justified\" }}.to_owned()"
+            ),
+            Type::Str,
+        ),
+        (Type::TextShaping, "kind") => (
+            format!(
+                "match ({code}) {{ ::iced::widget::text::Shaping::Auto => \"auto\", ::iced::widget::text::Shaping::Basic => \"basic\", ::iced::widget::text::Shaping::Advanced => \"advanced\" }}.to_owned()"
+            ),
+            Type::Str,
+        ),
+        (Type::TextWrapping, "kind") => (
+            format!(
+                "match ({code}) {{ ::iced::widget::text::Wrapping::None => \"none\", ::iced::widget::text::Wrapping::Word => \"word\", ::iced::widget::text::Wrapping::Glyph => \"glyph\", ::iced::widget::text::Wrapping::WordOrGlyph => \"word-or-glyph\" }}.to_owned()"
+            ),
+            Type::Str,
+        ),
+        (Type::TextLineHeight, "kind") => (
+            format!(
+                "match ({code}) {{ ::iced::widget::text::LineHeight::Relative(_) => \"relative\", ::iced::widget::text::LineHeight::Absolute(_) => \"absolute\" }}.to_owned()"
+            ),
+            Type::Str,
+        ),
+        (Type::TextLineHeight, "relative") => (
+            format!(
+                "match ({code}) {{ ::iced::widget::text::LineHeight::Relative(__value) => ::std::option::Option::Some(__value as f64), _ => ::std::option::Option::None }}"
+            ),
+            Type::Option(Box::new(Type::F64)),
+        ),
+        (Type::TextLineHeight, "absolute") => (
+            format!(
+                "match ({code}) {{ ::iced::widget::text::LineHeight::Absolute(__value) => ::std::option::Option::Some(__value), _ => ::std::option::Option::None }}"
+            ),
+            Type::Option(Box::new(Type::Pixels)),
+        ),
         (Type::MouseInteraction, "kind") => (
             format!(
                 "match ({code}) {{ ::iced::mouse::Interaction::None => \"none\", ::iced::mouse::Interaction::Hidden => \"hidden\", ::iced::mouse::Interaction::Idle => \"idle\", ::iced::mouse::Interaction::ContextMenu => \"context-menu\", ::iced::mouse::Interaction::Help => \"help\", ::iced::mouse::Interaction::Pointer => \"pointer\", ::iced::mouse::Interaction::Progress => \"progress\", ::iced::mouse::Interaction::Wait => \"wait\", ::iced::mouse::Interaction::Cell => \"cell\", ::iced::mouse::Interaction::Crosshair => \"crosshair\", ::iced::mouse::Interaction::Text => \"text\", ::iced::mouse::Interaction::Alias => \"alias\", ::iced::mouse::Interaction::Copy => \"copy\", ::iced::mouse::Interaction::Move => \"move\", ::iced::mouse::Interaction::NoDrop => \"no-drop\", ::iced::mouse::Interaction::NotAllowed => \"not-allowed\", ::iced::mouse::Interaction::Grab => \"grab\", ::iced::mouse::Interaction::Grabbing => \"grabbing\", ::iced::mouse::Interaction::ResizingHorizontally => \"resize-horizontal\", ::iced::mouse::Interaction::ResizingVertically => \"resize-vertical\", ::iced::mouse::Interaction::ResizingDiagonallyUp => \"resize-diagonal-up\", ::iced::mouse::Interaction::ResizingDiagonallyDown => \"resize-diagonal-down\", ::iced::mouse::Interaction::ResizingColumn => \"resize-column\", ::iced::mouse::Interaction::ResizingRow => \"resize-row\", ::iced::mouse::Interaction::AllScroll => \"all-scroll\", ::iced::mouse::Interaction::ZoomIn => \"zoom-in\", ::iced::mouse::Interaction::ZoomOut => \"zoom-out\" }}.to_owned()"
@@ -8307,6 +8343,10 @@ fn expr_code(
                     | Type::FontStretch
                     | Type::FontStyle
                     | Type::ThemeMode
+                    | Type::TextAlignment
+                    | Type::TextShaping
+                    | Type::TextWrapping
+                    | Type::TextLineHeight
                     | Type::MouseInteraction
                     | Type::ScrollDelta
                     | Type::EventStatus
@@ -8575,6 +8615,66 @@ fn expr_code(
             "theme_mode.none" => "::iced::theme::Mode::None".into(),
             "theme_mode.light" => "::iced::theme::Mode::Light".into(),
             "theme_mode.dark" => "::iced::theme::Mode::Dark".into(),
+            "text_alignment.default" => "::iced::widget::text::Alignment::default()".into(),
+            "text_alignment.left"
+            | "text_alignment.center"
+            | "text_alignment.right"
+            | "text_alignment.justified" => format!(
+                "::iced::widget::text::Alignment::{}",
+                pascal(
+                    name.strip_prefix("text_alignment.")
+                        .expect("checked prefix")
+                )
+            ),
+            "text_alignment.from_horizontal" | "text_alignment.from_alignment" => format!(
+                "::iced::widget::text::Alignment::from({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "horizontal.from_text_alignment" => format!(
+                "::iced::alignment::Horizontal::from({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "text_shaping.default" => "::iced::widget::text::Shaping::default()".into(),
+            "text_shaping.auto" | "text_shaping.basic" | "text_shaping.advanced" => format!(
+                "::iced::widget::text::Shaping::{}",
+                pascal(
+                    name.strip_prefix("text_shaping.")
+                        .expect("checked prefix")
+                )
+            ),
+            "text_wrapping.default" => "::iced::widget::text::Wrapping::default()".into(),
+            "text_wrapping.none"
+            | "text_wrapping.word"
+            | "text_wrapping.glyph"
+            | "text_wrapping.word_or_glyph" => format!(
+                "::iced::widget::text::Wrapping::{}",
+                pascal(
+                    name.strip_prefix("text_wrapping.")
+                        .expect("checked prefix")
+                )
+            ),
+            "line_height.default" => "::iced::widget::text::LineHeight::default()".into(),
+            "line_height.relative" => format!(
+                "::iced::widget::text::LineHeight::Relative(({}) as f32)",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "line_height.absolute" => format!(
+                "::iced::widget::text::LineHeight::Absolute({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "line_height.from_f64" => format!(
+                "::iced::widget::text::LineHeight::from(({}) as f32)",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "line_height.from_pixels" => format!(
+                "::iced::widget::text::LineHeight::from({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "line_height.to_absolute" => format!(
+                "({}).to_absolute({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
             "interaction.default" => "::iced::mouse::Interaction::default()".into(),
             "interaction.none"
             | "interaction.hidden"
@@ -12964,6 +13064,52 @@ mod tests {
             "::iced::theme::Mode::Dark",
             "crate::backend::theme_mode_round_trip(::iced::theme::Mode::Dark)",
             "::iced::theme::Mode::Dark => \"dark\"",
+        ] {
+            assert!(generated.contains(expected), "missing {expected}");
+        }
+    }
+
+    #[test]
+    fn lowers_every_native_text_value_operation() {
+        let source = include_str!("../../../examples/iced-app/src/ui/text_values.ice");
+        let generated = compile(source, "text_values.ice").unwrap();
+        for expected in [
+            "::iced::widget::text::Alignment::default()",
+            "::iced::widget::text::Alignment::Left",
+            "::iced::widget::text::Alignment::Center",
+            "::iced::widget::text::Alignment::Right",
+            "::iced::widget::text::Alignment::Justified",
+            "::iced::widget::text::Alignment::from(::iced::alignment::Horizontal::Center)",
+            "::iced::widget::text::Alignment::from(::iced::Alignment::End)",
+            "::iced::alignment::Horizontal::from(::iced::widget::text::Alignment::Justified)",
+            "::iced::widget::text::Shaping::default()",
+            "::iced::widget::text::Shaping::Auto",
+            "::iced::widget::text::Shaping::Basic",
+            "::iced::widget::text::Shaping::Advanced",
+            "::iced::widget::text::Wrapping::default()",
+            "::iced::widget::text::Wrapping::None",
+            "::iced::widget::text::Wrapping::Word",
+            "::iced::widget::text::Wrapping::Glyph",
+            "::iced::widget::text::Wrapping::WordOrGlyph",
+            "::iced::widget::text::LineHeight::default()",
+            "::iced::widget::text::LineHeight::Relative((1.5) as f32)",
+            "::iced::widget::text::LineHeight::Absolute(::iced::Pixels((24.0) as f32))",
+            "::iced::widget::text::LineHeight::from((1.25) as f32)",
+            "::iced::widget::text::LineHeight::from(::iced::Pixels((30.0) as f32))",
+            ").to_absolute(::iced::Pixels((20.0) as f32))",
+            "::iced::widget::text::Alignment::Justified => \"justified\"",
+            "::iced::widget::text::Shaping::Advanced => \"advanced\"",
+            "::iced::widget::text::Wrapping::WordOrGlyph => \"word-or-glyph\"",
+            "::iced::widget::text::LineHeight::Relative(__value)",
+            "::iced::widget::text::LineHeight::Absolute(__value)",
+            "crate::backend::text_alignment_round_trip",
+            "crate::backend::text_shaping_round_trip",
+            "crate::backend::text_wrapping_round_trip",
+            "crate::backend::text_line_height_round_trip",
+            "::iced::widget::lazy((self.returned_alignment",
+            "::iced::widget::lazy((self.returned_shaping",
+            "::iced::widget::lazy((self.returned_wrapping",
+            "::iced::widget::lazy((self.returned_line_height",
         ] {
             assert!(generated.contains(expected), "missing {expected}");
         }

@@ -27,6 +27,8 @@ mod scroll_delta;
 #[cfg(test)]
 mod shadow;
 #[cfg(test)]
+mod text_values;
+#[cfg(test)]
 mod theme_mode;
 #[cfg(test)]
 mod window_id;
@@ -179,6 +181,12 @@ mod backend {
 
     #[cfg(test)]
     pub use crate::theme_mode::theme_mode_round_trip;
+
+    #[cfg(test)]
+    pub use crate::text_values::{
+        text_alignment_round_trip, text_line_height_round_trip, text_shaping_round_trip,
+        text_wrapping_round_trip,
+    };
 
     #[cfg(test)]
     pub use crate::window_id::window_id_round_trip;
