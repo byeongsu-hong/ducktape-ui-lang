@@ -7248,6 +7248,12 @@ fn state_env(document: &Document, name: &str) -> HashMap<String, Binding> {
         .collect()
 }
 
+fn env_types(env: &HashMap<String, Binding>) -> HashMap<String, Type> {
+    env.iter()
+        .map(|(name, binding)| (name.clone(), binding.ty.clone()))
+        .collect()
+}
+
 fn native_field_type(ty: &Type, field: &str) -> Option<Type> {
     match ty {
         Type::KeyPress => match field {
@@ -7339,6 +7345,22 @@ fn native_field_projection(ty: &Type, field: &str, code: &str) -> Option<(String
         | (Type::Rectangle, "x" | "y" | "width" | "height") => {
             (format!("({code}).{field} as f64"), Type::F64)
         }
+        (Type::PointU32, "x" | "y") | (Type::RectangleU32, "x" | "y" | "width" | "height") => {
+            (format!("({code}).{field} as i64"), Type::I64)
+        }
+        (Type::Point | Type::Vector | Type::Size, "values") => (
+            format!(
+                "::std::convert::Into::<[f32; 2]>::into({code}).into_iter().map(f64::from).collect::<::std::vec::Vec<_>>()"
+            ),
+            Type::List(Box::new(Type::F64)),
+        ),
+        (Type::Point, "display") => (format!("::std::format!(\"{{}}\", {code})"), Type::Str),
+        (Type::Rectangle, "center") => (format!("({code}).center()"), Type::Point),
+        (Type::Rectangle, "center_x") => (format!("({code}).center_x() as f64"), Type::F64),
+        (Type::Rectangle, "center_y") => (format!("({code}).center_y() as f64"), Type::F64),
+        (Type::Rectangle, "position") => (format!("({code}).position()"), Type::Point),
+        (Type::Rectangle, "size") => (format!("({code}).size()"), Type::Size),
+        (Type::Rectangle, "area") => (format!("({code}).area() as f64"), Type::F64),
         (Type::Transformation, "scale_factor") => {
             (format!("({code}).scale_factor() as f64"), Type::F64)
         }
@@ -7471,9 +7493,11 @@ fn expr_code(
                     | Type::KeyLocation
                     | Type::KeyModifiers
                     | Type::Point
+                    | Type::PointU32
                     | Type::Vector
                     | Type::Size
                     | Type::Rectangle
+                    | Type::RectangleU32
                     | Type::Transformation
                     | Type::MouseButton
                     | Type::MouseCursor
@@ -7510,6 +7534,174 @@ fn expr_code(
                 expr_code(&args[1], env, document, ValueMode::Owned)?,
                 expr_code(&args[2], env, document, ValueMode::Owned)?,
                 expr_code(&args[3], env, document, ValueMode::Owned)?
+            ),
+            "point.origin" => "::iced::Point::ORIGIN".into(),
+            "point.distance" => format!(
+                "({}).distance({}) as f64",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "point.snap" => format!(
+                "({}).snap()",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "vector.zero" => "::iced::Vector::ZERO".into(),
+            "size.zero" => "::iced::Size::ZERO".into(),
+            "size.unit" => "::iced::Size::UNIT".into(),
+            "size.infinite" => "::iced::Size::INFINITE".into(),
+            "size.min" => format!(
+                "({}).min({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "size.max" => format!(
+                "({}).max({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "size.expand" => format!(
+                "({}).expand({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "size.rotate" => format!(
+                "({}).rotate(::iced::Radians(({}) as f32))",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "size.ratio" => format!(
+                "({}).ratio(({}) as f32)",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "size.from_vector" => format!(
+                "::iced::Size::from({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "vector.from_size" => format!(
+                "::iced::Vector::from({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "size.from_u32" => {
+                let (Expr::I64(width), Expr::I64(height)) = (&args[0], &args[1]) else {
+                    unreachable!("checker requires size dimensions as integer literals")
+                };
+                format!("::iced::Size::from(({width}u32, {height}u32))")
+            }
+            "size.try_from_u32" => format!(
+                "match (<u32>::try_from({}), <u32>::try_from({})) {{ (::std::result::Result::Ok(width), ::std::result::Result::Ok(height)) => ::std::option::Option::Some(::iced::Size::from((width, height))), _ => ::std::option::Option::None }}",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "rectangle.zero" => "::iced::Rectangle::default()".into(),
+            "rectangle.infinite" => "::iced::Rectangle::INFINITE".into(),
+            "rectangle.with_size" => format!(
+                "::iced::Rectangle::with_size({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "rectangle.with_radius" => format!(
+                "::iced::Rectangle::with_radius(({}) as f32)",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "rectangle.with_vertices" => format!(
+                "::iced::Rectangle::with_vertices({}, {}, {}).0",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?,
+                expr_code(&args[2], env, document, ValueMode::Owned)?
+            ),
+            "rectangle.vertices_rotation" => format!(
+                "::iced::Rectangle::with_vertices({}, {}, {}).1.0 as f64",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?,
+                expr_code(&args[2], env, document, ValueMode::Owned)?
+            ),
+            "rectangle.contains" => format!(
+                "({}).contains({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "rectangle.distance" => format!(
+                "({}).distance({}) as f64",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "rectangle.offset" => format!(
+                "({}).offset(&({}))",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "rectangle.is_within" => format!(
+                "({}).is_within(&({}))",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "rectangle.intersection" => format!(
+                "({}).intersection(&({}))",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "rectangle.intersects" => format!(
+                "({}).intersects(&({}))",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "rectangle.union" => format!(
+                "({}).union(&({}))",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "rectangle.snap" => format!(
+                "({}).snap()",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
+            ),
+            "rectangle.expand" | "rectangle.shrink" => format!(
+                "({}).{}(::iced::Padding {{ top: ({}) as f32, right: ({}) as f32, bottom: ({}) as f32, left: ({}) as f32 }})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                if name == "rectangle.expand" {
+                    "expand"
+                } else {
+                    "shrink"
+                },
+                expr_code(&args[1], env, document, ValueMode::Owned)?,
+                expr_code(&args[2], env, document, ValueMode::Owned)?,
+                expr_code(&args[3], env, document, ValueMode::Owned)?,
+                expr_code(&args[4], env, document, ValueMode::Owned)?
+            ),
+            "rectangle.rotate" => format!(
+                "({}).rotate(::iced::Radians(({}) as f32))",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "rectangle.zoom" => format!(
+                "({}).zoom(({}) as f32)",
+                expr_code(&args[0], env, document, ValueMode::Owned)?,
+                expr_code(&args[1], env, document, ValueMode::Owned)?
+            ),
+            "rectangle.anchor" => {
+                let (Expr::Str(horizontal), Expr::Str(vertical)) = (&args[2], &args[3]) else {
+                    unreachable!("checker requires literal rectangle alignments")
+                };
+                let horizontal = match horizontal.as_str() {
+                    "left" => "Left",
+                    "center" => "Center",
+                    "right" => "Right",
+                    _ => unreachable!("checker validates horizontal alignment"),
+                };
+                let vertical = match vertical.as_str() {
+                    "top" => "Top",
+                    "center" => "Center",
+                    "bottom" => "Bottom",
+                    _ => unreachable!("checker validates vertical alignment"),
+                };
+                format!(
+                    "({}).anchor({}, ::iced::alignment::Horizontal::{horizontal}, ::iced::alignment::Vertical::{vertical})",
+                    expr_code(&args[0], env, document, ValueMode::Owned)?,
+                    expr_code(&args[1], env, document, ValueMode::Owned)?
+                )
+            }
+            "rectangle.from_u32" => format!(
+                "::iced::Rectangle::from({})",
+                expr_code(&args[0], env, document, ValueMode::Owned)?
             ),
             "transform.identity" => "::iced::Transformation::IDENTITY".into(),
             "transform.orthographic" => {
@@ -7808,6 +8000,18 @@ fn expr_code(
             } else {
                 ValueMode::Owned
             };
+            let types = env_types(env);
+            let left_ty = expr_type(left, &types, document, &Span::line(1))?;
+            let right_ty = expr_type(right, &types, document, &Span::line(1))?;
+            let right = expr_code(right, env, document, mode)?;
+            let right = if matches!(left_ty, Type::Vector | Type::Size | Type::Rectangle)
+                && matches!(op, BinaryOp::Mul | BinaryOp::Div)
+                && right_ty == Type::F64
+            {
+                format!("({right}) as f32")
+            } else {
+                right
+            };
             format!(
                 "({} {} {})",
                 expr_code(left, env, document, mode)?,
@@ -7825,7 +8029,7 @@ fn expr_code(
                     BinaryOp::And => "&&",
                     BinaryOp::Or => "||",
                 },
-                expr_code(right, env, document, mode)?
+                right
             )
         }
     })
@@ -12832,6 +13036,35 @@ view
             ".inverse()",
             "::std::convert::Into::<[f32; 16]>::into",
             "fn __ui_lang_check_sync_transformation_round_trip",
+        ] {
+            assert!(generated.contains(expected), "missing {expected}");
+        }
+    }
+
+    #[test]
+    fn lowers_native_geometry_values() {
+        let source = include_str!("../../../examples/iced-app/src/ui/geometry_values.ice");
+        let generated = compile(source, "geometry_values.ice").unwrap();
+        for expected in [
+            "snapped_point: ::iced::Point<u32>",
+            "exact_bounds: ::iced::Rectangle<u32>",
+            "snapped_bounds: ::std::option::Option<::iced::Rectangle<u32>>",
+            "::iced::Point::ORIGIN",
+            ".distance(::iced::Point::new",
+            ".snap()",
+            "::iced::Vector::ZERO",
+            "::iced::Size::INFINITE",
+            ".rotate(::iced::Radians",
+            "::iced::Size::from((640u32, 480u32))",
+            "<u32>::try_from((-1))",
+            "::iced::Rectangle::with_vertices",
+            ".intersection(&(::iced::Rectangle",
+            "::iced::Padding { top:",
+            "(self.bounds).anchor(::iced::Size::new",
+            "::iced::alignment::Horizontal::Right",
+            "::iced::alignment::Vertical::Bottom",
+            "(2.0) as f32",
+            "fn __ui_lang_check_sync_geometry_round_trip",
         ] {
             assert!(generated.contains(expected), "missing {expected}");
         }

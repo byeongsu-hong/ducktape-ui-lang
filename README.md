@@ -108,6 +108,9 @@ Key files:
   native pointer values through state, events, and Rust externs;
 - [`transformation_values.ice`](examples/iced-app/src/ui/transformation_values.ice)
   composes and applies native iced geometry transformations;
+- [`geometry_values.ice`](examples/iced-app/src/ui/geometry_values.ice)
+  exercises complete default geometry values, arithmetic, queries, and exact
+  unsigned snapping;
 - [`main.rs`](examples/iced-app/src/main.rs) owns the Rust backend;
 - [`SPEC.md`](SPEC.md) defines the implemented language.
 
@@ -135,7 +138,7 @@ cargo fmt --all
 
 ## Status
 
-This is an executable v1.25 language slice, not yet a complete iced replacement.
+This is an executable v1.26 language slice, not yet a complete iced replacement.
 It implements typed extern data/actions, state, handlers, async tasks, pure
 components with named props, default children, named structural slots, and
 React-like qualified compound children, scoped IDs, relative
@@ -143,8 +146,8 @@ multi-file `use`,
 `if`/`for`, six layouts including identity-preserving keyed columns,
 thirty-two native widget forms,
 dependency-keyed lazy subtrees, checked style utilities, formatting, analysis,
-native typed keyboard, pointer, geometry, and transformation values and
-constructors, mouse, touch, input-method,
+native typed keyboard, pointer, complete default-f32 geometry primitives, and
+transformation values and constructors, mouse, touch, input-method,
 complete typed time, event status filtering, raw runtime-event filters, native stream/custom-recipe
 subscriptions and context/filter transforms, structured parallel/sequential
 tasks, structured boot presets, state-driven application title, theme, base

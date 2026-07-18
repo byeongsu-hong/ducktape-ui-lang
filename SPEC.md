@@ -1,4 +1,4 @@
-# Ice Language Specification 1.25
+# Ice Language Specification 1.26
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 1.25 syntax.
+marked “planned” is a design constraint, not accepted 1.26 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 1.25.
+  block comments are not part of 1.26.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -181,7 +181,8 @@ field          = name ":" type
 type           = "bool" | "i64" | "f64" | "str" | "bytes" | "image"
                | "markdown" | "editor" | "event" | "instant" | "window-id"
                | "key" | "physical-key" | "key-location" | "key-modifiers"
-               | "point" | "vector" | "size" | "rectangle"
+               | "point" | "point-u32" | "vector" | "size"
+               | "rectangle" | "rectangle-u32"
                | "transformation" | "mouse-button" | "mouse-cursor"
                | "mouse-click" | "touch-finger"
                | "widget-id" | "widget-target"
@@ -994,7 +995,7 @@ maximum size. `icon-rgba` embeds a relative raw RGBA file without an image
 codec; width and height are positive integers, and generated Rust rejects a
 byte length other than `width × height × 4`. `cargo ice check` reports a
 mismatch at the icon declaration, and generated Rust repeats the check at
-compile time. Encoded icon formats remain outside 1.25.
+compile time. Encoded icon formats remain outside 1.26.
 
 Application boot presets are structured top-level declarations:
 
@@ -1545,7 +1546,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 1.25 message payloads.
+`Clone` for 1.26 message payloads.
 
 Declared `sync` functions are checked, synchronous Rust calls available in
 Ice expressions. They are the small escape hatch for pure domain conversions
@@ -1734,6 +1735,7 @@ The expression language contains:
   `mouse.cursor(point)`, `mouse.click(point, button, previous)`, and
   `touch.finger("42")`;
 - native geometry transformations such as `vector(x, y)`, `size(width, height)`,
+  `point.distance(from, to)`, `rectangle.intersection(left, right)`,
   `transform.translate(x, y)`, `transform.compose(left, right)`, and
   `transform.point(point, transformation)`;
 - `markdown(str) -> markdown` and `markdown_images(markdown) -> [str]`;
@@ -2634,11 +2636,53 @@ construct all cursor variants. `mouse.cursor_position`, `cursor_over`,
 click. Point, vector, size, and rectangle coordinates are `f64` in Ice and
 lower to iced's `f32` geometry.
 
-Fields are checked: points and vectors expose `x/y`; sizes expose
-`width/height`; rectangles expose `x/y/width/height`; buttons expose `kind`
+Fields are checked: points and vectors expose `x/y` plus lossless two-value
+`values`; points also expose native `display`; sizes expose `width/height` plus
+`values`; rectangles expose `x/y/width/height`, `center`, `center_x`,
+`center_y`, `position`, `size`, and `area`; buttons expose `kind`
 and optional `number`; cursors expose `kind`, optional `position`, and
 `levitating`; clicks expose `kind` and `position`; fingers expose their
 lossless decimal `id`.
+
+The default iced `f32` geometry API has direct checked expressions:
+
+```ice
+state
+  origin:point = point.origin()
+  snapped:point-u32 = point.snap(point(3.25, 4.75))
+  unit:size = size.unit()
+  bounds:rectangle = rectangle.with_size(size(640.0, 480.0))
+
+on inspect
+  distance = point.distance(origin, point(3.0, 4.0))
+  moved = (bounds + vector(4.0, 8.0)) * 2.0
+  overlap = rectangle.intersection(bounds, moved)
+```
+
+Points support `+/- vector` and point subtraction produces a vector. Vectors
+support negation, vector `+/-`, and `*` or `/ f64`. Sizes support size `+/-`,
+`*` or `/ f64`, and component multiplication by a vector. Rectangles support
+`+/- vector` and `* f64`. Codegen narrows Ice scalars to the native `f32`
+operand only at these typed operations.
+
+`point.origin`, `point.distance`, and `point.snap` cover point constants and
+queries; `vector.zero` is the native zero value. Sizes provide `zero`, `unit`,
+`infinite`, `min`, `max`, `expand`, `rotate`, `ratio`, `from_vector`, and
+`vector.from_size`. `size.from_u32` accepts two checked literal `u32` values;
+`size.try_from_u32(i64, i64) -> size?` returns none for runtime overflow.
+
+Rectangles provide `zero`, `infinite`, `with_size`, `with_radius`,
+`with_vertices`, `vertices_rotation`, `contains`, `distance`, `offset`,
+`is_within`, `intersection`, `intersects`, `union`, `snap`, `expand`, `shrink`,
+`rotate`, `zoom`, `anchor`, and `from_u32`. Expand and shrink take exact
+`top, right, bottom, left` values. Rotate and vertex rotation use radians.
+Anchor accepts checked `left|center|right` and `top|center|bottom` literals.
+
+Snapping preserves iced's exact unsigned results: `point.snap` returns
+`point-u32`, while `rectangle.snap` returns `rectangle-u32?`. Their coordinates
+and dimensions project to lossless Ice `i64` values and both types can cross a
+typed extern boundary. `rectangle.from_u32` converts an exact snapped rectangle
+back to the default native `f32` rectangle.
 
 `transform.identity()`, `transform.translate(x, y)`, and
 `transform.scale(factor)` construct native transformations.
@@ -3069,7 +3113,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 1.25 does not claim that remapping.
+extern line; 1.26 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -3090,7 +3134,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 1.25 native backend is enough for CRUD/settings-style screens, selection,
+The 1.26 native backend is enough for CRUD/settings-style screens, selection,
 media, hover overlays, declarative canvas geometry, and common pointer events,
 not all of iced. It still lacks direct syntax for arbitrary custom overlays,
 and custom widgets. [`COVERAGE.md`](COVERAGE.md) is the exact versioned ledger.
@@ -3126,8 +3170,12 @@ compile-tested widget example is
 Native pointer constructors, subscription payloads, projections, and Rust
 extern round trips are exercised by
 [`examples/iced-app/src/ui/pointer_values.ice`](examples/iced-app/src/ui/pointer_values.ice).
-Complete native geometry construction, transformation, matrix inspection, and
-extern passage are exercised by
+Complete native geometry construction, fields, constants, conversions,
+arithmetic, queries, exact unsigned snapping, and extern passage are exercised
+by
+[`examples/iced-app/src/ui/geometry_values.ice`](examples/iced-app/src/ui/geometry_values.ice).
+Native transformation construction, matrix inspection, application, and extern
+passage are exercised by
 [`examples/iced-app/src/ui/transformation_values.ice`](examples/iced-app/src/ui/transformation_values.ice).
 Together they exercise
 state inference, typed extern structs/functions, mount and result handlers,

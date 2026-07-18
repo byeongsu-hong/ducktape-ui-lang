@@ -1,0 +1,133 @@
+app GeometryValues
+
+extern crate::backend
+  sync exact_rectangle() -> rectangle-u32
+  sync geometry_round_trip(point:point, snapped:point-u32, vector:vector, size:size, bounds:rectangle, snapped_bounds:rectangle-u32?) -> rectangle
+
+theme
+  background #111827
+  foreground #f9fafb
+  primary #60a5fa
+  danger #f87171
+
+state
+  origin:point = point.origin()
+  point_value:point = point(0.0, 0.0)
+  point_difference:vector = vector.zero()
+  point_distance = 0.0
+  snapped_point:point-u32 = point.snap(point(3.25, 4.75))
+  snapped_x = 0
+  snapped_y = 0
+  exact_bounds:rectangle-u32 = exact_rectangle()
+  exact_x = 0
+  exact_y = 0
+  exact_width = 0
+  exact_height = 0
+  point_values:[f64] = []
+  point_display = ""
+  vector_value:vector = vector.zero()
+  vector_values:[f64] = []
+  size_zero:size = size.zero()
+  size_unit:size = size.unit()
+  size_infinite:size = size.infinite()
+  size_min:size = size.zero()
+  size_max:size = size.zero()
+  size_expanded:size = size.zero()
+  size_rotated:size = size.zero()
+  size_ratio:size = size.zero()
+  size_value:size = size.zero()
+  size_from_u32:size = size.zero()
+  maybe_size:size? = none
+  invalid_size:size? = none
+  size_vector:vector = vector.zero()
+  size_values:[f64] = []
+  rectangle_zero:rectangle = rectangle.zero()
+  rectangle_infinite:rectangle = rectangle.infinite()
+  bounds:rectangle = rectangle.zero()
+  sized_bounds:rectangle = rectangle.zero()
+  radius_bounds:rectangle = rectangle.zero()
+  vertex_bounds:rectangle = rectangle.zero()
+  vertex_rotation = 0.0
+  contains_point = false
+  point_to_bounds = 0.0
+  bounds_offset:vector = vector.zero()
+  within_bounds = false
+  intersection:rectangle? = none
+  intersects_bounds = false
+  union_bounds:rectangle = rectangle.zero()
+  snapped_bounds:rectangle-u32? = none
+  expanded_bounds:rectangle = rectangle.zero()
+  shrunk_bounds:rectangle = rectangle.zero()
+  rotated_bounds:rectangle = rectangle.zero()
+  zoomed_bounds:rectangle = rectangle.zero()
+  anchor:point = point.origin()
+  converted_bounds:rectangle = rectangle.zero()
+  moved_bounds:rectangle = rectangle.zero()
+  scaled_bounds:rectangle = rectangle.zero()
+  center:point = point.origin()
+  center_x = 0.0
+  center_y = 0.0
+  position:point = point.origin()
+  bounds_size:size = size.zero()
+  area = 0.0
+
+on inspect
+  point_value = (point.origin() + vector(3.25, 4.75)) - vector.zero()
+  point_difference = point_value - point.origin()
+  point_distance = point.distance(point.origin(), point(3.0, 4.0))
+  snapped_point = point.snap(point_value)
+  snapped_x = snapped_point.x
+  snapped_y = snapped_point.y
+  exact_x = exact_bounds.x
+  exact_y = exact_bounds.y
+  exact_width = exact_bounds.width
+  exact_height = exact_bounds.height
+  point_values = point_value.values
+  point_display = point_value.display
+  vector_value = ((-vector(1.0, 2.0) + vector(5.0, 6.0)) - vector(1.0, 1.0)) * 2.0 / 2.0
+  vector_values = vector_value.values
+  size_min = size.min(size(10.0, 2.0), size(3.0, 8.0))
+  size_max = size.max(size(10.0, 2.0), size(3.0, 8.0))
+  size_expanded = size.expand(size_min, size_max)
+  size_rotated = size.rotate(size(2.0, 4.0), 0.5)
+  size_ratio = size.ratio(size(100.0, 50.0), 1.0)
+  size_value = (((size.from_vector(vector(6.0, 8.0)) + size(2.0, 2.0)) - size.unit()) * 2.0 / 2.0) * vector(2.0, 3.0)
+  size_from_u32 = size.from_u32(640, 480)
+  maybe_size = size.try_from_u32(640, 480)
+  invalid_size = size.try_from_u32(-1, 480)
+  size_vector = vector.from_size(size_value)
+  size_values = size_value.values
+  bounds = rectangle(10.0, 20.0, 40.0, 60.0)
+  sized_bounds = rectangle.with_size(size(5.0, 6.0))
+  radius_bounds = rectangle.with_radius(3.0)
+  vertex_bounds = rectangle.with_vertices(point(0.0, 0.0), point(0.0, 4.0), point(-3.0, 0.0))
+  vertex_rotation = rectangle.vertices_rotation(point(0.0, 0.0), point(0.0, 4.0), point(-3.0, 0.0))
+  contains_point = rectangle.contains(bounds, point(20.0, 30.0))
+  point_to_bounds = rectangle.distance(bounds, point(5.0, 20.0))
+  bounds_offset = rectangle.offset(rectangle(0.0, 0.0, 10.0, 10.0), rectangle(2.0, 2.0, 10.0, 10.0))
+  within_bounds = rectangle.is_within(rectangle(2.0, 2.0, 2.0, 2.0), rectangle(0.0, 0.0, 10.0, 10.0))
+  intersection = rectangle.intersection(rectangle(0.0, 0.0, 10.0, 10.0), rectangle(5.0, 5.0, 10.0, 10.0))
+  intersects_bounds = rectangle.intersects(rectangle(0.0, 0.0, 10.0, 10.0), rectangle(5.0, 5.0, 10.0, 10.0))
+  union_bounds = rectangle.union(rectangle(0.0, 0.0, 10.0, 10.0), rectangle(5.0, 5.0, 10.0, 10.0))
+  snapped_bounds = rectangle.snap(rectangle(1.2, 2.7, 3.6, 4.1))
+  expanded_bounds = rectangle.expand(bounds, 1.0, 2.0, 3.0, 4.0)
+  shrunk_bounds = rectangle.shrink(bounds, 1.0, 2.0, 3.0, 4.0)
+  rotated_bounds = rectangle.rotate(bounds, 0.5)
+  zoomed_bounds = rectangle.zoom(bounds, 2.0)
+  anchor = rectangle.anchor(bounds, size(10.0, 20.0), "right", "bottom")
+  converted_bounds = rectangle.from_u32(exact_bounds)
+  moved_bounds = (bounds + vector(2.0, 3.0)) - vector(1.0, 1.0)
+  scaled_bounds = bounds * 2.0
+  bounds = geometry_round_trip(point_value, snapped_point, vector_value, size_value, bounds, snapped_bounds)
+  center = bounds.center
+  center_x = bounds.center_x
+  center_y = bounds.center_y
+  position = bounds.position
+  bounds_size = bounds.size
+  area = bounds.area
+
+view
+  col @p-4 gap-2
+    text point_display
+    text point_distance
+    text area
