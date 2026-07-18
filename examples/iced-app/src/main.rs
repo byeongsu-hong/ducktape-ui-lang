@@ -242,6 +242,21 @@ mod backend {
     }
 
     #[cfg(test)]
+    pub fn even_refresh(value: i64) -> Option<i64> {
+        (value % 2 == 0).then_some(value)
+    }
+
+    #[cfg(test)]
+    pub fn visible_pointer(x: f64, y: f64) -> Option<String> {
+        (x >= 0.0 && y >= 0.0).then(|| format!("{x},{y}"))
+    }
+
+    #[cfg(test)]
+    pub fn allow_frame() -> Option<bool> {
+        Some(true)
+    }
+
+    #[cfg(test)]
     pub fn network_task(value: i64) -> iced::Task<Result<i64, NetworkError>> {
         iced::Task::done(if value >= 0 {
             Ok(value)
@@ -387,7 +402,7 @@ mod timer {
     #[test]
     fn constructs_all_native_time_operations() {
         let (mut app, _) = TimerEvents::__boot();
-        assert_eq!(app.__subscription().units(), 2);
+        assert_eq!(app.__subscription().units(), 4);
         assert_eq!(app.__update(__TimerEventsMessage::Start).units(), 1);
     }
 }

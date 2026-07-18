@@ -15,7 +15,7 @@ counts toward the row below.
 
 ## Typed system reachability
 
-Ice 0.90 has seven checked Rust boundaries:
+Ice 0.91 has seven checked Rust boundaries:
 
 | Boundary | Rust ABI | Covers |
 | --- | --- | --- |
@@ -81,7 +81,7 @@ public behavior has direct documented Ice syntax and tests.
 | application settings | partial | static title, application ID, ordered checked font byte preloads, default text size/font, antialiasing, vsync, scale factor, theme and run; executor and presets missing |
 | `Theme` and styles | partial | checked color tokens and a Tailwind-like subset; native theme/style catalogs and custom closures missing |
 | `Task` | partial | async/sync externs, typed arbitrary iced `Task` adapters, direct system/clipboard/font/widget/main-window tasks, nested batch/chain groups, complete abortable handles, repeated `run` streams, typed `sip`, and native typed flows with direct `done`/`none`, output-dependent `then`, optional-or-result `and_then`, `map_err`, result-preserving `collect`, `discard`, and `units`; low-level task-module `oneshot`/`channel`/blocking/effect constructors remain adapter-only |
-| `Subscription` | partial | typed arbitrary iced `Subscription` adapters, batching, checked conditional activation/status filters, direct every/repeat timers, input-method/keyboard/mouse/touch/window sources and system theme changes; general `with` and output `filter_map` transforms remain indirect |
+| `Subscription` | partial | typed arbitrary iced `Subscription` adapters, batching, checked conditional activation/status filters, direct every/repeat timers, input-method/keyboard/mouse/touch/window sources and system theme changes, plus native `with` identity context and noncapturing typed `filter_map` transforms on every source; `run`/`run_with` constructors and custom recipes remain adapter-only |
 | widget operations | partial | all 13 core focus/cursor/selection/scroll operations with checked static app IDs and typed focus query; scoped repeated/component IDs and feature-gated selectors remain |
 | clipboard | native | standard and primary read/write tasks; reads preserve iced's optional string payload and writes are checked fire-and-forget effects |
 | fonts | native | ordered app-level relative font files are checked and embedded into iced's startup loader; runtime bytes lower to native `font::load`; every family/weight/stretch/style descriptor, checked named reference, application default and all widget font setters are covered |
