@@ -5,6 +5,7 @@ font ui family=sans weight=medium stretch=normal style=normal default=true
 extern crate::backend
   Task(id:i64, title:str, done:bool)
   AppError(message:str)
+  EditorCommand(save:bool)
   SliderNumber()
   list_tasks() -> [Task] ! AppError
   create_task(title:str) -> [Task] ! AppError
@@ -12,6 +13,9 @@ extern crate::backend
   sync slider_number(value:f64) -> SliderNumber
   component native_help(active:bool) -> bool
   markdown-viewer docs_viewer(prefix:str) -> str
+  editor-binding editor_keys(readonly:bool) -> EditorCommand
+  editor-highlighter editor_highlight(token:str)
+  editor-style editor_surface(readonly:bool)
   text-style summary_text(busy:bool)
   slider-style volume_slider(busy:bool)
   progress-style loading_progress(active:bool)
@@ -69,6 +73,7 @@ state
   help:markdown = "# Ice **renders** [iced docs](https://iced.rs)"
   help_images:[str] = []
   notes:editor = "fn main() { println!(\"ice\"); }"
+  editor_title = "Editor"
   last_key = "none"
   command_down = false
   key_repeat = false
@@ -93,6 +98,16 @@ state
 component TaskRow(task:Task, loading:bool)
   row #root @w-full items-center p-4 bg-surface border border-border rounded-lg
     checkbox task.title checked=task.done disabled=loading style=task_checkbox(loading) size=18.0 width=fill spacing=8.0 text-size=14.0 line-height=1.2 shaping=auto wrapping=word-or-glyph font=default icon="✓" icon-size=12.0 icon-line-height=1.0 icon-shaping=basic -> toggle(task.id, _)
+
+component EditorPanel(content:editor, heading:str, busy:bool)
+  col @gap-2
+    input "Editor heading" <-> heading hint="Editor heading" disabled=busy
+    editor #notes <-> content placeholder="Write notes" width=640.0 height=120.0 min-height=80.0 max-height=240.0 size=14.0 line-height=1.3 padding=8.0 wrapping=word font=ui highlighter=editor_highlight("fn") key-binding=editor_keys(busy) style=editor_surface(busy) disabled=busy -> editor_command _
+      active background=surface border=border border-width=1.0 radius=8.0 placeholder=muted value=foreground selection=primary
+      hovered background=surface border=foreground placeholder=muted value=foreground selection=primary
+      focused background=surface border=primary border-width=2.0 radius=8.0
+      focused-hovered background=surface border=primary border-width=2.0 radius=8.0
+      disabled background=background border=border placeholder=muted value=muted selection=primary
 
 on mount
   loading = true
@@ -384,6 +399,9 @@ on task_list_scrolled(x, y, _reversed_x, _reversed_y, relative_x, relative_y, _b
 
 on docs_link(url)
 
+on editor_command(command)
+  event_seen = command.save
+
 on extend_markdown
   markdown help append "\n\n![Ice](asset://ice)"
   help_images = markdown_images(help)
@@ -518,12 +536,7 @@ view
         row @items-center gap-2
           button "Append Markdown image" -> extend_markdown
           text len(help_images) @text-xs text-muted
-        editor #notes <-> notes placeholder="Write notes" width=640.0 height=120.0 min-height=80.0 max-height=240.0 size=14.0 line-height=1.3 padding=8.0 wrapping=word font=ui highlight="rs" highlight-theme=base16-ocean disabled=loading
-          active background=surface border=border border-width=1.0 radius=8.0 placeholder=muted value=foreground selection=primary
-          hovered background=surface border=foreground placeholder=muted value=foreground selection=primary
-          focused background=surface border=primary border-width=2.0 radius=8.0
-          focused-hovered background=surface border=primary border-width=2.0 radius=8.0
-          disabled background=background border=border placeholder=muted value=muted selection=primary
+        EditorPanel(notes, editor_title, loading)
         pick display_modes display_mode placeholder="Choose a view" width=fill menu-height=160.0 padding=8.0 text-size=14.0 line-height=1.2 shaping=advanced font=ui open=picker_opened close=picker_closed style=view_picker(loading) menu-style=view_menu(loading) -> display_mode_changed _
           active text=foreground placeholder=muted handle=primary background=surface border=border border-width=1.0 radius=6.0
           hovered text=foreground placeholder=muted handle=foreground background=background border=primary border-width=1.0 radius=6.0

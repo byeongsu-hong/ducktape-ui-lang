@@ -1,4 +1,4 @@
-# Ice Language Specification 1.17
+# Ice Language Specification 1.18
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 1.17 syntax.
+marked “planned” is a design constraint, not accepted 1.18 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 1.17.
+  block comments are not part of 1.18.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -172,6 +172,8 @@ extern_item    = struct_sig | function_sig | extern_component_sig
                | extern_svg_style_sig | extern_input_style_sig
                | extern_scroll_style_sig
                | extern_pick_list_style_sig | extern_menu_style_sig
+               | extern_editor_binding_sig
+               | extern_editor_highlighter_sig | extern_editor_style_sig
 struct_sig     = PascalName "(" field_list? ")"
 field_list     = field ("," field)*
 field          = name ":" type
@@ -198,6 +200,12 @@ extern_subscription_sig
 extern_window_sig = "window" name "(" field_list? ")" "->" type
 extern_markdown_viewer_sig
                = "markdown-viewer" name "(" field_list? ")" "->" type
+extern_editor_binding_sig
+               = "editor-binding" name "(" field_list? ")" "->" type
+extern_editor_highlighter_sig
+               = "editor-highlighter" name "(" field_list? ")"
+extern_editor_style_sig
+               = "editor-style" name "(" field_list? ")"
 extern_text_style_sig
                = "text-style" name "(" field_list? ")"
 extern_slider_style_sig
@@ -971,7 +979,7 @@ maximum size. `icon-rgba` embeds a relative raw RGBA file without an image
 codec; width and height are positive integers, and generated Rust rejects a
 byte length other than `width × height × 4`. `cargo ice check` reports a
 mismatch at the icon declaration, and generated Rust repeats the check at
-compile time. Encoded icon formats remain outside 1.17.
+compile time. Encoded icon formats remain outside 1.18.
 
 Application boot presets are structured top-level declarations:
 
@@ -1440,15 +1448,37 @@ view
 ```
 
 The compiler owns iced's `Action` message variant and calls `Content::perform`
-automatically, so editor actions never leak into application handlers. Width is
-fixed pixels, height accepts every iced `Length`, metrics are range-checked,
-and all four wrapping modes, declared or built-in fonts, relative/absolute line
-height, and all five iced highlighter themes are accepted. Optional status lines
-cover every concrete Style field for active, hovered, focused, focused-hovered,
-and disabled editors. A disabled editor is rendered without `on_action`. An
-editor must live in the app view or in slot content supplied by the app; the
-checker rejects editor bindings declared inside a pure component because their
-generated actions must mutate app-owned state.
+automatically, so ordinary editor actions never leak into application handlers.
+Width is fixed pixels, height accepts every iced `Length`, metrics are
+range-checked, and all four wrapping modes, declared or built-in fonts,
+relative/absolute line height, and all five iced highlighter themes are
+accepted. Optional status lines cover every concrete Style field for active,
+hovered, focused, focused-hovered, and disabled editors. A disabled editor is
+rendered without `on_action`.
+
+The remaining native extension points are typed:
+
+```ice
+extern crate::backend
+  EditorCommand(save:bool)
+  editor-binding editor_keys(readonly:bool) -> EditorCommand
+  editor-highlighter editor_highlight(token:str)
+  editor-style editor_surface(readonly:bool)
+
+component EditorPanel(content:editor, readonly:bool)
+  editor <-> content highlighter=editor_highlight("fn") key-binding=editor_keys(readonly) style=editor_surface(readonly) -> editor_command _
+```
+
+`editor-binding` receives iced's `KeyPress` implicitly and returns an optional
+native `Binding<EditorCommand>`; built-in edit bindings stay native while
+`Binding::Custom` is mapped through the checked route. `editor-highlighter`
+receives the fully configured plain-text `TextEditor` and returns a value
+convertible to the same default `Element`, so Rust can call `highlight_with`
+with any `Highlighter`, settings, highlight type, and format function.
+`editor-style` receives Theme and editor Status implicitly and returns native
+`text_editor::Style`, covering the advanced catalog class. An editor or input
+inside a pure component may bind an `editor` or `str` prop when every call
+passes a direct app state; the checker rejects computed temporary bindings.
 
 Spaces inside a compound expression should be wrapped in parentheses when the
 expression shares a line with widget properties:
@@ -1499,7 +1529,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 1.17 message payloads.
+`Clone` for 1.18 message payloads.
 
 Declared `sync` functions are checked, synchronous Rust calls available in
 Ice expressions. They are the small escape hatch for pure domain conversions
@@ -1517,7 +1547,7 @@ This declaration requires
 actual Rust signature. A sync function cannot declare `! Error` because it
 returns its value directly.
 
-Twenty-five typed iced adapters expose framework capabilities without embedding Rust
+Twenty-eight typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
 
 ```ice
@@ -1531,6 +1561,9 @@ extern crate::backend
   event-filter runtime_event() -> str
   subscription app_events() -> bool
   markdown-viewer docs_viewer(prefix:str) -> str
+  editor-binding editor_keys(readonly:bool) -> EditorCommand
+  editor-highlighter editor_highlight(token:str)
+  editor-style editor_surface(readonly:bool)
   text-style summary_text(busy:bool)
   slider-style volume_slider(busy:bool)
   progress-style loading_progress(active:bool)
@@ -1558,6 +1591,9 @@ fn events(channel: i64) -> impl iced::advanced::subscription::Recipe<Output = St
 fn runtime_event(event: iced::advanced::subscription::Event) -> Option<String>;
 fn app_events() -> iced::Subscription<bool>;
 fn docs_viewer(prefix: String) -> impl for<'a> iced::widget::markdown::Viewer<'a, String>;
+fn editor_keys(event: iced::widget::text_editor::KeyPress, readonly: bool) -> Option<iced::widget::text_editor::Binding<EditorCommand>>;
+fn editor_highlight<'a, Message: 'a>(editor: iced::widget::text_editor::TextEditor<'a, iced::advanced::text::highlighter::PlainText, Message>, token: String) -> impl Into<iced::Element<'a, Message>>;
+fn editor_surface(theme: &iced::Theme, status: iced::widget::text_editor::Status, readonly: bool) -> iced::widget::text_editor::Style;
 fn summary_text(theme: &iced::Theme, busy: bool) -> iced::widget::text::Style;
 fn volume_slider(theme: &iced::Theme, status: iced::widget::slider::Status, busy: bool) -> iced::widget::slider::Style;
 fn loading_progress(theme: &iced::Theme, active: bool) -> iced::widget::progress_bar::Style;
@@ -1598,6 +1634,12 @@ paragraphs, code blocks, lists, quotes, rules, and tables. `progress-style`
 receives the current Theme implicitly and returns one native progress Style;
 generated code uses it directly as the widget's runtime style callback.
 
+`editor-binding` receives native `KeyPress` before its declared arguments and
+returns `Option<Binding<Output>>`; `Output` is the custom route payload.
+`editor-highlighter` receives a fully configured plain `TextEditor` before its
+declared arguments and returns any value convertible to the same default
+`Element`. `editor-style` receives Theme and native editor Status implicitly.
+
 `text-style` receives the current Theme implicitly and returns native
 `text::Style`. Both `text ... style=summary_text(args)` and
 `rich-text style=summary_text(args)` use it as a runtime callback. An explicit
@@ -1615,7 +1657,7 @@ pick-list/combo overlay menu Style.
 
 Generated probes type-check every declaration
 against the actual Rust item. Extern component, shader, recipe, event-filter,
-sync, subscription, window, Markdown viewer, and widget style declarations are
+sync, subscription, window, Markdown viewer, editor extension, and widget style declarations are
 infallible; errors are ordinary event payloads when an adapter needs them.
 Shader programs retain native control of `State`, `Primitive`, GPU
 pipeline/storage, event actions, redraws, capture, and mouse interaction. The
@@ -2568,7 +2610,7 @@ snap/end; and absolute scroll-to/scroll-by. Effects have no route and
 non-negative `i64`; relative offsets are `f64` in `0.0..=1.0`; absolute
 offsets are unrestricted `f64`. Targets must be real static IDs in the app
 scope. Repeated/component scopes and the feature-gated selector API remain
-outside 1.17.
+outside 1.18.
 
 Persistent pane grids expose their native layout-state operations directly in
 handlers:
@@ -2822,7 +2864,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 1.17 does not claim that remapping.
+extern line; 1.18 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -2843,12 +2885,12 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 1.17 native backend is enough for CRUD/settings-style screens, selection,
+The 1.18 native backend is enough for CRUD/settings-style screens, selection,
 media, hover overlays, declarative canvas geometry, and common pointer events,
 not all of iced. It still lacks direct syntax for arbitrary custom overlays,
 and custom widgets. [`COVERAGE.md`](COVERAGE.md) is the exact versioned ledger.
 
-The language must not grow one ad-hoc syntax form for every iced API. Twenty-five
+The language must not grow one ad-hoc syntax form for every iced API. Twenty-eight
 typed Rust boundaries cover domain work, native elements and programs, runtime
 tasks and subscriptions, Markdown viewers, and native style callbacks without
 admitting arbitrary Rust into expressions or duplicating iced in the core
@@ -2878,7 +2920,7 @@ compile-tested widget example is
 [`examples/iced-app/src/ui/showcase.ice`](examples/iced-app/src/ui/showcase.ice).
 Together they exercise
 state inference, typed extern structs/functions, mount and result handlers,
-direct input/editor binding, complete typed time tasks/subscriptions, typed conditional keyboard/mouse/touch/input-method/system subscriptions with status filters, system tasks, clipboard effects, `if`, `for`, native keyed columns and lazy subtrees, parsed Markdown, structured tables, pure components, structured and compound component composition,
+direct and component-prop input/editor binding, complete typed time tasks/subscriptions, typed conditional keyboard/mouse/touch/input-method/system subscriptions with status filters, system tasks, clipboard effects, `if`, `for`, native keyed columns and lazy subtrees, parsed Markdown, structured tables, pure components, structured and compound component composition,
 dynamic component IDs,
 theme utilities, disabled controls, fallible asynchronous tasks, complete
 wrapping row/column layouts, grids and fully sized underlay stacks, toggles,

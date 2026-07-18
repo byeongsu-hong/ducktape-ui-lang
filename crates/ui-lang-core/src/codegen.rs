@@ -1,6 +1,6 @@
 use crate::Error;
 use crate::ast::*;
-use crate::check::expr_type;
+use crate::check::{controlled_state_bindings, expr_type};
 use std::collections::HashMap;
 use std::fmt::Write;
 use std::path::Path;
@@ -68,10 +68,14 @@ pub fn generate(document: &Document, source_path: &str) -> Result<String, Error>
             writeln!(out, "{variant}({fields}),").unwrap();
         }
     }
-    for binding in input_bindings(&document.view) {
+    for binding in controlled_state_bindings(document, false)
+        .expect("checker validates controlled input bindings")
+    {
         writeln!(out, "{}(::std::string::String),", binding_variant(&binding)).unwrap();
     }
-    for binding in editor_bindings(&document.view) {
+    for binding in controlled_state_bindings(document, true)
+        .expect("checker validates controlled editor bindings")
+    {
         writeln!(
             out,
             "{}(::iced::widget::text_editor::Action),",
@@ -106,6 +110,7 @@ pub fn generate(document: &Document, source_path: &str) -> Result<String, Error>
     writeln!(out, "}}").unwrap();
 
     generate_extern_probes(&mut out, document);
+    generate_editor_binding_mapper(&mut out, document);
     writeln!(out, "impl {} {{", document.app).unwrap();
     generate_named_windows(&mut out, document, source_path);
     writeln!(out, "pub fn run() -> ::iced::Result {{").unwrap();
@@ -849,6 +854,56 @@ fn generate_extern_probes(out: &mut String, document: &Document) {
                 item.name, item.rust_path
             )
             .unwrap(),
+            ExternKind::EditorBinding => {
+                let callback_params = std::iter::once(
+                    "::iced::widget::text_editor::KeyPress".to_owned(),
+                )
+                .chain(
+                    item.params
+                        .iter()
+                        .map(|(_, ty)| ty.rust(&document.structs)),
+                )
+                .collect::<Vec<_>>()
+                .join(", ");
+                writeln!(
+                    out,
+                    "#[allow(dead_code)] fn __ui_lang_check_editor_binding_{}() {{ let _: fn({callback_params}) -> ::std::option::Option<::iced::widget::text_editor::Binding<{output}>> = {}; }}",
+                    item.name, item.rust_path
+                )
+                .unwrap();
+            }
+            ExternKind::EditorHighlighter => writeln!(
+                out,
+                "#[allow(dead_code)] fn __ui_lang_check_editor_highlighter_{}({params}) {{ let __content = ::iced::widget::text_editor::Content::new(); let __editor = ::iced::widget::text_editor(&__content).on_action(|_| ()); let _: ::iced::Element<'_, ()> = {}(__editor{}).into(); }}",
+                item.name,
+                item.rust_path,
+                if args.is_empty() {
+                    String::new()
+                } else {
+                    format!(", {args}")
+                }
+            )
+            .unwrap(),
+            ExternKind::EditorStyle => {
+                let params = if params.is_empty() {
+                    "theme: &::iced::Theme, status: ::iced::widget::text_editor::Status".into()
+                } else {
+                    format!(
+                        "theme: &::iced::Theme, status: ::iced::widget::text_editor::Status, {params}"
+                    )
+                };
+                let args = if args.is_empty() {
+                    "theme, status".into()
+                } else {
+                    format!("theme, status, {args}")
+                };
+                writeln!(
+                    out,
+                    "#[allow(dead_code)] fn __ui_lang_check_editor_style_{}({params}) {{ let _: ::iced::widget::text_editor::Style = {}({args}); }}",
+                    item.name, item.rust_path
+                )
+                .unwrap();
+            }
             ExternKind::TextStyle => {
                 let params = if params.is_empty() {
                     "theme: &::iced::Theme".into()
@@ -1105,6 +1160,21 @@ fn generate_extern_probes(out: &mut String, document: &Document) {
     }
 }
 
+fn generate_editor_binding_mapper(out: &mut String, document: &Document) {
+    if !document
+        .functions
+        .iter()
+        .any(|item| item.kind == ExternKind::EditorBinding)
+    {
+        return;
+    }
+    writeln!(
+        out,
+        "fn __ice_map_editor_binding<T, M>(binding: ::iced::widget::text_editor::Binding<T>, custom: &impl Fn(T) -> M) -> ::iced::widget::text_editor::Binding<M> {{ use ::iced::widget::text_editor::Binding; match binding {{ Binding::Unfocus => Binding::Unfocus, Binding::Copy => Binding::Copy, Binding::Cut => Binding::Cut, Binding::Paste => Binding::Paste, Binding::Move(value) => Binding::Move(value), Binding::Select(value) => Binding::Select(value), Binding::SelectWord => Binding::SelectWord, Binding::SelectLine => Binding::SelectLine, Binding::SelectAll => Binding::SelectAll, Binding::Insert(value) => Binding::Insert(value), Binding::Enter => Binding::Enter, Binding::Backspace => Binding::Backspace, Binding::Delete => Binding::Delete, Binding::Sequence(values) => Binding::Sequence(values.into_iter().map(|value| __ice_map_editor_binding(value, custom)).collect()), Binding::Custom(value) => Binding::Custom(custom(value)), }} }}"
+    )
+    .unwrap();
+}
+
 fn generate_theme(out: &mut String, document: &Document) -> Result<(), Error> {
     let env = state_env(document, "self");
     let color = |name: &str, fallback: &str| {
@@ -1338,7 +1408,9 @@ fn generate_update(out: &mut String, document: &Document, message: &str) -> Resu
             .unwrap();
         }
     }
-    for binding in input_bindings(&document.view) {
+    for binding in controlled_state_bindings(document, false)
+        .expect("checker validates controlled input bindings")
+    {
         let variant = binding_variant(&binding);
         writeln!(
             out,
@@ -1346,7 +1418,9 @@ fn generate_update(out: &mut String, document: &Document, message: &str) -> Resu
         )
         .unwrap();
     }
-    for binding in editor_bindings(&document.view) {
+    for binding in controlled_state_bindings(document, true)
+        .expect("checker validates controlled editor bindings")
+    {
         let variant = editor_variant(&binding);
         writeln!(
             out,
@@ -2897,13 +2971,18 @@ fn render_node(
             disabled,
             options,
             styles,
-            ..
+            span,
         } => {
             let style = Style::parse(styles, document);
-            let variant = binding_variant(binding);
+            let state = env.get(binding).ok_or_else(|| {
+                Error::new("E150", span, format!("unknown input state `{binding}`"))
+            })?;
+            let state_name = controlled_state_name(&state.code, "input", span)?;
+            let variant = binding_variant(&state_name);
             let mut input = format!(
-                "::iced::widget::text_input({}, &self.{binding})",
-                rust_string(hint)
+                "::iced::widget::text_input({}, &{})",
+                rust_string(hint),
+                state.code
             );
             if let Some(id) = id {
                 write!(
@@ -4373,9 +4452,13 @@ fn render_node(
             id,
             disabled,
             options,
-            ..
+            span,
         } => {
-            let mut code = format!("::iced::widget::text_editor(&self.{binding})");
+            let state = env.get(binding).ok_or_else(|| {
+                Error::new("E150", span, format!("unknown editor state `{binding}`"))
+            })?;
+            let state_name = controlled_state_name(&state.code, "editor", span)?;
+            let mut code = format!("::iced::widget::text_editor(&{})", state.code);
             if let Some(id) = id {
                 write!(
                     code,
@@ -4458,26 +4541,85 @@ fn render_node(
                 )
                 .unwrap();
             }
+            if let Some(binding) = &options.key_binding {
+                let function = document
+                    .functions
+                    .iter()
+                    .find(|item| {
+                        item.name == binding.function && item.kind == ExternKind::EditorBinding
+                    })
+                    .expect("checker validates editor binding");
+                let args = binding
+                    .args
+                    .iter()
+                    .map(|arg| expr_code(arg, env, document, ValueMode::Owned))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let route = route_code(
+                    options
+                        .key_binding_route
+                        .as_ref()
+                        .expect("parser requires a key-binding route"),
+                    "__value",
+                    env,
+                    document,
+                    message,
+                )?;
+                write!(
+                    code,
+                    ".key_binding(move |__key_press| {}(__key_press{}).map(|__binding| __ice_map_editor_binding(__binding, &|__value| {route})))",
+                    function.rust_path,
+                    args.iter().map(|arg| format!(", {arg}")).collect::<String>()
+                )
+                .unwrap();
+            }
             code.push_str(&text_input_style_code(
                 &options.style,
-                None,
+                options.custom_style.as_ref(),
                 None,
                 env,
                 document,
                 "style",
                 "text_editor",
             )?);
-            let variant = editor_variant(binding);
+            let finish = |editor: String| -> Result<String, Error> {
+                if let Some(highlighter) = &options.highlighter {
+                    let function = document
+                        .functions
+                        .iter()
+                        .find(|item| {
+                            item.name == highlighter.function
+                                && item.kind == ExternKind::EditorHighlighter
+                        })
+                        .expect("checker validates editor highlighter");
+                    let args = highlighter
+                        .args
+                        .iter()
+                        .map(|arg| expr_code(arg, env, document, ValueMode::Owned))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    Ok(format!(
+                        "{}({editor}{})",
+                        function.rust_path,
+                        args.iter()
+                            .map(|arg| format!(", {arg}"))
+                            .collect::<String>()
+                    ))
+                } else {
+                    Ok(editor)
+                }
+            };
+            let variant = editor_variant(&state_name);
             let enabled = format!(
                 "{code}.on_action({message}::{variant} as fn(::iced::widget::text_editor::Action) -> {message})"
             );
             if let Some(disabled) = disabled {
                 let disabled = expr_code(disabled, env, document, ValueMode::Owned)?;
+                let disabled_editor = finish(code)?;
+                let enabled_editor = finish(enabled)?;
                 Ok(format!(
-                    "if {disabled} {{ {code}.into() }} else {{ {enabled}.into() }}"
+                    "if {disabled} {{ {disabled_editor}.into() }} else {{ {enabled_editor}.into() }}"
                 ))
             } else {
-                Ok(format!("{enabled}.into()"))
+                Ok(format!("{}.into()", finish(enabled)?))
             }
         }
         ViewNode::Table {
@@ -7398,88 +7540,6 @@ fn pane_grids(root: &ViewNode) -> Vec<&ViewNode> {
     output
 }
 
-fn state_bindings(root: &ViewNode, editors: bool) -> Vec<String> {
-    fn collect(node: &ViewNode, editors: bool, output: &mut Vec<String>) {
-        match node {
-            ViewNode::Input { binding, .. } if !editors => {
-                if !output.contains(binding) {
-                    output.push(binding.clone());
-                }
-            }
-            ViewNode::TextEditor { binding, .. } if editors => {
-                if !output.contains(binding) {
-                    output.push(binding.clone());
-                }
-            }
-            ViewNode::Layout { children, .. }
-            | ViewNode::If { children, .. }
-            | ViewNode::For { children, .. } => {
-                for child in children {
-                    collect(child, editors, output);
-                }
-            }
-            ViewNode::Tooltip { content, tip, .. } => {
-                collect(content, editors, output);
-                collect(tip, editors, output);
-            }
-            ViewNode::Overlay { content, layer, .. } => {
-                collect(content, editors, output);
-                collect(layer, editors, output);
-            }
-            ViewNode::PaneGrid { panes, .. } => {
-                for pane in panes {
-                    for node in pane.nodes() {
-                        collect(node, editors, output);
-                    }
-                }
-            }
-            ViewNode::Table { columns, .. } => {
-                for column in columns {
-                    collect(&column.header, editors, output);
-                    collect(&column.cell, editors, output);
-                }
-            }
-            ViewNode::MouseArea { content, .. }
-            | ViewNode::Container { content, .. }
-            | ViewNode::Theme { content, .. } => collect(content, editors, output),
-            ViewNode::Component { slots, .. } => {
-                for slot in slots {
-                    collect(&slot.content, editors, output);
-                }
-            }
-            ViewNode::KeyedColumn { child, .. } | ViewNode::Lazy { child, .. } => {
-                collect(child, editors, output)
-            }
-            ViewNode::Button {
-                content: Some(content),
-                ..
-            } => collect(content, editors, output),
-            ViewNode::Float { content, .. }
-            | ViewNode::Pin { content, .. }
-            | ViewNode::Sensor { content, .. } => collect(content, editors, output),
-            ViewNode::Responsive { content, .. } => match content {
-                ResponsiveContent::Breakpoint { narrow, wide, .. } => {
-                    collect(narrow, editors, output);
-                    collect(wide, editors, output);
-                }
-                ResponsiveContent::Size { content, .. } => collect(content, editors, output),
-            },
-            _ => {}
-        }
-    }
-    let mut output = Vec::new();
-    collect(root, editors, &mut output);
-    output
-}
-
-fn input_bindings(root: &ViewNode) -> Vec<String> {
-    state_bindings(root, false)
-}
-
-fn editor_bindings(root: &ViewNode) -> Vec<String> {
-    state_bindings(root, true)
-}
-
 fn uses_canvas(document: &Document) -> bool {
     !canvases(document).is_empty()
 }
@@ -9323,12 +9383,17 @@ fn text_input_style_code(
     method: &str,
     widget: &str,
 ) -> Result<String, Error> {
+    let custom_kind = if widget == "text_editor" {
+        ExternKind::EditorStyle
+    } else {
+        ExternKind::InputStyle
+    };
     let custom = custom
         .map(|style| {
             let function = document
                 .functions
                 .iter()
-                .find(|item| item.name == style.function && item.kind == ExternKind::InputStyle)
+                .find(|item| item.name == style.function && item.kind == custom_kind)
                 .expect("checker validates input style");
             let args = style
                 .args
@@ -9588,6 +9653,24 @@ fn binding_variant(binding: &str) -> String {
 
 fn editor_variant(binding: &str) -> String {
     format!("__Edit{}", pascal(binding))
+}
+
+fn controlled_state_name(code: &str, widget: &str, span: &Span) -> Result<String, Error> {
+    let Some(name) = code.strip_prefix("self.") else {
+        return Err(Error::new(
+            "E139",
+            span,
+            format!("{widget} binding must resolve to an app state"),
+        ));
+    };
+    if name.contains('.') {
+        return Err(Error::new(
+            "E139",
+            span,
+            format!("{widget} binding must resolve to one app state"),
+        ));
+    }
+    Ok(name.to_owned())
 }
 
 fn id_code(
@@ -10795,6 +10878,52 @@ view
         assert!(generated.contains("__style.selection ="));
         assert!(generated.contains("if self.locked"));
         assert!(generated.contains(".on_action(__NotesMessage::__EditBody"));
+    }
+
+    #[test]
+    fn lowers_component_controls_and_editor_extensions() {
+        let source = r#"app Notes
+extern crate::backend
+  EditorCommand(save:bool)
+  editor-binding editor_keys(readonly:bool) -> EditorCommand
+  editor-highlighter editor_highlight(language:str)
+  editor-style editor_surface(readonly:bool)
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+  body:editor = ""
+  title = "Notes"
+  locked = false
+  language = "rs"
+component EditorPanel(content:editor, heading:str, readonly:bool, syntax:str)
+  col
+    input "Title" <-> heading
+    editor <-> content highlighter=editor_highlight(syntax) key-binding=editor_keys(readonly) style=editor_surface(readonly) -> command _
+on command(value)
+view
+  EditorPanel(body, title, locked, language)
+"#;
+        let generated = compile(source, "notes.ice").unwrap();
+        assert!(generated.contains("__BindTitle(::std::string::String)"));
+        assert!(generated.contains("__EditBody(::iced::widget::text_editor::Action)"));
+        assert!(generated.contains("text_input(\"\", &self.title)"));
+        assert!(generated.contains("text_editor(&self.body)"));
+        assert!(generated.contains("crate::backend::editor_keys(__key_press, self.locked)"));
+        assert!(generated.contains("__ice_map_editor_binding"));
+        assert!(generated.contains("__NotesMessage::Command(__value)"));
+        assert!(generated.contains("crate::backend::editor_highlight("));
+        assert!(generated.contains(", self.language.clone())"));
+        assert!(generated.contains("fn __ui_lang_check_editor_binding_editor_keys"));
+        assert!(generated.contains("fn __ui_lang_check_editor_highlighter_editor_highlight"));
+        assert!(generated.contains("fn __ui_lang_check_editor_style_editor_surface"));
+        assert!(
+            generated.contains("crate::backend::editor_surface(__theme, __status, self.locked)")
+        );
+        assert!(generated.contains("self.title = value"));
+        assert!(generated.contains("self.body.perform(action)"));
     }
 
     #[test]

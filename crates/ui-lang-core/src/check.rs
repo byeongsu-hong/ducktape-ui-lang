@@ -74,16 +74,12 @@ pub fn check(document: &mut Document) -> Result<(), Error> {
                 "pane-grid must live in the app view because it owns persistent layout state",
             ));
         }
-        if let Some(span) = editor_span(&component.root) {
-            return Err(
-                Error::new("E139", span, "editor cannot bind a component parameter")
-                    .hint("pass the editor through the component slot from the app view"),
-            );
-        }
         let env = component.params.iter().cloned().collect();
         let mut ids = HashSet::new();
         infer_view(&component.root, &env, document, &mut signatures, &mut ids)?;
     }
+    controlled_state_bindings(document, false)?;
+    controlled_state_bindings(document, true)?;
     infer_subscriptions(document, &states, &mut signatures)?;
     for handler in document.handlers.iter().chain(&preset_handlers) {
         infer_runs(handler, document, &mut signatures)?;
@@ -595,45 +591,187 @@ fn slots(node: &ViewNode) -> Vec<(&str, &Span)> {
     output
 }
 
-fn editor_span(node: &ViewNode) -> Option<&Span> {
-    match node {
-        ViewNode::TextEditor { span, .. } => Some(span),
-        ViewNode::Layout { children, .. }
-        | ViewNode::If { children, .. }
-        | ViewNode::For { children, .. } => children.iter().find_map(editor_span),
-        ViewNode::Button {
-            content: Some(content),
-            ..
-        }
-        | ViewNode::MouseArea { content, .. }
-        | ViewNode::Container { content, .. }
-        | ViewNode::Theme { content, .. }
-        | ViewNode::Float { content, .. }
-        | ViewNode::Pin { content, .. }
-        | ViewNode::Sensor { content, .. }
-        | ViewNode::KeyedColumn { child: content, .. }
-        | ViewNode::Lazy { child: content, .. } => editor_span(content),
-        ViewNode::Tooltip { content, tip, .. } => editor_span(content).or_else(|| editor_span(tip)),
-        ViewNode::Overlay { content, layer, .. } => {
-            editor_span(content).or_else(|| editor_span(layer))
-        }
-        ViewNode::PaneGrid { panes, .. } => {
-            panes.iter().flat_map(PaneView::nodes).find_map(editor_span)
-        }
-        ViewNode::Table { columns, .. } => columns
-            .iter()
-            .find_map(|column| editor_span(&column.header).or_else(|| editor_span(&column.cell))),
-        ViewNode::Component { slots, .. } => {
-            slots.iter().find_map(|slot| editor_span(&slot.content))
-        }
-        ViewNode::Responsive { content, .. } => match content {
-            ResponsiveContent::Breakpoint { narrow, wide, .. } => {
-                editor_span(narrow).or_else(|| editor_span(wide))
+pub(crate) fn controlled_state_bindings(
+    document: &Document,
+    editors: bool,
+) -> Result<Vec<String>, Error> {
+    fn collect(
+        node: &ViewNode,
+        document: &Document,
+        editors: bool,
+        env: &HashMap<String, String>,
+        components: &mut HashSet<String>,
+        output: &mut Vec<String>,
+    ) -> Result<(), Error> {
+        let binding = match node {
+            ViewNode::Input { binding, span, .. } if !editors => Some((binding, "input", span)),
+            ViewNode::TextEditor { binding, span, .. } if editors => {
+                Some((binding, "editor", span))
             }
-            ResponsiveContent::Size { content, .. } => editor_span(content),
-        },
-        _ => None,
+            _ => None,
+        };
+        if let Some((binding, widget, span)) = binding {
+            let state = env.get(binding).ok_or_else(|| {
+                Error::new(
+                    "E139",
+                    span,
+                    format!("{widget} binding must resolve to an app state"),
+                )
+            })?;
+            if !output.contains(state) {
+                output.push(state.clone());
+            }
+            return Ok(());
+        }
+
+        match node {
+            ViewNode::Layout { children, .. } | ViewNode::If { children, .. } => {
+                for child in children {
+                    collect(child, document, editors, env, components, output)?;
+                }
+            }
+            ViewNode::For { item, children, .. } => {
+                let mut child_env = env.clone();
+                child_env.remove(item);
+                for child in children {
+                    collect(child, document, editors, &child_env, components, output)?;
+                }
+            }
+            ViewNode::Button {
+                content: Some(content),
+                ..
+            }
+            | ViewNode::MouseArea { content, .. }
+            | ViewNode::Container { content, .. }
+            | ViewNode::Theme { content, .. }
+            | ViewNode::Float { content, .. }
+            | ViewNode::Pin { content, .. }
+            | ViewNode::Sensor { content, .. } => {
+                collect(content, document, editors, env, components, output)?;
+            }
+            ViewNode::KeyedColumn { item, child, .. } => {
+                let mut child_env = env.clone();
+                child_env.remove(item);
+                collect(child, document, editors, &child_env, components, output)?;
+            }
+            ViewNode::Lazy { binding, child, .. } => {
+                let mut child_env = env.clone();
+                child_env.remove(binding);
+                collect(child, document, editors, &child_env, components, output)?;
+            }
+            ViewNode::Tooltip { content, tip, .. } => {
+                collect(content, document, editors, env, components, output)?;
+                collect(tip, document, editors, env, components, output)?;
+            }
+            ViewNode::Overlay { content, layer, .. } => {
+                collect(content, document, editors, env, components, output)?;
+                collect(layer, document, editors, env, components, output)?;
+            }
+            ViewNode::PaneGrid { panes, .. } => {
+                for child in panes.iter().flat_map(PaneView::nodes) {
+                    collect(child, document, editors, env, components, output)?;
+                }
+            }
+            ViewNode::Table { item, columns, .. } => {
+                let mut cell_env = env.clone();
+                cell_env.remove(item);
+                for column in columns {
+                    collect(&column.header, document, editors, env, components, output)?;
+                    collect(
+                        &column.cell,
+                        document,
+                        editors,
+                        &cell_env,
+                        components,
+                        output,
+                    )?;
+                }
+            }
+            ViewNode::Component {
+                name,
+                args,
+                slots,
+                span,
+                ..
+            } => {
+                for slot in slots {
+                    collect(&slot.content, document, editors, env, components, output)?;
+                }
+                if !components.insert(name.clone()) {
+                    return Err(Error::new(
+                        "E122",
+                        span,
+                        format!("recursive component `{name}` cannot contain controlled state"),
+                    ));
+                }
+                let component = document
+                    .components
+                    .iter()
+                    .find(|item| item.name == *name)
+                    .expect("checker validates component names");
+                let named = args.iter().any(|arg| arg.name.is_some());
+                let mut component_env = HashMap::new();
+                for (index, (param, _)) in component.params.iter().enumerate() {
+                    let arg = if named {
+                        args.iter()
+                            .find(|arg| arg.name.as_ref() == Some(param))
+                            .expect("checker validates named component arguments")
+                    } else {
+                        &args[index]
+                    };
+                    if let Expr::Path(path) = &arg.value
+                        && path.len() == 1
+                        && let Some(state) = env.get(&path[0])
+                    {
+                        component_env.insert(param.clone(), state.clone());
+                    }
+                }
+                collect(
+                    &component.root,
+                    document,
+                    editors,
+                    &component_env,
+                    components,
+                    output,
+                )?;
+                components.remove(name);
+            }
+            ViewNode::Responsive { content, .. } => match content {
+                ResponsiveContent::Breakpoint { narrow, wide, .. } => {
+                    collect(narrow, document, editors, env, components, output)?;
+                    collect(wide, document, editors, env, components, output)?;
+                }
+                ResponsiveContent::Size {
+                    width,
+                    height,
+                    content,
+                } => {
+                    let mut child_env = env.clone();
+                    child_env.remove(width);
+                    child_env.remove(height);
+                    collect(content, document, editors, &child_env, components, output)?;
+                }
+            },
+            _ => {}
+        }
+        Ok(())
     }
+
+    let env = document
+        .states
+        .iter()
+        .map(|state| (state.name.clone(), state.name.clone()))
+        .collect();
+    let mut output = Vec::new();
+    collect(
+        &document.view,
+        document,
+        editors,
+        &env,
+        &mut HashSet::new(),
+        &mut output,
+    )?;
+    Ok(output)
 }
 
 fn pane_grid_span(node: &ViewNode) -> Option<&Span> {
@@ -2027,6 +2165,35 @@ fn infer_view(
                 ));
             }
             check_font(options.font.as_ref(), document, span)?;
+            if let Some(highlighter) = &options.highlighter {
+                let function = extern_function(
+                    document,
+                    &highlighter.function,
+                    ExternKind::EditorHighlighter,
+                    span,
+                )?;
+                check_call_args(function, &highlighter.args, env, document, span)?;
+            }
+            if let Some(binding) = &options.key_binding {
+                let function =
+                    extern_function(document, &binding.function, ExternKind::EditorBinding, span)?;
+                check_call_args(function, &binding.args, env, document, span)?;
+                infer_route(
+                    options
+                        .key_binding_route
+                        .as_ref()
+                        .expect("parser requires a key-binding route"),
+                    Some(function.output.clone()),
+                    env,
+                    document,
+                    signatures,
+                )?;
+            }
+            if let Some(style) = &options.custom_style {
+                let function =
+                    extern_function(document, &style.function, ExternKind::EditorStyle, span)?;
+                check_call_args(function, &style.args, env, document, span)?;
+            }
             check_text_input_styles(&options.style, env, document, span, "editor")?;
         }
         ViewNode::Table {
@@ -5626,6 +5793,9 @@ fn extern_function<'a>(
                 ExternKind::Subscription => "subscription",
                 ExternKind::Window => "window callback",
                 ExternKind::MarkdownViewer => "markdown viewer",
+                ExternKind::EditorBinding => "editor binding",
+                ExternKind::EditorHighlighter => "editor highlighter",
+                ExternKind::EditorStyle => "editor style",
                 ExternKind::TextStyle => "text style",
                 ExternKind::SliderStyle => "slider style",
                 ExternKind::ProgressStyle => "progress style",
@@ -7562,8 +7732,13 @@ view
     }
 
     #[test]
-    fn directs_component_editors_through_slots() {
+    fn checks_component_controlled_state_origins() {
         let source = r#"app Notes
+extern crate::backend
+  EditorCommand(save:bool)
+  editor-binding editor_keys(readonly:bool) -> EditorCommand
+  editor-highlighter editor_highlight(language:str)
+  editor-style editor_surface(readonly:bool)
 theme
   background #000000
   foreground #ffffff
@@ -7571,15 +7746,46 @@ theme
   danger #ff0000
 state
   body:editor = ""
-component EditorPanel(body:editor)
-  editor <-> body
+  title = "Notes"
+  locked = false
+  language = "rs"
+component EditorPanel(content:editor, heading:str, readonly:bool, syntax:str)
+  col
+    input "Title" <-> heading
+    editor <-> content highlighter=editor_highlight(syntax) key-binding=editor_keys(readonly) style=editor_surface(readonly) -> command _
+on command(value)
 view
-  EditorPanel(body)
+  EditorPanel(body, title, locked, language)
 "#;
-        let error = analyze(source).unwrap_err();
+        let document = analyze(source).unwrap();
+        assert_eq!(document.handlers[0].params[0].ty.display(), "EditorCommand");
+
+        let error = analyze(&source.replace(
+            "EditorPanel(body, title, locked, language)",
+            "EditorPanel(editor(\"scratch\"), title, locked, language)",
+        ))
+        .unwrap_err();
         assert_eq!(error.code, "E139");
-        assert!(error.message.contains("component parameter"));
-        assert!(error.hint.unwrap().contains("slot"));
+        assert!(
+            error
+                .message
+                .contains("editor binding must resolve to an app state")
+        );
+
+        let error =
+            analyze(&source.replace("editor_keys(readonly)", "missing(readonly)")).unwrap_err();
+        assert_eq!(error.code, "E130");
+        assert!(error.message.contains("editor binding"));
+
+        let error =
+            analyze(&source.replace("editor_highlight(syntax)", "missing(syntax)")).unwrap_err();
+        assert_eq!(error.code, "E130");
+        assert!(error.message.contains("editor highlighter"));
+
+        let error =
+            analyze(&source.replace("editor_surface(readonly)", "missing(readonly)")).unwrap_err();
+        assert_eq!(error.code, "E130");
+        assert!(error.message.contains("editor style"));
     }
 
     #[test]
