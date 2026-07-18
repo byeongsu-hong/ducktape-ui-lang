@@ -15,7 +15,7 @@ counts toward the row below.
 
 ## Typed system reachability
 
-Ice 1.57 has thirty-three checked Rust boundaries:
+Ice 1.58 has thirty-three checked Rust boundaries:
 
 | Boundary | Rust ABI | Covers |
 | --- | --- | --- |
@@ -118,7 +118,7 @@ public behavior has direct documented Ice syntax and tests.
 | fonts | native | ordered app-level relative font files are checked and embedded into iced's startup loader; runtime bytes lower to native `font::load`; every family/weight/stretch/style descriptor, checked named reference, application default and all widget font setters are covered |
 | system | native | current theme task, theme-change subscription, and every information field with optionality preserved; information requires iced's `sysinfo` feature |
 | time | native | `instant` maps to iced's native monotonic value; `task time now`, payload-producing `every`, and typed async `repeat` cover the complete enabled `iced::time` task/subscription API with checked positive `ms`/`s` durations (`repeat` requires iced's `tokio` feature) |
-| window | native | every initial and named-open setting, including codec-free RGBA icons and structured Linux/Windows/macOS/Wasm fields; typed `window-id`, open/oldest/latest, direct targeting for every per-window close/drag/resize/constraints/state/move/mode/focus/level/menu/attention/passthrough/monitor/raw-ID/screenshot/icon task, automatic tabbing, lossless RGBA screenshot payloads, all 12 event forms with optional IDs on all 11 discrete events, and an exact typed `window::run` callback boundary for raw window/display handles |
+| window | native | every initial and named-open setting, including codec-free RGBA icons and structured Linux/Windows/macOS/Wasm fields; typed `window-id`, open/oldest/latest, direct targeting for every per-window close/drag/resize/constraints/state/move/mode/focus/level/menu/attention/passthrough/monitor/raw-ID/screenshot/icon task, automatic tabbing, native or flattened lossless screenshot payloads, all 12 event forms with optional IDs on all 11 discrete events, and an exact typed `window::run` callback boundary for raw window/display handles |
 | `window::Id` | native | native unique construction, decimal display, equality, ordering, hashable lazy identity, exact typed extern passage, and direct task/daemon/subscription payload reuse cover the complete public value behavior |
 | window value enums | native | all variants and defaults of `Direction`, `Level`, `Mode`, and `UserAttention`, compact kind projections, exact typed extern passage, equality only where the native type implements it, deliberate ordering/lazy rejection, and equivalent task keyword sugar cover the complete public behavior of these four enums |
 | `window::Position` | native | default, centered, and exact Point construction, kind/optional-point projection, typed extern passage, native `SpecificWith(fn(Size, Size) -> Point)` preservation and invocation through a checked sync adapter, equivalent initial-setting sugar, and deliberate comparison/lazy rejection cover the complete public value behavior |
@@ -144,6 +144,7 @@ public behavior has direct documented Ice syntax and tests.
 | `Border` / `Radius` | native | default/exact border construction, all three border free constructors and builders, every radius free constructor and builder, all four radius numeric conversions with safe dynamic integer forms, native corner-array conversion and scaling, every field, equality, typed extern passage, and equivalent compact style sugar cover the complete public behavior; floating values correctly remain unavailable as lazy identities |
 | `Shadow` | native | default and exact color/offset/blur construction, all three field projections, equality, typed extern passage, and deliberate rejection as a floating-point lazy identity cover the complete public behavior |
 | `Transformation` | native | identity/default, orthographic, translate, scale, inverse, scale/translation inspection, composition, lossless matrix conversion, equality, typed extern passage, and native application to every supported geometry and pointer value cover the complete public behavior |
+| `window::Screenshot` | native | exact construction and capture task delivery, public RGBA/physical-size/scale fields, borrowed and owned byte access, native crop success, both crop error kinds and messages, debug formatting, typed extern passage, backward-compatible flattened routes, and deliberate comparison/lazy rejection cover the complete public value behavior |
 | custom widget | native | typed owned or app-state-borrowing `Element` adapters with checked event routing, selected Theme/Renderer propagation, alternate-Theme subtrees, and the complete advanced Widget/Overlay escape hatch |
 | custom renderer | native | checked application-wide concrete `iced::program::Renderer` type path propagated through every generated `Element`, including extern components, shaders, alternate themes, and editor adapters |
 

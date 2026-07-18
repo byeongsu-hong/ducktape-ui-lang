@@ -35,6 +35,8 @@ mod window_id;
 #[cfg(test)]
 mod window_position;
 #[cfg(test)]
+mod window_screenshot;
+#[cfg(test)]
 mod window_values;
 
 mod backend {
@@ -190,6 +192,12 @@ mod backend {
 
     #[cfg(test)]
     pub use crate::window_id::window_id_round_trip;
+
+    #[cfg(test)]
+    pub use crate::window_screenshot::{
+        screenshot_crop_region, screenshot_outside_region, screenshot_round_trip,
+        screenshot_sample, screenshot_size, screenshot_zero_region,
+    };
 
     #[cfg(test)]
     pub use crate::window_values::{

@@ -3863,6 +3863,7 @@ fn lazy_hashable(ty: &Type) -> bool {
         | Type::MouseCursor
         | Type::MouseClick
         | Type::SystemInfo
+        | Type::WindowScreenshot
         | Type::WindowPosition
         | Type::RedrawRequest
         | Type::WindowDirection
@@ -5602,14 +5603,44 @@ fn infer_runs(
                 WindowOperation::RawId => {
                     infer_route(route, Some(Type::Str), &unknown_env, document, signatures)?
                 }
-                WindowOperation::Screenshot => infer_ordered_payload_route(
-                    route,
-                    &[Type::Bytes, Type::I64, Type::I64, Type::F64],
-                    &unknown_env,
-                    document,
-                    signatures,
-                    "window screenshot",
-                )?,
+                WindowOperation::Screenshot
+                    if route
+                        .args
+                        .iter()
+                        .filter(|arg| matches!(arg, RouteArg::Payload))
+                        .count()
+                        == 1 =>
+                {
+                    infer_route(
+                        route,
+                        Some(Type::WindowScreenshot),
+                        &unknown_env,
+                        document,
+                        signatures,
+                    )?
+                }
+                WindowOperation::Screenshot => {
+                    if route.args.len() != 4
+                        || route
+                            .args
+                            .iter()
+                            .any(|arg| !matches!(arg, RouteArg::Payload))
+                    {
+                        return Err(Error::new(
+                            "E129",
+                            &route.span,
+                            "window screenshot route expects one native placeholder or four RGBA placeholders",
+                        ));
+                    }
+                    infer_ordered_payload_route(
+                        route,
+                        &[Type::Bytes, Type::I64, Type::I64, Type::F64],
+                        &unknown_env,
+                        document,
+                        signatures,
+                        "window screenshot",
+                    )?
+                }
                 WindowOperation::Size => infer_ordered_payload_route(
                     route,
                     &[Type::F64, Type::F64],
@@ -7700,6 +7731,43 @@ pub(crate) fn expr_type(
                 )?;
                 Ok(Type::Pixels)
             }
+            "screenshot.new" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::Bytes, Type::SizeU32, Type::F64],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::WindowScreenshot)
+            }
+            "screenshot.crop" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::WindowScreenshot, Type::RectangleU32],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::Option(Box::new(Type::WindowScreenshot)))
+            }
+            "screenshot.crop_error" | "screenshot.crop_error_message" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::WindowScreenshot, Type::RectangleU32],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::Option(Box::new(Type::Str)))
+            }
+            "screenshot.as_bytes" | "screenshot.into_bytes" => {
+                check_builtin_args(name, args, &[Type::WindowScreenshot], env, document, span)?;
+                Ok(Type::Bytes)
+            }
             "interaction.default"
             | "interaction.none"
             | "interaction.hidden"
@@ -9148,6 +9216,13 @@ pub(crate) fn expr_type(
                             "mouse-click values are opaque; compare their kind or position",
                         ));
                     }
+                    if contains_window_screenshot(&left) || contains_window_screenshot(&right) {
+                        return Err(Error::new(
+                            "E153",
+                            span,
+                            "window-screenshot values do not support comparisons",
+                        ));
+                    }
                     if matches!(
                         left,
                         Type::WindowPosition | Type::WindowDirection | Type::WindowAttention
@@ -9240,6 +9315,19 @@ fn contains_mouse_click(ty: &Type) -> bool {
         Type::MouseClick => true,
         Type::List(inner) | Type::Option(inner) | Type::Combo(inner) => contains_mouse_click(inner),
         Type::Result(output, error) => contains_mouse_click(output) || contains_mouse_click(error),
+        _ => false,
+    }
+}
+
+fn contains_window_screenshot(ty: &Type) -> bool {
+    match ty {
+        Type::WindowScreenshot => true,
+        Type::List(inner) | Type::Option(inner) | Type::Combo(inner) => {
+            contains_window_screenshot(inner)
+        }
+        Type::Result(output, error) => {
+            contains_window_screenshot(output) || contains_window_screenshot(error)
+        }
         _ => false,
     }
 }
@@ -9418,6 +9506,13 @@ fn field_type(ty: &Type, field: &str, document: &Document, span: &Span) -> Resul
         },
         Type::WindowId => match field {
             "display" => Some(Type::Str),
+            _ => None,
+        },
+        Type::WindowScreenshot => match field {
+            "rgba" => Some(Type::Bytes),
+            "size" => Some(Type::SizeU32),
+            "scale_factor" => Some(Type::F64),
+            "debug" => Some(Type::Str),
             _ => None,
         },
         Type::WindowPosition => match field {
@@ -10143,6 +10238,53 @@ mod tests {
             analyze(&source.replace("window_id.unique()", "window_id.unique(true)")).unwrap_err();
         assert_eq!(error.code, "E152");
         assert!(error.message.contains("expects 0 argument"));
+    }
+
+    #[test]
+    fn checks_native_window_screenshot_values_and_routes() {
+        let source = include_str!("../../../examples/iced-app/src/ui/window_screenshot.ice");
+        let document = analyze(source).unwrap();
+        assert_eq!(document.handlers[2].params[0].ty, Type::WindowScreenshot);
+        assert_eq!(document.handlers[4].params[0].ty, Type::Bytes);
+        assert_eq!(document.handlers[4].params[1].ty, Type::I64);
+        assert_eq!(document.handlers[4].params[2].ty, Type::I64);
+        assert_eq!(document.handlers[4].params[3].ty, Type::F64);
+
+        let error = analyze(&source.replace(
+            "scale_factor = returned.scale_factor",
+            "scale_factor = sample == returned",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E153");
+        assert!(error.message.contains("do not support comparisons"));
+
+        let error = analyze(&source.replace(
+            "    button \"Inspect\" -> inspect",
+            "    lazy sample as cached\n      text cached.debug",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E139");
+        assert!(error.message.contains("does not implement stable hashing"));
+
+        let error = analyze(&source.replace(
+            "task window screenshot -> native_captured _",
+            "task window screenshot -> native_captured _ _",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E129");
+        assert!(
+            error
+                .message
+                .contains("one native placeholder or four RGBA placeholders")
+        );
+
+        let error = analyze(&source.replace(
+            "screenshot.crop(sample, screenshot_crop_region())",
+            "screenshot.crop(sample, sample.size)",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E101");
+        assert!(error.message.contains("expected `rectangle-u32`"));
     }
 
     #[test]

@@ -8675,6 +8675,7 @@ fn parse_type(source: &str, line: &Line) -> Result<Type, Error> {
         "touch-finger" => Type::TouchFinger,
         "instant" => Type::Instant,
         "window-id" => Type::WindowId,
+        "window-screenshot" => Type::WindowScreenshot,
         "window-position" => Type::WindowPosition,
         "redraw-request" => Type::RedrawRequest,
         "window-direction" => Type::WindowDirection,
@@ -9504,6 +9505,24 @@ mod tests {
         assert!(matches!(
             &document.handlers[0].statements[0],
             Statement::Assign { value: Expr::Call { name, .. }, .. } if name == "window_id.unique"
+        ));
+    }
+
+    #[test]
+    fn parses_first_class_native_window_screenshot() {
+        let source = include_str!("../../../examples/iced-app/src/ui/window_screenshot.ice");
+        let document = parse(source).unwrap();
+        assert_eq!(document.functions[0].output, Type::WindowScreenshot);
+        assert_eq!(document.functions[1].params[0].1, Type::WindowScreenshot);
+        assert_eq!(document.functions[1].output, Type::WindowScreenshot);
+        assert_eq!(document.states[0].ty, Type::WindowScreenshot);
+        assert_eq!(
+            document.states[3].ty,
+            Type::Option(Box::new(Type::WindowScreenshot))
+        );
+        assert!(matches!(
+            &document.handlers[0].statements[1],
+            Statement::Assign { value: Expr::Call { name, .. }, .. } if name == "screenshot.new"
         ));
     }
 
