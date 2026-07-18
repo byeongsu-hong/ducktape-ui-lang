@@ -741,7 +741,8 @@ fn statements_use_system_task(statements: &[Statement], name: &str) -> bool {
                     TaskTransform::Then { source, .. } | TaskTransform::AndThen { source, .. } => {
                         task_source_uses_system(source, name)
                     }
-                    TaskTransform::MapError { .. }
+                    TaskTransform::Map { .. }
+                    | TaskTransform::MapError { .. }
                     | TaskTransform::Collect { .. }
                     | TaskTransform::Discard { .. } => false,
                 })
@@ -2053,6 +2054,25 @@ fn task_flow_code(
         .collect::<HashMap<_, _>>();
     for (index, transform) in transforms.iter().enumerate() {
         match transform {
+            TaskTransform::Map { binding, value, .. } => {
+                let (output, error) =
+                    crate::check::task_flow_type(root, &transforms[..index], document, &type_env)?;
+                let output = output.expect("discard is the final transform");
+                let map_env = HashMap::from([(
+                    binding.clone(),
+                    Binding {
+                        code: binding.clone(),
+                        ty: output,
+                        local: false,
+                    },
+                )]);
+                let value = expr_code(value, &map_env, document, ValueMode::Owned)?;
+                task = if error.is_some() {
+                    format!("({task}).map(move |result| result.map(|{binding}| {value}))")
+                } else {
+                    format!("({task}).map(move |{binding}| {value})")
+                };
+            }
             TaskTransform::Then {
                 binding, source, ..
             }
@@ -11405,12 +11425,14 @@ on start
   parallel
     flow
       from stream numbers(3)
+      map value -> value + 1
       then value -> task double(value)
       collect
       done -> collected _
       units -> planned _
     flow
       from task fallible(2)
+      map value -> value + 1
       and-then value -> task fallible(value)
       done -> finished _
       error -> failed _
@@ -11426,7 +11448,9 @@ view
 "#;
         let generated = compile(source, "flows.ice").unwrap();
         assert!(generated.contains("Task::run(crate::backend::numbers(3), |value| value)"));
+        assert!(generated.contains(".map(move |value| (value + 1))"));
         assert!(generated.contains(".then(move |value| crate::backend::double(value))"));
+        assert!(generated.contains(".map(move |result| result.map(|value| (value + 1)))"));
         assert!(generated.contains(".and_then(move |value| crate::backend::fallible(value))"));
         assert!(generated.contains(".collect()"));
         assert!(generated.contains(".discard::<__FlowsMessage>()"));

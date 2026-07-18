@@ -28,6 +28,7 @@ on start
   parallel
     flow
       from stream count_stream(3)
+      map item -> item + 1
       then item -> task double_task(item)
       collect
       done -> collected _
@@ -38,6 +39,7 @@ on start
       done -> finished _
     flow
       from task fallible_task(2)
+      map item -> item + 1
       and-then item -> task fallible_task(item)
       done -> finished _
       error -> failed _

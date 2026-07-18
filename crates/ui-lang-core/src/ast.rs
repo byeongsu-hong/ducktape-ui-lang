@@ -664,6 +664,11 @@ pub enum TaskSource {
 
 #[derive(Clone, Debug)]
 pub enum TaskTransform {
+    Map {
+        binding: String,
+        value: Expr,
+        span: Span,
+    },
     Then {
         binding: String,
         source: TaskSource,
