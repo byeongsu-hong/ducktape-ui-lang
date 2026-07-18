@@ -436,6 +436,9 @@ on open_nested_preview
 on close_nested_preview
   pane #nested_workspace close nested_preview
 
+on resize_nested_editor
+  pane #nested_workspace resize editor_stack 0.45
+
 subscribe
   app_events() -> external_event _
   keyboard press status=ignored -> key_pressed _
@@ -605,12 +608,14 @@ view
           text "Stack overlay" @text-sm text-foreground
 
     pane-grid #nested_workspace width=fill height=180.0 spacing=4.0 resize=4.0 drag
-      split vertical ratio=0.65
+      split workspace_root vertical ratio=0.65
         pane nested_files
           text "Nested files" @text-sm text-muted
-        split horizontal ratio=0.6
+        split editor_stack horizontal ratio=0.6
           pane nested_editor
-            button "Open nested preview" -> open_nested_preview
+            col @gap-2
+              button "Open nested preview" -> open_nested_preview
+              button "Resize editor split" -> resize_nested_editor
           pane nested_terminal
             text "Nested terminal" @text-sm text-muted
       pane nested_preview closed

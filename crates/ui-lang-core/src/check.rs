@@ -670,19 +670,40 @@ fn check_widget_selector(
     widget_selector_output(selector, document, span)
 }
 
-fn static_pane_grids(root: &ViewNode) -> Result<HashMap<String, HashSet<String>>, Error> {
-    fn collect(
-        node: &ViewNode,
-        output: &mut HashMap<String, HashSet<String>>,
-    ) -> Result<(), Error> {
+struct PaneGridNames {
+    panes: HashSet<String>,
+    splits: HashSet<String>,
+}
+
+fn pane_split_names(configuration: &PaneConfiguration, output: &mut HashSet<String>) {
+    if let PaneConfiguration::Split { name, a, b, .. } = configuration {
+        if let Some(name) = name {
+            output.insert(name.clone());
+        }
+        pane_split_names(a, output);
+        pane_split_names(b, output);
+    }
+}
+
+fn static_pane_grids(root: &ViewNode) -> Result<HashMap<String, PaneGridNames>, Error> {
+    fn collect(node: &ViewNode, output: &mut HashMap<String, PaneGridNames>) -> Result<(), Error> {
         match node {
             ViewNode::PaneGrid {
-                name, panes, span, ..
+                name,
+                configuration,
+                panes,
+                span,
+                ..
             } => {
+                let mut splits = HashSet::new();
+                pane_split_names(configuration, &mut splits);
                 if output
                     .insert(
                         name.clone(),
-                        panes.iter().map(|pane| pane.name.clone()).collect(),
+                        PaneGridNames {
+                            panes: panes.iter().map(|pane| pane.name.clone()).collect(),
+                            splits,
+                        },
                     )
                     .is_some()
                 {
@@ -5661,7 +5682,7 @@ fn check_handler(
     states: &HashMap<String, Type>,
     document: &Document,
     operation_ids: &[WidgetIdPath],
-    pane_grids: &HashMap<String, HashSet<String>>,
+    pane_grids: &HashMap<String, PaneGridNames>,
 ) -> Result<(), Error> {
     let mut env = states.clone();
     env.extend(
@@ -5940,7 +5961,7 @@ fn check_handler(
                 route,
                 span,
             } => {
-                let panes = pane_grids.get(grid).ok_or_else(|| {
+                let names = pane_grids.get(grid).ok_or_else(|| {
                     Error::new("E188", span, format!("unknown pane-grid `#{grid}`"))
                 })?;
                 let referenced = match operation {
@@ -5956,13 +5977,24 @@ fn check_handler(
                     | PaneOperation::Resize { .. } => Vec::new(),
                 };
                 for pane in referenced {
-                    if !panes.contains(pane) {
+                    if !names.panes.contains(pane) {
                         return Err(Error::new(
                             "E188",
                             span,
                             format!("pane-grid `#{grid}` has no pane `{pane}`"),
                         ));
                     }
+                }
+                if let PaneOperation::Resize {
+                    split: Some(split), ..
+                } = operation
+                    && !names.splits.contains(split)
+                {
+                    return Err(Error::new(
+                        "E188",
+                        span,
+                        format!("pane-grid `#{grid}` has no split `{split}`"),
+                    ));
                 }
                 if matches!(
                     operation,
@@ -6004,7 +6036,7 @@ fn check_handler(
                     }
                     _ => {}
                 }
-                if let PaneOperation::Resize { ratio } | PaneOperation::Split { ratio, .. } =
+                if let PaneOperation::Resize { ratio, .. } | PaneOperation::Split { ratio, .. } =
                     operation
                 {
                     require_type(&expr_type(ratio, &env, document, span)?, &Type::F64, span)?;
@@ -10167,12 +10199,14 @@ theme
   danger #ff0000
 on open_preview
   pane #work split editor preview horizontal ratio=0.4
+on resize_editor_stack
+  pane #work resize editor_stack 0.55
 view
   pane-grid #work width=fill height=fill
-    split vertical ratio=0.7
+    split workspace_root vertical ratio=0.7
       pane files
         text "Files"
-      split horizontal ratio=0.6
+      split editor_stack horizontal ratio=0.6
         pane editor
           text "Editor"
         pane terminal
@@ -10204,6 +10238,20 @@ view
             analyze(&source.replace("pane preview closed", "pane preview hidden")).unwrap_err();
         assert_eq!(error.code, "E187");
         assert!(error.message.contains("pane name closed"));
+
+        let error = analyze(&source.replace("resize editor_stack", "resize missing")).unwrap_err();
+        assert_eq!(error.code, "E188");
+        assert!(error.message.contains("has no split `missing`"));
+
+        let error =
+            analyze(&source.replace("editor_stack horizontal", "workspace_root horizontal"))
+                .unwrap_err();
+        assert_eq!(error.code, "E187");
+        assert!(
+            error
+                .message
+                .contains("duplicate pane split `workspace_root`")
+        );
     }
 
     #[test]

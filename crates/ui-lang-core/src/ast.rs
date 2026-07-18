@@ -717,6 +717,7 @@ pub enum PaneOperation {
         edge: PaneEdge,
     },
     Resize {
+        split: Option<String>,
         ratio: Expr,
     },
     Drop {
@@ -2307,6 +2308,7 @@ pub enum PaneAxis {
 pub enum PaneConfiguration {
     Pane(String),
     Split {
+        name: Option<String>,
         axis: PaneAxis,
         ratio: f32,
         a: Box<PaneConfiguration>,
