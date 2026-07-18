@@ -248,6 +248,15 @@ mod backend {
     }
 
     #[cfg(test)]
+    pub fn summary_container(theme: &iced::Theme, busy: bool) -> iced::widget::container::Style {
+        if busy {
+            iced::widget::container::bordered_box(theme)
+        } else {
+            iced::widget::container::rounded_box(theme)
+        }
+    }
+
+    #[cfg(test)]
     impl<'a> iced::widget::markdown::Viewer<'a, String> for DocsViewer {
         fn on_link_click(url: iced::widget::markdown::Uri) -> String {
             url

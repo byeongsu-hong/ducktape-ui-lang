@@ -1,4 +1,4 @@
-# Ice Language Specification 1.07
+# Ice Language Specification 1.08
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 1.07 syntax.
+marked “planned” is a design constraint, not accepted 1.08 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 1.07.
+  block comments are not part of 1.08.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -201,6 +201,8 @@ extern_toggler_style_sig
                = "toggler-style" name "(" field_list? ")"
 extern_radio_style_sig
                = "radio-style" name "(" field_list? ")"
+extern_container_style_sig
+               = "container-style" name "(" field_list? ")"
 
 theme_decl     = "theme" INDENT color_entry+
 color_entry    = name color
@@ -939,7 +941,7 @@ maximum size. `icon-rgba` embeds a relative raw RGBA file without an image
 codec; width and height are positive integers, and generated Rust rejects a
 byte length other than `width × height × 4`. `cargo ice check` reports a
 mismatch at the icon declaration, and generated Rust repeats the check at
-compile time. Encoded icon formats remain outside 1.07.
+compile time. Encoded icon formats remain outside 1.08.
 
 Application boot presets are structured top-level declarations:
 
@@ -1421,7 +1423,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 1.07 message payloads.
+`Clone` for 1.08 message payloads.
 
 Declared `sync` functions are checked, synchronous Rust calls available in
 Ice expressions. They are the small escape hatch for pure domain conversions
@@ -1439,7 +1441,7 @@ This declaration requires
 actual Rust signature. A sync function cannot declare `! Error` because it
 returns its value directly.
 
-Seventeen typed iced adapters expose framework capabilities without embedding Rust
+Eighteen typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
 
 ```ice
@@ -1458,6 +1460,7 @@ extern crate::backend
   checkbox-style task_checkbox(busy:bool)
   toggler-style notification_toggler(busy:bool)
   radio-style view_radio(busy:bool)
+  container-style summary_container(busy:bool)
 ```
 
 Their Rust signatures are:
@@ -1477,6 +1480,7 @@ fn action_button(theme: &iced::Theme, status: iced::widget::button::Status, busy
 fn task_checkbox(theme: &iced::Theme, status: iced::widget::checkbox::Status, busy: bool) -> iced::widget::checkbox::Style;
 fn notification_toggler(theme: &iced::Theme, status: iced::widget::toggler::Status, busy: bool) -> iced::widget::toggler::Style;
 fn view_radio(theme: &iced::Theme, status: iced::widget::radio::Status, busy: bool) -> iced::widget::radio::Style;
+fn summary_container(theme: &iced::Theme, busy: bool) -> iced::widget::container::Style;
 ```
 
 An extern component receives owned props and returns a default-renderer
@@ -1505,7 +1509,8 @@ receives the current Theme implicitly and returns one native progress Style;
 generated code uses it directly as the widget's runtime style callback.
 `button-style` also receives the current button Status and returns its native
 Style. `checkbox-style`, `toggler-style`, and `radio-style` do the same for
-their selection-aware widget Status values.
+their selection-aware widget Status values. `container-style` receives Theme
+without a Status and returns its native surface Style.
 
 Generated probes type-check every declaration
 against the actual Rust item. Extern component, shader, recipe, event-filter,
@@ -1784,7 +1789,7 @@ The implemented native nodes are:
 | `scroll` | one content child; complete direction/scrollbar/builders, every viewport getter and status selector, and every concrete Style field |
 | `grid` | responsive children with pixel width/spacing, fixed columns or fluid max-cell width, and aspect-ratio or evenly distributed `Length` height |
 | `stack` | overlays children with typed width/height, optional clipping and `under=N` intrinsic-base control |
-| `container` | exactly one child with ID, all length bounds, max bounds, per-axis alignment, clipping, per-side padding and every concrete surface style field including linear backgrounds |
+| `container` | exactly one child with ID, all length bounds, max bounds, per-axis alignment, clipping, per-side padding, every concrete surface style field including linear backgrounds, and typed native runtime style callbacks |
 | `overlay` | named `content` and `layer` trees with checked visibility, alignment, padding, backdrop and optional dismissal |
 | `text` | one `str`, `i64`, or `f64` expression with bounds, size/line-height, font, alignment, shaping, wrapping and checked color/weight styles |
 | `rich-text` | zero or more structured spans with rich defaults, complete span highlights and optional string link events |
@@ -1840,6 +1845,10 @@ Typed properties override any equivalent `@` utility on the same node:
 container #card width=fill max-width=640.0 align-x=center padding=12.0 background=linear(1.57, surface@0.0, background@1.0) shadow=black/50 shadow-y=2.0 shadow-blur=8.0 pixel-snap=true @bg-surface rounded-lg
   TaskRow task=task loading=loading
 ```
+
+`style=summary_container(loading)` may call a declared `container-style`. Its
+Rust function receives `&iced::Theme`, then its owned arguments, and returns
+`container::Style`. Utilities and typed properties override that returned base.
 
 An `overlay` keeps the two trees explicit instead of relying on child order.
 When its bool condition is true, `layer` floats over `content`; the backdrop
@@ -2452,7 +2461,7 @@ snap/end; and absolute scroll-to/scroll-by. Effects have no route and
 non-negative `i64`; relative offsets are `f64` in `0.0..=1.0`; absolute
 offsets are unrestricted `f64`. Targets must be real static IDs in the app
 scope. Repeated/component scopes and the feature-gated selector API remain
-outside 1.07.
+outside 1.08.
 
 Persistent pane grids expose their native layout-state operations directly in
 handlers:
@@ -2706,7 +2715,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 1.07 does not claim that remapping.
+extern line; 1.08 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -2727,12 +2736,12 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 1.07 native backend is enough for CRUD/settings-style screens, selection,
+The 1.08 native backend is enough for CRUD/settings-style screens, selection,
 media, hover overlays, declarative canvas geometry, and common pointer events,
 not all of iced. It still lacks direct syntax for arbitrary custom overlays,
 and custom widgets. [`COVERAGE.md`](COVERAGE.md) is the exact versioned ledger.
 
-The language must not grow one ad-hoc syntax form for every iced API. Seventeen
+The language must not grow one ad-hoc syntax form for every iced API. Eighteen
 typed Rust boundaries cover domain work, native elements and programs, runtime
 tasks and subscriptions, Markdown viewers, and native style callbacks without
 admitting arbitrary Rust into expressions or duplicating iced in the core
