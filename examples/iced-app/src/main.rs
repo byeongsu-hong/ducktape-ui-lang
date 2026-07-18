@@ -19,6 +19,16 @@ mod backend {
     pub type SliderNumber = f32;
 
     #[cfg(test)]
+    pub fn keyboard_value(
+        key: iced::keyboard::Key,
+        _: iced::keyboard::key::Physical,
+        _: iced::keyboard::Location,
+        _: iced::keyboard::Modifiers,
+    ) -> iced::keyboard::Key {
+        key
+    }
+
+    #[cfg(test)]
     #[derive(Clone, Debug, PartialEq)]
     pub struct NetworkError {
         pub message: String,
@@ -810,6 +820,41 @@ mod generic_events {
     fn constructs_native_event_listeners() {
         let (app, _) = GenericEvents::__boot();
         assert_eq!(app.__subscription().units(), 5);
+    }
+}
+
+#[cfg(test)]
+mod keyboard_values {
+    ui_lang::include_app!("src/ui/keyboard_values.ice");
+
+    #[test]
+    fn preserves_native_keyboard_values() {
+        let (mut app, _) = KeyboardValues::__boot();
+        assert_eq!(
+            app.dynamic_native,
+            Some(iced::keyboard::key::Physical::Unidentified(
+                iced::keyboard::key::NativeCode::Xkb(42)
+            ))
+        );
+        assert_eq!(app.platform_command, iced::keyboard::Modifiers::COMMAND);
+        let event = __IceKeyPress {
+            key: iced::keyboard::Key::Character("с".into()),
+            modified_key: iced::keyboard::Key::Named(iced::keyboard::key::Named::Enter),
+            physical_key: iced::keyboard::key::Physical::Code(iced::keyboard::key::Code::KeyC),
+            location: iced::keyboard::Location::Numpad,
+            modifiers: iced::keyboard::Modifiers::CTRL,
+            text: Some("с".into()),
+            repeat: false,
+        };
+        let _ = app.__update(__KeyboardValuesMessage::Pressed(event));
+
+        assert_eq!(app.latin.as_deref(), Some("c"));
+        assert_eq!(app.kind, "character");
+        assert_eq!(app.named.as_deref(), Some("Enter"));
+        assert_eq!(app.character.as_deref(), Some("с"));
+        assert_eq!(app.code.as_deref(), Some("KeyC"));
+        assert_eq!(app.location_name, "numpad");
+        assert!(app.modifiers.control());
     }
 }
 

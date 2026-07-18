@@ -407,12 +407,12 @@ on extend_markdown
   help_images = markdown_images(help)
 
 on key_pressed(event)
-  last_key = event.key
+  last_key = event.key.kind
   command_down = event.modifiers.command
   key_repeat = event.repeat
 
 on key_released(event)
-  last_key = event.key
+  last_key = event.key.kind
   command_down = event.modifiers.command
 
 on key_modifiers_changed(modifiers)
