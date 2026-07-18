@@ -149,6 +149,8 @@ Key files:
   fonts and every family, weight, stretch, and style descriptor;
 - [`theme_mode.ice`](examples/iced-app/src/ui/theme_mode.ice) preserves every
   native theme mode, default, equality, and Rust extern passage;
+- [`text_values.ice`](examples/iced-app/src/ui/text_values.ice) preserves native
+  text alignment, shaping, wrapping, line-height values, and conversions;
 - [`animation.ice`](examples/iced-app/src/ui/animation.ice) declares native
   boolean/numeric animation state with checked easing, timing, projection, and
   active-frame driving;
@@ -182,8 +184,9 @@ Key files:
   [`event_status.rs`](examples/iced-app/src/event_status.rs), plus
   [`redraw_request.rs`](examples/iced-app/src/redraw_request.rs) and
   [`window_id.rs`](examples/iced-app/src/window_id.rs), plus
-  [`theme_mode.rs`](examples/iced-app/src/theme_mode.rs), instead of growing a
-  monolithic entry point;
+  [`theme_mode.rs`](examples/iced-app/src/theme_mode.rs) and
+  [`text_values.rs`](examples/iced-app/src/text_values.rs), instead of growing
+  a monolithic entry point;
 - [`SPEC.md`](SPEC.md) defines the implemented language.
 
 ## Tooling
@@ -210,7 +213,7 @@ cargo fmt --all
 
 ## Status
 
-This is an executable v1.56 language slice, not yet a complete iced replacement.
+This is an executable v1.57 language slice, not yet a complete iced replacement.
 It implements typed extern data/actions, state, handlers, async tasks, pure
 components with named props, default children, named structural slots, and
 React-like qualified compound children, scoped IDs, relative

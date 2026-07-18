@@ -3816,6 +3816,10 @@ fn lazy_hashable(ty: &Type) -> bool {
         | Type::FontWeight
         | Type::FontStretch
         | Type::FontStyle
+        | Type::TextAlignment
+        | Type::TextShaping
+        | Type::TextWrapping
+        | Type::TextLineHeight
         | Type::Alignment
         | Type::HorizontalAlignment
         | Type::VerticalAlignment
@@ -7631,6 +7635,71 @@ pub(crate) fn expr_type(
                 check_builtin_args(name, args, &[], env, document, span)?;
                 Ok(Type::ThemeMode)
             }
+            "text_alignment.default"
+            | "text_alignment.left"
+            | "text_alignment.center"
+            | "text_alignment.right"
+            | "text_alignment.justified" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::TextAlignment)
+            }
+            "text_alignment.from_horizontal" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::HorizontalAlignment],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::TextAlignment)
+            }
+            "text_alignment.from_alignment" => {
+                check_builtin_args(name, args, &[Type::Alignment], env, document, span)?;
+                Ok(Type::TextAlignment)
+            }
+            "horizontal.from_text_alignment" => {
+                check_builtin_args(name, args, &[Type::TextAlignment], env, document, span)?;
+                Ok(Type::HorizontalAlignment)
+            }
+            "text_shaping.default"
+            | "text_shaping.auto"
+            | "text_shaping.basic"
+            | "text_shaping.advanced" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::TextShaping)
+            }
+            "text_wrapping.default"
+            | "text_wrapping.none"
+            | "text_wrapping.word"
+            | "text_wrapping.glyph"
+            | "text_wrapping.word_or_glyph" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::TextWrapping)
+            }
+            "line_height.default" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::TextLineHeight)
+            }
+            "line_height.relative" | "line_height.from_f64" => {
+                check_builtin_args(name, args, &[Type::F64], env, document, span)?;
+                Ok(Type::TextLineHeight)
+            }
+            "line_height.absolute" | "line_height.from_pixels" => {
+                check_builtin_args(name, args, &[Type::Pixels], env, document, span)?;
+                Ok(Type::TextLineHeight)
+            }
+            "line_height.to_absolute" => {
+                check_builtin_args(
+                    name,
+                    args,
+                    &[Type::TextLineHeight, Type::Pixels],
+                    env,
+                    document,
+                    span,
+                )?;
+                Ok(Type::Pixels)
+            }
             "interaction.default"
             | "interaction.none"
             | "interaction.hidden"
@@ -9106,6 +9175,10 @@ pub(crate) fn expr_type(
                                 | Type::FontStretch
                                 | Type::FontStyle
                                 | Type::ThemeMode
+                                | Type::TextAlignment
+                                | Type::TextShaping
+                                | Type::TextWrapping
+                                | Type::TextLineHeight
                                 | Type::Border
                                 | Type::Radius
                                 | Type::Shadow
@@ -9313,6 +9386,16 @@ fn field_type(ty: &Type, field: &str, document: &Document, span: &Span) -> Resul
         },
         Type::ThemeMode => match field {
             "kind" => Some(Type::Str),
+            _ => None,
+        },
+        Type::TextAlignment | Type::TextShaping | Type::TextWrapping => match field {
+            "kind" => Some(Type::Str),
+            _ => None,
+        },
+        Type::TextLineHeight => match field {
+            "kind" => Some(Type::Str),
+            "relative" => Some(Type::Option(Box::new(Type::F64))),
+            "absolute" => Some(Type::Option(Box::new(Type::Pixels))),
             _ => None,
         },
         Type::MouseInteraction => match field {
@@ -9868,6 +9951,28 @@ mod tests {
         .unwrap_err();
         assert_eq!(error.code, "E139");
         assert!(error.message.contains("does not implement stable hashing"));
+    }
+
+    #[test]
+    fn checks_native_text_values_and_traits() {
+        let source = include_str!("../../../examples/iced-app/src/ui/text_values.ice");
+        analyze(source).unwrap();
+
+        let error = analyze(&source.replace(
+            "values_equal = returned_alignment == text_alignment.right()",
+            "values_equal = returned_alignment < text_alignment.right()",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E153");
+        assert!(error.message.contains("does not accept `text-alignment`"));
+
+        let error = analyze(&source.replace(
+            "relative_height = line_height.relative(1.5)",
+            "relative_height = line_height.relative(true)",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E101");
+        assert!(error.message.contains("expected `f64`, got `bool`"));
     }
 
     #[test]

@@ -1,4 +1,4 @@
-# Ice Language Specification 1.56
+# Ice Language Specification 1.57
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 1.56 syntax.
+marked “planned” is a design constraint, not accepted 1.57 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 1.56.
+  block comments are not part of 1.57.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -196,6 +196,8 @@ type           = "bool" | "i64" | "f64" | "str" | "bytes" | "image"
                | "background" | "gradient" | "linear-gradient" | "color-stop"
                | "font" | "font-family" | "font-weight"
                | "font-stretch" | "font-style" | "theme-mode"
+               | "text-alignment" | "text-shaping" | "text-wrapping"
+               | "text-line-height"
                | "length"
                | "alignment" | "horizontal-alignment" | "vertical-alignment"
                | "border" | "radius"
@@ -1048,7 +1050,7 @@ maximum size. `icon-rgba` embeds a relative raw RGBA file without an image
 codec; width and height are positive integers, and generated Rust rejects a
 byte length other than `width × height × 4`. `cargo ice check` reports a
 mismatch at the icon declaration, and generated Rust repeats the check at
-compile time. Encoded icon formats remain outside 1.56.
+compile time. Encoded icon formats remain outside 1.57.
 
 Use `daemon Name` instead of `app Name` for an iced daemon that starts without
 an initial window and remains alive after all windows close. A daemon rejects
@@ -1619,6 +1621,10 @@ button "Add" disabled=(loading || empty(trim(draft))) -> submit
 | `font-stretch` | `iced::font::Stretch` |
 | `font-style` | `iced::font::Style` |
 | `theme-mode` | `iced::theme::Mode` |
+| `text-alignment` | `iced::widget::text::Alignment` |
+| `text-shaping` | `iced::widget::text::Shaping` |
+| `text-wrapping` | `iced::widget::text::Wrapping` |
+| `text-line-height` | `iced::widget::text::LineHeight` |
 | `length` | `iced::Length` |
 | `alignment` | `iced::Alignment` |
 | `horizontal-alignment` | `iced::alignment::Horizontal` |
@@ -1666,7 +1672,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 1.56 message payloads.
+`Clone` for 1.57 message payloads.
 
 Declared `sync` functions are checked, synchronous Rust calls available in
 Ice expressions. They are the small escape hatch for pure domain conversions
@@ -3217,6 +3223,23 @@ typed extern passage, and reject ordering and lazy identity because the native
 enum implements neither `Ord` nor `Hash`. App theme names and native Theme
 factories remain the human-readable behavior-level layer.
 
+`text_alignment.default/left/center/right/justified()` cover every native text
+alignment variant. `text_alignment.from_horizontal`,
+`text_alignment.from_alignment`, and `horizontal.from_text_alignment` preserve
+all native conversions. `text_shaping.default/auto/basic/advanced()` covers
+every shaping strategy while leaving the default feature-aware, and
+`text_wrapping.default/none/word/glyph/word_or_glyph()` covers every wrapping
+strategy.
+
+`line_height.default/relative/absolute()` constructs both native line-height
+variants. `line_height.from_f64`, `line_height.from_pixels`, and
+`line_height.to_absolute` preserve both native conversions and absolute pixel
+resolution. Enum values expose `.kind`; line heights additionally expose
+optional `.relative` and `.absolute` payloads. All four values support equality,
+hashable lazy identity, and exact typed extern passage; ordering is rejected.
+Existing `align-x=`, `shaping=`, `wrapping=`, `line-height=`, and
+`line-height-px=` properties remain the concise widget sugar.
+
 `length.fill()`, `length.fill_portion(u16 literal)`, `length.shrink()`, and
 `length.fixed(f64)` construct every native variant. Dynamic `i64` portions use
 `length.try_fill_portion(value) -> length?`, which returns `none` outside the
@@ -3774,7 +3797,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 1.56 does not claim that remapping.
+extern line; 1.57 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -3795,7 +3818,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 1.56 native backend covers both windowed applications and windowless
+The 1.57 native backend covers both windowed applications and windowless
 daemons alongside CRUD/settings-style screens, selection, media, hover
 overlays, declarative canvas geometry, and pointer events. Borrowed custom
 widgets and an application-wide renderer type remain the escape hatch for
@@ -3903,6 +3926,12 @@ Every native theme mode, default behavior, kind projection, equality, exact
 trait boundaries, and typed extern passage are exercised by the split
 [`examples/iced-app/src/ui/theme_mode.ice`](examples/iced-app/src/ui/theme_mode.ice)
 and [`examples/iced-app/src/theme_mode.rs`](examples/iced-app/src/theme_mode.rs)
+fixture.
+Every native text alignment, shaping, wrapping, line-height variant, default,
+conversion, projection, hash boundary, and typed extern passage is exercised by
+the split
+[`examples/iced-app/src/ui/text_values.ice`](examples/iced-app/src/ui/text_values.ice)
+and [`examples/iced-app/src/text_values.rs`](examples/iced-app/src/text_values.rs)
 fixture.
 Native `Task::map` output/optional conversion and fallible error preservation
 are executed by

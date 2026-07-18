@@ -8648,6 +8648,10 @@ fn parse_type(source: &str, line: &Line) -> Result<Type, Error> {
         "font-stretch" => Type::FontStretch,
         "font-style" => Type::FontStyle,
         "theme-mode" => Type::ThemeMode,
+        "text-alignment" => Type::TextAlignment,
+        "text-shaping" => Type::TextShaping,
+        "text-wrapping" => Type::TextWrapping,
+        "text-line-height" => Type::TextLineHeight,
         "length" => Type::Length,
         "alignment" => Type::Alignment,
         "horizontal-alignment" => Type::HorizontalAlignment,
@@ -9364,6 +9368,29 @@ mod tests {
         assert!(matches!(
             &document.handlers[0].statements[0],
             Statement::Assign { value: Expr::Call { name, .. }, .. } if name == "theme_mode.default"
+        ));
+    }
+
+    #[test]
+    fn parses_first_class_native_text_values() {
+        let source = include_str!("../../../examples/iced-app/src/ui/text_values.ice");
+        let document = parse(source).unwrap();
+        for (function, expected) in document.functions.iter().zip([
+            Type::TextAlignment,
+            Type::TextShaping,
+            Type::TextWrapping,
+            Type::TextLineHeight,
+        ]) {
+            assert_eq!(function.params[0].1, expected);
+            assert_eq!(function.output, expected);
+        }
+        assert_eq!(document.states[0].ty, Type::TextAlignment);
+        assert_eq!(document.states[7].ty, Type::TextShaping);
+        assert_eq!(document.states[11].ty, Type::TextWrapping);
+        assert_eq!(document.states[15].ty, Type::TextLineHeight);
+        assert!(matches!(
+            &document.handlers[0].statements[1],
+            Statement::Assign { value: Expr::List(values), .. } if values.len() == 4
         ));
     }
 
