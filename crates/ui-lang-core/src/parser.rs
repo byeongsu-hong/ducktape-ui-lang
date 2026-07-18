@@ -8647,6 +8647,7 @@ fn parse_type(source: &str, line: &Line) -> Result<Type, Error> {
         "font-weight" => Type::FontWeight,
         "font-stretch" => Type::FontStretch,
         "font-style" => Type::FontStyle,
+        "theme-mode" => Type::ThemeMode,
         "length" => Type::Length,
         "alignment" => Type::Alignment,
         "horizontal-alignment" => Type::HorizontalAlignment,
@@ -9350,6 +9351,19 @@ mod tests {
         assert!(matches!(
             &document.handlers[0].statements[4],
             Statement::Assign { value: Expr::Call { name, .. }, .. } if name == "font.new"
+        ));
+    }
+
+    #[test]
+    fn parses_first_class_native_theme_mode() {
+        let source = include_str!("../../../examples/iced-app/src/ui/theme_mode.ice");
+        let document = parse(source).unwrap();
+        assert_eq!(document.functions[0].params[0].1, Type::ThemeMode);
+        assert_eq!(document.functions[0].output, Type::ThemeMode);
+        assert_eq!(document.states[0].ty, Type::ThemeMode);
+        assert!(matches!(
+            &document.handlers[0].statements[0],
+            Statement::Assign { value: Expr::Call { name, .. }, .. } if name == "theme_mode.default"
         ));
     }
 

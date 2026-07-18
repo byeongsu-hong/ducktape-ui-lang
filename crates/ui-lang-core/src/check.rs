@@ -3829,6 +3829,7 @@ fn lazy_hashable(ty: &Type) -> bool {
         | Type::Editor
         | Type::Event
         | Type::EventStatus
+        | Type::ThemeMode
         | Type::KeyLocation
         | Type::KeyPress
         | Type::KeyRelease
@@ -7626,6 +7627,10 @@ pub(crate) fn expr_type(
                 check_builtin_args(name, args, &[], env, document, span)?;
                 Ok(Type::FontStyle)
             }
+            "theme_mode.default" | "theme_mode.none" | "theme_mode.light" | "theme_mode.dark" => {
+                check_builtin_args(name, args, &[], env, document, span)?;
+                Ok(Type::ThemeMode)
+            }
             "interaction.default"
             | "interaction.none"
             | "interaction.hidden"
@@ -9100,6 +9105,7 @@ pub(crate) fn expr_type(
                                 | Type::FontWeight
                                 | Type::FontStretch
                                 | Type::FontStyle
+                                | Type::ThemeMode
                                 | Type::Border
                                 | Type::Radius
                                 | Type::Shadow
@@ -9302,6 +9308,10 @@ fn field_type(ty: &Type, field: &str, document: &Document, span: &Span) -> Resul
             _ => None,
         },
         Type::FontWeight | Type::FontStretch | Type::FontStyle => match field {
+            "kind" => Some(Type::Str),
+            _ => None,
+        },
+        Type::ThemeMode => match field {
             "kind" => Some(Type::Str),
             _ => None,
         },
@@ -9836,6 +9846,28 @@ mod tests {
         .unwrap_err();
         assert_eq!(error.code, "E153");
         assert!(error.message.contains("does not accept `font`"));
+    }
+
+    #[test]
+    fn checks_native_theme_mode_values_and_traits() {
+        let source = include_str!("../../../examples/iced-app/src/ui/theme_mode.ice");
+        analyze(source).unwrap();
+
+        let error = analyze(&source.replace(
+            "values_equal = returned == theme_mode.dark()",
+            "values_equal = returned < theme_mode.dark()",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E153");
+        assert!(error.message.contains("does not accept `theme-mode`"));
+
+        let error = analyze(&source.replace(
+            "    button \"Inspect\" -> inspect",
+            "    lazy returned as cached\n      text cached.kind",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E139");
+        assert!(error.message.contains("does not implement stable hashing"));
     }
 
     #[test]

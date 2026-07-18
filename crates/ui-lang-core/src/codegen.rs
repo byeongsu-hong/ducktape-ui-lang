@@ -8008,6 +8008,12 @@ fn native_field_projection(ty: &Type, field: &str, code: &str) -> Option<(String
             ),
             Type::Str,
         ),
+        (Type::ThemeMode, "kind") => (
+            format!(
+                "match ({code}) {{ ::iced::theme::Mode::None => \"none\", ::iced::theme::Mode::Light => \"light\", ::iced::theme::Mode::Dark => \"dark\" }}.to_owned()"
+            ),
+            Type::Str,
+        ),
         (Type::MouseInteraction, "kind") => (
             format!(
                 "match ({code}) {{ ::iced::mouse::Interaction::None => \"none\", ::iced::mouse::Interaction::Hidden => \"hidden\", ::iced::mouse::Interaction::Idle => \"idle\", ::iced::mouse::Interaction::ContextMenu => \"context-menu\", ::iced::mouse::Interaction::Help => \"help\", ::iced::mouse::Interaction::Pointer => \"pointer\", ::iced::mouse::Interaction::Progress => \"progress\", ::iced::mouse::Interaction::Wait => \"wait\", ::iced::mouse::Interaction::Cell => \"cell\", ::iced::mouse::Interaction::Crosshair => \"crosshair\", ::iced::mouse::Interaction::Text => \"text\", ::iced::mouse::Interaction::Alias => \"alias\", ::iced::mouse::Interaction::Copy => \"copy\", ::iced::mouse::Interaction::Move => \"move\", ::iced::mouse::Interaction::NoDrop => \"no-drop\", ::iced::mouse::Interaction::NotAllowed => \"not-allowed\", ::iced::mouse::Interaction::Grab => \"grab\", ::iced::mouse::Interaction::Grabbing => \"grabbing\", ::iced::mouse::Interaction::ResizingHorizontally => \"resize-horizontal\", ::iced::mouse::Interaction::ResizingVertically => \"resize-vertical\", ::iced::mouse::Interaction::ResizingDiagonallyUp => \"resize-diagonal-up\", ::iced::mouse::Interaction::ResizingDiagonallyDown => \"resize-diagonal-down\", ::iced::mouse::Interaction::ResizingColumn => \"resize-column\", ::iced::mouse::Interaction::ResizingRow => \"resize-row\", ::iced::mouse::Interaction::AllScroll => \"all-scroll\", ::iced::mouse::Interaction::ZoomIn => \"zoom-in\", ::iced::mouse::Interaction::ZoomOut => \"zoom-out\" }}.to_owned()"
@@ -8300,6 +8306,7 @@ fn expr_code(
                     | Type::FontWeight
                     | Type::FontStretch
                     | Type::FontStyle
+                    | Type::ThemeMode
                     | Type::MouseInteraction
                     | Type::ScrollDelta
                     | Type::EventStatus
@@ -8564,6 +8571,10 @@ fn expr_code(
                 "::iced::font::Style::{}",
                 pascal(name.strip_prefix("font_style.").expect("checked prefix"))
             ),
+            "theme_mode.default" => "::iced::theme::Mode::default()".into(),
+            "theme_mode.none" => "::iced::theme::Mode::None".into(),
+            "theme_mode.light" => "::iced::theme::Mode::Light".into(),
+            "theme_mode.dark" => "::iced::theme::Mode::Dark".into(),
             "interaction.default" => "::iced::mouse::Interaction::default()".into(),
             "interaction.none"
             | "interaction.hidden"
@@ -12937,6 +12948,22 @@ mod tests {
             "::iced::font::Family::Name(_) => \"named\"",
             "::iced::font::Family::Name(__value) => ::std::option::Option::Some(__value.to_owned())",
             "::iced::widget::lazy((self.returned_font,",
+        ] {
+            assert!(generated.contains(expected), "missing {expected}");
+        }
+    }
+
+    #[test]
+    fn lowers_every_native_theme_mode_operation() {
+        let source = include_str!("../../../examples/iced-app/src/ui/theme_mode.ice");
+        let generated = compile(source, "theme_mode.ice").unwrap();
+        for expected in [
+            "::iced::theme::Mode::default()",
+            "::iced::theme::Mode::None",
+            "::iced::theme::Mode::Light",
+            "::iced::theme::Mode::Dark",
+            "crate::backend::theme_mode_round_trip(::iced::theme::Mode::Dark)",
+            "::iced::theme::Mode::Dark => \"dark\"",
         ] {
             assert!(generated.contains(expected), "missing {expected}");
         }
