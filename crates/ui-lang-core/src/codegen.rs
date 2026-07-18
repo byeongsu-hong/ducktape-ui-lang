@@ -3151,10 +3151,10 @@ fn render_node(
             release,
             ..
         } => {
-            let value = expr_code(value, env, document, ValueMode::Owned)?;
-            let min = expr_code(min, env, document, ValueMode::Owned)?;
-            let max = expr_code(max, env, document, ValueMode::Owned)?;
-            let step = expr_code(step, env, document, ValueMode::Owned)?;
+            let value = expr_code(value, env, document, ValueMode::Borrowed)?;
+            let min = expr_code(min, env, document, ValueMode::Borrowed)?;
+            let max = expr_code(max, env, document, ValueMode::Borrowed)?;
+            let step = expr_code(step, env, document, ValueMode::Borrowed)?;
             let message_code = route_code(route, "__value", env, document, message)?;
             let helper = if *vertical {
                 "vertical_slider"
@@ -3168,7 +3168,7 @@ fn render_node(
                 write!(
                     code,
                     ".default({})",
-                    expr_code(default, env, document, ValueMode::Owned)?
+                    expr_code(default, env, document, ValueMode::Borrowed)?
                 )
                 .unwrap();
             }
@@ -3176,7 +3176,7 @@ fn render_node(
                 write!(
                     code,
                     ".shift_step({})",
-                    expr_code(shift_step, env, document, ValueMode::Owned)?
+                    expr_code(shift_step, env, document, ValueMode::Borrowed)?
                 )
                 .unwrap();
             }
@@ -10801,6 +10801,8 @@ view
     fn lowers_complex_native_controls() {
         let source = r#"app Controls
 extern crate::backend
+  SliderNumber()
+  sync slider_number(value:f64) -> SliderNumber
   slider-style dynamic_slider(active:bool)
   progress-style dynamic_progress(active:bool)
   radio-style dynamic_radio(highlight:bool)
@@ -10811,10 +10813,13 @@ theme
   danger #ff0000
 state
   amount = 50.0
+  precise:SliderNumber = slider_number(50.0)
   enabled = false
   choice = "first"
 on amount_changed(next)
   amount = next
+on precise_changed(next)
+  precise = next
 on released
 on enabled_changed(next)
   enabled = next
@@ -10829,6 +10834,7 @@ view
         hovered rail-start=foreground rail-end=background handle=rect(12) handle-color=foreground handle-radius=3.0 handle-radius-tl=1.0
         dragged rail-start=danger handle=circle(8.0) handle-color=danger
       slider amount min=0.0 max=100.0 step=1.0 width=fill height=18.0 style=dynamic_slider(enabled) -> amount_changed _
+      slider precise min=slider_number(0.0) max=slider_number(100.0) step=slider_number(5.0) default=slider_number(50.0) shift-step=slider_number(1.0) -> precise_changed _
       progress amount vertical length=fill(2) girth=20.0 style=dynamic_progress(enabled) background=linear(1.57, background@0.0, primary/25@1.0) bar=linear(0.0, primary/75@0.0, danger@1.0) border=foreground border-width=1.0 radius=4.0 radius-tl=2.0
       progress amount style=success
       progress amount style=warning
@@ -10868,6 +10874,10 @@ view
                 .count(),
             2
         );
+        assert!(generated.contains(
+            "::iced::widget::slider((crate::backend::slider_number(0.0))..=(crate::backend::slider_number(100.0)), self.precise, move |__value| __ControlsMessage::PreciseChanged(__value)).step(crate::backend::slider_number(5.0))"
+        ));
+        assert!(!generated.contains("self.precise.clone()"));
         assert!(generated.contains("slider::Status::Active"));
         assert!(generated.contains("slider::Status::Hovered"));
         assert!(generated.contains("slider::Status::Dragged"));

@@ -15,7 +15,7 @@ counts toward the row below.
 
 ## Typed system reachability
 
-Ice 1.16 has twenty-five checked Rust boundaries:
+Ice 1.17 has twenty-five checked Rust boundaries:
 
 | Boundary | Rust ABI | Covers |
 | --- | --- | --- |
@@ -80,7 +80,7 @@ public behavior has direct documented Ice syntax and tests.
 | `scrollable` | native | native content/ID, every concrete builder setter, all Viewport getters, every Status field through ordered selectors, every concrete Style field for container, rails, scrollers, gap and auto-scroll overlay, and typed theme/status-aware runtime callbacks covering the default Theme's advanced classes |
 | `sensor` | native | show/resize dimensions, hide, comparable owned keys, anticipation and delay; owned keys provide the same continuity behavior as `key_ref` without borrowed lifetimes |
 | `shader` | native | typed factory for any concrete native `shader::Program<Event>`, complete width/height builder API, checked message routing, and generated Program/Element probes; the Rust program retains complete State, Primitive, Pipeline/Storage, update/action, draw and mouse-interaction behavior |
-| `slider` | partial | native f64 behavior/sizing plus nested active/hovered/dragged styles covering solid/linear rail and handle backgrounds, border/radius and circle/rectangle handles, with typed theme/status-aware runtime callbacks covering advanced classes; generic numeric values remain |
+| `slider` | native | native f64 or arbitrary typed extern numeric values with Rust-verified iced Slider bounds; complete default/normal+shift step, sizing and change/release behavior; every concrete Style field across active/hovered/dragged including solid/linear rail and handle backgrounds, border/per-corner radius and circle/rectangle handles; typed theme/status-aware runtime callbacks cover advanced classes |
 | `space` | native | optional fixed/fill/fill-portion/shrink width and height cover the complete widget API |
 | `stack` | native | ordered children, all `Length` widths/heights, clipping and `push_under` base-layer behavior via `under=N` |
 | `svg` | native | native path or UTF-8/raw byte memory source, all four iced length variants, fit, rotation, opacity, complete idle/hovered color style, and typed theme/status-aware runtime callbacks covering the default Theme's advanced classes |

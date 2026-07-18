@@ -5,9 +5,11 @@ font ui family=sans weight=medium stretch=normal style=normal default=true
 extern crate::backend
   Task(id:i64, title:str, done:bool)
   AppError(message:str)
+  SliderNumber()
   list_tasks() -> [Task] ! AppError
   create_task(title:str) -> [Task] ! AppError
   set_task_done(id:i64, done:bool) -> [Task] ! AppError
+  sync slider_number(value:f64) -> SliderNumber
   component native_help(active:bool) -> bool
   markdown-viewer docs_viewer(prefix:str) -> str
   text-style summary_text(busy:bool)
@@ -43,6 +45,7 @@ state
   loading = false
   error = ""
   volume = 40.0
+  precise_volume:SliderNumber = slider_number(40.0)
   notifications = true
   view_mode = 0
   display_modes = ["List", "Board", "Timeline"]
@@ -134,6 +137,9 @@ on failed(cause)
 
 on volume_changed(next)
   volume = next
+
+on precise_volume_changed(next)
+  precise_volume = next
 
 on volume_committed
 
@@ -483,6 +489,7 @@ view
           hovered rail-start=foreground rail-end=border rail-width=5.0 handle=rect(12) handle-color=foreground handle-radius=3.0
           dragged rail-start=danger rail-end=border handle=circle(8.0) handle-color=danger handle-border=foreground handle-border-width=1.0
         slider volume min=0.0 max=100.0 step=5.0 default=50.0 shift-step=1.0 vertical width=20.0 height=120.0 style=volume_slider(loading) release=volume_committed -> volume_changed _
+        slider precise_volume min=slider_number(0.0) max=slider_number(100.0) step=slider_number(0.5) default=slider_number(50.0) shift-step=slider_number(0.1) style=volume_slider(loading) -> precise_volume_changed _
         progress volume length=fill girth=24.0 style=loading_progress(loading) background=linear(1.57, background@0.0, surface@1.0) bar=linear(0.0, primary@0.0, foreground@1.0) border=foreground border-width=1.0 radius=4.0 radius-tl=2.0
         progress volume vertical length=120.0 girth=20.0 style=warning background=linear(1.57, background@0.0, surface@1.0) bar=linear(0.0, danger@0.0, primary@1.0) radius=3.0
         extern native_help(external_hover) -> external_hover_changed _

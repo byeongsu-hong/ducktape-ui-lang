@@ -1,4 +1,4 @@
-# Ice Language Specification 1.16
+# Ice Language Specification 1.17
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 1.16 syntax.
+marked “planned” is a design constraint, not accepted 1.17 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 1.16.
+  block comments are not part of 1.17.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -971,7 +971,7 @@ maximum size. `icon-rgba` embeds a relative raw RGBA file without an image
 codec; width and height are positive integers, and generated Rust rejects a
 byte length other than `width × height × 4`. `cargo ice check` reports a
 mismatch at the icon declaration, and generated Rust repeats the check at
-compile time. Encoded icon formats remain outside 1.16.
+compile time. Encoded icon formats remain outside 1.17.
 
 Application boot presets are structured top-level declarations:
 
@@ -1162,11 +1162,35 @@ checked in `0.0..=0.5` to keep the foreground dimensions non-negative.
 Rust function receives `&iced::Theme`, `toggler::Status`, then its owned
 arguments and returns `toggler::Style`. Status lines override that base.
 
-`slider` uses positive f64 normal and shift steps, an optional in-range default
-for command/control-click reset, and an optional release route. Horizontal
+`slider` accepts `f64` or one extern named numeric type consistently across its
+value, range, step, optional default, and optional shift step. The route carries
+that exact type. `f64` steps are statically positive and literal defaults stay
+inside literal ranges. A generic slider supplies an explicit same-type step;
+generated Rust verifies iced's native `Copy`, `From<u8>`, `PartialOrd`,
+`Into<f64>`, and `FromPrimitive` bounds. A zero-field extern declaration can
+name a Rust numeric alias without exposing fake fields:
+
+```ice
+extern crate::backend
+  SliderNumber()
+  sync slider_number(value:f64) -> SliderNumber
+
+state
+  precise:SliderNumber = slider_number(50.0)
+
+on precise_changed(next)
+  precise = next
+
+view
+  slider precise min=slider_number(0.0) max=slider_number(100.0) step=slider_number(0.5) -> precise_changed _
+```
+
+The optional default handles command/control-click reset and an optional release
+route reports interaction completion. Horizontal
 sliders accept any length for width and fixed height; vertical sliders accept
-fixed width and any length for height. Literal reversed ranges, invalid defaults,
-and fluid cross-axis sizes are rejected before code generation.
+fixed width and any length for height. For `f64`, literal reversed ranges and
+invalid defaults are rejected before code generation; fluid cross-axis sizes
+are rejected for every slider type.
 
 A slider may own one nested `active`, `hovered`, and `dragged` style block.
 `style=volume_slider(loading)` may call a declared `slider-style` whose Rust
@@ -1475,7 +1499,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 1.16 message payloads.
+`Clone` for 1.17 message payloads.
 
 Declared `sync` functions are checked, synchronous Rust calls available in
 Ice expressions. They are the small escape hatch for pure domain conversions
@@ -1876,7 +1900,7 @@ The implemented native nodes are:
 | `button` | string label or one child; optional ID/disabled, typed size/padding/clip, eight presets, complete status styles, typed native runtime style callbacks and required route |
 | `checkbox` | string label, bool value/route, disabled, sizing/typography/wrapping/font, custom icon, four presets and complete checked-aware status styles |
 | `toggler` | string label, bool value/route, disabled, sizing/typography/wrapping/font/alignment and complete checked-aware status styles |
-| `slider` | `f64` value/range/default/normal+shift steps, direction-aware sizing, change/release routes and nested status styles |
+| `slider` | `f64` or typed extern numeric value/range/default/normal+shift steps, direction-aware sizing, change/release routes and nested status styles |
 | `progress` | `f64` value/range, all length/girth variants, vertical axis, five presets, complete concrete style overrides and typed native runtime style callbacks |
 | `radio` | string label, bool/i64/f64/str/extern value route, bool selection, complete sizing/typography/font and selected-aware status styles |
 | `pick` | `[T]` options, `T?` selection, complete typography/handle/status/menu configuration, typed native field/menu style callbacks and `T`-payload route |
@@ -2544,7 +2568,7 @@ snap/end; and absolute scroll-to/scroll-by. Effects have no route and
 non-negative `i64`; relative offsets are `f64` in `0.0..=1.0`; absolute
 offsets are unrestricted `f64`. Targets must be real static IDs in the app
 scope. Repeated/component scopes and the feature-gated selector API remain
-outside 1.16.
+outside 1.17.
 
 Persistent pane grids expose their native layout-state operations directly in
 handlers:
@@ -2798,7 +2822,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 1.16 does not claim that remapping.
+extern line; 1.17 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -2819,7 +2843,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 1.16 native backend is enough for CRUD/settings-style screens, selection,
+The 1.17 native backend is enough for CRUD/settings-style screens, selection,
 media, hover overlays, declarative canvas geometry, and common pointer events,
 not all of iced. It still lacks direct syntax for arbitrary custom overlays,
 and custom widgets. [`COVERAGE.md`](COVERAGE.md) is the exact versioned ledger.

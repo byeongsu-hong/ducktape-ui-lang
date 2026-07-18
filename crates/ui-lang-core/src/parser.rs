@@ -1023,11 +1023,13 @@ fn parse_extern_struct(line: &Line, namespace: &str) -> Result<ExternStruct, Err
     ensure_leaf(line)?;
     let (name, fields) = parse_signature(&line.text, line)?;
     let mut parsed_fields = Vec::new();
-    for field in split_top(&fields, ',') {
-        let Some((name, ty)) = field.split_once(':') else {
-            return Err(error("E020", line, "struct fields use `name:type`"));
-        };
-        parsed_fields.push((identifier(name.trim(), line)?, parse_type(ty.trim(), line)?));
+    if !fields.trim().is_empty() {
+        for field in split_top(&fields, ',') {
+            let Some((name, ty)) = field.split_once(':') else {
+                return Err(error("E020", line, "struct fields use `name:type`"));
+            };
+            parsed_fields.push((identifier(name.trim(), line)?, parse_type(ty.trim(), line)?));
+        }
     }
     Ok(ExternStruct {
         rust_path: format!("{namespace}::{name}"),
