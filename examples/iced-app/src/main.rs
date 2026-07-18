@@ -283,6 +283,19 @@ mod backend {
     }
 
     #[cfg(test)]
+    pub fn task_scroll(
+        theme: &iced::Theme,
+        status: iced::widget::scrollable::Status,
+        active: bool,
+    ) -> iced::widget::scrollable::Style {
+        let mut style = iced::widget::scrollable::default(theme, status);
+        if active {
+            style.container.text_color = Some(theme.palette().text);
+        }
+        style
+    }
+
+    #[cfg(test)]
     impl<'a> iced::widget::markdown::Viewer<'a, String> for DocsViewer {
         fn on_link_click(url: iced::widget::markdown::Uri) -> String {
             url

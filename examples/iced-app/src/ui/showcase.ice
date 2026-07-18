@@ -18,6 +18,7 @@ extern crate::backend
   container-style summary_container(busy:bool)
   svg-style status_svg(active:bool)
   input-style form_input(disabled:bool)
+  scroll-style task_scroll(active:bool)
   task copy_text(text:str) -> unit ! AppError
   subscription app_events() -> bool
 
@@ -589,7 +590,7 @@ view
           text "Dynamic preview" @text-sm text-foreground
           button "Close nested preview" -> close_nested_preview
 
-    scroll #task-list direction=vertical width=fill height=fill bar=visible bar-width=8.0 bar-margin=2.0 scroller-width=6.0 bar-spacing=2.0 anchor-y=start auto=true viewport=task_list_scrolled
+    scroll #task-list direction=vertical width=fill height=fill bar=visible bar-width=8.0 bar-margin=2.0 scroller-width=6.0 bar-spacing=2.0 anchor-y=start auto=true viewport=task_list_scrolled style=task_scroll(loading)
       keyed task in tasks by=task.id width=fill height=shrink spacing=8.0 padding=4.0 padding-left=8.0 max-width=720.0 align=center
         TaskRow task=task loading=loading
       active vertical-disabled=false

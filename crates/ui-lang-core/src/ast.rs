@@ -371,6 +371,7 @@ pub enum ExternKind {
     ContainerStyle,
     SvgStyle,
     InputStyle,
+    ScrollStyle,
 }
 
 #[derive(Clone, Debug)]
@@ -2302,6 +2303,7 @@ pub struct ScrollOptions {
     pub auto_scroll: Option<Expr>,
     pub route: Option<Route>,
     pub viewport_route: Option<Route>,
+    pub custom_style: Option<ExternCall>,
     pub styles: Vec<ScrollStatusStyle>,
 }
 
@@ -2321,6 +2323,7 @@ impl Default for ScrollOptions {
             auto_scroll: None,
             route: None,
             viewport_route: None,
+            custom_style: None,
             styles: Vec::new(),
         }
     }

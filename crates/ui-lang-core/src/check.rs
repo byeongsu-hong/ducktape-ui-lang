@@ -876,6 +876,11 @@ fn infer_view(
                         "complete scroll viewport",
                     )?;
                 }
+                if let Some(style) = &scroll.custom_style {
+                    let function =
+                        extern_function(document, &style.function, ExternKind::ScrollStyle, span)?;
+                    check_call_args(function, &style.args, env, document, span)?;
+                }
                 check_scroll_styles(&scroll.styles, env, document)?;
             }
             check_styles(styles, document, span, StyleTarget::Layout(*kind))?;
@@ -5565,6 +5570,7 @@ fn extern_function<'a>(
                 ExternKind::ContainerStyle => "container style",
                 ExternKind::SvgStyle => "svg style",
                 ExternKind::InputStyle => "input style",
+                ExternKind::ScrollStyle => "scroll style",
             };
             Error::new("E130", span, format!("unknown extern {label} `{name}`"))
         })
@@ -8380,12 +8386,15 @@ view
     #[test]
     fn checks_scrollable_configuration_and_offsets() {
         let source = r#"app Scrolling
+extern crate::backend
+  scroll-style dynamic_scroll(busy:bool)
 theme
   background #000000
   foreground #ffffff
   primary #333333
   danger #ff0000
 state
+  busy = false
   absolute_x = 0.0
   absolute_y = 0.0
   relative_x = 0.0
@@ -8398,9 +8407,9 @@ on scrolled(ax, ay, rx, ry)
 on viewport(ax, ay, reversed_x, reversed_y, rx, ry, bx, by, bw, bh, cx, cy, cw, ch)
 view
   col
-    scroll #feed direction=both width=fill height=200.0 bar=hidden bar-width=8.0 bar-margin=2.0 scroller-width=6.0 bar-spacing=4.0 anchor-x=end anchor-y=start auto=true scroll=scrolled
+    scroll #feed direction=both width=fill height=200.0 bar=hidden bar-width=8.0 bar-margin=2.0 scroller-width=6.0 bar-spacing=4.0 anchor-x=end anchor-y=start auto=true scroll=scrolled style=dynamic_scroll(busy)
       text "Legacy offsets"
-    scroll direction=both width=fill height=200.0 viewport=viewport
+    scroll direction=both width=fill height=200.0 viewport=viewport style=dynamic_scroll(busy)
       col
         text "Complete viewport"
       active horizontal-disabled=false vertical-disabled=false
@@ -8437,6 +8446,19 @@ view
         .unwrap_err();
         assert_eq!(error.code, "E074");
         assert!(error.message.contains("either scroll= or viewport="));
+
+        let error = analyze(&source.replace("dynamic_scroll(busy)", "missing(busy)")).unwrap_err();
+        assert_eq!(error.code, "E130");
+        assert!(error.message.contains("scroll style"));
+
+        let error = analyze(&source.replace("dynamic_scroll(busy)", "dynamic_scroll(absolute_x)"))
+            .unwrap_err();
+        assert_eq!(error.code, "E101");
+
+        let error =
+            analyze(&source.replace("style=dynamic_scroll(busy)", "style=primary")).unwrap_err();
+        assert_eq!(error.code, "E074");
+        assert!(error.message.contains("declared style call"));
     }
 
     #[test]

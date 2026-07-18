@@ -142,6 +142,13 @@ pub fn parse(source: &str) -> Result<Document, Error> {
                         &path,
                         ExternKind::InputStyle,
                     )?);
+                } else if let Some(source) = item.text.strip_prefix("scroll-style ") {
+                    functions.push(parse_extern_fn(
+                        &format!("{source} -> unit"),
+                        item,
+                        &path,
+                        ExternKind::ScrollStyle,
+                    )?);
                 } else if item.text.chars().next().is_some_and(char::is_uppercase) {
                     structs.push(parse_extern_struct(item, &path)?);
                 } else {
@@ -1074,6 +1081,7 @@ fn parse_extern_fn(
                 | ExternKind::ContainerStyle
                 | ExternKind::SvgStyle
                 | ExternKind::InputStyle
+                | ExternKind::ScrollStyle
         )
     {
         return Err(error(
@@ -6230,6 +6238,14 @@ fn parse_layout_options(kind: &str, parts: &[String], line: &Line) -> Result<Lay
                 scroll.route = Some(parse_payload_route(value, line, 4)?);
             } else if let Some(value) = part.strip_prefix("viewport=") {
                 scroll.viewport_route = Some(parse_payload_route(value, line, 14)?);
+            } else if let Some(value) = part.strip_prefix("style=") {
+                let (function, args) = parse_signature(value, line).map_err(|_| {
+                    error("E074", line, "scroll style must be a declared style call")
+                })?;
+                scroll.custom_style = Some(ExternCall {
+                    function,
+                    args: parse_expr_list(&args, line)?,
+                });
             } else {
                 return Err(error(
                     "E074",
