@@ -257,6 +257,19 @@ mod backend {
     }
 
     #[cfg(test)]
+    pub fn status_svg(
+        theme: &iced::Theme,
+        status: iced::widget::svg::Status,
+        active: bool,
+    ) -> iced::widget::svg::Style {
+        let color = active.then(|| match status {
+            iced::widget::svg::Status::Idle => theme.palette().text,
+            iced::widget::svg::Status::Hovered => theme.palette().primary,
+        });
+        iced::widget::svg::Style { color }
+    }
+
+    #[cfg(test)]
     impl<'a> iced::widget::markdown::Viewer<'a, String> for DocsViewer {
         fn on_link_click(url: iced::widget::markdown::Uri) -> String {
             url

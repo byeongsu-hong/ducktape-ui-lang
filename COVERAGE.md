@@ -15,7 +15,7 @@ counts toward the row below.
 
 ## Typed system reachability
 
-Ice 1.08 has eighteen checked Rust boundaries:
+Ice 1.09 has nineteen checked Rust boundaries:
 
 | Boundary | Rust ABI | Covers |
 | --- | --- | --- |
@@ -37,6 +37,7 @@ Ice 1.08 has eighteen checked Rust boundaries:
 | `toggler-style name(args)` | `fn(&Theme, toggler::Status, ...) -> toggler::Style` | native checked/status-aware runtime toggler style callbacks, equivalent to the default Theme's advanced class representation |
 | `radio-style name(args)` | `fn(&Theme, radio::Status, ...) -> radio::Style` | native selection/status-aware runtime radio style callbacks, equivalent to the default Theme's advanced class representation |
 | `container-style name(args)` | `fn(&Theme, ...) -> container::Style` | native theme-aware runtime container style callbacks, equivalent to the default Theme's advanced class representation |
+| `svg-style name(args)` | `fn(&Theme, svg::Status, ...) -> svg::Style` | native theme/status-aware runtime SVG style callbacks, equivalent to the default Theme's advanced class representation |
 
 Generated probes verify the concrete Rust signatures. Reachability is not the
 same as native coverage: a row stays partial or missing until its complete
@@ -76,7 +77,7 @@ public behavior has direct documented Ice syntax and tests.
 | `slider` | partial | native f64 behavior/sizing plus nested active/hovered/dragged styles covering solid/linear rail and handle backgrounds, border/radius and circle/rectangle handles; generic numeric values, arbitrary runtime closures and advanced classes missing |
 | `space` | native | optional fixed/fill/fill-portion/shrink width and height cover the complete widget API |
 | `stack` | native | ordered children, all `Length` widths/heights, clipping and `push_under` base-layer behavior via `under=N` |
-| `svg` | partial | native path or UTF-8/raw byte memory source, all four iced length variants, fit, rotation, opacity and complete idle/hovered color style; advanced classes remain |
+| `svg` | native | native path or UTF-8/raw byte memory source, all four iced length variants, fit, rotation, opacity, complete idle/hovered color style, and typed theme/status-aware runtime callbacks covering the default Theme's advanced classes |
 | `table` | native | typed cloned rows, arbitrary header/cell subtrees, automatic row/column identity scopes, all table width/padding/separator setters and all column width/alignment setters |
 | `text` | partial | native string/numeric text plus structured rich spans; Rich bounds, size, relative/absolute line height, font, alignment, wrapping, color and str link events; every concrete Span field including solid/linear highlight background, border/per-corner radius/padding/underline/strike; arbitrary style classes remain |
 | `text_editor` | partial | owned/replaced app state, generated action application, every concrete builder setter except custom key binding/highlighter, all five built-in highlight themes, and every concrete Style field across active/hovered/focused/focused-hovered/disabled statuses; component-owned bindings and advanced classes remain |

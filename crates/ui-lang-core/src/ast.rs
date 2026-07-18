@@ -369,6 +369,7 @@ pub enum ExternKind {
     TogglerStyle,
     RadioStyle,
     ContainerStyle,
+    SvgStyle,
 }
 
 #[derive(Clone, Debug)]
@@ -1692,6 +1693,7 @@ pub struct MediaOptions {
     pub svg_memory: bool,
     pub svg_color: Option<String>,
     pub svg_hover_color: Option<Option<String>>,
+    pub svg_style: Option<ExternCall>,
     pub filter: Option<ImageFilter>,
     pub scale: Option<Expr>,
     pub expand: Option<Expr>,
