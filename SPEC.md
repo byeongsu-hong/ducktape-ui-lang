@@ -1,4 +1,4 @@
-# Ice Language Specification 0.99
+# Ice Language Specification 1.00
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 0.99 syntax.
+marked “planned” is a design constraint, not accepted 1.00 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 0.99.
+  block comments are not part of 1.00.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -132,9 +132,11 @@ document       = app_decl extern_decl? theme_decl qr_decl* state_decl? preset_de
                  component_decl* handler_decl* subscribe_decl? view_decl
 
 app_decl       = "app" PascalName (INDENT app_setting*)?
-app_setting    = "title" string | "id" string | "font" string
+app_setting    = "title" expr | "theme" expr
+               | ("background" | "text-color") expr
+               | "id" string | "font" string
                | "executor" rust_path
-               | ("default-text-size" | "scale-factor") number
+               | "default-text-size" number | "scale-factor" expr
                | ("antialiasing" | "vsync") bool
                | window_decl
 window_decl    = "window" name? INDENT window_setting*
@@ -811,11 +813,15 @@ route          = name | name "(" route_arg_list? ")"
 route_arg      = expr | "_"
 ```
 
-Application configuration is static and lives under the app declaration:
+Application configuration lives under the app declaration. The four iced
+callbacks accept state expressions directly:
 
 ```ice
 app Tasks
-  title "Ice Tasks"
+  title window_title
+  theme app_theme
+  background app_background
+  text-color app_text
   id "dev.ducktape.ice.tasks"
   executor iced::executor::Default
   font "assets/Inter-Regular.ttf"
@@ -823,7 +829,7 @@ app Tasks
   default-text-size 16
   antialiasing true
   vsync true
-  scale-factor 1
+  scale-factor ui_scale
   window
     icon-rgba "assets/app.rgba" 32 32
     size 960 720
@@ -835,9 +841,25 @@ app Tasks
     size 640 480
     min-size 320 240
     position centered
+
+state
+  window_title = "Ice Tasks"
+  app_theme = "app"
+  app_background = "#0f172a"
+  app_text = "#f8fafc"
+  ui_scale = 1.0
 ```
 
-The application values lower to iced `Settings` and builder configuration.
+`title`, `theme`, `background`, `text-color`, and `scale-factor` are recomputed
+from current state through iced's native callbacks. Title/theme/style values are
+typed `str`; scale is `f64`. Theme accepts `app`, `default`, or any of iced's 22
+kebab-case built-ins. Application colors accept 3/4/6/8 digit hexadecimal
+strings. Invalid dynamic theme/color values safely retain the generated app
+theme or selected theme base style, and a non-positive dynamic scale is clamped
+to `f32::EPSILON`. Literal mistakes are rejected during analysis.
+
+The remaining application values lower to iced `Settings` and builder
+configuration.
 `executor` is a Rust type path passed to iced's typed `Application::executor`;
 rustc reports a local generated-code error when the type is missing or does not
 implement `iced::Executor`.
@@ -858,7 +880,7 @@ codec; width and height are positive integers, and generated Rust rejects a
 byte length other than `width × height × 4`. `cargo ice check` reports a
 mismatch at the icon declaration, and generated Rust repeats the check at
 compile time. Encoded icon formats and platform-specific settings are not part
-of 0.99.
+of 1.00.
 
 Application boot presets are structured top-level declarations:
 
@@ -1298,7 +1320,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 0.99 message payloads.
+`Clone` for 1.00 message payloads.
 
 Declared `sync` functions are checked, synchronous Rust calls available in
 Ice expressions. They are the small escape hatch for pure domain conversions
@@ -2305,7 +2327,7 @@ snap/end; and absolute scroll-to/scroll-by. Effects have no route and
 non-negative `i64`; relative offsets are `f64` in `0.0..=1.0`; absolute
 offsets are unrestricted `f64`. Targets must be real static IDs in the app
 scope. Repeated/component scopes and the feature-gated selector API remain
-outside 0.99.
+outside 1.00.
 
 Persistent pane grids expose their native layout-state operations directly in
 handlers:
@@ -2381,7 +2403,7 @@ all modes, decorations, user attention, focus, level, system menu, mouse
 passthrough, monitor size, and automatic tabbing. Positive sizes, bool
 arguments, and target IDs are checked before Rust generation. Runtime icon
 changes, raw window callbacks/handles, and platform settings remain outside
-0.99.
+1.00.
 
 Every iced window event has a direct subscription form:
 
@@ -2536,7 +2558,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 0.99 does not claim that remapping.
+extern line; 1.00 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -2557,7 +2579,7 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 0.99 native backend is enough for CRUD/settings-style screens, selection,
+The 1.00 native backend is enough for CRUD/settings-style screens, selection,
 media, hover overlays, declarative canvas geometry, and common pointer events,
 not all of iced. It still lacks direct syntax for arbitrary custom overlays,
 and custom widgets. [`COVERAGE.md`](COVERAGE.md) is the exact versioned ledger.

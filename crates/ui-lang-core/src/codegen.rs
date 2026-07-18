@@ -125,9 +125,7 @@ pub fn generate(document: &Document, source_path: &str) -> Result<String, Error>
         .settings
         .title
         .as_ref()
-        .map_or_else(String::new, |title| {
-            format!(".title({})", rust_string(title))
-        });
+        .map_or("", |_| ".title(Self::__title)");
     let settings = app_settings_code(&document.settings);
     let fonts = font_assets_code(&document.settings, source_path);
     let window = window_settings_code(document.settings.window.as_ref(), source_path);
@@ -156,13 +154,18 @@ pub fn generate(document: &Document, source_path: &str) -> Result<String, Error>
     let scale_factor = document
         .settings
         .scale_factor
-        .map_or_else(String::new, |scale| {
-            format!(".scale_factor(|_| {scale} as f32)")
-        });
-    writeln!(out, "::iced::application(Self::__boot, Self::__update, Self::__view){title}{subscription}.theme(Self::__theme){settings}{default_font}{fonts}{window}{scale_factor}{executor}{presets}.run()").unwrap();
+        .as_ref()
+        .map_or("", |_| ".scale_factor(Self::__scale_factor)");
+    let style = if document.settings.background.is_some() || document.settings.text_color.is_some()
+    {
+        ".style(Self::__style)"
+    } else {
+        ""
+    };
+    writeln!(out, "::iced::application(Self::__boot, Self::__update, Self::__view){title}{subscription}.theme(Self::__theme){style}{settings}{default_font}{fonts}{window}{scale_factor}{executor}{presets}.run()").unwrap();
     writeln!(out, "}}").unwrap();
 
-    generate_theme(&mut out, document);
+    generate_theme(&mut out, document)?;
     generate_boot(&mut out, document, &message)?;
     generate_presets(&mut out, document, &message)?;
     generate_update(&mut out, document, &message)?;
@@ -734,7 +737,8 @@ fn generate_extern_probes(out: &mut String, document: &Document) {
     }
 }
 
-fn generate_theme(out: &mut String, document: &Document) {
+fn generate_theme(out: &mut String, document: &Document) -> Result<(), Error> {
+    let env = state_env(document, "self");
     let color = |name: &str, fallback: &str| {
         color_code(
             document
@@ -745,7 +749,7 @@ fn generate_theme(out: &mut String, document: &Document) {
             None,
         )
     };
-    writeln!(out, "fn __theme(&self) -> ::iced::Theme {{").unwrap();
+    writeln!(out, "fn __app_theme() -> ::iced::Theme {{").unwrap();
     writeln!(
         out,
         "::iced::Theme::custom(\"{}\", ::iced::theme::Palette {{",
@@ -759,6 +763,50 @@ fn generate_theme(out: &mut String, document: &Document) {
     writeln!(out, "warning: {},", color("danger", "#c3423f")).unwrap();
     writeln!(out, "danger: {},", color("danger", "#c3423f")).unwrap();
     writeln!(out, "}})\n}}").unwrap();
+    writeln!(out, "fn __theme(&self) -> ::iced::Theme {{").unwrap();
+    if let Some(setting) = &document.settings.theme {
+        let value = expr_code(&setting.value, &env, document, ValueMode::Owned)?;
+        writeln!(out, "match ({value}).as_str() {{").unwrap();
+        writeln!(out, "\"app\" => Self::__app_theme(),").unwrap();
+        writeln!(out, "\"default\" => <::iced::Theme as ::iced::theme::Base>::default(::iced::theme::Mode::None),").unwrap();
+        for name in BUILT_IN_THEMES {
+            writeln!(out, "\"{name}\" => ::iced::Theme::{},", pascal(name)).unwrap();
+        }
+        writeln!(out, "_ => Self::__app_theme(),\n}}").unwrap();
+    } else {
+        writeln!(out, "Self::__app_theme()").unwrap();
+    }
+    writeln!(out, "}}").unwrap();
+    if let Some(setting) = &document.settings.title {
+        let value = expr_code(&setting.value, &env, document, ValueMode::Owned)?;
+        writeln!(
+            out,
+            "fn __title(&self) -> ::std::string::String {{ {value} }}"
+        )
+        .unwrap();
+    }
+    if document.settings.background.is_some() || document.settings.text_color.is_some() {
+        writeln!(out, "fn __style(&self, __theme: &::iced::Theme) -> ::iced::theme::Style {{ let mut __style = ::iced::theme::Base::base(__theme);").unwrap();
+        for (setting, field) in [
+            (&document.settings.background, "background_color"),
+            (&document.settings.text_color, "text_color"),
+        ] {
+            if let Some(setting) = setting {
+                let value = expr_code(&setting.value, &env, document, ValueMode::Owned)?;
+                writeln!(out, "__style.{field} = ({value}).parse::<::iced::Color>().unwrap_or(__style.{field});").unwrap();
+            }
+        }
+        writeln!(out, "__style }}").unwrap();
+    }
+    if let Some(setting) = &document.settings.scale_factor {
+        let value = expr_code(&setting.value, &env, document, ValueMode::Owned)?;
+        writeln!(
+            out,
+            "fn __scale_factor(&self) -> f32 {{ (({value}) as f32).max(f32::EPSILON) }}"
+        )
+        .unwrap();
+    }
+    Ok(())
 }
 
 fn generate_boot(out: &mut String, document: &Document, message: &str) -> Result<(), Error> {
@@ -8888,7 +8936,7 @@ fn theme_color(document: &Document, token: &str) -> String {
 fn theme_preset_code(preset: &ThemePreset) -> String {
     match preset {
         ThemePreset::Default => "::std::option::Option::None".into(),
-        ThemePreset::App => "::std::option::Option::Some(Self::__theme(self))".into(),
+        ThemePreset::App => "::std::option::Option::Some(Self::__app_theme())".into(),
         ThemePreset::BuiltIn(name) => format!(
             "::std::option::Option::Some(::iced::Theme::{})",
             pascal(name)
@@ -8981,6 +9029,9 @@ mod tests {
     fn lowers_complete_common_application_and_window_settings() {
         let source = r#"app Configured
   title "Configured app"
+  theme "dark"
+  background "123456"
+  text-color "abcdef"
   id "dev.example.configured"
   executor iced::executor::Default
   font "fonts/Brand.ttf"
@@ -9027,7 +9078,12 @@ view
 "#;
         let generated = compile(source, "configured.ice").unwrap();
         for expected in [
-            ".title(\"Configured app\")",
+            ".title(Self::__title)",
+            ".theme(Self::__theme).style(Self::__style)",
+            "fn __title(&self) -> ::std::string::String",
+            "\"dark\" => ::iced::Theme::Dark",
+            "fn __style(&self, __theme: &::iced::Theme)",
+            "parse::<::iced::Color>()",
             ".executor::<iced::executor::Default>()",
             ".presets([::iced::Preset::new(\"ready\", Self::__preset_0)])",
             "fn __preset_0()",
@@ -9057,7 +9113,8 @@ view
             "__ICE_RGBA.len() == 8",
             "window::icon::from_rgba(__ICE_RGBA.to_vec(), 2, 1)",
             "exit_on_close_request: false",
-            ".scale_factor(|_| 1.25 as f32)",
+            ".scale_factor(Self::__scale_factor)",
+            "fn __scale_factor(&self) -> f32",
         ] {
             assert!(generated.contains(expected), "missing {expected}");
         }
@@ -9068,6 +9125,20 @@ view
         )
         .unwrap_err();
         assert_eq!(error.code, "E101");
+
+        for (from, to, expected) in [
+            ("title \"Configured app\"", "title ready", "expected `str`"),
+            ("theme \"dark\"", "theme \"unknown\"", "unknown iced theme"),
+            (
+                "background \"123456\"",
+                "background \"not-a-color\"",
+                "hexadecimal",
+            ),
+            ("scale-factor 1.25", "scale-factor 0", "greater than zero"),
+        ] {
+            let error = compile(&source.replace(from, to), "configured.ice").unwrap_err();
+            assert!(error.message.contains(expected), "{error:?}");
+        }
     }
 
     #[test]
@@ -9399,7 +9470,7 @@ view
       text "Default mode"
 "#;
         let generated = compile(source, "themes.ice").unwrap();
-        assert!(generated.contains("themer(::std::option::Option::Some(Self::__theme(self))"));
+        assert!(generated.contains("themer(::std::option::Option::Some(Self::__app_theme())"));
         assert!(
             generated.contains("themer(::std::option::Option::Some(::iced::Theme::TokyoNight)")
         );

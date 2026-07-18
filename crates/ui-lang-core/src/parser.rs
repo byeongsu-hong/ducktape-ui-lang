@@ -267,7 +267,10 @@ fn parse_app_settings(line: &Line) -> Result<AppSettings, Error> {
             };
         }
         match name {
-            "title" => set!(title, string_literal(value, item)?),
+            "title" => set!(title, app_expression(value, item)?),
+            "theme" => set!(theme, app_expression(value, item)?),
+            "background" => set!(background, app_expression(value, item)?),
+            "text-color" => set!(text_color, app_expression(value, item)?),
             "id" => set!(id, string_literal(value, item)?),
             "executor" => set!(executor, rust_path(value, item)?),
             "font" => {
@@ -293,13 +296,28 @@ fn parse_app_settings(line: &Line) -> Result<AppSettings, Error> {
             "default-text-size" => set!(default_text_size, config_positive_number(value, item)?),
             "antialiasing" => set!(antialiasing, config_bool(value, item)?),
             "vsync" => set!(vsync, config_bool(value, item)?),
-            "scale-factor" => set!(scale_factor, config_positive_number(value, item)?),
+            "scale-factor" => set!(scale_factor, app_number_expression(value, item)?),
             _ => {
                 return Err(error("E014", item, format!("unknown app setting `{name}`")));
             }
         }
     }
     Ok(settings)
+}
+
+fn app_expression(source: &str, line: &Line) -> Result<AppExpression, Error> {
+    Ok(AppExpression {
+        value: parse_expr(source, line)?,
+        span: Span::line(line.number),
+    })
+}
+
+fn app_number_expression(source: &str, line: &Line) -> Result<AppExpression, Error> {
+    let mut expression = app_expression(source, line)?;
+    if let Expr::I64(value) = &expression.value {
+        expression.value = Expr::F64(*value as f64);
+    }
+    Ok(expression)
 }
 
 fn parse_window_settings(line: &Line) -> Result<WindowSettings, Error> {
@@ -3350,34 +3368,10 @@ fn parse_theme(parts: &[String], styles: Vec<String>, line: &Line) -> Result<Vie
 }
 
 fn parse_theme_preset(value: &str, line: &Line) -> Result<ThemePreset, Error> {
-    const BUILT_INS: &[&str] = &[
-        "light",
-        "dark",
-        "dracula",
-        "nord",
-        "solarized-light",
-        "solarized-dark",
-        "gruvbox-light",
-        "gruvbox-dark",
-        "catppuccin-latte",
-        "catppuccin-frappe",
-        "catppuccin-macchiato",
-        "catppuccin-mocha",
-        "tokyo-night",
-        "tokyo-night-storm",
-        "tokyo-night-light",
-        "kanagawa-wave",
-        "kanagawa-dragon",
-        "kanagawa-lotus",
-        "moonfly",
-        "nightfly",
-        "oxocarbon",
-        "ferra",
-    ];
     match value {
         "default" => Ok(ThemePreset::Default),
         "app" => Ok(ThemePreset::App),
-        value if BUILT_INS.contains(&value) => Ok(ThemePreset::BuiltIn(value.into())),
+        value if BUILT_IN_THEMES.contains(&value) => Ok(ThemePreset::BuiltIn(value.into())),
         _ => Err(error("E094", line, format!("unknown iced theme `{value}`"))),
     }
 }
@@ -8515,8 +8509,11 @@ view
     fn parses_checked_application_and_window_settings() {
         let source = SOURCE.replace(
             "app Demo",
-            r#"app Demo
+            r##"app Demo
   title "Configured"
+  theme "dark"
+  background "#123456"
+  text-color "#abcdef"
   id "dev.example.demo"
   executor iced::executor::Default
   font "assets/Brand.ttf"
@@ -8535,15 +8532,29 @@ view
     visible true
   window child
     size 640 480
-    position centered"#,
+    position centered"##,
         );
         let document = parse(&source).unwrap();
-        assert_eq!(document.settings.title.as_deref(), Some("Configured"));
+        assert!(matches!(
+            document.settings.title.as_ref().map(|setting| &setting.value),
+            Some(Expr::Str(value)) if value == "Configured"
+        ));
         assert_eq!(
             document.settings.executor.as_deref(),
             Some("iced::executor::Default")
         );
-        assert_eq!(document.settings.scale_factor, Some(1.25));
+        assert!(matches!(
+            document
+                .settings
+                .scale_factor
+                .as_ref()
+                .map(|setting| &setting.value),
+            Some(Expr::F64(value)) if *value == 1.25
+        ));
+        assert!(matches!(
+            document.settings.theme.as_ref().map(|setting| &setting.value),
+            Some(Expr::Str(value)) if value == "dark"
+        ));
         assert_eq!(document.settings.fonts.len(), 2);
         assert_eq!(document.settings.fonts[0].path, "assets/Brand.ttf");
         let window = document.settings.window.unwrap();

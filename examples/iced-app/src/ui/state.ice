@@ -1,4 +1,9 @@
 state
+  window_title = "Ice Tasks"
+  app_theme = "app"
+  app_background = "#0f172a"
+  app_text = "#f8fafc"
+  ui_scale = 1.0
   tasks:[Task] = []
   draft = ""
   loading = false
