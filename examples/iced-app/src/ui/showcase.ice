@@ -29,6 +29,7 @@ extern crate::backend
   scroll-style task_scroll(active:bool)
   pick-list-style view_picker(active:bool)
   menu-style view_menu(active:bool)
+  pane-grid-style workspace_panes(active:bool)
   task copy_text(text:str) -> unit ! AppError
   subscription app_events() -> bool
 
@@ -607,7 +608,9 @@ view
           text "Stack base" @text-sm text-muted
           text "Stack overlay" @text-sm text-foreground
 
-    pane-grid #nested_workspace width=fill height=180.0 spacing=4.0 resize=4.0 drag
+    pane-grid #nested_workspace width=fill height=180.0 spacing=4.0 resize=4.0 drag style=workspace_panes(loading)
+      style
+        picked-split width=4.0
       split workspace_root vertical ratio=0.65
         pane nested_files
           text "Nested files" @text-sm text-muted

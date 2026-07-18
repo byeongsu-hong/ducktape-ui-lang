@@ -209,6 +209,13 @@ pub fn parse(source: &str) -> Result<Document, Error> {
                         &path,
                         ExternKind::MenuStyle,
                     )?);
+                } else if let Some(source) = item.text.strip_prefix("pane-grid-style ") {
+                    functions.push(parse_extern_fn(
+                        &format!("{source} -> unit"),
+                        item,
+                        &path,
+                        ExternKind::PaneGridStyle,
+                    )?);
                 } else if item.text.chars().next().is_some_and(char::is_uppercase) {
                     structs.push(parse_extern_struct(item, &path)?);
                 } else {
@@ -1153,6 +1160,7 @@ fn parse_extern_fn(
                 | ExternKind::ScrollStyle
                 | ExternKind::PickListStyle
                 | ExternKind::MenuStyle
+                | ExternKind::PaneGridStyle
         )
     {
         return Err(error(
@@ -3267,6 +3275,18 @@ fn parse_pane_grid(parts: &[String], styles: Vec<String>, line: &Line) -> Result
             options.draggable = true;
         } else if let Some(value) = part.strip_prefix("click=") {
             options.click = Some(parse_route(value, line)?);
+        } else if let Some(value) = part.strip_prefix("style=") {
+            let (function, args) = parse_signature(value, line).map_err(|_| {
+                error(
+                    "E187",
+                    line,
+                    "pane-grid style must be a declared pane-grid style call",
+                )
+            })?;
+            options.custom_style = Some(ExternCall {
+                function,
+                args: parse_expr_list(&args, line)?,
+            });
         } else {
             return Err(error(
                 "E187",

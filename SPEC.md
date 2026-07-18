@@ -1,4 +1,4 @@
-# Ice Language Specification 1.32
+# Ice Language Specification 1.33
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 1.32 syntax.
+marked “planned” is a design constraint, not accepted 1.33 syntax.
 
 ## 1. Design contract
 
@@ -81,7 +81,7 @@ an extern declaration is not reached at runtime.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 1.32.
+  block comments are not part of 1.33.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -174,6 +174,7 @@ extern_item    = struct_sig | function_sig | extern_component_sig
                | extern_svg_style_sig | extern_input_style_sig
                | extern_scroll_style_sig
                | extern_pick_list_style_sig | extern_menu_style_sig
+               | extern_pane_grid_style_sig
                | extern_editor_binding_sig
                | extern_editor_highlighter_sig | extern_editor_style_sig
 struct_sig     = PascalName "(" field_list? ")"
@@ -245,6 +246,8 @@ extern_pick_list_style_sig
                = "pick-list-style" name "(" field_list? ")"
 extern_menu_style_sig
                = "menu-style" name "(" field_list? ")"
+extern_pane_grid_style_sig
+               = "pane-grid-style" name "(" field_list? ")"
 
 theme_decl     = "theme" INDENT color_entry+
 color_entry    = name color
@@ -460,7 +463,7 @@ pane_grid      = "pane-grid" id
                    INDENT pane_grid_style? pane_configuration closed_pane*)
 pane_grid_property = ("width=" | "height=") length
                    | ("spacing=" | "min-size=" | "resize=") expr
-                   | "drag" | "click=" route
+                   | "drag" | "click=" route | "style=" call
 pane_grid_style = "style" INDENT pane_grid_style_status+
 pane_grid_style_status
                = "hovered-region" pane_region_style_property+
@@ -1003,7 +1006,7 @@ maximum size. `icon-rgba` embeds a relative raw RGBA file without an image
 codec; width and height are positive integers, and generated Rust rejects a
 byte length other than `width × height × 4`. `cargo ice check` reports a
 mismatch at the icon declaration, and generated Rust repeats the check at
-compile time. Encoded icon formats remain outside 1.32.
+compile time. Encoded icon formats remain outside 1.33.
 
 Application boot presets are structured top-level declarations:
 
@@ -1554,7 +1557,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 1.32 message payloads.
+`Clone` for 1.33 message payloads.
 
 Declared `sync` functions are checked, synchronous Rust calls available in
 Ice expressions. They are the small escape hatch for pure domain conversions
@@ -1572,7 +1575,7 @@ This declaration requires
 actual Rust signature. A sync function cannot declare `! Error` because it
 returns its value directly.
 
-Thirty-one typed iced adapters expose framework capabilities without embedding Rust
+Thirty-two typed iced adapters expose framework capabilities without embedding Rust
 expressions in Ice:
 
 ```ice
@@ -1605,6 +1608,7 @@ extern crate::backend
   scroll-style task_scroll(active:bool)
   pick-list-style view_picker(active:bool)
   menu-style view_menu(active:bool)
+  pane-grid-style workspace_panes(active:bool)
 ```
 
 Their Rust signatures are:
@@ -1643,6 +1647,7 @@ fn form_input(theme: &iced::Theme, status: iced::widget::text_input::Status, dis
 fn task_scroll(theme: &iced::Theme, status: iced::widget::scrollable::Status, active: bool) -> iced::widget::scrollable::Style;
 fn view_picker(theme: &iced::Theme, status: iced::widget::pick_list::Status, active: bool) -> iced::widget::pick_list::Style;
 fn view_menu(theme: &iced::Theme, active: bool) -> iced::overlay::menu::Style;
+fn workspace_panes(theme: &iced::Theme, active: bool) -> iced::widget::pane_grid::Style;
 ```
 
 An extern component receives owned props and returns a default-renderer
@@ -1714,7 +1719,9 @@ Theme and the idle/hovered SVG Status and returns the native SVG Style.
 native Style. `scroll-style` receives Theme and the complete scrollable Status
 and returns its native Style. `pick-list-style` does the same for pick-list
 Status. `menu-style` receives Theme without a Status and returns the shared
-pick-list/combo overlay menu Style.
+pick-list/combo overlay menu Style. `pane-grid-style` receives Theme without a
+Status and returns the native pane-grid Style; checked structured style fields
+remain available as explicit overrides.
 
 Generated probes type-check every declaration
 against the actual Rust item. Extern component, shader, recipe, event-filter,
@@ -2204,6 +2211,18 @@ The optional first `style` child maps directly to iced's complete concrete
 (including every corner radius), plus hovered and picked split line colors and
 widths. Omitted fields retain `pane_grid::default(theme)`. Background parsing
 is shared with pane surfaces instead of being a pane-grid-only special case.
+A declared `pane-grid-style` call can provide the native runtime base instead;
+the structured child still applies checked field overrides after that callback:
+
+```ice
+pane-grid #workspace split=vertical style=workspace_panes(loading)
+  style
+    picked-split width=4.0
+  pane files
+    FileList
+  pane editor
+    Editor
+```
 
 Pane grids may only live in the app view because component/repeated instances
 need separately keyed persistent state. Click routes receive the stable pane
@@ -3264,7 +3283,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 1.32 does not claim that remapping.
+extern line; 1.33 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -3285,12 +3304,12 @@ formats both roots and imported fragments.
 
 ## 12. Current coverage and escape hatches
 
-The 1.32 native backend is enough for CRUD/settings-style screens, selection,
+The 1.33 native backend is enough for CRUD/settings-style screens, selection,
 media, hover overlays, declarative canvas geometry, and common pointer events,
 not all of iced. It still lacks borrowed custom widgets and a custom renderer
 boundary. [`COVERAGE.md`](COVERAGE.md) is the exact versioned ledger.
 
-The language must not grow one ad-hoc syntax form for every iced API. Thirty-one
+The language must not grow one ad-hoc syntax form for every iced API. Thirty-two
 typed Rust boundaries cover domain work, native elements and programs, runtime
 tasks and subscriptions, Markdown viewers, and native style callbacks without
 admitting arbitrary Rust into expressions or duplicating iced in the core

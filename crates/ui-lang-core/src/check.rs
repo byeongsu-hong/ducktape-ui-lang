@@ -1577,6 +1577,11 @@ fn infer_view(
                     require_literal_range(value, 0.0, None, label, span)?;
                 }
             }
+            if let Some(style) = &options.custom_style {
+                let function =
+                    extern_function(document, &style.function, ExternKind::PaneGridStyle, span)?;
+                check_call_args(function, &style.args, env, document, span)?;
+            }
             if let Some(background) = &options.style.region_background {
                 check_background_value(
                     background,
@@ -6353,6 +6358,7 @@ fn extern_function<'a>(
                 ExternKind::ScrollStyle => "scroll style",
                 ExternKind::PickListStyle => "pick-list style",
                 ExternKind::MenuStyle => "menu style",
+                ExternKind::PaneGridStyle => "pane-grid style",
             };
             Error::new("E130", span, format!("unknown extern {label} `{name}`"))
         })
@@ -10257,6 +10263,8 @@ view
     #[test]
     fn checks_structured_pane_titles_and_controls() {
         let source = r#"app Workspace
+extern crate::backend
+  pane-grid-style dynamic_panes(active:bool)
 theme
   background #000000
   foreground #ffffff
@@ -10264,9 +10272,10 @@ theme
   danger #ff0000
 state
   filter = ""
+  active = true
 on close
 view
-  pane-grid #work split=vertical
+  pane-grid #work split=vertical style=dynamic_panes(active)
     style
       hovered-region background=linear(0.785, primary/25@0.0, background@0.5, danger@1.0) border=foreground border-width=2.0 radius=4.0 radius-tl=1.0 radius-tr=2.0 radius-br=3.0 radius-bl=4.0
       hovered-split color=primary width=3.0
@@ -10289,6 +10298,12 @@ view
         text "Editor body"
 "#;
         analyze(source).unwrap();
+
+        let error =
+            analyze(&source.replace("style=dynamic_panes(active)", "style=missing_panes(active)"))
+                .unwrap_err();
+        assert_eq!(error.code, "E130");
+        assert!(error.message.contains("unknown extern pane-grid style"));
 
         let error = analyze(&source.replace("padding-top=6.0", "padding-top=-1.0")).unwrap_err();
         assert_eq!(error.code, "E128");
