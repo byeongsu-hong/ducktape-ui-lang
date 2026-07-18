@@ -4056,7 +4056,9 @@ fn native_subscription_payloads(source: &SubscriptionSource) -> Option<Vec<Type>
             WindowEvent::Rescaled => vec![Type::F64],
             WindowEvent::FileHovered | WindowEvent::FileDropped => vec![Type::Str],
         },
-        SubscriptionSource::Repeat { .. } | SubscriptionSource::Extern { .. } => return None,
+        SubscriptionSource::Repeat { .. }
+        | SubscriptionSource::Run { .. }
+        | SubscriptionSource::Extern { .. } => return None,
     })
 }
 
@@ -4146,6 +4148,28 @@ fn infer_subscriptions(
                 let source =
                     extern_function(document, function, ExternKind::Future, &subscription.span)?;
                 check_call_args(source, &[], states, document, &subscription.span)?;
+                vec![source.error.as_ref().map_or_else(
+                    || source.output.clone(),
+                    |error| Type::Result(Box::new(source.output.clone()), Box::new(error.clone())),
+                )]
+            }
+            SubscriptionSource::Run { function, args } => {
+                let source =
+                    extern_function(document, function, ExternKind::Stream, &subscription.span)?;
+                check_call_args(source, args, states, document, &subscription.span)?;
+                for arg in args {
+                    let ty = expr_type(arg, states, document, &subscription.span)?;
+                    if !lazy_hashable(&ty) {
+                        return Err(Error::new(
+                            "E129",
+                            &subscription.span,
+                            format!(
+                                "subscription run data must be hashable, got `{}`",
+                                ty.display()
+                            ),
+                        ));
+                    }
+                }
                 vec![source.error.as_ref().map_or_else(
                     || source.output.clone(),
                     |error| Type::Result(Box::new(source.output.clone()), Box::new(error.clone())),
@@ -6271,6 +6295,7 @@ view
 extern crate::backend
   AppError(message:str)
   stream numbers(limit:i64) -> i64
+  stream coordinates(value:f64) -> i64
   stream fallible() -> str ! AppError
 theme
   background #000000
@@ -6287,6 +6312,10 @@ on number(value)
   count = value
 on text(value)
 on failed(error)
+on observed(result)
+subscribe
+  run fallible() -> observed _
+  run numbers(count) -> number _
 view
   text count
 "#;
@@ -6294,6 +6323,10 @@ view
         assert_eq!(document.handlers[1].params[0].ty.display(), "i64");
         assert_eq!(document.handlers[2].params[0].ty.display(), "str");
         assert_eq!(document.handlers[3].params[0].ty.display(), "AppError");
+        assert_eq!(
+            document.handlers[4].params[0].ty.display(),
+            "result[str,AppError]"
+        );
 
         let error = analyze(&source.replace("numbers(3)", "numbers(true)")).unwrap_err();
         assert_eq!(error.code, "E101");
@@ -6323,6 +6356,14 @@ view
         let error = analyze(&source.replace("stream numbers(3)", "stream missing(3)")).unwrap_err();
         assert_eq!(error.code, "E130");
         assert!(error.message.contains("extern stream"));
+
+        let error = analyze(&source.replace(
+            "run numbers(count) -> number _",
+            "run coordinates(1.5) -> number _",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "E129");
+        assert!(error.message.contains("run data must be hashable"));
     }
 
     #[test]

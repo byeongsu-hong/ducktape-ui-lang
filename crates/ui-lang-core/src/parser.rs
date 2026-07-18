@@ -678,7 +678,7 @@ fn parse_subscription(line: &Line) -> Result<Subscription, Error> {
         return Err(error(
             "E084",
             line,
-            "subscription uses `name(args)`, `every duration`, `repeat name() every duration`, `input-method event`, `keyboard event`, `mouse event`, `touch event`, `window event`, or `system theme` before `-> handler _`",
+            "subscription uses `name(args)`, `every duration`, `repeat name() every duration`, `run name(args)`, `input-method event`, `keyboard event`, `mouse event`, `touch event`, `window event`, or `system theme` before `-> handler _`",
         ));
     };
     let call = call.trim();
@@ -735,6 +735,12 @@ fn parse_subscription(line: &Line) -> Result<Subscription, Error> {
     } else if let Some(duration) = call.strip_prefix("every ") {
         SubscriptionSource::Every {
             milliseconds: parse_duration(duration.trim(), line)?,
+        }
+    } else if let Some(call) = call.strip_prefix("run ") {
+        let (function, args) = parse_signature(call.trim(), line)?;
+        SubscriptionSource::Run {
+            function,
+            args: parse_expr_list(&args, line)?,
         }
     } else if let Some(event) = call.strip_prefix("input-method ") {
         SubscriptionSource::InputMethod(match event.trim() {
@@ -8060,6 +8066,7 @@ view
 extern crate::backend
   AppError(message:str)
   stream numbers(limit:i64) -> i64
+  stream range(start:i64, limit:i64) -> i64
   stream fallible() -> str ! AppError
 theme
   background #000000
@@ -8070,13 +8077,18 @@ on start
 on number(value)
 on text(value)
 on failed(error)
+on observed(result)
+subscribe
+  run fallible() -> observed _
+  run numbers(3) -> number _
+  run range(1, 3) -> number _
 view
   text "Streams"
 "#;
         let document = parse(source).unwrap();
         assert_eq!(document.functions[0].kind, ExternKind::Stream);
         assert_eq!(
-            document.functions[1].error,
+            document.functions[2].error,
             Some(Type::Named("AppError".into()))
         );
         let Statement::TaskGroup { statements, .. } = &document.handlers[0].statements[0] else {
@@ -8089,6 +8101,16 @@ view
                 ..
             }
         )));
+        assert!(matches!(
+            &document.subscriptions[0].source,
+            SubscriptionSource::Run { function, args }
+                if function == "fallible" && args.is_empty()
+        ));
+        assert!(matches!(
+            &document.subscriptions[2].source,
+            SubscriptionSource::Run { function, args }
+                if function == "range" && args.len() == 2
+        ));
 
         let error = parse(&source.replace("stream numbers(3) -> number _", "stream numbers(3)"))
             .unwrap_err();

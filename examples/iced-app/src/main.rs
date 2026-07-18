@@ -180,6 +180,14 @@ mod backend {
     }
 
     #[cfg(test)]
+    pub fn range_stream(
+        start: i64,
+        limit: i64,
+    ) -> impl iced::futures::Stream<Item = i64> + Send + 'static {
+        iced::futures::stream::iter(start..start.saturating_add(limit.max(0)))
+    }
+
+    #[cfg(test)]
     pub fn fallible_stream()
     -> impl iced::futures::Stream<Item = Result<i64, AppError>> + Send + 'static {
         iced::futures::stream::iter([
@@ -370,6 +378,7 @@ mod task_stream {
     fn constructs_both_native_stream_units() {
         let (mut app, _) = TaskStream::__boot();
         assert_eq!(app.__update(__TaskStreamMessage::Start).units(), 2);
+        assert_eq!(app.__subscription().units(), 3);
     }
 }
 
