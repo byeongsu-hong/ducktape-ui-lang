@@ -42,18 +42,6 @@ advanced widget semantics are not claimed. `scripts/a11y-smoke.sh` proves that
 the Linux AT-SPI tree is discoverable and an invoked action reaches the Iced
 bridge; headless tests cover dispatch to the app message.
 
-## Compiler and tooling contract
-
-| Surface | Delivered contract |
-| --- | --- |
-| checked boundary | semantic analysis returns the backend-neutral `CheckedDocument`; only the checker constructs it and code generation rejects unchecked documents |
-| diagnostics | file-backed and imported language errors include the resolved path, source line, and caret |
-| style migration | `E045` rejects proven same-builder ownership conflicts; the parser-aware formatter migrates only equivalent properties, including text size, and preserves semantic, wrapper-only, and dual-owner utilities |
-| schema | `cargo ice schema` emits generative Core contexts, syntax, child shapes, typed properties, bindings, routes, style migration metadata, editor capabilities, and the backend contract |
-| LSP | `cargo ice lsp` provides full-document stdio sync, UTF-16 diagnostics over a root-buffer overlay plus disk imports, imported-file routing, formatting, and schema-derived completion; imported-buffer overlays, definition, and rename are unsupported |
-| compatibility | `cargo ice compat` analyzes app graphs, verifies exact Iced/runtime/AccessKit lockfile and direct-manifest pins, and runs the reference app tests; generated applications directly depend on `ui-lang-runtime = "=0.1.0"` |
-| native accessibility gate | `scripts/a11y-smoke.sh` runs the isolated Linux D-Bus/AT-SPI discovery and action-routing test |
-
 ## Typed system reachability
 
 Ice 1.58 has thirty-three checked Rust boundaries:
