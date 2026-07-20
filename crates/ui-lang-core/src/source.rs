@@ -1,5 +1,5 @@
 use crate::{CheckedDocument, Document, Error, Span, check, codegen, parser};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -35,15 +35,22 @@ pub fn analyze_file(path: impl AsRef<Path>) -> Result<CheckedDocument, Error> {
 }
 
 /// Analyze an unsaved root buffer while resolving its `use` graph from disk.
-///
-/// This is the editor-facing counterpart to [`analyze_file`]. Imported-buffer
-/// overlays are deliberately not implied; callers can still rely on the same
-/// source map and imported-file diagnostics as the command-line loader.
 pub fn analyze_file_with_source(
     path: impl AsRef<Path>,
     source: &str,
 ) -> Result<CheckedDocument, Error> {
-    let loaded = load_with_root_source(path.as_ref(), source)?;
+    let path = path.as_ref();
+    let overlays = HashMap::from([(path.to_owned(), source)]);
+    let loaded = load_with_overlays(path, &overlays)?;
+    analyze_loaded(&loaded)
+}
+
+/// Analyze a file graph with in-memory sources replacing matching disk files.
+pub fn analyze_file_with_overlays(
+    path: impl AsRef<Path>,
+    overlays: &HashMap<PathBuf, String>,
+) -> Result<CheckedDocument, Error> {
+    let loaded = load_with_overlays(path.as_ref(), overlays)?;
     analyze_loaded(&loaded)
 }
 
@@ -142,27 +149,30 @@ fn check_assets(document: &Document, loaded: &LoadedSource) -> Result<(), Error>
 }
 
 fn load(path: &Path) -> Result<LoadedSource, Error> {
-    load_with_optional_root_source(path, None)
+    load_with_overlays(path, &HashMap::<PathBuf, String>::new())
 }
 
-fn load_with_root_source(path: &Path, source: &str) -> Result<LoadedSource, Error> {
-    load_with_optional_root_source(path, Some(source))
-}
-
-fn load_with_optional_root_source(
+fn load_with_overlays<S: AsRef<str>>(
     path: &Path,
-    root_source: Option<&str>,
+    overlays: &HashMap<PathBuf, S>,
 ) -> Result<LoadedSource, Error> {
     let root = canonical(path, path, 1)?;
-    let disk_source;
-    let root_source = if let Some(source) = root_source {
-        source
+    let mut overlays = overlays
+        .iter()
+        .filter_map(|(path, source)| path.canonicalize().ok().map(|path| (path, source.as_ref())))
+        .collect::<HashMap<_, _>>();
+    let disk_source = if overlays.contains_key(&root) {
+        None
     } else {
-        disk_source = fs::read_to_string(&root).map_err(|error| {
+        Some(fs::read_to_string(&root).map_err(|error| {
             file_error("E181", &root, 1, format!("cannot read .ice file: {error}"))
-        })?;
-        &disk_source
+        })?)
     };
+    let root_source = overlays
+        .get(&root)
+        .copied()
+        .or(disk_source.as_deref())
+        .expect("a root source is loaded from an overlay or disk");
     if !source_is_app(root_source) {
         return Err(file_error(
             "E183",
@@ -170,6 +180,9 @@ fn load_with_optional_root_source(
             1,
             "an app root must declare `app Name`; import this fragment from an app instead",
         ));
+    }
+    if let Some(source) = disk_source.as_deref() {
+        overlays.insert(root.clone(), source);
     }
     let mut loaded = LoadedSource {
         source: String::new(),
@@ -182,7 +195,7 @@ fn load_with_optional_root_source(
         &root,
         &root,
         1,
-        Some(root_source),
+        &overlays,
         &mut loaded,
         &mut included,
         &mut stack,
@@ -194,7 +207,7 @@ fn load_into(
     path: &Path,
     imported_from: &Path,
     import_line: usize,
-    source_override: Option<&str>,
+    overlays: &HashMap<PathBuf, &str>,
     loaded: &mut LoadedSource,
     included: &mut HashSet<PathBuf>,
     stack: &mut Vec<PathBuf>,
@@ -219,8 +232,8 @@ fn load_into(
     stack.push(path.to_owned());
     loaded.dependencies.push(path.to_owned());
     let disk_source;
-    let source = if let Some(source) = source_override {
-        source
+    let source = if let Some(source) = overlays.get(path) {
+        *source
     } else {
         disk_source = fs::read_to_string(path).map_err(|error| {
             file_error("E181", path, 1, format!("cannot read .ice file: {error}"))
@@ -239,7 +252,7 @@ fn load_into(
                 path,
                 line,
             )?;
-            load_into(&target, path, line, None, loaded, included, stack)?;
+            load_into(&target, path, line, overlays, loaded, included, stack)?;
         } else {
             loaded.source.push_str(raw);
             loaded.source.push('\n');
@@ -308,7 +321,10 @@ fn file_error(code: &'static str, path: &Path, line: usize, message: impl Into<S
 
 #[cfg(test)]
 mod tests {
-    use super::{analyze_file_with_source, compile_file, source_is_app};
+    use super::{
+        analyze_file_with_overlays, analyze_file_with_source, compile_file, source_is_app,
+    };
+    use std::collections::HashMap;
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -381,6 +397,35 @@ mod tests {
         assert_eq!(error.code, "E064");
         assert_eq!(error.line, 2);
         assert!(error.path.as_deref().unwrap().ends_with("part.ice"));
+    }
+
+    #[test]
+    fn analyzes_and_recovers_an_unsaved_import_overlay() {
+        let fixture = Fixture::new();
+        fixture.write(
+            "app.ice",
+            "app Saved\ntheme\n  background #000000\n  foreground #ffffff\n  primary #333333\n  danger #ff0000\nview\n  text \"Saved\"\n",
+        );
+        fixture.write("part.ice", "component Broken()\n  text \"Saved\"\n");
+        let root = fixture.path("app.ice");
+        let part = fixture.path("part.ice");
+        let mut overlays = HashMap::from([
+            (
+                root.clone(),
+                "app Overlay\nuse \"part.ice\"\ntheme\n  background #000000\n  foreground #ffffff\n  primary #333333\n  danger #ff0000\nview\n  Broken()\n"
+                    .into(),
+            ),
+            (part.clone(), "component Broken()\n  wat\n".into()),
+        ]);
+
+        let error = analyze_file_with_overlays(&root, &overlays).unwrap_err();
+
+        assert_eq!(error.code, "E064");
+        assert_eq!(error.line, 2);
+        assert_eq!(error.path.as_deref(), Some(part.to_string_lossy().as_ref()));
+
+        overlays.insert(part, "component Broken()\n  text \"Unsaved\"\n".into());
+        analyze_file_with_overlays(root, &overlays).unwrap();
     }
 
     #[test]

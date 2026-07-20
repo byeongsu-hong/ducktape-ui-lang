@@ -147,9 +147,10 @@ the same construct table.
 
 `cargo ice lsp` is a minimal stdio server with full-document synchronization,
 UTF-16 diagnostics, whole-document formatting, and Core completion. For an
-existing app file it overlays the open root buffer on the disk-backed import
-graph and publishes imported errors at the imported URI. It does not overlay
-unsaved import buffers or advertise definition and rename.
+existing app file it overlays every open buffer in the import graph, reanalyzes
+all open app roots after buffer changes, and publishes imported errors at the
+imported URI. Closing a buffer falls back to disk. Definition and rename are
+not advertised.
 
 `cargo ice compat` analyzes every app graph, checks the exact `iced 0.14.0`,
 `iced_widget 0.14.2`, `ui-lang-runtime`, and AccessKit lockfile baseline,

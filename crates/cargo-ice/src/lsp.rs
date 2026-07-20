@@ -1,6 +1,6 @@
 use crate::schema;
 use serde_json::{Value, json};
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::fs;
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -72,7 +72,7 @@ fn serve(reader: &mut impl BufRead, writer: &mut impl Write) -> io::Result<()> {
                 let params = &message["params"]["textDocument"];
                 if let (Some(uri), Some(text)) = (params["uri"].as_str(), params["text"].as_str()) {
                     documents.insert(uri.to_owned(), text.to_owned());
-                    update_diagnostics(writer, &mut diagnostic_reports, uri, text)?;
+                    reanalyze_open_roots(writer, &documents, &mut diagnostic_reports)?;
                 }
             }
             "textDocument/didChange" => {
@@ -83,13 +83,13 @@ fn serve(reader: &mut impl BufRead, writer: &mut impl Write) -> io::Result<()> {
                     .and_then(|change| change["text"].as_str());
                 if let (Some(uri), Some(text)) = (uri, text) {
                     documents.insert(uri.to_owned(), text.to_owned());
-                    update_diagnostics(writer, &mut diagnostic_reports, uri, text)?;
+                    reanalyze_open_roots(writer, &documents, &mut diagnostic_reports)?;
                 }
             }
             "textDocument/didClose" => {
                 if let Some(uri) = message["params"]["textDocument"]["uri"].as_str() {
                     documents.remove(uri);
-                    remove_diagnostics(writer, &mut diagnostic_reports, uri)?;
+                    reanalyze_open_roots(writer, &documents, &mut diagnostic_reports)?;
                 }
             }
             "textDocument/formatting" => {
@@ -127,47 +127,52 @@ fn serve(reader: &mut impl BufRead, writer: &mut impl Write) -> io::Result<()> {
     Ok(())
 }
 
-fn update_diagnostics(
+fn reanalyze_open_roots(
     writer: &mut impl Write,
+    documents: &HashMap<String, String>,
     reports: &mut HashMap<String, DiagnosticReport>,
+) -> io::Result<()> {
+    let overlays = source_overlays(documents);
+    // ponytail: Add a dependency graph only if profiling shows open-root scale matters.
+    let next = documents
+        .iter()
+        .filter(|(_, source)| ui_lang_core::source_is_app(source))
+        .map(|(uri, source)| (uri.clone(), analyze_diagnostics(uri, source, &overlays)))
+        .collect::<HashMap<_, _>>();
+    let targets = reports
+        .values()
+        .chain(next.values())
+        .map(|report| report.target.clone())
+        .collect::<BTreeSet<_>>();
+    *reports = next;
+    for target in targets {
+        publish_aggregated(writer, reports, &target)?;
+    }
+    Ok(())
+}
+
+fn source_overlays(documents: &HashMap<String, String>) -> HashMap<PathBuf, String> {
+    documents
+        .iter()
+        .filter_map(|(uri, source)| {
+            file_uri_path(uri).map(|path| {
+                let path = path.canonicalize().unwrap_or(path);
+                (path, source.clone())
+            })
+        })
+        .collect()
+}
+
+fn analyze_diagnostics(
     uri: &str,
     source: &str,
-) -> io::Result<()> {
-    // ponytail: imports stay disk-backed until core accepts graph overlays; fragments are never app roots.
-    if !ui_lang_core::source_is_app(source) {
-        return remove_diagnostics(writer, reports, uri);
-    }
-    let report = analyze_diagnostics(uri, source);
-    let target = report.target.clone();
-    let previous = reports
-        .insert(uri.to_owned(), report)
-        .map(|report| report.target);
-    if let Some(previous) = previous.as_deref()
-        && previous != target
-    {
-        publish_aggregated(writer, reports, previous)?;
-    }
-    publish_aggregated(writer, reports, &target)?;
-    Ok(())
-}
-
-fn remove_diagnostics(
-    writer: &mut impl Write,
-    reports: &mut HashMap<String, DiagnosticReport>,
-    uri: &str,
-) -> io::Result<()> {
-    if let Some(report) = reports.remove(uri) {
-        publish_aggregated(writer, reports, &report.target)?;
-    }
-    Ok(())
-}
-
-fn analyze_diagnostics(uri: &str, source: &str) -> DiagnosticReport {
+    overlays: &HashMap<PathBuf, String>,
+) -> DiagnosticReport {
     let analysis = file_uri_path(uri)
         .filter(|path| path.is_file())
         .map_or_else(
             || ui_lang_core::analyze(source),
-            |path| ui_lang_core::analyze_file_with_source(path, source),
+            |path| ui_lang_core::analyze_file_with_overlays(path, overlays),
         );
     match analysis {
         Ok(_) => DiagnosticReport {
@@ -175,7 +180,7 @@ fn analyze_diagnostics(uri: &str, source: &str) -> DiagnosticReport {
             diagnostic: None,
         },
         Err(error) => {
-            let (target, target_source) = diagnostic_target(uri, source, &error);
+            let (target, target_source) = diagnostic_target(uri, source, overlays, &error);
             let mut message = error.message;
             if let Some(hint) = error.hint {
                 message.push_str("\nhint: ");
@@ -218,6 +223,7 @@ fn publish_aggregated(
 fn diagnostic_target(
     root_uri: &str,
     root_source: &str,
+    overlays: &HashMap<PathBuf, String>,
     error: &ui_lang_core::Error,
 ) -> (String, String) {
     let Some(error_path) = error.path.as_deref().map(Path::new) else {
@@ -225,6 +231,9 @@ fn diagnostic_target(
     };
     if file_uri_path(root_uri).is_some_and(|root_path| same_file(&root_path, error_path)) {
         return (root_uri.to_owned(), root_source.to_owned());
+    }
+    if let Some(source) = overlays.get(error_path) {
+        return (file_path_uri(error_path), source.clone());
     }
     match fs::read_to_string(error_path) {
         Ok(source) => (file_path_uri(error_path), source),
@@ -398,6 +407,8 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};
 
+    const APP_WITH_PART: &str = "app Demo\nuse \"part.ice\"\ntheme\n  background #000000\n  foreground #ffffff\n  primary #333333\n  danger #ff0000\nview\n  Broken()\n";
+
     struct Fixture(PathBuf);
 
     impl Fixture {
@@ -562,6 +573,102 @@ mod tests {
     }
 
     #[test]
+    fn unsaved_import_errors_recover_on_edit() {
+        let fixture = Fixture::new();
+        fixture.write("app.ice", APP_WITH_PART);
+        fixture.write("part.ice", "component Broken()\n  text \"Saved\"\n");
+        let root_uri = file_path_uri(&fixture.path("app.ice"));
+        let part_uri = file_path_uri(&fixture.path("part.ice"));
+
+        let messages = run(&[
+            json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {} }),
+            json!({
+                "jsonrpc": "2.0",
+                "method": "textDocument/didOpen",
+                "params": { "textDocument": { "uri": root_uri, "text": APP_WITH_PART } },
+            }),
+            json!({
+                "jsonrpc": "2.0",
+                "method": "textDocument/didOpen",
+                "params": { "textDocument": { "uri": part_uri, "text": "component Broken()\n  wat\n" } },
+            }),
+            json!({
+                "jsonrpc": "2.0",
+                "method": "textDocument/didChange",
+                "params": {
+                    "textDocument": { "uri": part_uri },
+                    "contentChanges": [{ "text": "component Broken()\n  text \"Unsaved\"\n" }],
+                },
+            }),
+            json!({ "jsonrpc": "2.0", "id": 2, "method": "shutdown" }),
+            json!({ "jsonrpc": "2.0", "method": "exit" }),
+        ])
+        .unwrap();
+
+        let published = messages
+            .iter()
+            .filter(|message| {
+                message["method"] == "textDocument/publishDiagnostics"
+                    && message["params"]["uri"] == part_uri
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(published.len(), 2);
+        assert_eq!(published[0]["params"]["diagnostics"][0]["code"], "E064");
+        assert!(
+            published[1]["params"]["diagnostics"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn closing_an_import_overlay_falls_back_to_disk() {
+        let fixture = Fixture::new();
+        fixture.write("app.ice", APP_WITH_PART);
+        fixture.write("part.ice", "component Broken()\n  wat\n");
+        let root_uri = file_path_uri(&fixture.path("app.ice"));
+        let part_uri = file_path_uri(&fixture.path("part.ice"));
+
+        let messages = run(&[
+            json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {} }),
+            json!({
+                "jsonrpc": "2.0",
+                "method": "textDocument/didOpen",
+                "params": { "textDocument": { "uri": root_uri, "text": APP_WITH_PART } },
+            }),
+            json!({
+                "jsonrpc": "2.0",
+                "method": "textDocument/didOpen",
+                "params": { "textDocument": { "uri": part_uri, "text": "component Broken()\n  text \"Unsaved\"\n" } },
+            }),
+            json!({
+                "jsonrpc": "2.0",
+                "method": "textDocument/didClose",
+                "params": { "textDocument": { "uri": part_uri } },
+            }),
+            json!({ "jsonrpc": "2.0", "id": 2, "method": "shutdown" }),
+            json!({ "jsonrpc": "2.0", "method": "exit" }),
+        ])
+        .unwrap();
+
+        let published = messages
+            .iter()
+            .filter(|message| {
+                message["method"] == "textDocument/publishDiagnostics"
+                    && message["params"]["uri"] == part_uri
+            })
+            .collect::<Vec<_>>();
+        let counts = published
+            .iter()
+            .map(|message| message["params"]["diagnostics"].as_array().unwrap().len())
+            .collect::<Vec<_>>();
+        assert_eq!(counts, [1, 0, 1]);
+        assert_eq!(published[0]["params"]["diagnostics"][0]["code"], "E064");
+        assert_eq!(published[2]["params"]["diagnostics"][0]["code"], "E064");
+    }
+
+    #[test]
     fn fragments_keep_root_owned_diagnostics_aggregated() {
         let fixture = Fixture::new();
         fixture.write("one.ice", "app One\nview\n  text \"Saved\"\n");
@@ -622,7 +729,7 @@ mod tests {
             .iter()
             .map(|message| message["params"]["diagnostics"].as_array().unwrap().len())
             .collect::<Vec<_>>();
-        assert_eq!(counts, [1, 2, 1, 0]);
+        assert_eq!(counts, [1, 2, 0, 2, 1, 0]);
         assert!(published.iter().all(|message| {
             message["params"]["diagnostics"]
                 .as_array()

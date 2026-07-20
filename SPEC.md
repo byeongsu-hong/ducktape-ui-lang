@@ -3982,10 +3982,11 @@ generated from that same construct table instead of a separate vocabulary.
 
 The LSP uses Content-Length framed stdio, full-document synchronization, and
 the same parser/checker/source map as the compiler. Existing file URIs use the
-open root buffer over disk-backed imports; imported diagnostics are published
-at the imported URI with UTF-16 ranges. Unsaved imported buffers are not
-overlaid. Definition and rename remain unsupported because the checked model
-does not retain reference spans and imported source origins.
+open buffers throughout each import graph; imported diagnostics are published
+at the imported URI with UTF-16 ranges. Opening, changing, or closing a buffer
+reanalyzes every open app root, and closing it returns that file to disk.
+Definition and rename remain unsupported because the checked model does not
+retain reference spans and imported source origins.
 
 The normal runtime and reference-app tests verify deterministic semantic trees,
 focus, keyboard activation, visible focus, password suppression, and action
