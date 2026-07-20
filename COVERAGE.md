@@ -19,6 +19,9 @@ An internal use of an iced widget does not count as coverage. For example, the
 backend may wrap layouts in `container`, but only explicit accepted Ice syntax
 counts toward the row below.
 
+Editor diagnostics use open buffers throughout every open app root's import
+graph and fall back to disk when a buffer closes.
+
 ## Accessibility
 
 Core accessibility is **native for single-window Linux applications** through

@@ -10,7 +10,8 @@ mod test_support;
 pub use ast::*;
 pub use format::{format_fragment, format_source};
 pub use source::{
-    FileCompilation, analyze_file, analyze_file_with_source, compile_file, source_is_app,
+    FileCompilation, analyze_file, analyze_file_with_overlays, analyze_file_with_source,
+    compile_file, source_is_app,
 };
 
 use std::fmt;

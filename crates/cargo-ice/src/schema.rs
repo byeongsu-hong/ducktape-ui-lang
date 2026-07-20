@@ -717,13 +717,15 @@ pub fn document() -> Value {
             "transport": "stdio Content-Length framing",
             "diagnostics": {
                 "supported": true,
-                "source": "ui_lang_core::analyze_file_with_source for existing file URIs; ui_lang_core::analyze otherwise",
+                "source": "ui_lang_core::analyze_file_with_overlays for existing file URIs; ui_lang_core::analyze otherwise",
                 "inMemory": true,
                 "rootBufferOverlay": true,
                 "diskImports": true,
-                "importedBufferOverlays": false,
+                "importedBufferOverlays": true,
+                "diskFallbackOnClose": true,
                 "ownership": "app roots own reports; reports are aggregated by diagnostic URI; fragments are not analyzed as standalone apps",
-                "scope": "one opened app root and its disk import graph",
+                "scope": "all open app roots and their overlaid import graphs",
+                "reanalyze": "all open app roots after any open, change, or close",
             },
             "formatting": {
                 "supported": true,
