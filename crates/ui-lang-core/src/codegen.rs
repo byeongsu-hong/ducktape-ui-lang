@@ -36,6 +36,13 @@ pub fn generate(document: &CheckedDocument, source_path: &str) -> Result<String,
         "pub(crate) __ice_accessibility: ::ui_lang_runtime::Bridge<{message}>,"
     )
     .unwrap();
+    if !document.daemon {
+        writeln!(
+            out,
+            "#[cfg(target_os = \"windows\")]\npub(crate) __ice_accessibility_initial: ::std::option::Option<usize>,\n#[cfg(target_os = \"windows\")]\npub(crate) __ice_accessibility_pending: ::std::vec::Vec<{message}>,"
+        )
+        .unwrap();
+    }
     for qr in &document.qr_codes {
         writeln!(
             out,

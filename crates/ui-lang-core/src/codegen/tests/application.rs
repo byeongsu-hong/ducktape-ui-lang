@@ -714,7 +714,7 @@ view
         ".executor::<iced::executor::Default>()",
         ".presets([::iced::Preset::new(\"ready\", Self::__preset_0)])",
         "fn __preset_0()",
-        "state.ready = true",
+        "self.ready = true",
         "crate::backend::seed().map(|value| __ConfiguredMessage::Seeded(value))",
         "id: ::std::option::Option::Some(\"dev.example.configured\".to_owned())",
         ".font(include_bytes!(\"fonts/Brand.ttf\").as_slice())",
@@ -852,30 +852,131 @@ view
         "let __refresh = matches!(__request.action, ::ui_lang_runtime::Action::Focus)",
         "__AccessibilityNativeWindow(::ui_lang_runtime::NativeWindow)",
         "__window.visible = false",
+        "__window.maximized = false",
+        "__window.fullscreen = false",
+        "::iced::window::oldest().then",
         "::ui_lang_runtime::native_window(__id)",
-        "self.__ice_accessibility.attach_window(__window)",
+        "!self.__ice_accessibility.is_attached()",
+        "self.__ice_accessibility_pending.push(message)",
+        "if !self.__ice_accessibility.attach_window(__window)",
+        "__pending.push(self.__update(__message))",
+        "__restore.chain(::iced::Task::batch([__initial, __pending, __snapshot]))",
         "::iced::window::Mode::Windowed",
     ] {
         assert!(generated.contains(expected), "missing {expected}");
     }
     assert!(!generated.contains("dispatch(__request).chain"));
+    assert!(!generated.contains("claim_window"));
 }
 
 #[test]
-fn restores_configured_windows_visibility_after_native_adapter_setup() {
+fn defers_windows_show_state_until_native_adapter_setup() {
     let source = |window: &str| {
         format!(
             "app Accessible\n  window\n    {window}\ntheme\n  background #000000\n  foreground #ffffff\n  primary #333333\n  danger #ff0000\nview\n  text \"Ready\"\n"
         )
     };
 
-    let fullscreen = compile(&source("fullscreen true"), "accessible.ice").unwrap();
+    let fullscreen = compile(
+        &source("fullscreen true\n    maximized true"),
+        "accessible.ice",
+    )
+    .unwrap();
+    assert!(fullscreen.contains("__window.maximized = false"));
+    assert!(fullscreen.contains("__window.fullscreen = false"));
     assert!(fullscreen.contains("::iced::window::Mode::Fullscreen"));
+    assert!(!fullscreen.contains("::iced::window::maximize(__id, true).chain"));
 
-    let hidden = compile(&source("visible false"), "accessible.ice").unwrap();
-    assert!(hidden.contains(
-        "self.__ice_accessibility.attach_window(__window); return ::iced::Task::none();"
+    let maximized = compile(&source("maximized true"), "accessible.ice").unwrap();
+    assert!(maximized.contains(
+        "::iced::window::set_mode(__id, ::iced::window::Mode::Windowed).chain(::iced::window::maximize(__id, true))"
     ));
+
+    let hidden = compile(
+        &source("visible false\n    fullscreen true\n    maximized true"),
+        "accessible.ice",
+    )
+    .unwrap();
+    assert!(hidden.contains("let __restore = ::iced::Task::none();"));
+    assert!(!hidden.contains("::iced::window::set_mode(__id, ::iced::window::Mode::Fullscreen)"));
+    assert!(!hidden.contains("::iced::window::maximize(__id, true)"));
+}
+
+#[test]
+fn restores_only_the_initial_primary_window() {
+    let source = r#"app Accessible
+  window
+    fullscreen true
+  window child
+    maximized true
+    visible false
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+view
+  text "Ready"
+"#;
+    let generated = compile(source, "accessible.ice").unwrap();
+    let named = generated
+        .split_once("fn __window_0()")
+        .unwrap()
+        .1
+        .split_once("pub fn run()")
+        .unwrap()
+        .0;
+
+    assert!(named.contains("maximized: true"));
+    assert!(named.contains("visible: false"));
+    assert!(!named.contains("__window.visible = false"));
+    assert!(generated.contains("::iced::window::oldest().then"));
+    assert!(generated.contains(
+        "let __restore = ::iced::window::set_mode(__id, ::iced::window::Mode::Fullscreen);"
+    ));
+    assert!(!generated.contains("claim_window"));
+    assert!(!generated.contains("::iced::window::Event::Opened"));
+}
+
+#[test]
+fn waits_for_windows_attachment_before_boot_and_replays_messages_in_order() {
+    let source = r#"extern crate::backend
+  stream load() -> bool
+app Accessible
+state
+  ready = false
+preset seeded
+  boot
+    stream load() -> loaded _
+on mount
+  stream load() -> loaded _
+on loaded(value)
+  ready = value
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+view
+  text "Ready"
+"#;
+    let generated = compile(source, "accessible.ice").unwrap();
+
+    for expected in [
+        "fn __boot_task(&mut self)",
+        "fn __preset_task_0(&mut self)",
+        "state.__ice_accessibility_initial = ::std::option::Option::Some(0)",
+        "state.__ice_accessibility_initial = ::std::option::Option::Some(1)",
+        "!matches!(&message, __AccessibleMessage::__AccessibilityNativeWindow(_))",
+        "::std::mem::take(&mut self.__ice_accessibility_pending)",
+        "for __message in ::std::mem::take(&mut self.__ice_accessibility_pending)",
+        "__pending.push(self.__update(__message))",
+        "let __initial = self.__accessibility_initial_task();",
+        "::iced::Task::run",
+    ] {
+        assert!(generated.contains(expected), "missing {expected}");
+    }
+    assert!(!generated.contains("claim_window"));
 }
 
 #[test]

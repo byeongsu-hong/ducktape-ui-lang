@@ -6,6 +6,7 @@ pub const ICED_WIDGET_VERSION: &str = "0.14.2";
 pub const UI_LANG_RUNTIME_VERSION: &str = "0.1.0";
 pub const ACCESSKIT_VERSION: &str = "0.24.1";
 pub const ACCESSKIT_UNIX_VERSION: &str = "0.22.1";
+pub const ACCESSKIT_WINDOWS_VERSION: &str = "0.32.0";
 
 #[derive(Clone, Copy)]
 struct Completion {
@@ -710,6 +711,8 @@ pub fn document() -> Value {
                 "accesskit": ACCESSKIT_VERSION,
                 "accesskit_unix": ACCESSKIT_UNIX_VERSION,
                 "accesskit_unixTarget": "linux",
+                "accesskit_windows": ACCESSKIT_WINDOWS_VERSION,
+                "accesskit_windowsTarget": "windows",
             },
             "compatibilityCommand": "cargo ice compat",
         },
@@ -804,8 +807,8 @@ pub fn completion_items() -> Vec<Value> {
 #[cfg(test)]
 mod tests {
     use super::{
-        COMPLETIONS, ICED_VERSION, ICED_WIDGET_VERSION, UI_LANG_RUNTIME_VERSION, completion_items,
-        document,
+        ACCESSKIT_WINDOWS_VERSION, COMPLETIONS, ICED_VERSION, ICED_WIDGET_VERSION,
+        UI_LANG_RUNTIME_VERSION, completion_items, document,
     };
     use std::collections::BTreeSet;
 
@@ -820,6 +823,14 @@ mod tests {
         assert_eq!(
             schema["backend"]["runtime"]["version"],
             UI_LANG_RUNTIME_VERSION
+        );
+        assert_eq!(
+            schema["backend"]["runtime"]["accesskit_windows"],
+            ACCESSKIT_WINDOWS_VERSION
+        );
+        assert_eq!(
+            schema["backend"]["runtime"]["accesskit_windowsTarget"],
+            "windows"
         );
         assert_eq!(constructs.len(), COMPLETIONS.len());
         assert_eq!(completions.len(), COMPLETIONS.len());

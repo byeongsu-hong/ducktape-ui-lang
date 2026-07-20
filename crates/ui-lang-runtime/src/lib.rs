@@ -1088,7 +1088,7 @@ pub struct Bridge<Message> {
     adapter: Option<accesskit_windows::SubclassingAdapter>,
     #[cfg(target_os = "windows")]
     sender: Option<iced::futures::channel::mpsc::UnboundedSender<ActionRequest>>,
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
     window: Option<iced::window::Id>,
 }
 
@@ -1183,7 +1183,7 @@ impl<Message> Bridge<Message> {
             adapter,
             #[cfg(target_os = "windows")]
             sender,
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "windows"))]
             window: None,
         }
     }
@@ -1214,12 +1214,19 @@ impl<Message> Bridge<Message> {
         self.snapshot = Some(snapshot);
     }
 
-    /// Attaches UI Automation before the hidden Win32 window is first shown.
+    /// Returns whether UI Automation owns the initial Win32 window.
     #[cfg(target_os = "windows")]
-    pub fn attach_window(&mut self, window: NativeWindow) {
+    pub fn is_attached(&self) -> bool {
+        self.adapter.is_some()
+    }
+
+    /// Attaches UI Automation before the initial Win32 window is first shown.
+    #[cfg(target_os = "windows")]
+    pub fn attach_window(&mut self, window: NativeWindow) -> bool {
         let Some(sender) = self.sender.take() else {
-            return;
+            return false;
         };
+        self.window = Some(window.id);
         self.adapter = Some(accesskit_windows::SubclassingAdapter::new(
             accesskit_windows::HWND(window.hwnd.get() as *mut core::ffi::c_void),
             Activation {
@@ -1227,6 +1234,7 @@ impl<Message> Bridge<Message> {
             },
             Actions { sender },
         ));
+        true
     }
 
     /// Applies focus truth for the single native window owned by this bridge.
@@ -1937,10 +1945,12 @@ mod tests {
         let bridge = Bridge::<Message>::new();
         assert!(bridge.adapter.is_none());
         assert!(bridge.sender.is_some());
+        assert!(!bridge.is_attached());
 
         let disabled = Bridge::<Message>::without_native_adapter();
         assert!(disabled.adapter.is_none());
         assert!(disabled.sender.is_none());
+        assert!(!disabled.is_attached());
     }
 
     #[cfg(target_os = "linux")]

@@ -1,9 +1,13 @@
 use crate::schema::{
-    ACCESSKIT_UNIX_VERSION, ACCESSKIT_VERSION, ICED_VERSION, ICED_WIDGET_VERSION,
-    UI_LANG_RUNTIME_VERSION,
+    ACCESSKIT_UNIX_VERSION, ACCESSKIT_VERSION, ACCESSKIT_WINDOWS_VERSION, ICED_VERSION,
+    ICED_WIDGET_VERSION, UI_LANG_RUNTIME_VERSION,
 };
 use std::fs;
 use std::path::Path;
+
+const DIRECT_DEPENDENCIES: &str = "[dependencies]";
+const LINUX_TARGET_DEPENDENCIES: &str = r#"[target.'cfg(target_os = "linux")'.dependencies]"#;
+const WINDOWS_TARGET_DEPENDENCIES: &str = r#"[target.'cfg(target_os = "windows")'.dependencies]"#;
 
 pub fn verify(root: &Path) -> Result<(), String> {
     verify_lock(&root.join("Cargo.lock"))?;
@@ -12,33 +16,46 @@ pub fn verify(root: &Path) -> Result<(), String> {
         "iced",
         &format!("={ICED_VERSION}"),
         None,
-        false,
+        DIRECT_DEPENDENCIES,
     )?;
     verify_dependency(
         &root.join("examples/iced-app/Cargo.toml"),
         "ui-lang-runtime",
         &format!("={UI_LANG_RUNTIME_VERSION}"),
         Some(&root.join("crates/ui-lang-runtime")),
-        false,
+        DIRECT_DEPENDENCIES,
     )?;
     let runtime = root.join("crates/ui-lang-runtime/Cargo.toml");
-    verify_dependency(&runtime, "iced", &format!("={ICED_VERSION}"), None, false)?;
+    verify_dependency(
+        &runtime,
+        "iced",
+        &format!("={ICED_VERSION}"),
+        None,
+        DIRECT_DEPENDENCIES,
+    )?;
     verify_dependency(
         &runtime,
         "accesskit",
         &format!("={ACCESSKIT_VERSION}"),
         None,
-        false,
+        DIRECT_DEPENDENCIES,
     )?;
     verify_dependency(
         &runtime,
         "accesskit_unix",
         &format!("={ACCESSKIT_UNIX_VERSION}"),
         None,
-        true,
+        LINUX_TARGET_DEPENDENCIES,
+    )?;
+    verify_dependency(
+        &runtime,
+        "accesskit_windows",
+        &format!("={ACCESSKIT_WINDOWS_VERSION}"),
+        None,
+        WINDOWS_TARGET_DEPENDENCIES,
     )?;
     println!(
-        "compatibility baseline: iced {ICED_VERSION}, iced_widget {ICED_WIDGET_VERSION}, ui-lang-runtime {UI_LANG_RUNTIME_VERSION}, accesskit {ACCESSKIT_VERSION}"
+        "compatibility baseline: iced {ICED_VERSION}, iced_widget {ICED_WIDGET_VERSION}, ui-lang-runtime {UI_LANG_RUNTIME_VERSION}, accesskit {ACCESSKIT_VERSION}, accesskit_unix {ACCESSKIT_UNIX_VERSION} (linux), accesskit_windows {ACCESSKIT_WINDOWS_VERSION} (windows)"
     );
     Ok(())
 }
@@ -56,6 +73,7 @@ fn verify_lock_contents(lock: &str) -> Result<(), String> {
         ("ui-lang-runtime", UI_LANG_RUNTIME_VERSION, true),
         ("accesskit", ACCESSKIT_VERSION, false),
         ("accesskit_unix", ACCESSKIT_UNIX_VERSION, false),
+        ("accesskit_windows", ACCESSKIT_WINDOWS_VERSION, false),
     ] {
         let actual = locked_versions(lock, name);
         match actual.as_slice() {
@@ -87,17 +105,15 @@ fn verify_dependency(
     name: &str,
     expected_version: &str,
     expected_path: Option<&Path>,
-    linux_target: bool,
+    dependency_section: &str,
 ) -> Result<(), String> {
     let manifest = fs::read_to_string(manifest_path)
         .map_err(|error| format!("cannot read {}: {error}", manifest_path.display()))?;
-    let value = direct_dependency(&manifest, name, linux_target).ok_or_else(|| {
-        let scope = if linux_target {
-            "Linux target dependencies"
-        } else {
-            "direct dependencies"
-        };
-        format!("{} must list `{name}` in {scope}", manifest_path.display())
+    let value = direct_dependency(&manifest, name, dependency_section).ok_or_else(|| {
+        format!(
+            "{} must list `{name}` in {dependency_section}",
+            manifest_path.display()
+        )
     })?;
     let actual_version = dependency_version(value);
     if actual_version != Some(expected_version) {
@@ -145,7 +161,11 @@ fn dependency_version(source: &str) -> Option<&str> {
         .or_else(|| quoted_field(source, "version"))
 }
 
-fn direct_dependency<'a>(manifest: &'a str, package: &str, linux_target: bool) -> Option<&'a str> {
+fn direct_dependency<'a>(
+    manifest: &'a str,
+    package: &str,
+    dependency_section: &str,
+) -> Option<&'a str> {
     let mut section = "";
     for raw in manifest.lines() {
         let line = raw.trim();
@@ -153,12 +173,7 @@ fn direct_dependency<'a>(manifest: &'a str, package: &str, linux_target: bool) -
             section = line;
             continue;
         }
-        let in_scope = if linux_target {
-            section == r#"[target.'cfg(target_os = "linux")'.dependencies]"#
-        } else {
-            section == "[dependencies]"
-        };
-        if !in_scope {
+        if section != dependency_section {
             continue;
         }
         let Some((name, value)) = line.split_once('=') else {
@@ -221,6 +236,7 @@ fn locked_versions<'a>(lock: &'a str, package: &str) -> Vec<&'a str> {
 #[cfg(test)]
 mod tests {
     use super::{
+        DIRECT_DEPENDENCIES, LINUX_TARGET_DEPENDENCIES, WINDOWS_TARGET_DEPENDENCIES,
         dependency_version, direct_dependency, locked_versions, quoted_field, verify_lock_contents,
     };
 
@@ -253,12 +269,25 @@ version = "0.24.1"
 [[package]]
 name = "accesskit_unix"
 version = "0.22.1"
+
+[[package]]
+name = "accesskit_windows"
+version = "0.32.0"
 "#;
 
         assert_eq!(locked_versions(lock, "iced"), ["0.14.0"]);
         assert_eq!(locked_versions(lock, "iced_widget"), ["0.14.2"]);
+        assert_eq!(locked_versions(lock, "accesskit_windows"), ["0.32.0"]);
         assert!(locked_versions(lock, "missing").is_empty());
         assert_eq!(verify_lock_contents(lock), Ok(()));
+
+        let error = verify_lock_contents(&lock.replace(
+            "name = \"accesskit_windows\"\nversion = \"0.32.0\"",
+            "name = \"accesskit_windows\"\nversion = \"0.31.0\"",
+        ))
+        .unwrap_err();
+        assert!(error.contains("`accesskit_windows`"), "{error}");
+        assert!(error.contains("0.32.0"), "{error}");
     }
 
     #[test]
@@ -307,7 +336,7 @@ version = "0.14.2"
     }
 
     #[test]
-    fn reads_exact_direct_and_linux_dependency_requirements() {
+    fn reads_exact_direct_and_target_dependency_requirements() {
         let manifest = r#"
 [dependencies]
 # comments and blank lines do not end the dependency section
@@ -317,9 +346,15 @@ ui-lang-runtime = { path = "../../crates/ui-lang-runtime", version = "=0.1.0" }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 accesskit_unix = "=0.22.1"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+accesskit_windows = "=0.32.0"
 "#;
-        let runtime = direct_dependency(manifest, "ui-lang-runtime", false).unwrap();
-        let unix = direct_dependency(manifest, "accesskit_unix", true).unwrap();
+        let runtime = direct_dependency(manifest, "ui-lang-runtime", DIRECT_DEPENDENCIES).unwrap();
+        let unix =
+            direct_dependency(manifest, "accesskit_unix", LINUX_TARGET_DEPENDENCIES).unwrap();
+        let windows =
+            direct_dependency(manifest, "accesskit_windows", WINDOWS_TARGET_DEPENDENCIES).unwrap();
 
         assert_eq!(quoted_field(runtime, "version"), Some("=0.1.0"));
         assert_eq!(
@@ -327,12 +362,31 @@ accesskit_unix = "=0.22.1"
             Some("../../crates/ui-lang-runtime")
         );
         assert_eq!(dependency_version(unix), Some("=0.22.1"));
-        assert!(direct_dependency(manifest, "accesskit_unix", false).is_none());
+        assert_eq!(dependency_version(windows), Some("=0.32.0"));
+        assert!(direct_dependency(manifest, "accesskit_unix", DIRECT_DEPENDENCIES).is_none());
+        assert!(
+            direct_dependency(manifest, "accesskit_windows", LINUX_TARGET_DEPENDENCIES).is_none()
+        );
 
         let not_linux = r#"
 [target.'cfg(not(target_os = "linux"))'.dependencies]
 accesskit_unix = "=0.22.1"
 "#;
-        assert!(direct_dependency(not_linux, "accesskit_unix", true).is_none());
+        assert!(
+            direct_dependency(not_linux, "accesskit_unix", LINUX_TARGET_DEPENDENCIES).is_none()
+        );
+
+        let not_windows = r#"
+[target.'cfg(not(target_os = "windows"))'.dependencies]
+accesskit_windows = "=0.32.0"
+"#;
+        assert!(
+            direct_dependency(
+                not_windows,
+                "accesskit_windows",
+                WINDOWS_TARGET_DEPENDENCIES
+            )
+            .is_none()
+        );
     }
 }

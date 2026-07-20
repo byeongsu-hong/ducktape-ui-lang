@@ -43,7 +43,13 @@ advanced widget semantics are not claimed. `scripts/a11y-smoke.sh` proves that
 the Linux AT-SPI tree is discoverable and an invoked action reaches the Iced
 bridge; `scripts/a11y-windows-check.sh` cross-compiles the Windows adapter,
 tests, and generated reference app. Headless tests cover dispatch to the app
-message.
+message. On Windows, Iced's automatically created initial main window starts
+hidden, windowed, and non-maximized. The bootstrap resolves its ID with
+`window::oldest()`, then defers configured-mode restoration, the selected boot
+or preset task, and received messages until UI Automation subclass attachment;
+it then restores the mode and releases the initial task alongside queued
+messages, preserving queue order. Named windows retain their configured settings
+and remain outside native export.
 
 ## Typed system reachability
 

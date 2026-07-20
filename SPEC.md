@@ -98,13 +98,22 @@ Tree construction, focus updates, duplicate-ID disambiguation, and action
 routing are deterministic across platforms. Native screen-reader export is a
 separate, narrower contract: `accesskit_unix` exports a single-window Linux
 application over AT-SPI, while `accesskit_windows` exports a single-window
-Windows application through UI Automation. The Windows bootstrap keeps Iced's
-first window hidden until AccessKit subclasses its Win32 handle, then restores
-the configured hidden, windowed, or fullscreen mode. Stock Iced 0.14.0 does not
-expose the window-scoped operations or desktop transform needed for daemon/
-multi-window adapters or exact screen-coordinate bounds. Other targets retain
-the deterministic tree/action behavior without a native screen-reader adapter.
-Rich text and advanced widgets are outside this Core semantic contract.
+Windows application through UI Automation. The Windows bootstrap forces
+Iced's automatically created initial main window to start hidden, windowed,
+and non-maximized, then resolves its ID with `window::oldest()`. Boot or preset
+work and received messages are held until AccessKit subclasses the Win32
+handle; it then restores the configured main-window mode and releases the
+selected initial task alongside queued messages, preserving queue order.
+Fullscreen takes
+precedence over maximized, matching Winit creation semantics; `visible=false`
+takes precedence over both and does not retain their latent state because Iced
+cannot preserve it without showing the window. Named windows retain their
+configured settings and remain outside native export. Stock Iced 0.14.0 does
+not expose the window-scoped operations or desktop transform needed for
+daemon/multi-window adapters or exact screen-coordinate bounds. Other targets
+retain the deterministic tree/action behavior without a native screen-reader
+adapter. Rich text and advanced widgets are outside this Core semantic
+contract.
 
 ## 2. Compiler model
 
@@ -3996,10 +4005,11 @@ routing. On Linux, `scripts/a11y-smoke.sh` starts an isolated D-Bus/AT-SPI
 session and runs the ignored native gate that discovers the exported tree and
 delivers its action to the Iced bridge. `scripts/a11y-windows-check.sh`
 cross-compiles the Windows adapter, runtime tests, generated reference app, and
-Core tests from a Linux host; the Windows-only unit test covers adapter state
-while creation is deferred until a native handle arrives. Headless tests cover
-dispatch from the bridge to the app message. These gates do not expand the
-single-window or coordinate contract above.
+Core tests from a Linux host; unit and codegen tests cover oldest-window
+resolution, deferred show and initial work, ordered message replay, and exact
+target-scoped dependency pins. Headless tests cover dispatch from the bridge to
+the app message. These gates do not expand the single-window or coordinate
+contract above.
 
 ## 12. Current coverage and escape hatches
 

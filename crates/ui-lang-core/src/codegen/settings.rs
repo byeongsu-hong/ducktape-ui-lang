@@ -58,7 +58,7 @@ pub(in crate::codegen) fn window_settings_code(
         |settings| window_settings_value_code(settings, source_path),
     );
     format!(
-        ".window({{ let mut __window = {settings}; #[cfg(target_os = \"windows\")] {{ __window.visible = false; }} __window }})"
+        ".window({{ let mut __window = {settings}; #[cfg(target_os = \"windows\")] {{ __window.visible = false; __window.maximized = false; __window.fullscreen = false; }} __window }})"
     )
 }
 
