@@ -263,9 +263,29 @@ pub(in crate::codegen) fn generate_update(
     message: &str,
 ) -> Result<(), Error> {
     let accessibility_root = rust_string(&document.app);
+    let windows_show = document
+        .settings
+        .window
+        .as_ref()
+        .is_none_or(|settings| settings.visible != Some(false));
+    let windows_mode = if document
+        .settings
+        .window
+        .as_ref()
+        .is_some_and(|settings| settings.fullscreen == Some(true))
+    {
+        "Fullscreen"
+    } else {
+        "Windowed"
+    };
+    let windows_restore = if windows_show {
+        format!("::iced::window::set_mode(__id, ::iced::window::Mode::{windows_mode})")
+    } else {
+        "::iced::Task::none()".into()
+    };
     writeln!(
         out,
-        "fn __update(&mut self, message: {message}) -> ::iced::Task<{message}> {{\nlet __task = match message {{\n{message}::__AccessibilitySnapshot(__snapshot) => {{ self.__ice_accessibility.update(*__snapshot); return ::iced::Task::none(); }},\n{message}::__AccessibilityAction(__request) => {{ let __refresh = matches!(__request.action, ::ui_lang_runtime::Action::Focus); let __task = self.__ice_accessibility.dispatch(__request); return if __refresh {{ __task.chain(::ui_lang_runtime::snapshot::<{message}>({accessibility_root}).map(|__snapshot| {message}::__AccessibilitySnapshot(::std::boxed::Box::new(__snapshot)))) }} else {{ __task }}; }},\n{message}::__AccessibilityWindow(__id, __event) => {{ self.__ice_accessibility.window_event(__id, __event); return ::iced::Task::none(); }},\n{message}::__AccessibilityFocusNext => {{ return ::ui_lang_runtime::focus_next::<{message}>().chain(::ui_lang_runtime::snapshot::<{message}>({accessibility_root}).map(|__snapshot| {message}::__AccessibilitySnapshot(::std::boxed::Box::new(__snapshot)))); }},\n{message}::__AccessibilityFocusPrevious => {{ return ::ui_lang_runtime::focus_previous::<{message}>().chain(::ui_lang_runtime::snapshot::<{message}>({accessibility_root}).map(|__snapshot| {message}::__AccessibilitySnapshot(::std::boxed::Box::new(__snapshot)))); }},"
+        "fn __update(&mut self, message: {message}) -> ::iced::Task<{message}> {{\nlet __task = match message {{\n{message}::__AccessibilitySnapshot(__snapshot) => {{ self.__ice_accessibility.update(*__snapshot); return ::iced::Task::none(); }},\n{message}::__AccessibilityAction(__request) => {{ let __refresh = matches!(__request.action, ::ui_lang_runtime::Action::Focus); let __task = self.__ice_accessibility.dispatch(__request); return if __refresh {{ __task.chain(::ui_lang_runtime::snapshot::<{message}>({accessibility_root}).map(|__snapshot| {message}::__AccessibilitySnapshot(::std::boxed::Box::new(__snapshot)))) }} else {{ __task }}; }},\n{message}::__AccessibilityWindow(__id, __event) => {{ #[cfg(target_os = \"windows\")] if matches!(&__event, ::iced::window::Event::Opened {{ .. }}) {{ return ::ui_lang_runtime::native_window(__id).map({message}::__AccessibilityNativeWindow); }} self.__ice_accessibility.window_event(__id, __event); return ::iced::Task::none(); }},\n#[cfg(target_os = \"windows\")]\n{message}::__AccessibilityNativeWindow(__window) => {{ let __id = __window.id(); self.__ice_accessibility.attach_window(__window); return {windows_restore}; }},\n{message}::__AccessibilityFocusNext => {{ return ::ui_lang_runtime::focus_next::<{message}>().chain(::ui_lang_runtime::snapshot::<{message}>({accessibility_root}).map(|__snapshot| {message}::__AccessibilitySnapshot(::std::boxed::Box::new(__snapshot)))); }},\n{message}::__AccessibilityFocusPrevious => {{ return ::ui_lang_runtime::focus_previous::<{message}>().chain(::ui_lang_runtime::snapshot::<{message}>({accessibility_root}).map(|__snapshot| {message}::__AccessibilitySnapshot(::std::boxed::Box::new(__snapshot)))); }},"
     )
     .unwrap();
     for handler in &document.handlers {

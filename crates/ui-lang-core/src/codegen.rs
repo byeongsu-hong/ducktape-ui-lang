@@ -88,7 +88,7 @@ pub fn generate(document: &CheckedDocument, source_path: &str) -> Result<String,
     writeln!(out, "#[derive(Debug, Clone)]\nenum {message} {{").unwrap();
     writeln!(
         out,
-        "__AccessibilitySnapshot(::std::boxed::Box<::ui_lang_runtime::Snapshot<{message}>>),\n__AccessibilityAction(::ui_lang_runtime::ActionRequest),\n__AccessibilityWindow(::iced::window::Id, ::iced::window::Event),\n__AccessibilityFocusNext,\n__AccessibilityFocusPrevious,"
+        "__AccessibilitySnapshot(::std::boxed::Box<::ui_lang_runtime::Snapshot<{message}>>),\n__AccessibilityAction(::ui_lang_runtime::ActionRequest),\n__AccessibilityWindow(::iced::window::Id, ::iced::window::Event),\n#[cfg(target_os = \"windows\")]\n__AccessibilityNativeWindow(::ui_lang_runtime::NativeWindow),\n__AccessibilityFocusNext,\n__AccessibilityFocusPrevious,"
     )
     .unwrap();
     for handler in &document.handlers {

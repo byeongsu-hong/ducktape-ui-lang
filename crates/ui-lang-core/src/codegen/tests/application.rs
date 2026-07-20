@@ -850,10 +850,32 @@ view
         ".description(\"Profile portrait\".to_owned())",
         ".chain(::ui_lang_runtime::snapshot",
         "let __refresh = matches!(__request.action, ::ui_lang_runtime::Action::Focus)",
+        "__AccessibilityNativeWindow(::ui_lang_runtime::NativeWindow)",
+        "__window.visible = false",
+        "::ui_lang_runtime::native_window(__id)",
+        "self.__ice_accessibility.attach_window(__window)",
+        "::iced::window::Mode::Windowed",
     ] {
         assert!(generated.contains(expected), "missing {expected}");
     }
     assert!(!generated.contains("dispatch(__request).chain"));
+}
+
+#[test]
+fn restores_configured_windows_visibility_after_native_adapter_setup() {
+    let source = |window: &str| {
+        format!(
+            "app Accessible\n  window\n    {window}\ntheme\n  background #000000\n  foreground #ffffff\n  primary #333333\n  danger #ff0000\nview\n  text \"Ready\"\n"
+        )
+    };
+
+    let fullscreen = compile(&source("fullscreen true"), "accessible.ice").unwrap();
+    assert!(fullscreen.contains("::iced::window::Mode::Fullscreen"));
+
+    let hidden = compile(&source("visible false"), "accessible.ice").unwrap();
+    assert!(hidden.contains(
+        "self.__ice_accessibility.attach_window(__window); return ::iced::Task::none();"
+    ));
 }
 
 #[test]

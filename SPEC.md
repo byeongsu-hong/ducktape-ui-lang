@@ -97,11 +97,14 @@ their native focused rendering. There is no numeric focus-order syntax.
 Tree construction, focus updates, duplicate-ID disambiguation, and action
 routing are deterministic across platforms. Native screen-reader export is a
 separate, narrower contract: `accesskit_unix` exports a single-window Linux
-application over AT-SPI. Stock Iced 0.14.0 does not expose the window-scoped
-operations or desktop transform needed for daemon/multi-window adapters or
-exact screen-coordinate bounds. Non-Linux builds retain the deterministic
-tree/action behavior but have no native screen-reader adapter. Rich text and
-advanced widgets are outside this Core semantic contract.
+application over AT-SPI, while `accesskit_windows` exports a single-window
+Windows application through UI Automation. The Windows bootstrap keeps Iced's
+first window hidden until AccessKit subclasses its Win32 handle, then restores
+the configured hidden, windowed, or fullscreen mode. Stock Iced 0.14.0 does not
+expose the window-scoped operations or desktop transform needed for daemon/
+multi-window adapters or exact screen-coordinate bounds. Other targets retain
+the deterministic tree/action behavior without a native screen-reader adapter.
+Rich text and advanced widgets are outside this Core semantic contract.
 
 ## 2. Compiler model
 
@@ -144,9 +147,9 @@ an extern declaration is not reached at runtime.
 
 Generated Rust refers to the public `::ui_lang_runtime` path, so a consuming
 application must declare `ui-lang-runtime = "=0.1.0"` as a direct dependency.
-That runtime pins AccessKit and, on Linux, `accesskit_unix`; the reference
-application uses the workspace path with the exact version. `cargo ice compat`
-verifies the lockfile and direct-manifest contract.
+That runtime pins AccessKit, `accesskit_unix` on Linux, and `accesskit_windows`
+on Windows; the reference application uses the workspace path with the exact
+version. `cargo ice compat` verifies the lockfile and direct-manifest contract.
 
 ## 3. Source rules
 
@@ -3991,9 +3994,12 @@ The normal runtime and reference-app tests verify deterministic semantic trees,
 focus, keyboard activation, visible focus, password suppression, and action
 routing. On Linux, `scripts/a11y-smoke.sh` starts an isolated D-Bus/AT-SPI
 session and runs the ignored native gate that discovers the exported tree and
-delivers its action to the Iced bridge. Headless tests cover dispatch from the
-bridge to the app message. The smoke is the native adapter gate; it does not
-expand the single-window or coordinate contract above.
+delivers its action to the Iced bridge. `scripts/a11y-windows-check.sh`
+cross-compiles the Windows adapter, runtime tests, generated reference app, and
+Core tests from a Linux host; the Windows-only unit test covers adapter state
+while creation is deferred until a native handle arrives. Headless tests cover
+dispatch from the bridge to the app message. These gates do not expand the
+single-window or coordinate contract above.
 
 ## 12. Current coverage and escape hatches
 
