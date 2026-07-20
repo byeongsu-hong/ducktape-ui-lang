@@ -684,8 +684,6 @@ fn style_compatibility() -> Value {
     })
 }
 
-const SYMBOL_GAP: &str = "The checked AST exposes declaration start lines, but not reference spans or imported source origins; locating or rewriting references would require heuristic source parsing.";
-
 pub fn document() -> Value {
     let constructs = COMPLETIONS.iter().map(construct_schema).collect::<Vec<_>>();
 
@@ -736,12 +734,22 @@ pub fn document() -> Value {
                 "contextAware": false,
             },
             "definition": {
-                "supported": false,
-                "reason": SYMBOL_GAP,
+                "supported": true,
+                "symbols": ["component", "handler"],
+                "crossFile": true,
+                "source": "checked reference spans and imported source origins",
             },
             "rename": {
-                "supported": false,
-                "reason": SYMBOL_GAP,
+                "supported": true,
+                "prepare": true,
+                "symbols": ["component", "handler"],
+                "componentRule": "plain names and compound-family roots; a root rename cascades to dotted descendants",
+                "definitionOnly": ["dotted component descendants", "mount handler"],
+                "completeReferencesOnly": true,
+                "declarationCollisionCheck": true,
+                "allWorkspaceAppRootsMustCheck": true,
+                "workspaceRootRequiredForImportedSymbols": true,
+                "dirtyDiskImportSuppressesRename": true,
             },
         },
         "core": {
@@ -807,6 +815,7 @@ mod tests {
         COMPLETIONS, ICED_VERSION, ICED_WIDGET_VERSION, UI_LANG_RUNTIME_VERSION, completion_items,
         document,
     };
+    use serde_json::json;
     use std::collections::BTreeSet;
 
     #[test]
@@ -828,13 +837,12 @@ mod tests {
             assert_eq!(construct["insertText"], completion["insertText"]);
             assert_eq!(completion["insertTextFormat"], 2);
         }
-        assert_eq!(schema["lsp"]["definition"]["supported"], false);
-        assert_eq!(schema["lsp"]["rename"]["supported"], false);
-        assert!(
-            schema["lsp"]["definition"]["reason"]
-                .as_str()
-                .unwrap()
-                .contains("reference spans")
+        assert_eq!(schema["lsp"]["definition"]["supported"], true);
+        assert_eq!(schema["lsp"]["rename"]["supported"], true);
+        assert_eq!(schema["lsp"]["rename"]["completeReferencesOnly"], true);
+        assert_eq!(
+            schema["lsp"]["rename"]["definitionOnly"],
+            json!(["dotted component descendants", "mount handler"])
         );
     }
 

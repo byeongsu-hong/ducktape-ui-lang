@@ -3983,9 +3983,16 @@ generated from that same construct table instead of a separate vocabulary.
 The LSP uses Content-Length framed stdio, full-document synchronization, and
 the same parser/checker/source map as the compiler. Existing file URIs use the
 open root buffer over disk-backed imports; imported diagnostics are published
-at the imported URI with UTF-16 ranges. Unsaved imported buffers are not
-overlaid. Definition and rename remain unsupported because the checked model
-does not retain reference spans and imported source origins.
+at the imported URI with UTF-16 ranges. Checked component and handler
+declarations and references retain imported source origins, so definition and
+complete-reference rename work across an analyzed app graph. Rename validates
+the new identifier, rejects declaration collisions, and waits until every app
+root under the initialized workspace checks. Plain component names and
+compound-family roots are renameable; a family-root rename updates dotted
+descendants, but direct dotted descendants and the implicit `mount` handler are
+definition-only. Unsaved imported buffers are not overlaid, so a dirty open
+import suppresses rename rather than omitting new facts or using stale
+disk-backed ranges.
 
 The normal runtime and reference-app tests verify deterministic semantic trees,
 focus, keyboard activation, visible focus, password suppression, and action

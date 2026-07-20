@@ -7,6 +7,7 @@ pub(in crate::parser) fn parse_component_call(
     let head = &parts[0];
     if head.contains('(') {
         let (name, args) = parse_component_signature(head, line)?;
+        line.record_component_reference(&name);
         let id = parts
             .get(1)
             .filter(|part| part.starts_with('#'))
@@ -30,6 +31,7 @@ pub(in crate::parser) fn parse_component_call(
     }
 
     let name = component_identifier(head, line)?;
+    line.record_component_reference(&name);
     let mut args = Vec::new();
     let mut id = None;
     for part in &parts[1..] {

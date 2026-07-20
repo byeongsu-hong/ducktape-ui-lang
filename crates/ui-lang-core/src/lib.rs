@@ -13,15 +13,142 @@ pub use source::{
     FileCompilation, analyze_file, analyze_file_with_source, compile_file, source_is_app,
 };
 
+use std::collections::BTreeMap;
 use std::fmt;
 use std::ops::Deref;
+use std::path::{Path, PathBuf};
 
 #[derive(Clone, Debug)]
-pub struct CheckedDocument(Document);
+pub struct CheckedDocument {
+    document: Document,
+    symbols: Vec<CheckedSymbol>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum SymbolKind {
+    Component,
+    Handler,
+}
+
+impl SymbolKind {
+    pub fn accepts(self, name: &str) -> bool {
+        fn identifier(name: &str) -> bool {
+            !name.is_empty()
+                && name.chars().enumerate().all(|(index, ch)| {
+                    ch == '_' || ch.is_ascii_alphanumeric() && (index > 0 || !ch.is_ascii_digit())
+                })
+        }
+
+        match self {
+            Self::Component => name.split('.').all(|part| {
+                identifier(part)
+                    && part
+                        .chars()
+                        .next()
+                        .is_some_and(|ch| ch.is_ascii_uppercase())
+            }),
+            Self::Handler => name != "mount" && identifier(name),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SourceRange {
+    pub path: Option<PathBuf>,
+    pub line: usize,
+    pub start_column: usize,
+    pub end_column: usize,
+}
+
+impl SourceRange {
+    pub fn contains(&self, path: Option<&Path>, line: usize, column: usize) -> bool {
+        self.path.as_deref() == path
+            && self.line == line
+            && (self.start_column..self.end_column).contains(&column)
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct CheckedSymbol {
+    pub kind: SymbolKind,
+    pub name: String,
+    pub definition: SourceRange,
+    pub references: Vec<SourceRange>,
+    pub renameable: bool,
+}
 
 impl CheckedDocument {
     pub(crate) fn new(document: Document) -> Self {
-        Self(document)
+        Self {
+            document,
+            symbols: Vec::new(),
+        }
+    }
+
+    pub fn symbols(&self) -> &[CheckedSymbol] {
+        &self.symbols
+    }
+
+    pub fn symbol_at(
+        &self,
+        path: Option<&Path>,
+        line: usize,
+        column: usize,
+    ) -> Option<(&CheckedSymbol, &SourceRange)> {
+        self.symbols.iter().find_map(|symbol| {
+            std::iter::once(&symbol.definition)
+                .chain(&symbol.references)
+                .find(|range| range.contains(path, line, column))
+                .map(|range| (symbol, range))
+        })
+    }
+
+    pub(crate) fn with_parsed_symbols(mut self, parsed: Vec<parser::ParsedSymbol>) -> Self {
+        struct Builder {
+            kind: SymbolKind,
+            name: String,
+            definition: Option<SourceRange>,
+            references: Vec<SourceRange>,
+            complete: bool,
+        }
+
+        let mut symbols = BTreeMap::<(SymbolKind, String), Builder>::new();
+        for parsed in parsed {
+            let key = (parsed.kind, parsed.name.clone());
+            let symbol = symbols.entry(key).or_insert_with(|| Builder {
+                kind: parsed.kind,
+                name: parsed.name,
+                definition: None,
+                references: Vec::new(),
+                complete: true,
+            });
+            let Some(range) = parsed.range else {
+                symbol.complete = false;
+                continue;
+            };
+            if parsed.definition {
+                if symbol.definition.replace(range).is_some() {
+                    symbol.complete = false;
+                }
+            } else {
+                symbol.references.push(range);
+            }
+        }
+        self.symbols = symbols
+            .into_values()
+            .filter_map(|symbol| {
+                let definition = symbol.definition?;
+                Some(CheckedSymbol {
+                    kind: symbol.kind,
+                    renameable: symbol.complete
+                        && !(symbol.kind == SymbolKind::Handler && symbol.name == "mount"),
+                    name: symbol.name,
+                    definition,
+                    references: symbol.references,
+                })
+            })
+            .collect();
+        self
     }
 }
 
@@ -29,7 +156,7 @@ impl Deref for CheckedDocument {
     type Target = Document;
 
     fn deref(&self) -> &Self::Target {
-        &self.0
+        &self.document
     }
 }
 
@@ -113,7 +240,8 @@ pub fn parse(source: &str) -> Result<Document, Error> {
 }
 
 pub fn analyze(source: &str) -> Result<CheckedDocument, Error> {
-    check::analyze(parse(source)?)
+    let (document, symbols) = parser::parse_with_symbols(source)?;
+    Ok(check::analyze(document)?.with_parsed_symbols(symbols))
 }
 
 pub fn compile(source: &str, source_path: &str) -> Result<String, Error> {

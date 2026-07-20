@@ -1,6 +1,6 @@
 use crate::schema;
 use serde_json::{Value, json};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -8,6 +8,56 @@ use std::path::{Path, PathBuf};
 struct DiagnosticReport {
     target: String,
     diagnostic: Option<Value>,
+}
+
+struct Navigation {
+    symbol: ui_lang_core::CheckedSymbol,
+    family: Vec<ui_lang_core::CheckedSymbol>,
+    occurrence: ui_lang_core::SourceRange,
+    declarations: Vec<(ui_lang_core::SymbolKind, String)>,
+    root_uri: String,
+}
+
+impl Navigation {
+    fn renameable(&self) -> bool {
+        self.symbol.renameable
+            && !(self.symbol.kind == ui_lang_core::SymbolKind::Component
+                && self.symbol.name.contains('.'))
+            && self.family.iter().all(|symbol| symbol.renameable)
+    }
+
+    fn family_name(&self, name: &str, new_name: &str) -> String {
+        if self.symbol.kind == ui_lang_core::SymbolKind::Component
+            && let Some(suffix) = name.strip_prefix(&self.symbol.name)
+        {
+            return format!("{new_name}{suffix}");
+        }
+        new_name.to_owned()
+    }
+
+    fn collides(&self, new_name: &str) -> bool {
+        let family = self
+            .family
+            .iter()
+            .map(|symbol| symbol.name.as_str())
+            .collect::<Vec<_>>();
+        self.family.iter().any(|symbol| {
+            let renamed = self.family_name(&symbol.name, new_name);
+            renamed != symbol.name
+                && self.declarations.iter().any(|(kind, name)| {
+                    *kind == self.symbol.kind
+                        && name == &renamed
+                        && !family.contains(&name.as_str())
+                })
+        })
+    }
+}
+
+fn same_component_family(root: &str, name: &str) -> bool {
+    name == root
+        || name
+            .strip_prefix(root)
+            .is_some_and(|suffix| suffix.starts_with('.'))
 }
 
 pub fn run_stdio() -> Result<(), String> {
@@ -19,6 +69,7 @@ pub fn run_stdio() -> Result<(), String> {
 fn serve(reader: &mut impl BufRead, writer: &mut impl Write) -> io::Result<()> {
     let mut documents = HashMap::<String, String>::new();
     let mut diagnostic_reports = HashMap::<String, DiagnosticReport>::new();
+    let mut workspace_roots = Vec::<PathBuf>::new();
     let mut shutdown = false;
 
     while let Some(message) = read_message(reader)? {
@@ -32,6 +83,7 @@ fn serve(reader: &mut impl BufRead, writer: &mut impl Write) -> io::Result<()> {
         }
         match method {
             "initialize" => {
+                workspace_roots = initialize_roots(&message["params"]);
                 if let Some(id) = id {
                     respond(
                         writer,
@@ -42,8 +94,8 @@ fn serve(reader: &mut impl BufRead, writer: &mut impl Write) -> io::Result<()> {
                                 "textDocumentSync": { "openClose": true, "change": 1 },
                                 "documentFormattingProvider": true,
                                 "completionProvider": { "resolveProvider": false },
-                                "definitionProvider": false,
-                                "renameProvider": false,
+                                "definitionProvider": true,
+                                "renameProvider": { "prepareProvider": true },
                             },
                             "serverInfo": {
                                 "name": "ice-lsp",
@@ -115,6 +167,66 @@ fn serve(reader: &mut impl BufRead, writer: &mut impl Write) -> io::Result<()> {
             "textDocument/completion" => {
                 if let Some(id) = id {
                     respond(writer, id, Value::Array(schema::completion_items()))?;
+                }
+            }
+            "textDocument/definition" => {
+                if let Some(id) = id {
+                    let result = navigation_at(&documents, &workspace_roots, &message["params"])
+                        .and_then(|navigation| {
+                            location(
+                                &documents,
+                                &navigation.symbol.definition,
+                                &navigation.root_uri,
+                            )
+                        });
+                    respond(writer, id, result.unwrap_or(Value::Null))?;
+                }
+            }
+            "textDocument/prepareRename" => {
+                if let Some(id) = id {
+                    let result = navigation_at(&documents, &workspace_roots, &message["params"])
+                        .filter(Navigation::renameable)
+                        .and_then(|navigation| {
+                            source_range(
+                                &documents,
+                                &navigation.occurrence,
+                                &navigation.root_uri,
+                            )
+                            .map(|range| {
+                                json!({ "range": range, "placeholder": navigation.symbol.name })
+                            })
+                        });
+                    respond(writer, id, result.unwrap_or(Value::Null))?;
+                }
+            }
+            "textDocument/rename" => {
+                if let Some(id) = id {
+                    let new_name = message["params"]["newName"].as_str();
+                    match (
+                        navigation_at(&documents, &workspace_roots, &message["params"]),
+                        new_name,
+                    ) {
+                        (Some(navigation), Some(new_name))
+                            if navigation.renameable()
+                                && navigation.symbol.kind.accepts(new_name)
+                                && !navigation.collides(new_name) =>
+                        {
+                            match workspace_edit(&documents, &navigation, new_name) {
+                                Some(edit) => respond(writer, id, edit)?,
+                                None => invalid_params(
+                                    writer,
+                                    id,
+                                    "cannot read every file required for rename",
+                                )?,
+                            }
+                        }
+                        (Some(_), Some(_)) => invalid_params(
+                            writer,
+                            id,
+                            "rename is incomplete, invalid, or collides with a declaration",
+                        )?,
+                        _ => invalid_params(writer, id, "no renameable symbol at position")?,
+                    }
                 }
             }
             "initialized" | "$/cancelRequest" => {}
@@ -195,6 +307,332 @@ fn analyze_diagnostics(uri: &str, source: &str) -> DiagnosticReport {
     }
 }
 
+fn initialize_roots(params: &Value) -> Vec<PathBuf> {
+    let mut roots = params["workspaceFolders"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|folder| folder["uri"].as_str())
+        .filter_map(file_uri_path)
+        .collect::<Vec<_>>();
+    if roots.is_empty()
+        && let Some(root) = params["rootUri"].as_str().and_then(file_uri_path)
+    {
+        roots.push(root);
+    }
+    if roots.is_empty()
+        && let Some(root) = params["rootPath"].as_str()
+    {
+        roots.push(PathBuf::from(root));
+    }
+    roots.sort();
+    roots.dedup();
+    roots
+}
+
+fn navigation_at(
+    documents: &HashMap<String, String>,
+    workspace_roots: &[PathBuf],
+    params: &Value,
+) -> Option<Navigation> {
+    let uri = params["textDocument"]["uri"].as_str()?;
+    let source = documents.get(uri)?;
+    if !ui_lang_core::source_is_app(source) && differs_from_disk(uri, source) {
+        return None;
+    }
+    let dirty_open_fragment = documents.iter().any(|(uri, source)| {
+        !ui_lang_core::source_is_app(source) && differs_from_disk(uri, source)
+    });
+    let line = params["position"]["line"].as_u64()? as usize;
+    let character = params["position"]["character"].as_u64()? as usize;
+    let column = utf16_column(source.split('\n').nth(line)?, character)?;
+    let query_path = file_uri_path(uri).and_then(|path| path.canonicalize().ok());
+
+    let mut roots = Vec::<(String, String)>::new();
+    let mut workspace_complete = !workspace_roots.is_empty();
+    for workspace_root in workspace_roots {
+        let files = match crate::ice_files(workspace_root) {
+            Ok(files) => files,
+            Err(_) => {
+                workspace_complete = false;
+                continue;
+            }
+        };
+        for path in files {
+            let open = documents.iter().find(|(open_uri, _)| {
+                file_uri_path(open_uri).is_some_and(|open| same_file(&open, &path))
+            });
+            let (root_uri, root_source) = match open {
+                Some((open_uri, source)) => ((*open_uri).clone(), (*source).clone()),
+                None => match fs::read_to_string(&path) {
+                    Ok(source) => (file_path_uri(&path), source),
+                    Err(_) => {
+                        workspace_complete = false;
+                        continue;
+                    }
+                },
+            };
+            if ui_lang_core::source_is_app(&root_source) {
+                roots.push((root_uri, root_source));
+            }
+        }
+    }
+    for (root_uri, root_source) in documents {
+        if ui_lang_core::source_is_app(root_source)
+            && !roots.iter().any(|(candidate, _)| {
+                match (file_uri_path(candidate), file_uri_path(root_uri)) {
+                    (Some(candidate), Some(root)) => same_file(&candidate, &root),
+                    _ => candidate == root_uri,
+                }
+            })
+        {
+            roots.push((root_uri.clone(), root_source.clone()));
+        }
+    }
+    roots.sort_by(|(left, _), (right, _)| {
+        (left != uri)
+            .cmp(&(right != uri))
+            .then_with(|| left.cmp(right))
+    });
+    let mut analyzed = Vec::new();
+    let mut incomplete = dirty_open_fragment;
+    for (root_uri, root_source) in &roots {
+        let checked = match file_uri_path(root_uri).filter(|path| path.is_file()) {
+            Some(path) => match ui_lang_core::analyze_file_with_source(path, root_source) {
+                Ok(checked) => checked,
+                Err(_) => {
+                    incomplete = true;
+                    continue;
+                }
+            },
+            None if root_uri == uri => match ui_lang_core::analyze(root_source) {
+                Ok(checked) => checked,
+                Err(_) => {
+                    incomplete = true;
+                    continue;
+                }
+            },
+            None => {
+                incomplete = true;
+                continue;
+            }
+        };
+        analyzed.push((root_uri, checked));
+    }
+
+    let mut navigation = analyzed.iter().find_map(|(root_uri, checked)| {
+        let path = query_path.as_deref();
+        let (symbol, occurrence) = checked.symbol_at(path, line + 1, column)?;
+        let family = checked
+            .symbols()
+            .iter()
+            .filter(|candidate| {
+                candidate.kind == symbol.kind
+                    && (candidate.name == symbol.name
+                        || symbol.kind == ui_lang_core::SymbolKind::Component
+                            && same_component_family(&symbol.name, &candidate.name))
+            })
+            .cloned()
+            .collect();
+        Some(Navigation {
+            symbol: symbol.clone(),
+            family,
+            occurrence: occurrence.clone(),
+            declarations: checked
+                .symbols()
+                .iter()
+                .map(|symbol| (symbol.kind, symbol.name.clone()))
+                .collect(),
+            root_uri: (*root_uri).clone(),
+        })
+    })?;
+
+    let selected_root_in_workspace = file_uri_path(&navigation.root_uri)
+        .and_then(|root| root.canonicalize().ok())
+        .is_some_and(|root| {
+            workspace_roots.iter().any(|workspace| {
+                workspace
+                    .canonicalize()
+                    .is_ok_and(|workspace| root.starts_with(workspace))
+            })
+        });
+    if navigation
+        .symbol
+        .definition
+        .path
+        .as_deref()
+        .is_some_and(|definition| {
+            !file_uri_path(&navigation.root_uri).is_some_and(|root| same_file(&root, definition))
+        })
+        && (!workspace_complete || !selected_root_in_workspace)
+    {
+        incomplete = true;
+    }
+
+    for (root_uri, checked) in analyzed {
+        if navigation.symbol.definition.path.is_none() && *root_uri != navigation.root_uri {
+            continue;
+        }
+        let Some(symbol) = checked.symbols().iter().find(|symbol| {
+            symbol.kind == navigation.symbol.kind
+                && symbol.name == navigation.symbol.name
+                && symbol.definition == navigation.symbol.definition
+        }) else {
+            continue;
+        };
+        navigation.symbol.renameable &= symbol.renameable;
+        for reference in &symbol.references {
+            if !navigation.symbol.references.contains(reference) {
+                navigation.symbol.references.push(reference.clone());
+            }
+        }
+        for candidate in checked.symbols().iter().filter(|candidate| {
+            candidate.kind == navigation.symbol.kind
+                && (candidate.name == navigation.symbol.name
+                    || navigation.symbol.kind == ui_lang_core::SymbolKind::Component
+                        && same_component_family(&navigation.symbol.name, &candidate.name))
+        }) {
+            if let Some(existing) = navigation.family.iter_mut().find(|existing| {
+                existing.name == candidate.name && existing.definition == candidate.definition
+            }) {
+                existing.renameable &= candidate.renameable;
+                for reference in &candidate.references {
+                    if !existing.references.contains(reference) {
+                        existing.references.push(reference.clone());
+                    }
+                }
+            } else {
+                navigation.family.push(candidate.clone());
+            }
+        }
+        for declaration in checked
+            .symbols()
+            .iter()
+            .map(|symbol| (symbol.kind, symbol.name.clone()))
+        {
+            if !navigation.declarations.contains(&declaration) {
+                navigation.declarations.push(declaration);
+            }
+        }
+    }
+    if incomplete {
+        navigation.symbol.renameable = false;
+        for symbol in &mut navigation.family {
+            symbol.renameable = false;
+        }
+    }
+    if navigation.family.iter().any(|symbol| {
+        std::iter::once(&symbol.definition)
+            .chain(&symbol.references)
+            .any(|range| range_document(documents, range, &navigation.root_uri).is_none())
+    }) {
+        navigation.symbol.renameable = false;
+    }
+    Some(navigation)
+}
+
+fn differs_from_disk(uri: &str, source: &str) -> bool {
+    file_uri_path(uri)
+        .filter(|path| path.is_file())
+        .and_then(|path| fs::read_to_string(path).ok())
+        .is_some_and(|disk| disk != source)
+}
+
+fn utf16_column(line: &str, target: usize) -> Option<usize> {
+    let mut utf16 = 0;
+    let mut column = 1;
+    for ch in line.chars() {
+        if utf16 == target {
+            return Some(column);
+        }
+        utf16 += ch.len_utf16();
+        if utf16 > target {
+            return None;
+        }
+        column += 1;
+    }
+    (utf16 == target).then_some(column)
+}
+
+fn source_range(
+    documents: &HashMap<String, String>,
+    range: &ui_lang_core::SourceRange,
+    fallback_uri: &str,
+) -> Option<Value> {
+    let (_, source) = range_document(documents, range, fallback_uri)?;
+    let line = source.split('\n').nth(range.line.checked_sub(1)?)?;
+    let start = line
+        .chars()
+        .take(range.start_column.checked_sub(1)?)
+        .map(char::len_utf16)
+        .sum::<usize>();
+    let end = line
+        .chars()
+        .take(range.end_column.checked_sub(1)?)
+        .map(char::len_utf16)
+        .sum::<usize>();
+    Some(json!({
+        "start": { "line": range.line - 1, "character": start },
+        "end": { "line": range.line - 1, "character": end },
+    }))
+}
+
+fn range_document(
+    documents: &HashMap<String, String>,
+    range: &ui_lang_core::SourceRange,
+    fallback_uri: &str,
+) -> Option<(String, String)> {
+    let Some(path) = range.path.as_deref() else {
+        return documents
+            .get(fallback_uri)
+            .map(|source| (fallback_uri.to_owned(), source.clone()));
+    };
+    let open_uri = documents
+        .keys()
+        .find(|uri| file_uri_path(uri).is_some_and(|open| same_file(&open, path)))
+        .cloned();
+    if let Some(uri) = open_uri {
+        let source = documents.get(&uri)?.clone();
+        let root = file_uri_path(fallback_uri).is_some_and(|root| same_file(&root, path));
+        if !root && fs::read_to_string(path).ok().as_deref() != Some(source.as_str()) {
+            return None;
+        }
+        return Some((uri, source));
+    }
+    Some((file_path_uri(path), fs::read_to_string(path).ok()?))
+}
+
+fn location(
+    documents: &HashMap<String, String>,
+    range: &ui_lang_core::SourceRange,
+    fallback_uri: &str,
+) -> Option<Value> {
+    let (uri, _) = range_document(documents, range, fallback_uri)?;
+    Some(json!({
+        "uri": uri,
+        "range": source_range(documents, range, fallback_uri)?,
+    }))
+}
+
+fn workspace_edit(
+    documents: &HashMap<String, String>,
+    navigation: &Navigation,
+    new_name: &str,
+) -> Option<Value> {
+    let mut changes = BTreeMap::<String, Vec<Value>>::new();
+    for symbol in &navigation.family {
+        let renamed = navigation.family_name(&symbol.name, new_name);
+        for range in std::iter::once(&symbol.definition).chain(&symbol.references) {
+            let (uri, _) = range_document(documents, range, &navigation.root_uri)?;
+            changes.entry(uri).or_default().push(json!({
+                "range": source_range(documents, range, &navigation.root_uri)?,
+                "newText": renamed,
+            }));
+        }
+    }
+    Some(json!({ "changes": changes }))
+}
+
 fn publish_aggregated(
     writer: &mut impl Write,
     reports: &HashMap<String, DiagnosticReport>,
@@ -241,7 +679,23 @@ fn same_file(left: &Path, right: &Path) -> bool {
 
 fn file_uri_path(uri: &str) -> Option<PathBuf> {
     let path = uri.strip_prefix("file://")?;
-    let path = path.strip_prefix("localhost").unwrap_or(path);
+    let local_path = if path.eq_ignore_ascii_case("localhost") {
+        Some("/".to_owned())
+    } else {
+        path.split_once('/').and_then(|(authority, path)| {
+            authority
+                .eq_ignore_ascii_case("localhost")
+                .then(|| format!("/{path}"))
+        })
+    };
+    let path = local_path.as_deref().unwrap_or(path);
+    #[cfg(windows)]
+    let path = if path.starts_with('/') {
+        path.to_owned()
+    } else {
+        format!("//{path}")
+    };
+    #[cfg(not(windows))]
     if !path.starts_with('/') {
         return None;
     }
@@ -259,7 +713,13 @@ fn file_uri_path(uri: &str) -> Option<PathBuf> {
             index += 1;
         }
     }
-    String::from_utf8(decoded).ok().map(PathBuf::from)
+    let decoded = String::from_utf8(decoded).ok()?;
+    #[cfg(windows)]
+    let decoded = decoded
+        .strip_prefix('/')
+        .filter(|path| path.as_bytes().get(1) == Some(&b':'))
+        .unwrap_or(&decoded);
+    Some(PathBuf::from(decoded))
 }
 
 fn hex(byte: u8) -> Option<u8> {
@@ -272,8 +732,33 @@ fn hex(byte: u8) -> Option<u8> {
 }
 
 fn file_path_uri(path: &Path) -> String {
+    #[cfg(windows)]
+    let path = {
+        let path = path.to_string_lossy().replace('\\', "/");
+        if path
+            .get(..8)
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case("//?/UNC/"))
+        {
+            format!("//{}", &path[8..])
+        } else if let Some(path) = path.strip_prefix("//?/") {
+            path.to_owned()
+        } else {
+            path
+        }
+    };
+    #[cfg(not(windows))]
+    let path = path.to_string_lossy();
+    #[cfg(windows)]
+    let mut uri = if path.starts_with("//") {
+        String::from("file:")
+    } else if path.starts_with('/') {
+        String::from("file://")
+    } else {
+        String::from("file:///")
+    };
+    #[cfg(not(windows))]
     let mut uri = String::from("file://");
-    for byte in path.to_string_lossy().bytes() {
+    for byte in path.bytes() {
         if byte.is_ascii_alphanumeric() || matches!(byte, b'/' | b':' | b'.' | b'-' | b'_' | b'~') {
             uri.push(char::from(byte));
         } else {
@@ -390,9 +875,11 @@ fn write_message(writer: &mut impl Write, message: &Value) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        diagnostic_range, file_path_uri, file_uri_path, read_message, serve, whole_document_range,
+        diagnostic_range, file_path_uri, file_uri_path, navigation_at, read_message, serve,
+        whole_document_range,
     };
     use serde_json::{Value, json};
+    use std::collections::HashMap;
     use std::fs;
     use std::io::{BufReader, Cursor};
     use std::path::{Path, PathBuf};
@@ -469,8 +956,8 @@ mod tests {
         assert_eq!(capabilities["textDocumentSync"]["change"], 1);
         assert_eq!(capabilities["documentFormattingProvider"], true);
         assert_eq!(capabilities["completionProvider"]["resolveProvider"], false);
-        assert_eq!(capabilities["definitionProvider"], false);
-        assert_eq!(capabilities["renameProvider"], false);
+        assert_eq!(capabilities["definitionProvider"], true);
+        assert_eq!(capabilities["renameProvider"]["prepareProvider"], true);
         assert_eq!(response(&messages, 2)["result"], Value::Null);
     }
 
@@ -684,6 +1171,405 @@ mod tests {
     }
 
     #[test]
+    fn defines_and_safely_renames_checked_symbols_across_imports() {
+        let fixture = Fixture::new();
+        let root = "app Demo\nuse \"part.ice\"\ntheme\n  background #000000\n  foreground #ffffff\n  primary #333333\n  danger #ff0000\nview\n  Card()\n";
+        let other = "app Other\nuse \"part.ice\"\ntheme\n  background #000000\n  foreground #ffffff\n  primary #333333\n  danger #ff0000\nview\n  Card()\n";
+        let part = "component Card()\n  button \"😀\" -> clicked\ncomponent Panel()\n  text \"Other\"\non clicked\non mount\n";
+        fixture.write("app.ice", root);
+        fixture.write("other.ice", other);
+        fixture.write("part.ice", part);
+        let root_uri = file_path_uri(&fixture.path("app.ice"));
+        let other_uri = file_path_uri(&fixture.path("other.ice"));
+        let part_uri = file_path_uri(&fixture.path("part.ice"));
+        let workspace_uri = file_path_uri(&fixture.0);
+
+        let messages = run(&[
+            json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": { "rootUri": workspace_uri } }),
+            json!({
+                "jsonrpc": "2.0",
+                "method": "textDocument/didOpen",
+                "params": { "textDocument": { "uri": root_uri, "text": root } },
+            }),
+            json!({
+                "jsonrpc": "2.0",
+                "method": "textDocument/didOpen",
+                "params": { "textDocument": { "uri": part_uri, "text": part } },
+            }),
+            json!({
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "textDocument/definition",
+                "params": { "textDocument": { "uri": root_uri }, "position": { "line": 8, "character": 3 } },
+            }),
+            json!({
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "textDocument/prepareRename",
+                "params": { "textDocument": { "uri": part_uri }, "position": { "line": 1, "character": 20 } },
+            }),
+            json!({
+                "jsonrpc": "2.0",
+                "id": 4,
+                "method": "textDocument/rename",
+                "params": { "textDocument": { "uri": root_uri }, "position": { "line": 8, "character": 3 }, "newName": "Tile" },
+            }),
+            json!({
+                "jsonrpc": "2.0",
+                "id": 5,
+                "method": "textDocument/rename",
+                "params": { "textDocument": { "uri": root_uri }, "position": { "line": 8, "character": 3 }, "newName": "Panel" },
+            }),
+            json!({
+                "jsonrpc": "2.0",
+                "id": 6,
+                "method": "textDocument/rename",
+                "params": { "textDocument": { "uri": part_uri }, "position": { "line": 1, "character": 20 }, "newName": "activated" },
+            }),
+            json!({
+                "jsonrpc": "2.0",
+                "id": 7,
+                "method": "textDocument/rename",
+                "params": { "textDocument": { "uri": root_uri }, "position": { "line": 8, "character": 3 }, "newName": "bad-name" },
+            }),
+            json!({
+                "jsonrpc": "2.0",
+                "id": 8,
+                "method": "textDocument/rename",
+                "params": { "textDocument": { "uri": root_uri }, "position": { "line": 8, "character": 3 }, "newName": "tile" },
+            }),
+            json!({
+                "jsonrpc": "2.0",
+                "id": 9,
+                "method": "textDocument/rename",
+                "params": { "textDocument": { "uri": part_uri }, "position": { "line": 1, "character": 20 }, "newName": "mount" },
+            }),
+            json!({
+                "jsonrpc": "2.0",
+                "id": 10,
+                "method": "textDocument/prepareRename",
+                "params": { "textDocument": { "uri": part_uri }, "position": { "line": 5, "character": 4 } },
+            }),
+            json!({
+                "jsonrpc": "2.0",
+                "id": 11,
+                "method": "textDocument/rename",
+                "params": { "textDocument": { "uri": part_uri }, "position": { "line": 5, "character": 4 }, "newName": "launched" },
+            }),
+            json!({ "jsonrpc": "2.0", "id": 12, "method": "shutdown" }),
+            json!({ "jsonrpc": "2.0", "method": "exit" }),
+        ])
+        .unwrap();
+
+        assert_eq!(response(&messages, 2)["result"]["uri"], part_uri);
+        assert_eq!(
+            response(&messages, 2)["result"]["range"],
+            json!({
+                "start": { "line": 0, "character": 10 },
+                "end": { "line": 0, "character": 14 },
+            })
+        );
+        assert_eq!(response(&messages, 3)["result"]["placeholder"], "clicked");
+        assert_eq!(
+            response(&messages, 3)["result"]["range"],
+            json!({
+                "start": { "line": 1, "character": 17 },
+                "end": { "line": 1, "character": 24 },
+            })
+        );
+        assert_eq!(
+            response(&messages, 4)["result"]["changes"][&root_uri]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(
+            response(&messages, 4)["result"]["changes"][&part_uri]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(
+            response(&messages, 4)["result"]["changes"][&other_uri]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(response(&messages, 5)["error"]["code"], -32602);
+        assert_eq!(
+            response(&messages, 6)["result"]["changes"][&part_uri]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+        assert_eq!(response(&messages, 7)["error"]["code"], -32602);
+        assert_eq!(response(&messages, 8)["error"]["code"], -32602);
+        assert_eq!(response(&messages, 9)["error"]["code"], -32602);
+        assert_eq!(response(&messages, 10)["result"], Value::Null);
+        assert_eq!(response(&messages, 11)["error"]["code"], -32602);
+    }
+
+    #[test]
+    fn imported_rename_requires_an_initialized_workspace() {
+        let fixture = Fixture::new();
+        let root = "app Demo\nuse \"part.ice\"\ntheme\n  background #000000\n  foreground #ffffff\n  primary #333333\n  danger #ff0000\nview\n  Card()\n";
+        let part = "component Card()\n  text \"Card\"\n";
+        fixture.write("app.ice", root);
+        fixture.write("part.ice", part);
+        let root_uri = file_path_uri(&fixture.path("app.ice"));
+        let part_uri = file_path_uri(&fixture.path("part.ice"));
+        let documents = HashMap::from([
+            (root_uri.clone(), root.to_owned()),
+            (part_uri, part.to_owned()),
+        ]);
+        let params = json!({
+            "textDocument": { "uri": root_uri },
+            "position": { "line": 8, "character": 3 },
+        });
+
+        let navigation = navigation_at(&documents, &[], &params).unwrap();
+
+        assert!(navigation.symbol.definition.path.is_some());
+        assert!(!navigation.renameable());
+    }
+
+    #[test]
+    fn imported_rename_stays_inside_the_initialized_workspace() {
+        let fixture = Fixture::new();
+        let workspace = fixture.path("workspace");
+        let outside = fixture.path("outside");
+        fs::create_dir_all(&workspace).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        let workspace_app = "app Workspace\ntheme\n  background #000000\n  foreground #ffffff\n  primary #333333\n  danger #ff0000\nview\n  text \"Workspace\"\n";
+        let outside_app = "app Outside\nuse \"part.ice\"\ntheme\n  background #000000\n  foreground #ffffff\n  primary #333333\n  danger #ff0000\nview\n  Card()\n";
+        let part = "component Card()\n  text \"Card\"\n";
+        fs::write(workspace.join("app.ice"), workspace_app).unwrap();
+        fs::write(outside.join("app.ice"), outside_app).unwrap();
+        fs::write(outside.join("part.ice"), part).unwrap();
+        let root_uri = file_path_uri(&outside.join("app.ice"));
+        let part_uri = file_path_uri(&outside.join("part.ice"));
+        let documents = HashMap::from([
+            (root_uri.clone(), outside_app.to_owned()),
+            (part_uri, part.to_owned()),
+        ]);
+        let params = json!({
+            "textDocument": { "uri": root_uri },
+            "position": { "line": 8, "character": 3 },
+        });
+
+        let navigation = navigation_at(&documents, &[workspace], &params).unwrap();
+
+        assert_eq!(navigation.symbol.name, "Card");
+        assert!(!navigation.renameable());
+    }
+
+    #[test]
+    fn dirty_fragment_with_new_facts_blocks_partial_rename() {
+        let fixture = Fixture::new();
+        let root = "app Demo\nuse \"part.ice\"\nuse \"extra.ice\"\ntheme\n  background #000000\n  foreground #ffffff\n  primary #333333\n  danger #ff0000\nview\n  Card()\n";
+        let part = "component Card()\n  text \"Card\"\n";
+        fixture.write("app.ice", root);
+        fixture.write("part.ice", part);
+        fixture.write("extra.ice", "// saved fragment\n");
+        let root_uri = file_path_uri(&fixture.path("app.ice"));
+        let extra_uri = file_path_uri(&fixture.path("extra.ice"));
+        let documents = HashMap::from([
+            (root_uri.clone(), root.to_owned()),
+            (extra_uri, "component Tile()\n  text \"New\"\n".to_owned()),
+        ]);
+        let params = json!({
+            "textDocument": { "uri": root_uri },
+            "position": { "line": 9, "character": 3 },
+        });
+
+        let navigation =
+            navigation_at(&documents, std::slice::from_ref(&fixture.0), &params).unwrap();
+
+        assert_eq!(navigation.symbol.name, "Card");
+        assert!(!navigation.renameable());
+    }
+
+    #[test]
+    fn renames_a_compound_component_family_together() {
+        let fixture = Fixture::new();
+        let root = "app Demo\nuse \"part.ice\"\ntheme\n  background #000000\n  foreground #ffffff\n  primary #333333\n  danger #ff0000\nview\n  Dialog\n    Dialog.Header\n";
+        let part =
+            "component Dialog()\n  slot Header\ncomponent Dialog.Header()\n  text \"Header\"\n";
+        fixture.write("app.ice", root);
+        fixture.write("part.ice", part);
+        let root_uri = file_path_uri(&fixture.path("app.ice"));
+        let part_uri = file_path_uri(&fixture.path("part.ice"));
+        let workspace_uri = file_path_uri(&fixture.0);
+
+        let messages = run(&[
+            json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": { "rootUri": workspace_uri } }),
+            json!({
+                "jsonrpc": "2.0",
+                "method": "textDocument/didOpen",
+                "params": { "textDocument": { "uri": root_uri, "text": root } },
+            }),
+            json!({
+                "jsonrpc": "2.0",
+                "method": "textDocument/didOpen",
+                "params": { "textDocument": { "uri": part_uri, "text": part } },
+            }),
+            json!({
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "textDocument/rename",
+                "params": { "textDocument": { "uri": root_uri }, "position": { "line": 8, "character": 3 }, "newName": "Modal" },
+            }),
+            json!({
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "textDocument/prepareRename",
+                "params": { "textDocument": { "uri": root_uri }, "position": { "line": 9, "character": 8 } },
+            }),
+            json!({
+                "jsonrpc": "2.0",
+                "id": 4,
+                "method": "textDocument/rename",
+                "params": { "textDocument": { "uri": root_uri }, "position": { "line": 9, "character": 8 }, "newName": "Modal.Header" },
+            }),
+            json!({ "jsonrpc": "2.0", "id": 5, "method": "shutdown" }),
+            json!({ "jsonrpc": "2.0", "method": "exit" }),
+        ])
+        .unwrap();
+
+        let root_edits = response(&messages, 2)["result"]["changes"][&root_uri]
+            .as_array()
+            .unwrap();
+        let part_edits = response(&messages, 2)["result"]["changes"][&part_uri]
+            .as_array()
+            .unwrap();
+        assert_eq!(root_edits.len(), 2);
+        assert_eq!(part_edits.len(), 2);
+        assert!(root_edits.iter().any(|edit| edit["newText"] == "Modal"));
+        assert!(
+            root_edits
+                .iter()
+                .any(|edit| edit["newText"] == "Modal.Header")
+        );
+        assert!(part_edits.iter().any(|edit| edit["newText"] == "Modal"));
+        assert!(
+            part_edits
+                .iter()
+                .any(|edit| edit["newText"] == "Modal.Header")
+        );
+        assert_eq!(response(&messages, 3)["result"], Value::Null);
+        assert_eq!(response(&messages, 4)["error"]["code"], -32602);
+    }
+
+    #[test]
+    fn rename_waits_until_every_workspace_app_root_checks() {
+        let fixture = Fixture::new();
+        let root = "app Demo\nuse \"part.ice\"\ntheme\n  background #000000\n  foreground #ffffff\n  primary #333333\n  danger #ff0000\nview\n  Card()\n";
+        let part = "component Card()\n  text \"Card\"\n";
+        let broken = "app Broken\nview\n  wat\n";
+        fixture.write("app.ice", root);
+        fixture.write("part.ice", part);
+        fixture.write("broken.ice", broken);
+        let root_uri = file_path_uri(&fixture.path("app.ice"));
+        let part_uri = file_path_uri(&fixture.path("part.ice"));
+        let workspace_uri = file_path_uri(&fixture.0);
+
+        let messages = run(&[
+            json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": { "rootUri": workspace_uri } }),
+            json!({
+                "jsonrpc": "2.0",
+                "method": "textDocument/didOpen",
+                "params": { "textDocument": { "uri": root_uri, "text": root } },
+            }),
+            json!({
+                "jsonrpc": "2.0",
+                "method": "textDocument/didOpen",
+                "params": { "textDocument": { "uri": part_uri, "text": part } },
+            }),
+            json!({
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "textDocument/definition",
+                "params": { "textDocument": { "uri": root_uri }, "position": { "line": 8, "character": 3 } },
+            }),
+            json!({
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "textDocument/prepareRename",
+                "params": { "textDocument": { "uri": root_uri }, "position": { "line": 8, "character": 3 } },
+            }),
+            json!({
+                "jsonrpc": "2.0",
+                "id": 4,
+                "method": "textDocument/rename",
+                "params": { "textDocument": { "uri": root_uri }, "position": { "line": 8, "character": 3 }, "newName": "Tile" },
+            }),
+            json!({ "jsonrpc": "2.0", "id": 5, "method": "shutdown" }),
+            json!({ "jsonrpc": "2.0", "method": "exit" }),
+        ])
+        .unwrap();
+
+        assert_eq!(response(&messages, 2)["result"]["uri"], part_uri);
+        assert_eq!(response(&messages, 3)["result"], Value::Null);
+        assert_eq!(response(&messages, 4)["error"]["code"], -32602);
+    }
+
+    #[test]
+    fn refuses_stale_import_ranges_for_a_dirty_open_fragment() {
+        let fixture = Fixture::new();
+        let root = "app Demo\nuse \"part.ice\"\ntheme\n  background #000000\n  foreground #ffffff\n  primary #333333\n  danger #ff0000\nview\n  Card()\n";
+        let part = "component Card()\n  text \"Card\"\n";
+        let dirty_part = format!("// unsaved line\n{part}");
+        fixture.write("app.ice", root);
+        fixture.write("part.ice", part);
+        let root_uri = file_path_uri(&fixture.path("app.ice"));
+        let part_uri = file_path_uri(&fixture.path("part.ice"));
+        let workspace_uri = file_path_uri(&fixture.0);
+
+        let messages = run(&[
+            json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": { "rootUri": workspace_uri } }),
+            json!({
+                "jsonrpc": "2.0",
+                "method": "textDocument/didOpen",
+                "params": { "textDocument": { "uri": root_uri, "text": root } },
+            }),
+            json!({
+                "jsonrpc": "2.0",
+                "method": "textDocument/didOpen",
+                "params": { "textDocument": { "uri": part_uri, "text": dirty_part } },
+            }),
+            json!({
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "textDocument/definition",
+                "params": { "textDocument": { "uri": root_uri }, "position": { "line": 8, "character": 3 } },
+            }),
+            json!({
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "textDocument/prepareRename",
+                "params": { "textDocument": { "uri": root_uri }, "position": { "line": 8, "character": 3 } },
+            }),
+            json!({
+                "jsonrpc": "2.0",
+                "id": 4,
+                "method": "textDocument/rename",
+                "params": { "textDocument": { "uri": root_uri }, "position": { "line": 8, "character": 3 }, "newName": "Tile" },
+            }),
+            json!({ "jsonrpc": "2.0", "id": 5, "method": "shutdown" }),
+            json!({ "jsonrpc": "2.0", "method": "exit" }),
+        ])
+        .unwrap();
+
+        assert_eq!(response(&messages, 2)["result"], Value::Null);
+        assert_eq!(response(&messages, 3)["result"], Value::Null);
+        assert_eq!(response(&messages, 4)["error"]["code"], -32602);
+    }
+
+    #[test]
     fn returns_json_rpc_errors_and_rejects_requests_after_shutdown() {
         let messages = run(&[
             json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {} }),
@@ -741,5 +1627,35 @@ mod tests {
         );
         let path = Path::new("/tmp/Ice Demo/😀.ice");
         assert_eq!(file_uri_path(&file_path_uri(path)).as_deref(), Some(path));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn file_uris_round_trip_windows_drive_paths() {
+        let path = Path::new(r"C:\Ice Demo\😀.ice");
+        let uri = file_path_uri(path);
+
+        assert_eq!(uri, "file:///C:/Ice%20Demo/%F0%9F%98%80.ice");
+        assert_eq!(file_uri_path(&uri).as_deref(), Some(path));
+        assert_eq!(
+            file_uri_path("file://LOCALHOST/C:/Ice%20Demo/app.ice").as_deref(),
+            Some(Path::new(r"C:\Ice Demo\app.ice"))
+        );
+
+        let unc = Path::new(r"\\localhost-server\share\app.ice");
+        assert_eq!(file_path_uri(unc), "file://localhost-server/share/app.ice");
+        assert_eq!(
+            file_uri_path("file://localhost-server/share/app.ice").as_deref(),
+            Some(unc)
+        );
+
+        assert_eq!(
+            file_path_uri(Path::new(r"\\?\C:\Ice Demo\app.ice")),
+            "file:///C:/Ice%20Demo/app.ice"
+        );
+        assert_eq!(
+            file_path_uri(Path::new(r"\\?\UNC\localhost-server\share\app.ice")),
+            "file://localhost-server/share/app.ice"
+        );
     }
 }
