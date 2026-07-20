@@ -149,8 +149,16 @@ the same construct table.
 UTF-16 diagnostics, whole-document formatting, and Core completion. For an
 existing app file it overlays every open buffer in the import graph, reanalyzes
 all open app roots after buffer changes, and publishes imported errors at the
-imported URI. Closing a buffer falls back to disk. Definition and rename are
-not advertised.
+imported URI. Checked component and handler symbols support cross-file
+definition and collision-checked rename against those current buffers and every
+closed app root under the initialized workspace. Closing a buffer falls back to
+disk.
+
+Plain components and compound-family roots rename; renaming a family root
+updates its dotted descendants, while direct dotted descendants and the
+implicit `mount` handler are definition-only. Rename is offered only when every
+reference has an exact retained source span and every workspace app root
+checks.
 
 `cargo ice compat` analyzes every app graph, checks the exact `iced 0.14.0`,
 `iced_widget 0.14.2`, `ui-lang-runtime`, and AccessKit lockfile baseline,

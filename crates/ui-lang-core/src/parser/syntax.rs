@@ -1,6 +1,9 @@
 use super::*;
 
-pub(in crate::parser) fn line_tree(source: &str) -> Result<Vec<Line>, Error> {
+pub(in crate::parser) fn line_tree(
+    source: &str,
+    symbols: std::rc::Rc<std::cell::RefCell<Vec<ParsedSymbol>>>,
+) -> Result<Vec<Line>, Error> {
     let mut flat = Vec::new();
     for (index, raw) in source.lines().enumerate() {
         if raw.contains('\t') {
@@ -14,12 +17,15 @@ pub(in crate::parser) fn line_tree(source: &str) -> Result<Vec<Line>, Error> {
         if trimmed.is_empty() || trimmed.starts_with("//") {
             continue;
         }
-        let indent = raw.len() - raw.trim_start().len();
+        let indent_bytes = raw.len() - raw.trim_start().len();
+        let indent = raw[..indent_bytes].chars().count();
         flat.push(Line {
             number: index + 1,
             indent,
             text: trimmed.into(),
             children: Vec::new(),
+            symbols: std::rc::Rc::clone(&symbols),
+            track_symbols: true,
         });
     }
     if flat.is_empty() {

@@ -76,10 +76,33 @@ pub fn compile_file(path: impl AsRef<Path>) -> Result<FileCompilation, Error> {
 }
 
 fn analyze_loaded(loaded: &LoadedSource) -> Result<CheckedDocument, Error> {
-    let document = parser::parse(&loaded.source).map_err(|error| remap_error(error, loaded))?;
+    let (document, symbols) =
+        parser::parse_with_symbols(&loaded.source).map_err(|error| remap_error(error, loaded))?;
     let document = check::analyze(document).map_err(|error| remap_error(error, loaded))?;
     check_assets(&document, loaded).map_err(|error| remap_error(error, loaded))?;
-    Ok(document)
+    Ok(document.with_parsed_symbols(remap_symbols(symbols, loaded)))
+}
+
+fn remap_symbols(
+    mut symbols: Vec<parser::ParsedSymbol>,
+    loaded: &LoadedSource,
+) -> Vec<parser::ParsedSymbol> {
+    for symbol in &mut symbols {
+        let Some(range) = &mut symbol.range else {
+            continue;
+        };
+        let Some(origin) = range
+            .line
+            .checked_sub(1)
+            .and_then(|index| loaded.origins.get(index))
+        else {
+            symbol.range = None;
+            continue;
+        };
+        range.path = Some(origin.path.clone());
+        range.line = origin.line;
+    }
+    symbols
 }
 
 fn check_assets(document: &Document, loaded: &LoadedSource) -> Result<(), Error> {
@@ -324,6 +347,7 @@ mod tests {
     use super::{
         analyze_file_with_overlays, analyze_file_with_source, compile_file, source_is_app,
     };
+    use crate::SymbolKind;
     use std::collections::HashMap;
     use std::fs;
     use std::path::PathBuf;
@@ -426,6 +450,107 @@ mod tests {
 
         overlays.insert(part, "component Broken()\n  text \"Unsaved\"\n".into());
         analyze_file_with_overlays(root, &overlays).unwrap();
+    }
+
+    #[test]
+    fn retains_checked_component_and_handler_locations_across_imports() {
+        let fixture = Fixture::new();
+        let root = "app Demo\nuse \"part.ice\"\ntheme\n  background #000000\n  foreground #ffffff\n  primary #333333\n  danger #ff0000\nview\n  Card()\n";
+        fixture.write("app.ice", root);
+        fixture.write(
+            "part.ice",
+            "component Card()\n  button \"Go\" -> clicked\non clicked\n",
+        );
+
+        let checked = analyze_file_with_source(fixture.path("app.ice"), root).unwrap();
+        let app = fixture.path("app.ice").canonicalize().unwrap();
+        let part = fixture.path("part.ice").canonicalize().unwrap();
+        let (component, _) = checked.symbol_at(Some(&app), 9, 3).unwrap();
+        let (handler, _) = checked.symbol_at(Some(&part), 2, 20).unwrap();
+
+        assert_eq!(component.name, "Card");
+        assert_eq!(component.definition.path.as_deref(), Some(part.as_path()));
+        assert_eq!(component.definition.line, 1);
+        assert_eq!(component.references.len(), 1);
+        assert!(component.renameable);
+        assert_eq!(handler.name, "clicked");
+        assert_eq!(handler.definition.line, 3);
+        assert_eq!(handler.references.len(), 1);
+        assert!(handler.renameable);
+    }
+
+    #[test]
+    fn retains_handler_locations_in_named_route_properties() {
+        let fixture = Fixture::new();
+        let root = "app Demo\ntheme\n  background #000000\n  foreground #ffffff\n  primary #333333\n  danger #ff0000\nstate\n  draft:str = \"\"\non submit\nview\n  input \"Draft\" <-> draft submit=submit\n";
+        fixture.write("app.ice", root);
+
+        let checked = analyze_file_with_source(fixture.path("app.ice"), root).unwrap();
+        let app = fixture.path("app.ice").canonicalize().unwrap();
+        let route = root.lines().nth(10).unwrap();
+        let column = route.rfind("submit").unwrap() + 1;
+        let (handler, reference) = checked.symbol_at(Some(&app), 11, column).unwrap();
+
+        assert_eq!(handler.name, "submit");
+        assert_eq!(reference.start_column, column);
+        assert!(handler.renameable);
+    }
+
+    #[test]
+    fn keeps_the_implicit_mount_hook_out_of_rename() {
+        let fixture = Fixture::new();
+        let root = "app Demo\ntheme\n  background #000000\n  foreground #ffffff\n  primary #333333\n  danger #ff0000\non mount\nview\n  text \"Ready\"\n";
+        fixture.write("app.ice", root);
+
+        let checked = analyze_file_with_source(fixture.path("app.ice"), root).unwrap();
+        let mount = checked
+            .symbols()
+            .iter()
+            .find(|symbol| symbol.name == "mount")
+            .unwrap();
+
+        assert_eq!(mount.kind, SymbolKind::Handler);
+        assert!(!mount.renameable);
+    }
+
+    #[test]
+    fn counts_unicode_indentation_in_source_columns() {
+        let fixture = Fixture::new();
+        let indent = "\u{a0}\u{a0}";
+        let root = format!(
+            "app Demo\ntheme\n{indent}background #000000\n{indent}foreground #ffffff\n{indent}primary #333333\n{indent}danger #ff0000\ncomponent Card()\n{indent}text \"Card\"\nview\n{indent}Card()\n"
+        );
+        fixture.write("app.ice", &root);
+
+        let checked = analyze_file_with_source(fixture.path("app.ice"), &root).unwrap();
+        let app = fixture.path("app.ice").canonicalize().unwrap();
+        let (card, reference) = checked.symbol_at(Some(&app), 10, 3).unwrap();
+
+        assert_eq!(card.name, "Card");
+        assert_eq!(reference.start_column, 3);
+        assert_eq!(reference.end_column, 7);
+    }
+
+    #[test]
+    fn retains_compact_canvas_routes_without_synthetic_references() {
+        let fixture = Fixture::new();
+        let root = "app Demo\ntheme\n  background #000000\n  foreground #ffffff\n  primary #333333\n  danger #ff0000\non pressed(button)\non __canvas_event\nview\n  canvas\n    event mouse pressed -> pressed _\n    capture touch lost\n";
+        fixture.write("app.ice", root);
+
+        let checked = analyze_file_with_source(fixture.path("app.ice"), root).unwrap();
+        let app = fixture.path("app.ice").canonicalize().unwrap();
+        let route = root.lines().nth(10).unwrap();
+        let column = route.rfind("pressed").unwrap() + 1;
+        let (pressed, reference) = checked.symbol_at(Some(&app), 11, column).unwrap();
+        let synthetic = checked
+            .symbols()
+            .iter()
+            .find(|symbol| symbol.name == "__canvas_event")
+            .unwrap();
+
+        assert_eq!(pressed.name, "pressed");
+        assert_eq!(reference.start_column, column);
+        assert_eq!(synthetic.references.len(), 0);
     }
 
     #[test]

@@ -23,7 +23,8 @@ pub fn format_fragment(source: &str) -> String {
         }
         blank = false;
 
-        let indent = raw.len() - raw.trim_start().len();
+        let indent_bytes = raw.len() - raw.trim_start().len();
+        let indent = raw[..indent_bytes].chars().count();
         while indents.last().is_some_and(|current| indent < *current) {
             indents.pop();
         }

@@ -519,6 +519,7 @@ pub(in crate::parser) fn parse_component(header: &str, line: &Line) -> Result<Co
         ));
     }
     let (name, params_source) = parse_component_signature(header, line)?;
+    line.record_symbol(SymbolKind::Component, &name, true, header);
     let mut params = Vec::new();
     if !params_source.trim().is_empty() {
         for param in split_top(&params_source, ',') {
@@ -558,6 +559,7 @@ pub(in crate::parser) fn parse_handler(header: &str, line: &Line) -> Result<Hand
     } else {
         (identifier(header, line)?, Vec::new())
     };
+    line.record_symbol(SymbolKind::Handler, &name, true, header);
     let statements = line
         .children
         .iter()
@@ -576,6 +578,7 @@ pub(in crate::parser) fn parse_route(source: &str, line: &Line) -> Result<Route,
     if let Some(open) = source.find('(') {
         let close = matching_paren(source, line)?;
         let handler = identifier(source[..open].trim(), line)?;
+        line.record_symbol(SymbolKind::Handler, &handler, false, source);
         let args = split_top(&source[open + 1..close], ',')
             .into_iter()
             .filter(|part| !part.trim().is_empty())
@@ -600,6 +603,7 @@ pub(in crate::parser) fn parse_route(source: &str, line: &Line) -> Result<Route,
             .ok_or_else(|| error("E052", line, "empty route"))?,
         line,
     )?;
+    line.record_symbol(SymbolKind::Handler, &handler, false, source);
     let args = words
         .map(|word| {
             if word == "_" {

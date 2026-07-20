@@ -108,6 +108,7 @@ pub(in crate::parser) fn parse_canvas_event(line: &Line) -> Result<CanvasEvent, 
         ensure_leaf(line)?;
         let mut event_line = line.clone();
         event_line.text = source.to_owned();
+        event_line.track_symbols = false;
         let subscription = parse_subscription(&event_line)?;
         if subscription.condition.is_some()
             || subscription.status.is_some()
@@ -120,6 +121,13 @@ pub(in crate::parser) fn parse_canvas_event(line: &Line) -> Result<CanvasEvent, 
             ));
         }
         validate_canvas_event_source(&subscription.source, line)?;
+        let (_, route) = split_top_marker(source, "->").expect("compact canvas route checked");
+        line.record_symbol(
+            SymbolKind::Handler,
+            &subscription.route.handler,
+            false,
+            route.trim(),
+        );
         return Ok(CanvasEvent {
             source: subscription.source,
             bindings: Vec::new(),
@@ -315,6 +323,7 @@ pub(in crate::parser) fn parse_canvas_event_source(
     let mut event_line = line.clone();
     event_line.text = format!("{source} -> __canvas_event");
     event_line.children.clear();
+    event_line.track_symbols = false;
     let subscription = parse_subscription(&event_line)?;
     if subscription.window_id {
         return Err(error(

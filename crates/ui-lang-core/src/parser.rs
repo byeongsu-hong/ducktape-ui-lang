@@ -1,6 +1,16 @@
-use crate::Error;
 use crate::ast::*;
+use crate::{Error, SourceRange, SymbolKind};
+use std::cell::RefCell;
 use std::collections::BTreeMap;
+use std::rc::Rc;
+
+#[derive(Clone, Debug)]
+pub(crate) struct ParsedSymbol {
+    pub kind: SymbolKind,
+    pub name: String,
+    pub definition: bool,
+    pub range: Option<SourceRange>,
+}
 
 #[derive(Clone, Debug)]
 struct Line {
@@ -8,10 +18,96 @@ struct Line {
     indent: usize,
     text: String,
     children: Vec<Line>,
+    symbols: Rc<RefCell<Vec<ParsedSymbol>>>,
+    track_symbols: bool,
+}
+
+impl Line {
+    fn record_symbol(&self, kind: SymbolKind, name: &str, definition: bool, source: &str) {
+        if !self.track_symbols {
+            return;
+        }
+        let relative = source.find(name);
+        let line_start = self.text.as_ptr() as usize;
+        let source_start = source.as_ptr() as usize;
+        let direct = (source_start >= line_start
+            && source_start + source.len() <= line_start + self.text.len())
+        .then(|| source_start - line_start);
+        let used = |offset: usize| {
+            let column = self.indent + self.text[..offset].chars().count() + 1;
+            self.symbols.borrow().iter().any(|symbol| {
+                symbol
+                    .range
+                    .as_ref()
+                    .is_some_and(|range| range.line == self.number && range.start_column == column)
+            })
+        };
+        let fallback = relative.and_then(|relative| {
+            let candidates = self
+                .text
+                .match_indices(source)
+                .map(|(offset, _)| offset + relative)
+                .filter(|offset| {
+                    !used(*offset) && !self.text[*offset + name.len()..].starts_with('=')
+                })
+                .collect::<Vec<_>>();
+            let assigned = candidates
+                .iter()
+                .copied()
+                .filter(|offset| self.text[..*offset].trim_end().ends_with('='))
+                .collect::<Vec<_>>();
+            match (assigned.as_slice(), candidates.as_slice()) {
+                ([offset], _) | ([], [offset]) => Some(*offset),
+                _ => None,
+            }
+        });
+        let range = relative
+            .and_then(|relative| direct.map(|offset| offset + relative))
+            .filter(|offset| !used(*offset))
+            .or(fallback)
+            .map(|offset| {
+                let start_column = self.indent + self.text[..offset].chars().count() + 1;
+                SourceRange {
+                    path: None,
+                    line: self.number,
+                    start_column,
+                    end_column: start_column + name.chars().count(),
+                }
+            });
+        self.symbols.borrow_mut().push(ParsedSymbol {
+            kind,
+            name: name.to_owned(),
+            definition,
+            range,
+        });
+    }
+
+    fn record_component_reference(&self, name: &str) {
+        if !self.track_symbols {
+            return;
+        }
+        let range = self.text.starts_with(name).then(|| SourceRange {
+            path: None,
+            line: self.number,
+            start_column: self.indent + 1,
+            end_column: self.indent + 1 + name.chars().count(),
+        });
+        self.symbols.borrow_mut().push(ParsedSymbol {
+            kind: SymbolKind::Component,
+            name: name.to_owned(),
+            definition: false,
+            range,
+        });
+    }
 }
 
 pub fn parse(source: &str) -> Result<Document, Error> {
-    let lines = line_tree(source)?;
+    parse_with_symbols(source).map(|(document, _)| document)
+}
+
+pub(crate) fn parse_with_symbols(source: &str) -> Result<(Document, Vec<ParsedSymbol>), Error> {
+    let symbols = Rc::new(RefCell::new(Vec::new()));
+    let lines = line_tree(source, Rc::clone(&symbols))?;
     let mut app = None;
     let mut daemon = false;
     let mut settings = AppSettings::default();
@@ -311,7 +407,7 @@ pub fn parse(source: &str) -> Result<Document, Error> {
     }
 
     let span = Span::line(1);
-    Ok(Document {
+    let document = Document {
         app: app.ok_or_else(|| {
             Error::new(
                 "E006",
@@ -333,7 +429,8 @@ pub fn parse(source: &str) -> Result<Document, Error> {
         components,
         handlers,
         view: view.ok_or_else(|| Error::new("E008", &span, "missing `view` block"))?,
-    })
+    };
+    Ok((document, symbols.borrow().clone()))
 }
 
 mod canvas;

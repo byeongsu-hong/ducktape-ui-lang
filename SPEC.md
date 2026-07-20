@@ -3970,7 +3970,7 @@ extern line; 1.58 does not claim that remapping.
 | `cargo ice compat` | analyzes app graphs, verifies exact Iced/runtime/AccessKit lockfile versions and direct reference-app/runtime manifest pins, and runs the reference app tests |
 | `cargo ice expand FILE` | prints generated Rust for debugging |
 | `cargo ice schema` | prints the generative Core grammar, style migration, editor capabilities, and backend contract as JSON |
-| `cargo ice lsp` | serves stdio UTF-16 diagnostics, whole-document formatting, and schema-driven completion |
+| `cargo ice lsp` | serves stdio UTF-16 diagnostics, formatting, schema-driven completion, definition, and rename |
 
 `cargo-ice` discovers `.ice` files recursively below the current directory,
 skips `.git` and `target`, analyzes files with a top-level `app` or `daemon` as roots, and
@@ -3985,8 +3985,14 @@ the same parser/checker/source map as the compiler. Existing file URIs use the
 open buffers throughout each import graph; imported diagnostics are published
 at the imported URI with UTF-16 ranges. Opening, changing, or closing a buffer
 reanalyzes every open app root, and closing it returns that file to disk.
-Definition and rename remain unsupported because the checked model does not
-retain reference spans and imported source origins.
+Checked component and handler declarations and references retain imported
+source origins, so definition and complete-reference rename use current open
+buffers plus closed app roots under the initialized workspace. Rename validates
+the new identifier, rejects declaration collisions, and waits until every app
+root under the initialized workspace checks. Plain component names and
+compound-family roots are renameable; a family-root rename updates dotted
+descendants, but direct dotted descendants and the implicit `mount` handler are
+definition-only.
 
 The normal runtime and reference-app tests verify deterministic semantic trees,
 focus, keyboard activation, visible focus, password suppression, and action
