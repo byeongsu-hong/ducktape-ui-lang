@@ -1048,6 +1048,34 @@ fn action_stream(
 
 static NEXT_BRIDGE_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
+/// The native Win32 handle captured before Iced shows its first window.
+#[cfg(target_os = "windows")]
+#[derive(Debug, Clone, Copy)]
+pub struct NativeWindow {
+    id: iced::window::Id,
+    hwnd: std::num::NonZeroIsize,
+}
+
+#[cfg(target_os = "windows")]
+impl NativeWindow {
+    pub fn id(self) -> iced::window::Id {
+        self.id
+    }
+}
+
+/// Captures the Win32 window handle on Iced's window-owning thread.
+#[cfg(target_os = "windows")]
+pub fn native_window(id: iced::window::Id) -> Task<NativeWindow> {
+    iced::window::run(id, move |window| {
+        let handle = window.window_handle().expect("Iced Windows window handle");
+        let hwnd = match handle.as_raw() {
+            iced::window::raw_window_handle::RawWindowHandle::Win32(handle) => handle.hwnd,
+            _ => unreachable!("Iced uses a Win32 window on Windows"),
+        };
+        NativeWindow { id, hwnd }
+    })
+}
+
 /// Owns the native adapter and the action map for the latest frame.
 pub struct Bridge<Message> {
     id: u64,
@@ -1056,7 +1084,11 @@ pub struct Bridge<Message> {
     latest_tree: Arc<Mutex<Option<TreeUpdate>>>,
     #[cfg(target_os = "linux")]
     adapter: Option<accesskit_unix::Adapter>,
-    #[cfg(target_os = "linux")]
+    #[cfg(target_os = "windows")]
+    adapter: Option<accesskit_windows::SubclassingAdapter>,
+    #[cfg(target_os = "windows")]
+    sender: Option<iced::futures::channel::mpsc::UnboundedSender<ActionRequest>>,
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
     window: Option<iced::window::Id>,
 }
 
@@ -1069,12 +1101,12 @@ impl<Message> fmt::Debug for Bridge<Message> {
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 struct Activation {
     latest_tree: Arc<Mutex<Option<TreeUpdate>>>,
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 impl accesskit::ActivationHandler for Activation {
     fn request_initial_tree(&mut self) -> Option<TreeUpdate> {
         self.latest_tree
@@ -1084,12 +1116,12 @@ impl accesskit::ActivationHandler for Activation {
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 struct Actions {
     sender: iced::futures::channel::mpsc::UnboundedSender<ActionRequest>,
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 impl accesskit::ActionHandler for Actions {
     fn do_action(&mut self, request: ActionRequest) {
         let _ = self.sender.unbounded_send(request);
@@ -1132,7 +1164,9 @@ impl<Message> Bridge<Message> {
                 Deactivation,
             )
         });
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(target_os = "windows")]
+        let (adapter, sender) = (None, native.then_some(sender));
+        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
         {
             let _ = native;
             drop(sender);
@@ -1145,7 +1179,11 @@ impl<Message> Bridge<Message> {
             latest_tree,
             #[cfg(target_os = "linux")]
             adapter,
-            #[cfg(target_os = "linux")]
+            #[cfg(target_os = "windows")]
+            adapter,
+            #[cfg(target_os = "windows")]
+            sender,
+            #[cfg(any(target_os = "linux", target_os = "windows"))]
             window: None,
         }
     }
@@ -1167,7 +1205,36 @@ impl<Message> Bridge<Message> {
         if let Some(adapter) = &mut self.adapter {
             adapter.update_if_active(|| update);
         }
+        #[cfg(target_os = "windows")]
+        if let Some(adapter) = &mut self.adapter
+            && let Some(events) = adapter.update_if_active(|| update)
+        {
+            events.raise();
+        }
         self.snapshot = Some(snapshot);
+    }
+
+    /// Returns whether UI Automation owns the initial Win32 window.
+    #[cfg(target_os = "windows")]
+    pub fn is_attached(&self) -> bool {
+        self.adapter.is_some()
+    }
+
+    /// Attaches UI Automation before the initial Win32 window is first shown.
+    #[cfg(target_os = "windows")]
+    pub fn attach_window(&mut self, window: NativeWindow) -> bool {
+        let Some(sender) = self.sender.take() else {
+            return false;
+        };
+        self.window = Some(window.id);
+        self.adapter = Some(accesskit_windows::SubclassingAdapter::new(
+            accesskit_windows::HWND(window.hwnd.get() as *mut core::ffi::c_void),
+            Activation {
+                latest_tree: Arc::clone(&self.latest_tree),
+            },
+            Actions { sender },
+        ));
+        true
     }
 
     /// Applies focus truth for the single native window owned by this bridge.
@@ -1189,7 +1256,9 @@ impl<Message> Bridge<Message> {
                 _ => {}
             }
         }
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+        let _ = (id, event);
+        #[cfg(target_os = "windows")]
         let _ = (id, event);
     }
 }
@@ -1852,9 +1921,9 @@ mod tests {
         assert_eq!(renderer.quads[0].border.color, iced::Color::WHITE);
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
     #[test]
-    fn linux_adapter_action_handler_routes_requests_to_iced() {
+    fn native_adapter_action_handler_routes_requests_to_iced() {
         let (sender, mut receiver) = iced::futures::channel::mpsc::unbounded();
         let mut handler = Actions { sender };
         let request = ActionRequest {
@@ -1868,6 +1937,20 @@ mod tests {
 
         let routed = iced_test::futures::futures::executor::block_on(receiver.next());
         assert_eq!(routed, Some(request));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_bridge_defers_adapter_until_a_window_handle_arrives() {
+        let bridge = Bridge::<Message>::new();
+        assert!(bridge.adapter.is_none());
+        assert!(bridge.sender.is_some());
+        assert!(!bridge.is_attached());
+
+        let disabled = Bridge::<Message>::without_native_adapter();
+        assert!(disabled.adapter.is_none());
+        assert!(disabled.sender.is_none());
+        assert!(!disabled.is_attached());
     }
 
     #[cfg(target_os = "linux")]

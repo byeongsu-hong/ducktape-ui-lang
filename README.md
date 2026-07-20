@@ -92,11 +92,17 @@ activates a focused checkbox, and wrapper-focused controls draw a visible
 two-pixel outline. There is no numeric focus-order syntax.
 
 The tree, focus, and action mapping are deterministic on every target. Native
-screen-reader export is currently limited to single-window Linux applications
-through AccessKit's AT-SPI adapter. Non-Linux native export, daemon and
-multi-window adapters, and exact desktop screen-coordinate bounds are not
-available through stock Iced 0.14.0. Rich text and advanced widgets do not gain
-accessibility claims from this Core contract.
+screen-reader export covers single-window Linux and Windows applications
+through AccessKit's AT-SPI and UI Automation adapters. On Windows, Iced's
+automatically created initial main window starts hidden, windowed, and
+non-maximized. The bootstrap resolves its ID with `window::oldest()`, waits for
+the UI Automation subclass, then restores its configured mode and releases the
+selected boot or preset task alongside queued messages, preserving queue order.
+Named windows retain their configured settings and remain outside native
+export. Other targets, daemon and multi-window adapters, and exact desktop
+screen-coordinate bounds are not available through stock Iced 0.14.0. Rich
+text and advanced widgets do not gain accessibility claims from this Core
+contract.
 
 ## Run the real iced sample
 
@@ -138,6 +144,7 @@ cargo ice expand examples/iced-app/src/ui/tasks.ice
 cargo ice schema
 cargo ice lsp
 scripts/a11y-smoke.sh
+scripts/a11y-windows-check.sh
 ```
 
 `cargo ice schema` prints a generative JSON description of each Core
@@ -162,12 +169,14 @@ checks.
 
 `cargo ice compat` analyzes every app graph, checks the exact `iced 0.14.0`,
 `iced_widget 0.14.2`, `ui-lang-runtime`, and AccessKit lockfile baseline,
-verifies the direct reference-app and runtime manifest pins, and runs the app
-tests.
+verifies the direct reference-app and runtime manifest pins—including the
+target-scoped Unix and Windows adapters—and runs the app tests.
 
 On Linux, `scripts/a11y-smoke.sh` creates an isolated D-Bus/AT-SPI session and
 checks that the native tree is discoverable and an AT-SPI action reaches the
-Iced bridge. Headless tests cover dispatch from that bridge to the app message.
+Iced bridge. `scripts/a11y-windows-check.sh` cross-compiles the runtime, Core
+tests, and generated reference app for Windows. Headless tests cover dispatch
+from the bridge to the app message.
 
 `cargo ice fmt` uses the parser's string- and delimiter-aware tokenization to
 migrate deprecated utilities, including text size, when the typed property

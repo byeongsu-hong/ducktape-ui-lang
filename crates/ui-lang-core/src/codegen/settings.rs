@@ -53,12 +53,12 @@ pub(in crate::codegen) fn window_settings_code(
     settings: Option<&WindowSettings>,
     source_path: &str,
 ) -> String {
-    let Some(settings) = settings else {
-        return String::new();
-    };
+    let settings = settings.map_or_else(
+        || "::iced::window::Settings::default()".to_owned(),
+        |settings| window_settings_value_code(settings, source_path),
+    );
     format!(
-        ".window({})",
-        window_settings_value_code(settings, source_path)
+        ".window({{ let mut __window = {settings}; #[cfg(target_os = \"windows\")] {{ __window.visible = false; __window.maximized = false; __window.fullscreen = false; }} __window }})"
     )
 }
 

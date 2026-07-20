@@ -24,9 +24,10 @@ graph and fall back to disk when a buffer closes.
 
 ## Accessibility
 
-Core accessibility is **native for single-window Linux applications** through
-an Ice-owned AccessKit/AT-SPI adapter and **partial at cross-platform system
-scope** because other targets do not yet export to native screen readers.
+Core accessibility is **native for single-window Linux and Windows
+applications** through Ice-owned AccessKit adapters for AT-SPI and UI
+Automation. It remains **partial at cross-platform system scope** because other
+targets do not yet export to native screen readers.
 
 | Core surface | Delivered contract |
 | --- | --- |
@@ -38,12 +39,20 @@ scope** because other targets do not yet export to native screen readers.
 | focus | source/view-tree read and Tab/Shift+Tab order, disabled-target skip, button Enter/Space, checkbox Space, and a visible wrapper focus outline; no numeric focus order |
 
 AccessKit tree construction and action dispatch are deterministic on every
-target. Native export is Linux single-window only. Daemon and multi-window
-adapters, non-Linux native screen-reader export, and exact desktop
+target. Native export is single-window on Linux and Windows. Daemon and
+multi-window adapters, native export on other targets, and exact desktop
 screen-coordinate bounds are unsupported on stock Iced 0.14.0. Rich text and
 advanced widget semantics are not claimed. `scripts/a11y-smoke.sh` proves that
 the Linux AT-SPI tree is discoverable and an invoked action reaches the Iced
-bridge; headless tests cover dispatch to the app message.
+bridge; `scripts/a11y-windows-check.sh` cross-compiles the Windows adapter,
+tests, and generated reference app. Headless tests cover dispatch to the app
+message. On Windows, Iced's automatically created initial main window starts
+hidden, windowed, and non-maximized. The bootstrap resolves its ID with
+`window::oldest()`, then defers configured-mode restoration, the selected boot
+or preset task, and received messages until UI Automation subclass attachment;
+it then restores the mode and releases the initial task alongside queued
+messages, preserving queue order. Named windows retain their configured settings
+and remain outside native export.
 
 ## Typed system reachability
 

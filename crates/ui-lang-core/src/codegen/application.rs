@@ -159,6 +159,13 @@ pub(in crate::codegen) fn generate_boot(
         "::ui_lang_runtime::Bridge::new()"
     };
     writeln!(out, "__ice_accessibility: {accessibility_bridge},").unwrap();
+    if !document.daemon {
+        writeln!(
+            out,
+            "#[cfg(target_os = \"windows\")]\n__ice_accessibility_initial: ::std::option::Option::None,\n#[cfg(target_os = \"windows\")]\n__ice_accessibility_pending: ::std::vec::Vec::new(),"
+        )
+        .unwrap();
+    }
     for qr in &document.qr_codes {
         writeln!(out, "{}: {},", qr.name, qr_data_code(qr)).unwrap();
     }
@@ -179,40 +186,23 @@ pub(in crate::codegen) fn generate_boot(
             writeln!(out, "{},", pane_splits_field(name)).unwrap();
         }
     }
-    writeln!(
-        out,
-        "}}\n}}\nfn __boot() -> (Self, ::iced::Task<{message}>) {{\nlet mut state = Self::__state();"
-    )
-    .unwrap();
-    if let Some(mount) = document
+    writeln!(out, "}}\n}}").unwrap();
+    let mount = document
         .handlers
         .iter()
         .find(|handler| handler.name == "mount")
-    {
-        let env = state_env(document, "state");
-        writeln!(out, "let task = (|| {{").unwrap();
-        let has_task = generate_statements(
-            out,
-            &mount.statements,
-            document,
-            message,
-            &env,
-            "state",
-            false,
-        )?;
-        if !has_task {
-            writeln!(out, "::iced::Task::none()").unwrap();
-        }
-        writeln!(out, "}})();").unwrap();
-    } else {
-        writeln!(out, "let task = ::iced::Task::none();").unwrap();
-    }
+        .map_or(&[][..], |handler| handler.statements.as_slice());
+    generate_initial_task_method(out, document, message, "__boot_task", mount)?;
     if document.daemon {
-        writeln!(out, "(state, task)\n}}").unwrap();
+        writeln!(
+            out,
+            "fn __boot() -> (Self, ::iced::Task<{message}>) {{\nlet mut state = Self::__state();\nlet task = state.__boot_task();\n(state, task)\n}}"
+        )
+        .unwrap();
     } else {
         writeln!(
             out,
-            "let __accessibility = ::ui_lang_runtime::snapshot::<{message}>({accessibility_root}).map(|__snapshot| {message}::__AccessibilitySnapshot(::std::boxed::Box::new(__snapshot)));\n(state, ::iced::Task::batch([task, __accessibility]))\n}}"
+            "#[cfg(target_os = \"windows\")]\nfn __accessibility_attach() -> ::iced::Task<{message}> {{\n::iced::window::oldest().then(|__id| match __id {{\n::std::option::Option::Some(__id) => ::ui_lang_runtime::native_window(__id).map({message}::__AccessibilityNativeWindow),\n::std::option::Option::None => ::iced::Task::none(),\n}})\n}}\nfn __boot() -> (Self, ::iced::Task<{message}>) {{\nlet mut state = Self::__state();\n#[cfg(target_os = \"windows\")]\n{{\nstate.__ice_accessibility_initial = ::std::option::Option::Some(0);\n(state, Self::__accessibility_attach())\n}}\n#[cfg(not(target_os = \"windows\"))]\n{{\nlet task = state.__boot_task();\nlet __accessibility = ::ui_lang_runtime::snapshot::<{message}>({accessibility_root}).map(|__snapshot| {message}::__AccessibilitySnapshot(::std::boxed::Box::new(__snapshot)));\n(state, ::iced::Task::batch([task, __accessibility]))\n}}\n}}"
         )
         .unwrap();
     }
@@ -226,34 +216,61 @@ pub(in crate::codegen) fn generate_presets(
 ) -> Result<(), Error> {
     let accessibility_root = rust_string(&document.app);
     for (index, preset) in document.presets.iter().enumerate() {
+        let task_name = format!("__preset_task_{index}");
+        generate_initial_task_method(out, document, message, &task_name, &preset.statements)?;
         writeln!(
             out,
-            "fn __preset_{index}() -> (Self, ::iced::Task<{message}>) {{\nlet mut state = Self::__state();\nlet task = (|| {{"
+            "fn __preset_{index}() -> (Self, ::iced::Task<{message}>) {{\nlet mut state = Self::__state();"
         )
         .unwrap();
-        let env = state_env(document, "state");
-        let has_task = generate_statements(
-            out,
-            &preset.statements,
-            document,
-            message,
-            &env,
-            "state",
-            false,
-        )?;
-        if !has_task {
-            writeln!(out, "::iced::Task::none()").unwrap();
-        }
         if document.daemon {
-            writeln!(out, "}})();\n(state, task)\n}}").unwrap();
+            writeln!(out, "let task = state.{task_name}();\n(state, task)\n}}").unwrap();
         } else {
             writeln!(
                 out,
-                "}})();\nlet __accessibility = ::ui_lang_runtime::snapshot::<{message}>({accessibility_root}).map(|__snapshot| {message}::__AccessibilitySnapshot(::std::boxed::Box::new(__snapshot)));\n(state, ::iced::Task::batch([task, __accessibility]))\n}}"
+                "#[cfg(target_os = \"windows\")]\n{{\nstate.__ice_accessibility_initial = ::std::option::Option::Some({});\n(state, Self::__accessibility_attach())\n}}\n#[cfg(not(target_os = \"windows\"))]\n{{\nlet task = state.{task_name}();\nlet __accessibility = ::ui_lang_runtime::snapshot::<{message}>({accessibility_root}).map(|__snapshot| {message}::__AccessibilitySnapshot(::std::boxed::Box::new(__snapshot)));\n(state, ::iced::Task::batch([task, __accessibility]))\n}}\n}}",
+                index + 1
             )
             .unwrap();
         }
     }
+    if !document.daemon {
+        writeln!(
+            out,
+            "#[cfg(target_os = \"windows\")]\nfn __accessibility_initial_task(&mut self) -> ::iced::Task<{message}> {{\nmatch self.__ice_accessibility_initial.take() {{\n::std::option::Option::Some(0) => self.__boot_task(),"
+        )
+        .unwrap();
+        for index in 0..document.presets.len() {
+            writeln!(
+                out,
+                "::std::option::Option::Some({}) => self.__preset_task_{index}(),",
+                index + 1
+            )
+            .unwrap();
+        }
+        writeln!(out, "_ => ::iced::Task::none(),\n}}\n}}").unwrap();
+    }
+    Ok(())
+}
+
+fn generate_initial_task_method(
+    out: &mut String,
+    document: &Document,
+    message: &str,
+    name: &str,
+    statements: &[Statement],
+) -> Result<(), Error> {
+    writeln!(
+        out,
+        "fn {name}(&mut self) -> ::iced::Task<{message}> {{\nlet task = (|| {{"
+    )
+    .unwrap();
+    let env = state_env(document, "self");
+    let has_task = generate_statements(out, statements, document, message, &env, "self", false)?;
+    if !has_task {
+        writeln!(out, "::iced::Task::none()").unwrap();
+    }
+    writeln!(out, "}})();\ntask\n}}").unwrap();
     Ok(())
 }
 
@@ -282,9 +299,63 @@ pub(in crate::codegen) fn generate_update(
     } else {
         ""
     };
+    let windows_show = document
+        .settings
+        .window
+        .as_ref()
+        .is_none_or(|settings| settings.visible != Some(false));
+    let windows_fullscreen = document
+        .settings
+        .window
+        .as_ref()
+        .is_some_and(|settings| settings.fullscreen == Some(true));
+    let windows_maximized = document
+        .settings
+        .window
+        .as_ref()
+        .is_some_and(|settings| settings.maximized == Some(true));
+    let windows_restore: String = if !windows_show {
+        "::iced::Task::none()".into()
+    } else if windows_fullscreen {
+        "::iced::window::set_mode(__id, ::iced::window::Mode::Fullscreen)".into()
+    } else if windows_maximized {
+        "::iced::window::set_mode(__id, ::iced::window::Mode::Windowed).chain(::iced::window::maximize(__id, true))".into()
+    } else {
+        "::iced::window::set_mode(__id, ::iced::window::Mode::Windowed)".into()
+    };
     writeln!(
         out,
-        "fn __update(&mut self, message: {message}) -> ::iced::Task<{message}> {{\n{task_binding}match message {{\n{message}::__AccessibilitySnapshot(__snapshot) => {{ self.__ice_accessibility.update(*__snapshot); return ::iced::Task::none(); }},\n{message}::__AccessibilityAction(__request) => {{ let __refresh = matches!(__request.action, ::ui_lang_runtime::Action::Focus); let __task = self.__ice_accessibility.dispatch(__request); return if __refresh {{ __task.chain(::ui_lang_runtime::snapshot::<{message}>({accessibility_root}).map(|__snapshot| {message}::__AccessibilitySnapshot(::std::boxed::Box::new(__snapshot)))) }} else {{ __task }}; }},\n{message}::__AccessibilityWindow(__id, __event) => {{ self.__ice_accessibility.window_event(__id, __event); return ::iced::Task::none(); }},\n{message}::__AccessibilityFocusNext => {{ return ::ui_lang_runtime::focus_next::<{message}>().chain(::ui_lang_runtime::snapshot::<{message}>({accessibility_root}).map(|__snapshot| {message}::__AccessibilitySnapshot(::std::boxed::Box::new(__snapshot)))); }},\n{message}::__AccessibilityFocusPrevious => {{ return ::ui_lang_runtime::focus_previous::<{message}>().chain(::ui_lang_runtime::snapshot::<{message}>({accessibility_root}).map(|__snapshot| {message}::__AccessibilitySnapshot(::std::boxed::Box::new(__snapshot)))); }},"
+        "fn __update(&mut self, message: {message}) -> ::iced::Task<{message}> {{"
+    )
+    .unwrap();
+    if !document.daemon {
+        writeln!(
+            out,
+            "#[cfg(target_os = \"windows\")]\nif !self.__ice_accessibility.is_attached() && !matches!(&message, {message}::__AccessibilityNativeWindow(_)) {{\nself.__ice_accessibility_pending.push(message);\nreturn ::iced::Task::none();\n}}"
+        )
+        .unwrap();
+    }
+    writeln!(
+        out,
+        "{task_binding}match message {{\n{message}::__AccessibilitySnapshot(__snapshot) => {{ self.__ice_accessibility.update(*__snapshot); return ::iced::Task::none(); }},\n{message}::__AccessibilityAction(__request) => {{ let __refresh = matches!(__request.action, ::ui_lang_runtime::Action::Focus); let __task = self.__ice_accessibility.dispatch(__request); return if __refresh {{ __task.chain(::ui_lang_runtime::snapshot::<{message}>({accessibility_root}).map(|__snapshot| {message}::__AccessibilitySnapshot(::std::boxed::Box::new(__snapshot)))) }} else {{ __task }}; }},\n{message}::__AccessibilityWindow(__id, __event) => {{ self.__ice_accessibility.window_event(__id, __event); return ::iced::Task::none(); }},"
+    )
+    .unwrap();
+    if document.daemon {
+        writeln!(
+            out,
+            "#[cfg(target_os = \"windows\")]\n{message}::__AccessibilityNativeWindow(_) => {{ return ::iced::Task::none(); }},"
+        )
+        .unwrap();
+    } else {
+        writeln!(
+            out,
+            "#[cfg(target_os = \"windows\")]\n{message}::__AccessibilityNativeWindow(__window) => {{\nlet __id = __window.id();\nif !self.__ice_accessibility.attach_window(__window) {{ return ::iced::Task::none(); }}\nlet __restore = {windows_restore};\nlet __initial = self.__accessibility_initial_task();\nlet mut __pending = ::std::vec::Vec::new();\nfor __message in ::std::mem::take(&mut self.__ice_accessibility_pending) {{\n__pending.push(self.__update(__message));\n}}\nlet __pending = ::iced::Task::batch(__pending);\nlet __snapshot = ::ui_lang_runtime::snapshot::<{message}>({accessibility_root}).map(|__snapshot| {message}::__AccessibilitySnapshot(::std::boxed::Box::new(__snapshot)));\nreturn __restore.chain(::iced::Task::batch([__initial, __pending, __snapshot]));\n}},"
+        )
+        .unwrap();
+    }
+    writeln!(
+        out,
+        "{message}::__AccessibilityFocusNext => {{ return ::ui_lang_runtime::focus_next::<{message}>().chain(::ui_lang_runtime::snapshot::<{message}>({accessibility_root}).map(|__snapshot| {message}::__AccessibilitySnapshot(::std::boxed::Box::new(__snapshot)))); }},\n{message}::__AccessibilityFocusPrevious => {{ return ::ui_lang_runtime::focus_previous::<{message}>().chain(::ui_lang_runtime::snapshot::<{message}>({accessibility_root}).map(|__snapshot| {message}::__AccessibilitySnapshot(::std::boxed::Box::new(__snapshot)))); }},"
     )
     .unwrap();
     for handler in &document.handlers {
