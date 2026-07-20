@@ -263,9 +263,28 @@ pub(in crate::codegen) fn generate_update(
     message: &str,
 ) -> Result<(), Error> {
     let accessibility_root = rust_string(&document.app);
+    let has_fallthrough_arm = document
+        .handlers
+        .iter()
+        .any(|handler| handler.name != "mount")
+        || pane_grids(&document.view).into_iter().any(|node| {
+            matches!(node, ViewNode::PaneGrid { options, .. } if options.resize_leeway.is_some() || options.draggable)
+        })
+        || !controlled_state_bindings(document, false)
+            .expect("checker validates controlled input bindings")
+            .is_empty()
+        || !controlled_state_bindings(document, true)
+            .expect("checker validates controlled editor bindings")
+            .is_empty()
+        || needs_extern_noop(document);
+    let task_binding = if has_fallthrough_arm {
+        "let __task = "
+    } else {
+        ""
+    };
     writeln!(
         out,
-        "fn __update(&mut self, message: {message}) -> ::iced::Task<{message}> {{\nlet __task = match message {{\n{message}::__AccessibilitySnapshot(__snapshot) => {{ self.__ice_accessibility.update(*__snapshot); return ::iced::Task::none(); }},\n{message}::__AccessibilityAction(__request) => {{ let __refresh = matches!(__request.action, ::ui_lang_runtime::Action::Focus); let __task = self.__ice_accessibility.dispatch(__request); return if __refresh {{ __task.chain(::ui_lang_runtime::snapshot::<{message}>({accessibility_root}).map(|__snapshot| {message}::__AccessibilitySnapshot(::std::boxed::Box::new(__snapshot)))) }} else {{ __task }}; }},\n{message}::__AccessibilityWindow(__id, __event) => {{ self.__ice_accessibility.window_event(__id, __event); return ::iced::Task::none(); }},\n{message}::__AccessibilityFocusNext => {{ return ::ui_lang_runtime::focus_next::<{message}>().chain(::ui_lang_runtime::snapshot::<{message}>({accessibility_root}).map(|__snapshot| {message}::__AccessibilitySnapshot(::std::boxed::Box::new(__snapshot)))); }},\n{message}::__AccessibilityFocusPrevious => {{ return ::ui_lang_runtime::focus_previous::<{message}>().chain(::ui_lang_runtime::snapshot::<{message}>({accessibility_root}).map(|__snapshot| {message}::__AccessibilitySnapshot(::std::boxed::Box::new(__snapshot)))); }},"
+        "fn __update(&mut self, message: {message}) -> ::iced::Task<{message}> {{\n{task_binding}match message {{\n{message}::__AccessibilitySnapshot(__snapshot) => {{ self.__ice_accessibility.update(*__snapshot); return ::iced::Task::none(); }},\n{message}::__AccessibilityAction(__request) => {{ let __refresh = matches!(__request.action, ::ui_lang_runtime::Action::Focus); let __task = self.__ice_accessibility.dispatch(__request); return if __refresh {{ __task.chain(::ui_lang_runtime::snapshot::<{message}>({accessibility_root}).map(|__snapshot| {message}::__AccessibilitySnapshot(::std::boxed::Box::new(__snapshot)))) }} else {{ __task }}; }},\n{message}::__AccessibilityWindow(__id, __event) => {{ self.__ice_accessibility.window_event(__id, __event); return ::iced::Task::none(); }},\n{message}::__AccessibilityFocusNext => {{ return ::ui_lang_runtime::focus_next::<{message}>().chain(::ui_lang_runtime::snapshot::<{message}>({accessibility_root}).map(|__snapshot| {message}::__AccessibilitySnapshot(::std::boxed::Box::new(__snapshot)))); }},\n{message}::__AccessibilityFocusPrevious => {{ return ::ui_lang_runtime::focus_previous::<{message}>().chain(::ui_lang_runtime::snapshot::<{message}>({accessibility_root}).map(|__snapshot| {message}::__AccessibilitySnapshot(::std::boxed::Box::new(__snapshot)))); }},"
     )
     .unwrap();
     for handler in &document.handlers {
@@ -366,6 +385,10 @@ pub(in crate::codegen) fn generate_update(
             "{message}::__AnimationFrame => return ::iced::Task::none(),"
         )
         .unwrap();
+    }
+    if !has_fallthrough_arm {
+        writeln!(out, "}}\n}}").unwrap();
+        return Ok(());
     }
     if document.daemon {
         writeln!(out, "}};\n__task\n}}").unwrap();

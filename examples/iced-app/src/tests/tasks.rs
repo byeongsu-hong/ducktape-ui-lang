@@ -91,6 +91,8 @@ mod task_map {
 
 #[cfg(test)]
 mod theme_factory {
+    #![deny(unreachable_code)]
+
     ui_lang::include_app!("src/ui/theme_factory.ice");
 
     #[test]
