@@ -860,8 +860,8 @@ mod tests {
     }
 
     #[test]
-    fn generative_core_matches_the_handoff_boundary() {
-        const HANDOFF_CORE: &[&str] = &[
+    fn generative_core_matches_the_contract_boundary() {
+        const CORE_CONTRACT: &[&str] = &[
             "app",
             "use",
             "state",
@@ -896,7 +896,7 @@ mod tests {
             .iter()
             .map(|construct| construct["label"].as_str().unwrap())
             .collect::<BTreeSet<_>>();
-        let expected = HANDOFF_CORE.iter().copied().collect::<BTreeSet<_>>();
+        let expected = CORE_CONTRACT.iter().copied().collect::<BTreeSet<_>>();
 
         assert_eq!(schema["core"]["generative"], true);
         assert_eq!(actual, expected);
