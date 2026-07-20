@@ -11,6 +11,10 @@ fi
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 cd "$(dirname -- "$script_dir")"
 
+cargo check --locked --target "$target" \
+  -p ui-lang-runtime \
+  -p iced-app
+
 cargo check --locked --target "$target" --tests \
   -p ui-lang-runtime \
   -p ui-lang-core \

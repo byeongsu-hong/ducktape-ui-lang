@@ -174,9 +174,9 @@ target-scoped Unix and Windows adapters—and runs the app tests.
 
 On Linux, `scripts/a11y-smoke.sh` creates an isolated D-Bus/AT-SPI session and
 checks that the native tree is discoverable and an AT-SPI action reaches the
-Iced bridge. `scripts/a11y-windows-check.sh` cross-compiles the runtime, Core
-tests, and generated reference app for Windows. Headless tests cover dispatch
-from the bridge to the app message.
+Iced bridge. `scripts/a11y-windows-check.sh` cross-compiles the Windows runtime
+and both production and test forms of the generated reference app. Headless
+tests cover dispatch from the bridge to the app message.
 
 `cargo ice fmt` uses the parser's string- and delimiter-aware tokenization to
 migrate deprecated utilities, including text size, when the typed property

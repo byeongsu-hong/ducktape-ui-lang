@@ -4011,12 +4011,13 @@ focus, keyboard activation, visible focus, password suppression, and action
 routing. On Linux, `scripts/a11y-smoke.sh` starts an isolated D-Bus/AT-SPI
 session and runs the ignored native gate that discovers the exported tree and
 delivers its action to the Iced bridge. `scripts/a11y-windows-check.sh`
-cross-compiles the Windows adapter, runtime tests, generated reference app, and
-Core tests from a Linux host; unit and codegen tests cover oldest-window
-resolution, deferred show and initial work, ordered message replay, and exact
-target-scoped dependency pins. Headless tests cover dispatch from the bridge to
-the app message. These gates do not expand the single-window or coordinate
-contract above.
+cross-compiles the Windows adapter, production reference app, runtime tests,
+generated reference-app tests, and Core tests from a Linux host; unit and
+codegen tests cover oldest-window resolution, deferred show and initial work,
+ordered message replay, the headless test bypass, and exact target-scoped
+dependency pins. Headless tests cover dispatch from the bridge to the app
+message. These gates do not expand the single-window or coordinate contract
+above.
 
 ## 12. Current coverage and escape hatches
 
