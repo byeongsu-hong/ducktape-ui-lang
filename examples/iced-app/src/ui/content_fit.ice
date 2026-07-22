@@ -4,8 +4,8 @@ extern crate::backend
   sync content_fit_round_trip(value:content-fit) -> content-fit
 
 theme
-  background #111827
-  foreground #f9fafb
+  bg #111827
+  fg #f9fafb
   primary #60a5fa
   danger #f87171
 

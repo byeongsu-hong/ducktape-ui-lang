@@ -9,8 +9,8 @@ extern crate::backend
   sync screenshot_outside_region() -> rectangle-u32
 
 theme
-  background #111827
-  foreground #f9fafb
+  bg #111827
+  fg #f9fafb
   primary #60a5fa
   danger #f87171
 

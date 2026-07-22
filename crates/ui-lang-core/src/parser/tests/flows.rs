@@ -11,7 +11,7 @@ extern crate::backend
   recipe snapshot(id:i64) -> str
   event-filter raw_event() -> str
 theme
-  background #000000
+  bg #000000
 on start
   parallel
     stream numbers(3) -> number _
@@ -92,8 +92,8 @@ fn parses_generic_event_subscriptions() {
 extern crate::backend
   sync event_name(value:event) -> str
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 on received(value)
@@ -136,7 +136,7 @@ extern crate::backend
   sip download(size:i64) progress=f64 -> bytes
   sip fallible() progress=i64 -> str ! AppError
 theme
-  background #000000
+  bg #000000
 on start
   parallel
     sip download(3)
@@ -182,7 +182,7 @@ extern crate::backend
   stream numbers(limit:i64) -> i64
   task double(value:i64) -> i64
 theme
-  background #000000
+  bg #000000
 on start
   flow
     from stream numbers(3)
@@ -240,7 +240,7 @@ extern crate::backend
   sync normalize(error:NetworkError) -> AppError
   task request() -> i64 ! NetworkError
 theme
-  background #000000
+  bg #000000
 state
   results:[result[i64,AppError]] = []
 on start

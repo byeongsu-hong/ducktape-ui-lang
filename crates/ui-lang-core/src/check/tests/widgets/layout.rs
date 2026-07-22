@@ -4,8 +4,8 @@ use super::*;
 fn checks_css_flexbox_container_and_items() {
     let source = r#"app Flexbox
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -32,8 +32,8 @@ view
 fn checks_complete_flex_layout_options() {
     let source = r#"app Layouts
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -67,14 +67,14 @@ fn checks_complete_container_layout() {
 extern crate::backend
   container-style dynamic_container(highlight:bool)
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
   highlight = false
 view
-  container #card style=dynamic_container(highlight) width=fill height=80.0 max-width=640.0 max-height=120.0 align-x=center align-y=end clip=true padding=8.0 padding-left=12.0 background=linear(1.57, background@0.0, primary/25@1.0) text=foreground border=primary border-width=2.0 radius=4.0 radius-tl=1.0 radius-tr=2.0 radius-br=3.0 radius-bl=4.0 shadow=black/50 shadow-x=-1.0 shadow-y=2.0 shadow-blur=6.0 pixel-snap=true
+  container #card style=dynamic_container(highlight) width=fill height=80.0 max-width=640.0 max-height=120.0 align-x=center align-y=end clip=true padding=8.0 padding-left=12.0 bg=linear(1.57, bg@0.0, primary/25@1.0) text=fg border=primary border-w=2.0 r=4.0 r-tl=1.0 r-tr=2.0 r-br=3.0 r-bl=4.0 shadow=black/50 shadow-x=-1.0 shadow-y=2.0 shadow-blur=6.0 px-snap=true
     text "Card"
 "#;
     analyze(source).unwrap();
@@ -120,8 +120,8 @@ view
 fn checks_structured_overlays() {
     let source = r#"app Dialog
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -133,7 +133,7 @@ view
     content
       text "Page"
     layer
-      container width=320.0 padding=16.0 @bg-background rounded-lg
+      container width=320.0 padding=16.0 @bg-bg rounded-lg
         text "Dialog"
 "#;
     analyze(source).unwrap();
@@ -162,8 +162,8 @@ view
 fn checks_persistent_pane_grids() {
     let source = r#"app Workspace
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 on clicked(name)
@@ -195,8 +195,8 @@ view
 fn checks_nested_pane_configurations_and_closed_templates() {
     let source = r#"app Workspace
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 on open_preview
@@ -260,8 +260,8 @@ fn checks_runtime_pane_templates_and_keys() {
 extern crate::backend
   Task(id:i64, title:str)
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -317,8 +317,8 @@ fn checks_structured_pane_titles_and_controls() {
 extern crate::backend
   pane-grid-style dynamic_panes(active:bool)
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -328,11 +328,11 @@ on close
 view
   pane-grid #work split=vertical style=dynamic_panes(active)
     style
-      hovered-region background=linear(0.785, primary/25@0.0, background@0.5, danger@1.0) border=foreground border-width=2.0 radius=4.0 radius-tl=1.0 radius-tr=2.0 radius-br=3.0 radius-bl=4.0
-      hovered-split color=primary width=3.0
-      picked-split color=danger width=4.0
-    pane files background=linear(1.57, background@0.0, primary/25@1.0) text=foreground border=primary border-width=2.0 radius=4.0 radius-tl=1.0 radius-tr=2.0 radius-br=3.0 radius-bl=4.0 shadow=black/50 shadow-x=-1.0 shadow-y=2.0 shadow-blur=6.0 pixel-snap=true
-      title padding=4.0 padding-x=8.0 padding-top=6.0 always-controls background=primary/50 text=foreground border=danger border-width=1.0 radius=3.0 shadow=black/50 shadow-x=1.0 shadow-y=2.0 shadow-blur=4.0 pixel-snap=false
+      hovered-region bg=linear(0.785, primary/25@0.0, bg@0.5, danger@1.0) border=fg border-w=2.0 r=4.0 r-tl=1.0 r-tr=2.0 r-br=3.0 r-bl=4.0
+      hovered-split color=primary w=3.0
+      picked-split color=danger w=4.0
+    pane files bg=linear(1.57, bg@0.0, primary/25@1.0) text=fg border=primary border-w=2.0 r=4.0 r-tl=1.0 r-tr=2.0 r-br=3.0 r-bl=4.0 shadow=black/50 shadow-x=-1.0 shadow-y=2.0 shadow-blur=6.0 px-snap=true
+      title padding=4.0 padding-x=8.0 padding-top=6.0 always-controls bg=primary/50 text=fg border=danger border-w=1.0 r=3.0 shadow=black/50 shadow-x=1.0 shadow-y=2.0 shadow-blur=4.0 px-snap=false
         text "Files"
       controls
         button "Close" -> close
@@ -378,8 +378,8 @@ view
     );
 
     let error = analyze(&source.replace(
-        "pixel-snap=true\n      title",
-        "pixel-snap=true @p-4\n      title",
+        "px-snap=true\n      title",
+        "px-snap=true @p-4\n      title",
     ))
     .unwrap_err();
     assert_eq!(error.code, "E042");
@@ -398,7 +398,7 @@ view
     assert!(error.message.contains("color@offset"));
 
     let error = analyze(&source.replace(
-            "linear(0.785, primary/25@0.0, background@0.5, danger@1.0)",
+            "linear(0.785, primary/25@0.0, bg@0.5, danger@1.0)",
             "linear(0.785, primary@0.0, primary@0.1, primary@0.2, primary@0.3, primary@0.4, primary@0.5, primary@0.6, primary@0.7, primary@1.0)",
         ))
         .unwrap_err();
@@ -409,10 +409,10 @@ view
     assert_eq!(error.code, "E128");
     assert!(error.message.contains("surface style metric"));
 
-    let error = analyze(&source.replace("pixel-snap=true", "pixel-snap=1.0")).unwrap_err();
+    let error = analyze(&source.replace("px-snap=true", "px-snap=1.0")).unwrap_err();
     assert_eq!(error.code, "E101");
 
-    let error = analyze(&source.replace("width=3.0", "width=-1.0")).unwrap_err();
+    let error = analyze(&source.replace("w=3.0", "w=-1.0")).unwrap_err();
     assert_eq!(error.code, "E128");
     assert!(error.message.contains("pane-grid style metric"));
 
@@ -429,8 +429,8 @@ view
 fn checks_pane_state_operations_and_queries() {
     let source = r#"app Workspace
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 on arrange
@@ -483,8 +483,8 @@ view
 
     let duplicate = r#"app Workspace
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 component Frame()
@@ -515,8 +515,8 @@ view
 fn checks_complete_grid_sizing() {
     let source = r#"app Layouts
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 view

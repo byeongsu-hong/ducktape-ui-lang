@@ -309,11 +309,11 @@ pub(in crate::parser) fn parse_layout_options(
                     "hidden" => true,
                     _ => return Err(error("E074", line, "scroll bar must be visible or hidden")),
                 };
-            } else if let Some(value) = part.strip_prefix("bar-width=") {
+            } else if let Some(value) = part.strip_prefix("bar-w=") {
                 scroll.bar_width = Some(parse_expr(strip_wrapping_parens(value), line)?);
             } else if let Some(value) = part.strip_prefix("bar-margin=") {
                 scroll.bar_margin = Some(parse_expr(strip_wrapping_parens(value), line)?);
-            } else if let Some(value) = part.strip_prefix("scroller-width=") {
+            } else if let Some(value) = part.strip_prefix("scroller-w=") {
                 scroll.scroller_width = Some(parse_expr(strip_wrapping_parens(value), line)?);
             } else if let Some(value) = part.strip_prefix("bar-spacing=") {
                 scroll.bar_spacing = Some(parse_expr(strip_wrapping_parens(value), line)?);
@@ -419,28 +419,28 @@ pub(in crate::parser) fn parse_scroll_status_style(
         span: Span::line(line.number),
     };
     for part in &parts[1..] {
-        if let Some(value) = part.strip_prefix("horizontal-disabled=") {
+        if let Some(value) = part.strip_prefix("x-disabled=") {
             style.horizontal_disabled = Some(parse_scroll_style_bool(value, line)?);
-        } else if let Some(value) = part.strip_prefix("vertical-disabled=") {
+        } else if let Some(value) = part.strip_prefix("y-disabled=") {
             style.vertical_disabled = Some(parse_scroll_style_bool(value, line)?);
-        } else if let Some(value) = part.strip_prefix("horizontal-hovered=") {
+        } else if let Some(value) = part.strip_prefix("x-hovered=") {
             if status != ScrollStatus::Hovered {
-                return Err(error("E074", line, "horizontal-hovered requires hovered"));
+                return Err(error("E074", line, "x-hovered requires hovered"));
             }
             style.horizontal_interaction = Some(parse_scroll_style_bool(value, line)?);
-        } else if let Some(value) = part.strip_prefix("vertical-hovered=") {
+        } else if let Some(value) = part.strip_prefix("y-hovered=") {
             if status != ScrollStatus::Hovered {
-                return Err(error("E074", line, "vertical-hovered requires hovered"));
+                return Err(error("E074", line, "y-hovered requires hovered"));
             }
             style.vertical_interaction = Some(parse_scroll_style_bool(value, line)?);
-        } else if let Some(value) = part.strip_prefix("horizontal-dragged=") {
+        } else if let Some(value) = part.strip_prefix("x-dragged=") {
             if status != ScrollStatus::Dragged {
-                return Err(error("E074", line, "horizontal-dragged requires dragged"));
+                return Err(error("E074", line, "x-dragged requires dragged"));
             }
             style.horizontal_interaction = Some(parse_scroll_style_bool(value, line)?);
-        } else if let Some(value) = part.strip_prefix("vertical-dragged=") {
+        } else if let Some(value) = part.strip_prefix("y-dragged=") {
             if status != ScrollStatus::Dragged {
-                return Err(error("E074", line, "vertical-dragged requires dragged"));
+                return Err(error("E074", line, "y-dragged requires dragged"));
             }
             style.vertical_interaction = Some(parse_scroll_style_bool(value, line)?);
         } else {
@@ -459,20 +459,20 @@ pub(in crate::parser) fn parse_scroll_status_style(
         };
         if kind == "gap" {
             let [property] = &parts[1..] else {
-                return Err(error("E074", child, "scroll gap uses `gap background=…`"));
+                return Err(error("E074", child, "scroll gap uses `gap bg=…`"));
             };
-            let Some(value) = property.strip_prefix("background=") else {
-                return Err(error("E074", child, "scroll gap uses `gap background=…`"));
+            let Some(value) = property.strip_prefix("bg=") else {
+                return Err(error("E074", child, "scroll gap uses `gap bg=…`"));
             };
             parse_scroll_style_property(&mut style, &format!("gap={value}"), child)?;
             continue;
         }
         let prefix = match kind {
             "container" => "container-",
-            "horizontal-rail" => "horizontal-rail-",
-            "horizontal-scroller" => "horizontal-scroller-",
-            "vertical-rail" => "vertical-rail-",
-            "vertical-scroller" => "vertical-scroller-",
+            "x-rail" => "x-rail-",
+            "x-scroller" => "x-scroller-",
+            "y-rail" => "y-rail-",
+            "y-scroller" => "y-scroller-",
             "auto" => "auto-",
             _ => {
                 return Err(error(
@@ -504,25 +504,25 @@ pub(in crate::parser) fn parse_scroll_style_property(
         }
     } else if parse_scroll_surface_property(
         part,
-        "horizontal-scroller-",
+        "x-scroller-",
         &mut style.horizontal_rail.scroller,
         false,
         line,
     )? || parse_scroll_surface_property(
         part,
-        "horizontal-rail-",
+        "x-rail-",
         &mut style.horizontal_rail.rail,
         false,
         line,
     )? || parse_scroll_surface_property(
         part,
-        "vertical-scroller-",
+        "y-scroller-",
         &mut style.vertical_rail.scroller,
         false,
         line,
     )? || parse_scroll_surface_property(
         part,
-        "vertical-rail-",
+        "y-rail-",
         &mut style.vertical_rail.rail,
         false,
         line,

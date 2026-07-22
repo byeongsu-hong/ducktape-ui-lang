@@ -16,8 +16,8 @@ extern crate::backend
   button-style button_base()
   text-style text_base()
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -52,21 +52,21 @@ view
         ),
         (
             "background",
-            "background=",
+            "bg=",
             "bg-primary",
-            "container background=background @bg-primary\n    text \"x\"",
+            "container bg=bg @bg-primary\n    text \"x\"",
         ),
         (
             "text color",
             "text=",
             "text-primary",
-            "container text=foreground @text-primary\n    text \"x\"",
+            "container text=fg @text-primary\n    text \"x\"",
         ),
         (
             "border width",
-            "border-width=",
+            "border-w=",
             "border",
-            "container border-width=2.0 @border\n    text \"x\"",
+            "container border-w=2.0 @border\n    text \"x\"",
         ),
         (
             "border color",
@@ -76,9 +76,9 @@ view
         ),
         (
             "radius",
-            "radius=",
+            "r=",
             "rounded",
-            "container radius=4.0 @border rounded\n    text \"x\"",
+            "container r=4.0 @border rounded\n    text \"x\"",
         ),
         (
             "width",
@@ -132,7 +132,7 @@ view
             "text color",
             "color=",
             "text-primary",
-            "rich-text color=foreground @text-primary\n    span \"x\"",
+            "rich-text color=fg @text-primary\n    span \"x\"",
         ),
         (
             "text size",
@@ -154,9 +154,9 @@ view
         ),
         (
             "active background",
-            "active background=",
+            "active bg=",
             "bg-primary",
-            "input \"x\" <-> value @bg-primary\n    active background=background",
+            "input \"x\" <-> value @bg-primary\n    active bg=bg",
         ),
         (
             "focused border color",
@@ -172,33 +172,33 @@ view
         ),
         (
             "hovered background",
-            "hovered background=",
+            "hovered bg=",
             "hover:bg-danger",
-            "button \"x\" @bg-primary hover:bg-danger -> pressed\n    hovered background=background",
+            "button \"x\" @bg-primary hover:bg-danger -> pressed\n    hovered bg=bg",
         ),
         (
             "active text color",
             "active text=",
             "text-primary",
-            "button \"x\" @text-primary -> pressed\n    active text=foreground",
+            "button \"x\" @text-primary -> pressed\n    active text=fg",
         ),
         (
             "pressed radius",
-            "pressed radius=",
+            "pressed r=",
             "rounded-lg",
-            "button \"x\" @rounded-lg -> pressed\n    pressed radius=4.0",
+            "button \"x\" @rounded-lg -> pressed\n    pressed r=4.0",
         ),
         (
             "background",
-            "background=",
+            "bg=",
             "bg-primary",
-            "pane-grid #work\n    pane files background=background @bg-primary\n      text \"x\"",
+            "pane-grid #work\n    pane files bg=bg @bg-primary\n      text \"x\"",
         ),
         (
             "background",
-            "background=",
+            "bg=",
             "bg-primary",
-            "pane-grid #work\n    pane files\n      title background=background @bg-primary\n        text \"title\"\n      content\n        text \"x\"",
+            "pane-grid #work\n    pane files\n      title bg=bg @bg-primary\n        text \"title\"\n      content\n        text \"x\"",
         ),
     ] {
         let source = format!("{header}  {view}\n");
@@ -222,7 +222,7 @@ view
         "container style=container_base() @bg-primary\n    text \"x\"",
         "input \"x\" <-> value style=input_base() @bg-primary",
         "button \"x\" style=button_base() @bg-primary -> pressed",
-        "button \"x\" @disabled:opacity-50 -> pressed\n    disabled background=background",
+        "button \"x\" @disabled:opacity-50 -> pressed\n    disabled bg=bg",
         "text \"x\" font=mono style=text_base() @font-bold text-primary",
     ] {
         analyze(&format!("{header}  {view}\n")).unwrap();
@@ -230,7 +230,7 @@ view
 
     for view in [
         "container border=primary @border-danger\n    text \"x\"",
-        "container radius=4.0 @rounded\n    text \"x\"",
+        "container r=4.0 @rounded\n    text \"x\"",
     ] {
         let error = analyze(&format!("{header}  {view}\n")).unwrap_err();
         assert_eq!(error.code, "E044", "{view}");
@@ -241,8 +241,8 @@ view
 fn checks_accessibility_names_descriptions_and_icon_buttons() {
     let source = r#"app Accessible
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state

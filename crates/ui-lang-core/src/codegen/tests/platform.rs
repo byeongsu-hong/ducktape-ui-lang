@@ -15,8 +15,8 @@ extern crate::backend
   task save() -> i64 ! Failure
   subscription events() -> bool
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -129,8 +129,8 @@ extern crate::backend
   sync event_name(value:event) -> str
   sync event_label(value:event) -> str?
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 on received(value)
@@ -329,8 +329,8 @@ fn lowers_native_padding_and_angles() {
 fn lowers_native_system_tasks_and_subscription() {
     let source = r#"app Diagnostics
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -362,8 +362,8 @@ view
 fn lowers_native_clipboard_tasks() {
     let source = r#"app Clipboard
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -392,8 +392,8 @@ view
 fn lowers_native_runtime_font_loading() {
     let source = r#"app Fonts
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -414,8 +414,8 @@ view
 fn lowers_all_static_widget_operations() {
     let source = r#"app Operations
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -482,8 +482,8 @@ view
 fn lowers_all_dynamic_widget_operations() {
     let source = r#"app DynamicOperations
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -607,8 +607,8 @@ fn checks_and_lowers_main_window_tasks() {
 extern crate::backend
   window describe_window(prefix:str) -> str
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 on closed

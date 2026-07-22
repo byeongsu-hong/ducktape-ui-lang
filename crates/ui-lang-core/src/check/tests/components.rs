@@ -9,8 +9,8 @@ extern crate::backend
   menu-style dynamic_menu(busy:bool)
 font ui family=sans
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -22,11 +22,11 @@ on selected(next)
 on opened
 view
   pick choices selected placeholder="Choose" line-height=1.2 shaping=advanced font=ui open=opened style=dynamic_pick(busy) menu-style=dynamic_menu(busy) -> selected _
-    active text=foreground placeholder=danger handle=primary background=background border=foreground border-width=1.0 radius=4.0
-    hovered text=foreground
-    opened text=foreground
-    opened-hovered text=foreground
-    menu text=foreground selected-text=background selected-background=primary background=background border=foreground shadow=danger shadow-y=2.0
+    active text=fg placeholder=danger handle=primary bg=bg border=fg border-w=1.0 r=4.0
+    hovered text=fg
+    opened text=fg
+    opened-hovered text=fg
+    menu text=fg selected-text=bg selected-bg=primary bg=bg border=fg shadow=danger shadow-y=2.0
     handle dynamic
       closed code="⌄" font=ui size=12.0 line-height=1.0 shaping=basic
       open code="⌃" font=ui size=12.0 line-height=1.0 shaping=advanced
@@ -60,8 +60,8 @@ view
 fn rejects_a_non_optional_pick_selection() {
     let source = r#"app Demo
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -81,8 +81,8 @@ view
 fn checks_qr_declarations_and_references() {
     let source = r#"app Demo
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 qr code "hello" version=micro(0)
@@ -106,12 +106,12 @@ view
 fn rejects_unknown_nested_theme_colors() {
     let source = r#"app Demo
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 view
-  theme dark text=missing
+  theme dark fg=missing
     text "Hello"
 "#;
     let error = analyze(source).unwrap_err();
@@ -119,8 +119,8 @@ view
     assert!(error.message.contains("missing"));
 
     let source = source.replace(
-        "theme dark text=missing",
-        "theme dark background=linear(1.57, background@0.0, missing@1.0)",
+        "theme dark fg=missing",
+        "theme dark bg=linear(1.57, bg@0.0, missing@1.0)",
     );
     let error = analyze(&source).unwrap_err();
     assert_eq!(error.code, "E137");
@@ -131,8 +131,8 @@ view
 fn checks_component_slot_contracts() {
     let source = r#"app Demo
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -188,8 +188,8 @@ view
 fn checks_named_component_slots() {
     let source = r#"app Demo
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 component Dialog(title:str)
@@ -247,8 +247,8 @@ view
 fn checks_compound_component_slots() {
     let source = r#"app Demo
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 component Dialog()
@@ -301,8 +301,8 @@ fn checks_keyed_columns_and_copyable_keys() {
 extern crate::backend
   Item(id:i64, name:str)
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -325,8 +325,8 @@ view
 fn checks_lazy_static_boundaries() {
     let source = r#"app Demo
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -369,8 +369,8 @@ font ui family=sans
 extern crate::backend
   markdown-viewer docs_viewer(prefix:str) -> str
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -384,7 +384,7 @@ on extend
   images = markdown_images(docs)
 view
   markdown docs text-size=16.0 h1-size=32.0 h2-size=28.0 h3-size=24.0 h4-size=20.0 h5-size=18.0 h6-size=16.0 code-size=13.0 spacing=12.0 viewer=docs_viewer("docs") -> open _
-    style font=ui inline-code-background=linear(1.57, background@0.0, primary@1.0) inline-code-color=foreground inline-code-font=mono code-block-font=mono link=primary inline-code-padding=2.0 inline-code-padding-x=3.0 inline-code-padding-y=4.0 inline-code-padding-top=5.0 inline-code-padding-right=6.0 inline-code-padding-bottom=7.0 inline-code-padding-left=8.0 inline-code-border=primary inline-code-border-width=1.0 inline-code-radius=4.0 inline-code-radius-tl=1.0 inline-code-radius-tr=2.0 inline-code-radius-br=3.0 inline-code-radius-bl=4.0
+    style font=ui inline-code-bg=linear(1.57, bg@0.0, primary@1.0) inline-code-fg=fg inline-code-font=mono code-block-font=mono link=primary inline-code-p=2.0 inline-code-px=3.0 inline-code-py=4.0 inline-code-pt=5.0 inline-code-pr=6.0 inline-code-pb=7.0 inline-code-pl=8.0 inline-code-border=primary inline-code-border-w=1.0 inline-code-r=4.0 inline-code-r-tl=1.0 inline-code-r-tr=2.0 inline-code-r-br=3.0 inline-code-r-bl=4.0
 "##;
     let document = analyze(source).unwrap();
     assert_eq!(document.states[0].ty.display(), "markdown");
@@ -428,8 +428,8 @@ fn checks_structured_tables_and_metrics() {
 extern crate::backend
   Item(name:str, done:bool)
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -456,8 +456,8 @@ view
 fn checks_bound_text_editors_and_highlighting() {
     let source = r#"app Notes
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -465,11 +465,11 @@ state
   locked = false
 view
   editor #body <-> body placeholder="Write" width=640.0 height=fill min-height=80.0 max-height=240.0 size=14.0 line-height=1.3 padding=8.0 wrapping=word-or-glyph font=mono highlight="rs" highlight-theme=solarized-dark disabled=locked
-    active background=background border=foreground border-width=1.0 radius=4.0 placeholder=danger value=foreground selection=primary
-    hovered background=background border=primary placeholder=danger value=foreground selection=primary
-    focused background=background border=primary
-    focused-hovered background=background border=foreground
-    disabled background=background value=danger
+    active bg=bg border=fg border-w=1.0 r=4.0 placeholder=danger value=fg selection=primary
+    hovered bg=bg border=primary placeholder=danger value=fg selection=primary
+    focused bg=bg border=primary
+    focused-hovered bg=bg border=fg
+    disabled bg=bg value=danger
 "#;
     let document = analyze(source).unwrap();
     assert_eq!(document.states[0].ty.display(), "editor");
@@ -492,8 +492,8 @@ extern crate::backend
   editor-highlighter editor_highlight(language:str)
   editor-style editor_surface(readonly:bool)
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -543,8 +543,8 @@ view
 fn checks_component_scoped_state_and_handlers() {
     let source = r#"app Local
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 component Toggle()
@@ -588,8 +588,8 @@ extern crate::backend
   AppError(message:str)
   fetch(query:str) -> str ! AppError
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 component SearchBox()
@@ -631,8 +631,8 @@ view
 extern crate::backend
   fetch(query:str) -> str
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 on search
@@ -650,8 +650,8 @@ view
 fn rejects_slots_outside_components_and_duplicate_slots() {
     let outside = r#"app Demo
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 view
@@ -663,8 +663,8 @@ view
 
     let duplicate = r#"app Demo
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 component Card()
@@ -691,8 +691,8 @@ extern crate::backend
   menu-style dynamic_menu(busy:bool)
 font ui family=sans
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -711,12 +711,12 @@ on add
   combo modes push "Timeline"
 view
   combo modes selected "Search modes" line-height=1.2 shaping=advanced font=ui input=searched hover=hovered open=opened close=closed style=dynamic_input(busy) menu-style=dynamic_menu(busy) -> selected _
-    active background=background border=foreground border-width=1.0 radius=4.0 icon=primary placeholder=danger value=foreground selection=primary
-    hovered background=background icon=foreground placeholder=danger value=foreground selection=primary
-    focused background=background border=primary
-    focused-hovered background=background border=foreground
-    disabled background=background value=danger
-    menu text=foreground selected-text=background selected-background=primary background=background border=foreground shadow=danger shadow-y=2.0
+    active bg=bg border=fg border-w=1.0 r=4.0 icon=primary placeholder=danger value=fg selection=primary
+    hovered bg=bg icon=fg placeholder=danger value=fg selection=primary
+    focused bg=bg border=primary
+    focused-hovered bg=bg border=fg
+    disabled bg=bg value=danger
+    menu text=fg selected-text=bg selected-bg=primary bg=bg border=fg shadow=danger shadow-y=2.0
     icon code="⌕" font=ui size=12.0 spacing=6.0 side=right
 "#;
     let document = analyze(source).unwrap();
@@ -745,8 +745,8 @@ view
 fn replaces_combo_search_options_with_a_typed_list() {
     let source = r#"app Demo
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -770,8 +770,8 @@ view
 fn checks_structural_widget_routes_and_ranges() {
     let source = r#"app Structure
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -787,7 +787,7 @@ on resized(w, h)
 on hidden
 view
   col
-    float scale=1.1 x=(viewport_x + viewport_width - original_x - original_width) y=(viewport_y + viewport_height - original_y - original_height) shadow=black/50 shadow-x=1.0 shadow-y=2.0 shadow-blur=4.0 radius=8.0 radius-tl=1.0 radius-tr=2.0 radius-br=3.0 radius-bl=4.0
+    float scale=1.1 x=(viewport_x + viewport_width - original_x - original_width) y=(viewport_y + viewport_height - original_y - original_height) shadow=black/50 shadow-x=1.0 shadow-y=2.0 shadow-blur=4.0 r=8.0 r-tl=1.0 r-tr=2.0 r-br=3.0 r-bl=4.0
       text "Floating"
     pin width=fill height=80.0 x=12.0 y=8.0
       text "Pinned"
@@ -805,7 +805,7 @@ view
     stack width=fill(2) height=120.0 clip=true under=1
       text "Base"
       text "Overlay"
-    rule horizontal thickness=2.0 style=weak fill=percent(75.0) color=primary/50 radius=4.0 radius-tl=2.0 snap=false
+    rule horizontal thickness=2.0 style=weak fill=percent(75.0) color=primary/50 r=4.0 r-tl=2.0 snap=false
     space width=fill(2) height=shrink
 "#;
     let document = analyze(source).unwrap();

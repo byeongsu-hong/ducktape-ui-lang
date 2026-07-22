@@ -4,7 +4,7 @@ use super::*;
 fn parses_dynamic_widget_operation_ids() {
     let source = r#"app Operations
 theme
-  background #000000
+  bg #000000
 state
   selected = 1
   value = ""

@@ -8,7 +8,7 @@ extern crate::backend
   load() -> [Item] ! Item
 
 theme
-  background #000000
+  bg #000000
 
 qr docs "https://example.com/ice docs" correction=high version=normal(4)
 

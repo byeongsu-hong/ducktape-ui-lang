@@ -105,16 +105,16 @@ pub(in crate::parser) fn parse_media(
                 return Err(error("E085", line, "expand is only available on image"));
             }
             options.expand = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("radius=") {
+        } else if let Some(value) = part.strip_prefix("r=") {
             if media_kind != MediaKind::Image {
                 return Err(error("E085", line, "radius is only available on image"));
             }
             options.radius = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else if let Some((field, value)) = [
-            ("radius-tl=", &mut options.radius_top_left),
-            ("radius-tr=", &mut options.radius_top_right),
-            ("radius-br=", &mut options.radius_bottom_right),
-            ("radius-bl=", &mut options.radius_bottom_left),
+            ("r-tl=", &mut options.radius_top_left),
+            ("r-tr=", &mut options.radius_top_right),
+            ("r-br=", &mut options.radius_bottom_right),
+            ("r-bl=", &mut options.radius_bottom_left),
         ]
         .into_iter()
         .find_map(|(prefix, field)| part.strip_prefix(prefix).map(|value| (field, value)))
@@ -286,23 +286,23 @@ pub(in crate::parser) fn parse_tooltip(
                     None
                 }
             };
-        } else if let Some(value) = part.strip_prefix("background=") {
+        } else if let Some(value) = part.strip_prefix("bg=") {
             options.background = Some(parse_background_value(value, line)?);
         } else if let Some(value) = part.strip_prefix("text=") {
             options.text_color = Some(value.to_owned());
         } else if let Some(value) = part.strip_prefix("border=") {
             options.border_color = Some(value.to_owned());
-        } else if let Some(value) = part.strip_prefix("border-width=") {
+        } else if let Some(value) = part.strip_prefix("border-w=") {
             options.border_width = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("radius=") {
+        } else if let Some(value) = part.strip_prefix("r=") {
             options.radius = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("radius-tl=") {
+        } else if let Some(value) = part.strip_prefix("r-tl=") {
             options.radius_top_left = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("radius-tr=") {
+        } else if let Some(value) = part.strip_prefix("r-tr=") {
             options.radius_top_right = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("radius-br=") {
+        } else if let Some(value) = part.strip_prefix("r-br=") {
             options.radius_bottom_right = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("radius-bl=") {
+        } else if let Some(value) = part.strip_prefix("r-bl=") {
             options.radius_bottom_left = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else if let Some(value) = part.strip_prefix("shadow=") {
             options.shadow_color = Some(value.to_owned());
@@ -312,7 +312,7 @@ pub(in crate::parser) fn parse_tooltip(
             options.shadow_y = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else if let Some(value) = part.strip_prefix("shadow-blur=") {
             options.shadow_blur = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("pixel-snap=") {
+        } else if let Some(value) = part.strip_prefix("px-snap=") {
             options.pixel_snap = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else {
             return Err(error(

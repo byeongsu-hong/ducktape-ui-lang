@@ -280,22 +280,11 @@ fn canonical_surface(core: &str, styles: &mut Vec<String>, properties: &mut Vec<
     let radius_has_required_surface = styles
         .iter()
         .any(|style| style.starts_with("bg-") || matches!(style.as_str(), "border" | "border-2"));
-    canonical_mapped(
-        styles,
-        properties,
-        !has("border-width="),
-        border_width_property,
-    );
+    canonical_mapped(styles, properties, !has("border-w="), border_width_property);
     if radius_has_required_surface
-        && ![
-            "radius=",
-            "radius-tl=",
-            "radius-tr=",
-            "radius-br=",
-            "radius-bl=",
-        ]
-        .iter()
-        .any(|prefix| has(prefix))
+        && !["r=", "r-tl=", "r-tr=", "r-br=", "r-bl="]
+            .iter()
+            .any(|prefix| has(prefix))
     {
         canonical_mapped(styles, properties, true, radius_property);
     }
@@ -363,8 +352,8 @@ fn text_size_property(style: &str) -> Option<String> {
 
 fn border_width_property(style: &str) -> Option<String> {
     match style {
-        "border" => Some("border-width=1.0".to_owned()),
-        "border-2" => Some("border-width=2.0".to_owned()),
+        "border" => Some("border-w=1.0".to_owned()),
+        "border-2" => Some("border-w=2.0".to_owned()),
         _ => None,
     }
 }
@@ -377,7 +366,7 @@ fn radius_property(style: &str) -> Option<String> {
         "rounded-full" => 999,
         _ => return None,
     };
-    Some(format!("radius={value}.0"))
+    Some(format!("r={value}.0"))
 }
 
 #[cfg(test)]
@@ -389,9 +378,9 @@ mod tests {
     fn canonicalizes_only_same_builder_style_owners() {
         assert_eq!(
             canonicalize_style_line(
-                r#"container @w-full h-full max-w-md p-4 px-2 border border-primary rounded-lg bg-background"#
+                r#"container @w-full h-full max-w-md p-4 px-2 border border-primary rounded-lg bg-bg"#
             ),
-            r#"container width=fill height=fill max-width=448.0 padding-x=8.0 padding-y=16.0 border-width=1.0 radius=10.0 @border-primary bg-background"#
+            r#"container width=fill height=fill max-width=448.0 padding-x=8.0 padding-y=16.0 border-w=1.0 r=10.0 @border-primary bg-bg"#
         );
         assert_eq!(
             canonicalize_style_line(r#"button "Save -> now" @p-2 bg-primary -> save"#),
@@ -424,9 +413,9 @@ mod tests {
         );
         assert_eq!(
             canonicalize_style_line(
-                "container background=linear(radians(1.57), primary@0.0, background@1.0) @border border-primary"
+                "container bg=linear(radians(1.57), primary@0.0, bg@1.0) @border border-primary"
             ),
-            "container background=linear(radians(1.57), primary@0.0, background@1.0) border-width=1.0 @border-primary"
+            "container bg=linear(radians(1.57), primary@0.0, bg@1.0) border-w=1.0 @border-primary"
         );
     }
 
@@ -434,26 +423,23 @@ mod tests {
     fn formatted_style_migrations_are_valid_and_idempotent() {
         let source = r#"app Demo
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #336699
   danger #ff0000
 state
 view
-  container @border border-primary rounded-lg bg-background
+  container @border border-primary rounded-lg bg-bg
     text "Hello" @text-lg
 "#;
         let formatted = format_source(source).unwrap();
         assert_eq!(format_source(&formatted).unwrap(), formatted);
-        assert!(
-            formatted
-                .contains("container border-width=1.0 radius=10.0 @border-primary bg-background")
-        );
+        assert!(formatted.contains("container border-w=1.0 r=10.0 @border-primary bg-bg"));
         assert!(formatted.contains("text \"Hello\" size=18.0"));
         analyze(&formatted).unwrap();
 
         let color_only = source.replace(
-            "@border border-primary rounded-lg bg-background",
+            "@border border-primary rounded-lg bg-bg",
             "@border border-primary rounded-lg",
         );
         let color_only = format_source(&color_only).unwrap();
@@ -461,10 +447,7 @@ view
         assert!(generated.contains("__style.border.width = 1.0 as f32"));
         assert!(generated.contains("color: ::iced::Color::from_rgba8(51, 102, 153"));
 
-        let invalid = source.replace(
-            "@border border-primary rounded-lg bg-background",
-            "@rounded",
-        );
+        let invalid = source.replace("@border border-primary rounded-lg bg-bg", "@rounded");
         assert_eq!(analyze(&invalid).unwrap_err().code, "E044");
         let invalid_formatted = format_source(&invalid).unwrap();
         assert_eq!(analyze(&invalid_formatted).unwrap_err().code, "E044");

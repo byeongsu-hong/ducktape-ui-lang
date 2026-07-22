@@ -4,8 +4,8 @@ extern crate::backend
   sync interaction_round_trip(value:mouse-interaction) -> mouse-interaction
 
 theme
-  background #111827
-  foreground #f9fafb
+  bg #111827
+  fg #f9fafb
   primary #60a5fa
   danger #f87171
 

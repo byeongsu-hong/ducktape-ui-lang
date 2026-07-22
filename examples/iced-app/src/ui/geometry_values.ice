@@ -5,8 +5,8 @@ extern crate::backend
   sync geometry_round_trip(point:point, snapped:point-u32, vector:vector, size:size, bounds:rectangle, snapped_bounds:rectangle-u32?) -> rectangle
 
 theme
-  background #111827
-  foreground #f9fafb
+  bg #111827
+  fg #f9fafb
   primary #60a5fa
   danger #f87171
 

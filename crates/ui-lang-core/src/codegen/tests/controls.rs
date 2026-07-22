@@ -10,8 +10,8 @@ extern crate::backend
   progress-style dynamic_progress(active:bool)
   radio-style dynamic_radio(highlight:bool)
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -33,21 +33,21 @@ view
     grid columns=2 width=640.0 spacing=12.0 height=aspect(16.0,9.0)
       toggler "Enabled" checked=enabled -> enabled_changed _
       slider amount min=0.0 max=100.0 step=0.5 default=50.0 shift-step=0.1 vertical width=20.0 height=fill(2) style=dynamic_slider(enabled) release=released -> amount_changed _
-        active rail-start=linear(0.0, primary@0.0, danger@1.0) rail-end=linear(1.57, background@0.0, primary/25@1.0) rail-width=4.0 rail-border=transparent rail-border-width=1.0 rail-radius=2.0 rail-radius-tl=1.0 handle=circle(7.0) handle-color=linear(0.785, primary@0.0, foreground@1.0) handle-border=foreground handle-border-width=1.0
-        hovered rail-start=foreground rail-end=background handle=rect(12) handle-color=foreground handle-radius=3.0 handle-radius-tl=1.0
+        active rail-start=linear(0.0, primary@0.0, danger@1.0) rail-end=linear(1.57, bg@0.0, primary/25@1.0) rail-w=4.0 rail-border=transparent rail-border-w=1.0 rail-r=2.0 rail-r-tl=1.0 handle=circle(7.0) handle-color=linear(0.785, primary@0.0, fg@1.0) handle-border=fg handle-border-w=1.0
+        hovered rail-start=fg rail-end=bg handle=rect(12) handle-color=fg handle-r=3.0 handle-r-tl=1.0
         dragged rail-start=danger handle=circle(8.0) handle-color=danger
       slider amount min=0.0 max=100.0 step=1.0 width=fill height=18.0 style=dynamic_slider(enabled) -> amount_changed _
       slider precise min=slider_number(0.0) max=slider_number(100.0) step=slider_number(5.0) default=slider_number(50.0) shift-step=slider_number(1.0) -> precise_changed _
-      progress amount vertical length=fill(2) girth=20.0 style=dynamic_progress(enabled) background=linear(1.57, background@0.0, primary/25@1.0) bar=linear(0.0, primary/75@0.0, danger@1.0) border=foreground border-width=1.0 radius=4.0 radius-tl=2.0
+      progress amount vertical length=fill(2) girth=20.0 style=dynamic_progress(enabled) bg=linear(1.57, bg@0.0, primary/25@1.0) bar=linear(0.0, primary/75@0.0, danger@1.0) border=fg border-w=1.0 r=4.0 r-tl=2.0
       progress amount style=success
       progress amount style=warning
       progress amount style=danger
       radio "First" value="first" selected=(choice == "first") style=dynamic_radio(enabled) size=20.0 width=fill spacing=8.0 text-size=14.0 line-height=1.2 shaping=advanced wrapping=word-or-glyph font=mono -> choice_changed _
-        active selected background=linear(1.57, primary@0.0, background@1.0) dot=foreground border=primary border-width=2.0 text=foreground
-        active unselected background=background dot=primary border=foreground text=foreground
-        hovered selected background=primary dot=foreground border=foreground text=foreground
-        hovered unselected background=foreground dot=background border=primary text=primary
-      rule horizontal thickness=2.0 style=weak fill=full color=primary/50 radius=4.0 radius-tl=2.0 snap=false
+        active selected bg=linear(1.57, primary@0.0, bg@1.0) dot=fg border=primary border-w=2.0 text=fg
+        active unselected bg=bg dot=primary border=fg text=fg
+        hovered selected bg=primary dot=fg border=fg text=fg
+        hovered unselected bg=fg dot=bg border=primary text=primary
+      rule horizontal thickness=2.0 style=weak fill=full color=primary/50 r=4.0 r-tl=2.0 snap=false
       rule horizontal fill=percent(75.0)
       rule horizontal fill=pad(4)
       rule horizontal fill=pad(4,8)
@@ -157,8 +157,8 @@ extern crate::backend
   input-style dynamic_input(disabled:bool)
 font ui family=sans
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -170,11 +170,11 @@ on pasted(next)
   value = next
 view
   input "Secret" #secret <-> value hint="Paste token" disabled=disabled secure=secure submit=submitted paste=pasted width=240.0 padding=8.0 text-size=14.0 line-height=1.2 align=center font=mono style=dynamic_input(disabled)
-    active background=background border=foreground border-width=1.0 radius=4.0 icon=primary placeholder=danger value=foreground selection=primary
-    hovered background=background border=primary border-width=1.0 radius=10.0 icon=foreground placeholder=danger value=foreground selection=primary
-    focused background=background border=primary border-width=1.0 radius=10.0
-    focused-hovered background=background border=foreground border-width=1.0 radius=10.0
-    disabled background=background border=primary border-width=1.0 radius=10.0 value=danger
+    active bg=bg border=fg border-w=1.0 r=4.0 icon=primary placeholder=danger value=fg selection=primary
+    hovered bg=bg border=primary border-w=1.0 r=10.0 icon=fg placeholder=danger value=fg selection=primary
+    focused bg=bg border=primary border-w=1.0 r=10.0
+    focused-hovered bg=bg border=fg border-w=1.0 r=10.0
+    disabled bg=bg border=primary border-w=1.0 r=10.0 value=danger
     icon code="•" font=ui size=12.0 spacing=4.0 side=right
 "#;
     let generated = compile(source, "form.ice").unwrap();
@@ -224,8 +224,8 @@ fn lowers_button_children_and_typed_properties() {
 extern crate::backend
   button-style dynamic_button(disabled:bool)
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -236,10 +236,10 @@ view
     row
       text "Save"
       text "⌘S"
-    active background=linear(1.57, primary@0.0, background@1.0) text=foreground border=primary border-width=1.0 radius=4.0 radius-tl=2.0 radius-tr=3.0 radius-br=5.0 radius-bl=6.0 shadow=black/50 shadow-x=-1.0 shadow-y=2.0 shadow-blur=4.0 pixel-snap=true
-    hovered background=foreground text=background radius=10.0
-    pressed background=primary text=white radius=10.0
-    disabled background=background text=foreground radius=10.0
+    active bg=linear(1.57, primary@0.0, bg@1.0) text=fg border=primary border-w=1.0 r=4.0 r-tl=2.0 r-tr=3.0 r-br=5.0 r-bl=6.0 shadow=black/50 shadow-x=-1.0 shadow-y=2.0 shadow-blur=4.0 px-snap=true
+    hovered bg=fg text=bg r=10.0
+    pressed bg=primary text=white r=10.0
+    disabled bg=bg text=fg r=10.0
 "#;
     let generated = compile(source, "actions.ice").unwrap();
     assert!(generated.contains("let __button_content: __IceElement"));
@@ -267,8 +267,12 @@ view
         "background",
         "subtle",
     ] {
+        let source_preset = if preset == "background" { "bg" } else { preset };
         let generated = compile(
-            &source.replace("style=dynamic_button(disabled)", &format!("style={preset}")),
+            &source.replace(
+                "style=dynamic_button(disabled)",
+                &format!("style={source_preset}"),
+            ),
             "actions.ice",
         )
         .unwrap();
@@ -280,14 +284,14 @@ view
 fn cascades_active_style_into_interaction_states() {
     let source = r#"app Styles
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 on pressed
 view
   button "Save" -> pressed
-    active background=background text=foreground radius=8.0
+    active bg=bg text=fg r=8.0
     hovered text=primary
 "#;
     let generated = compile(source, "styles.ice").unwrap();
@@ -306,8 +310,8 @@ extern crate::backend
   checkbox-style dynamic_checkbox(disabled:bool)
   toggler-style dynamic_toggler(disabled:bool)
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -317,19 +321,19 @@ on changed(next)
 view
   col
     checkbox "Checkbox" checked=enabled style=dynamic_checkbox(enabled) size=20.0 width=fill spacing=8.0 text-size=14.0 line-height=1.2 shaping=advanced wrapping=word-or-glyph font=mono icon="✓" icon-size=12.0 icon-line-height=1.0 icon-shaping=basic -> changed _
-      active checked background=linear(1.57, primary@0.0, background@1.0) icon=foreground text=foreground border=primary border-width=1.0 radius=4.0 radius-tl=2.0 radius-tr=3.0 radius-br=5.0 radius-bl=6.0
-      active unchecked background=background icon=primary text=foreground border=foreground
-      hovered checked background=primary icon=foreground text=foreground border=primary
-      hovered unchecked background=foreground icon=background text=primary border=primary
-      disabled checked background=background icon=foreground text=foreground border=foreground
-      disabled unchecked background=background icon=primary text=foreground border=primary
+      active checked bg=linear(1.57, primary@0.0, bg@1.0) icon=fg text=fg border=primary border-w=1.0 r=4.0 r-tl=2.0 r-tr=3.0 r-br=5.0 r-bl=6.0
+      active unchecked bg=bg icon=primary text=fg border=fg
+      hovered checked bg=primary icon=fg text=fg border=primary
+      hovered unchecked bg=fg icon=bg text=primary border=primary
+      disabled checked bg=bg icon=fg text=fg border=fg
+      disabled unchecked bg=bg icon=primary text=fg border=primary
     toggler "Toggler" checked=enabled style=dynamic_toggler(enabled) size=20.0 width=fill spacing=8.0 text-size=14.0 line-height=1.2 shaping=auto wrapping=glyph font=default align=right -> changed _
-      active checked background=linear(1.57, primary@0.0, background@1.0) background-border=primary background-border-width=1.0 foreground=linear(0.0, foreground@0.0, primary@1.0) foreground-border=foreground foreground-border-width=2.0 text=foreground radius=7.0 radius-tl=6.0 radius-tr=7.0 radius-br=8.0 radius-bl=9.0 padding-ratio=0.125
-      active unchecked background=background foreground=foreground text=primary
-      hovered checked background=primary foreground=foreground text=foreground
-      hovered unchecked background=foreground foreground=background text=primary
-      disabled checked background=background foreground=foreground text=foreground
-      disabled unchecked background=background foreground=primary text=foreground
+      active checked bg=linear(1.57, primary@0.0, bg@1.0) bg-border=primary bg-border-w=1.0 fg=linear(0.0, fg@0.0, primary@1.0) fg-border=fg fg-border-w=2.0 text=fg r=7.0 r-tl=6.0 r-tr=7.0 r-br=8.0 r-bl=9.0 p-ratio=0.125
+      active unchecked bg=bg fg=fg text=primary
+      hovered checked bg=primary fg=fg text=fg
+      hovered unchecked bg=fg fg=bg text=primary
+      disabled checked bg=bg fg=fg text=fg
+      disabled unchecked bg=bg fg=primary text=fg
 "#;
     let generated = compile(source, "preferences.ice").unwrap();
     assert!(generated.contains(".size(20.0 as f32).spacing(8.0 as f32)"));
@@ -404,8 +408,8 @@ view
 fn lowers_full_text_format() {
     let source = r#"app Typography
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -428,8 +432,8 @@ fn lowers_native_text_style_callbacks() {
 extern crate::backend
   text-style dynamic_text(active:bool)
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -437,7 +441,7 @@ state
 view
   col
     text "Styled" style=dynamic_text(active)
-    rich-text style=dynamic_text(active) color=foreground
+    rich-text style=dynamic_text(active) color=fg
       span "Rich"
 "#;
     let generated = compile(source, "typography.ice").unwrap();
@@ -462,16 +466,16 @@ fn lowers_structured_rich_text_spans() {
     let source = r#"app Typography
 font ui family=sans weight=medium stretch=normal style=normal
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
 on link(url)
 view
-  rich-text width=fill height=48.0 size=16.0 line-height=1.2 font=ui align-x=justified align-y=center wrapping=word color=foreground @font-bold -> link _
-    span "Ice " size=18.0 line-height-px=22.0 font=ui color=primary background=linear(1.57, background@0.0, primary@1.0) border=foreground border-width=1.0 radius=4.0 radius-tl=2.0 radius-tr=3.0 radius-br=5.0 radius-bl=6.0 padding=2.0 padding-left=4.0 underline strike=false
-    span "language" link="https://example.com" background=background @text-lg font-bold text-primary
+  rich-text width=fill height=48.0 size=16.0 line-height=1.2 font=ui align-x=justified align-y=center wrapping=word color=fg @font-bold -> link _
+    span "Ice " size=18.0 line-height-px=22.0 font=ui color=primary bg=linear(1.57, bg@0.0, primary@1.0) border=fg border-w=1.0 r=4.0 r-tl=2.0 r-tr=3.0 r-br=5.0 r-bl=6.0 p=2.0 pl=4.0 underline strike=false
+    span "language" link="https://example.com" bg=bg @text-lg font-bold text-primary
 "#;
     let generated = compile(source, "rich.ice").unwrap();
     assert!(generated.contains("::iced::widget::rich_text(__rich_spans)"));
@@ -494,8 +498,8 @@ fn lowers_declared_font_descriptors_and_app_default() {
     let source = r#"app Typography
 font brand family="Inter" weight=semibold stretch=semi-expanded style=italic default=true
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -524,8 +528,8 @@ view
 fn lowers_builtin_and_opacity_text_color_utilities() {
     let source = r#"app Typography
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #336699
   danger #ff0000
 state

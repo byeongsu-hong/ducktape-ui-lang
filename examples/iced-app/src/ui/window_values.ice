@@ -7,8 +7,8 @@ extern crate::backend
   sync attention_round_trip(value:window-attention) -> window-attention
 
 theme
-  background #111827
-  foreground #f9fafb
+  bg #111827
+  fg #f9fafb
   primary #60a5fa
   danger #f87171
 

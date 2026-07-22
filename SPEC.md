@@ -1,4 +1,4 @@
-# Ice Language Specification 1.59
+# Ice Language Specification 1.60
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 1.59 syntax.
+marked “planned” is a design constraint, not accepted 1.60 syntax.
 
 ## 1. Design contract
 
@@ -50,7 +50,7 @@ async success/failure routing.
 
 A new Core construct must be common UI authoring, have one canonical source
 form, and not fit an existing typed Rust boundary. Core vocabulary is frozen
-for revision 1.59; adding or changing it requires an explicit language design
+for revision 1.60; adding or changing it requires an explicit language design
 and a new revision, while removal requires deprecation and migration.
 
 Accepted advanced syntax such as Canvas paths, complete PaneGrid mutation, raw
@@ -61,7 +61,7 @@ type or method. Removing accepted compatibility syntax also requires a separate
 deprecation and migration decision.
 
 Language revisions and Cargo package versions use separate schemes. This
-document specifies language revision 1.59. The workspace packages are
+document specifies language revision 1.60. The workspace packages are
 pre-1.0 SemVer `0.1.0`; their package version does not claim language 0.1. The
 resolved iced/iced_widget versions are a third, independent backend baseline.
 
@@ -168,7 +168,7 @@ version. `cargo ice compat` verifies the lockfile and direct-manifest contract.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 1.59.
+  block comments are not part of 1.60.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -220,7 +220,7 @@ document       = root_decl extern_decl? theme_decl qr_decl* state_decl? preset_d
 
 root_decl      = ("app" | "daemon") PascalName (INDENT app_setting*)?
 app_setting    = "title" expr | "theme" expr
-               | ("background" | "text-color") expr
+               | ("bg" | "fg") expr
                | "id" string | "font" string
                | ("executor" | "renderer") rust_path
                | "default-text-size" number | "scale-factor" expr
@@ -588,13 +588,12 @@ rich_text_property = ("width=" | "height=") length | "size=" expr
 rich_span      = "span" expr rich_span_property* styles?
 rich_span_property = ("size=" | "line-height=" | "line-height-px=") expr
                    | "font=" font_ref | "color=" color_ref | "link=" expr
-                   | "background=" background_value | "border=" color_ref
-                   | "border-width=" expr
-                   | ("radius=" | "radius-tl=" | "radius-tr="
-                     | "radius-br=" | "radius-bl=") expr
-                   | ("padding=" | "padding-x=" | "padding-y="
-                     | "padding-top=" | "padding-right=" | "padding-bottom="
-                     | "padding-left=") expr
+                   | "bg=" background_value | "border=" color_ref
+                   | "border-w=" expr
+                   | ("r=" | "r-tl=" | "r-tr="
+                     | "r-br=" | "r-bl=") expr
+                   | ("p=" | "px=" | "py=" | "pt=" | "pr=" | "pb="
+                     | "pl=") expr
                    | "underline" | "underline=" expr
                    | "strike" | "strike=" expr
 pane_grid      = "pane-grid" id
@@ -610,10 +609,10 @@ pane_grid_style_status
                = "hovered-region" pane_region_style_property+
                | ("hovered-split" | "picked-split") pane_line_style_property+
 pane_region_style_property
-               = "background=" background_value | "border=" color_ref
-               | ("border-width=" | "radius=" | "radius-tl="
-                 | "radius-tr=" | "radius-br=" | "radius-bl=") expr
-pane_line_style_property = "color=" name ("/" u8)? | "width=" expr
+               = "bg=" background_value | "border=" color_ref
+               | ("border-w=" | "r=" | "r-tl="
+                 | "r-tr=" | "r-br=" | "r-bl=") expr
+pane_line_style_property = "color=" name ("/" u8)? | "w=" expr
 pane_configuration = pane_view
                    | "split" name? pane_axis ("ratio=" number)?
                      INDENT pane_configuration pane_configuration
@@ -635,12 +634,12 @@ pane_title_property
                  | "padding-left=") expr
                | "always-controls" | surface_style_property
 surface_style_property
-               = "background=" background_value
+               = "bg=" background_value
                | ("text=" | "border=" | "shadow=") color_ref
-               | ("border-width=" | "radius=" | "radius-tl="
-                 | "radius-tr=" | "radius-br=" | "radius-bl="
+               | ("border-w=" | "r=" | "r-tl="
+                 | "r-tr=" | "r-br=" | "r-bl="
                  | "shadow-x=" | "shadow-y=" | "shadow-blur="
-                 | "pixel-snap=") expr
+                 | "px-snap=") expr
 background_value = color_ref
                  | "linear(" expr ("," color_ref "@" expr){0,8} ")"
 pane_axis      = "horizontal" | "vertical"
@@ -662,15 +661,15 @@ markdown_property = ("text-size=" | "h1-size=" | "h2-size="
 markdown_style = "style" markdown_style_property+
 markdown_style_property
                = ("font=" | "inline-code-font=" | "code-block-font=") font_ref
-               | "inline-code-background=" background_value
-               | ("inline-code-color=" | "link=" | "inline-code-border=") color_ref
-               | ("inline-code-padding=" | "inline-code-padding-x="
-                 | "inline-code-padding-y=" | "inline-code-padding-top="
-                 | "inline-code-padding-right=" | "inline-code-padding-bottom="
-                 | "inline-code-padding-left=" | "inline-code-border-width="
-                 | "inline-code-radius=" | "inline-code-radius-tl="
-                 | "inline-code-radius-tr=" | "inline-code-radius-br="
-                 | "inline-code-radius-bl=") expr
+               | "inline-code-bg=" background_value
+               | ("inline-code-fg=" | "link=" | "inline-code-border=") color_ref
+               | ("inline-code-p=" | "inline-code-px="
+                 | "inline-code-py=" | "inline-code-pt="
+                 | "inline-code-pr=" | "inline-code-pb="
+                 | "inline-code-pl=" | "inline-code-border-w="
+                 | "inline-code-r=" | "inline-code-r-tl="
+                 | "inline-code-r-tr=" | "inline-code-r-br="
+                 | "inline-code-r-bl=") expr
 table_view     = "table" name "in" expr table_property* INDENT table_column+
 table_property = "width=" length
                | ("padding=" | "padding-x=" | "padding-y="
@@ -695,10 +694,10 @@ editor_property = "placeholder=" string | "width=" expr | "height=" length
 editor_status  = ("active" | "hovered" | "focused"
                | "focused-hovered" | "disabled") editor_style_property*
 editor_style_property
-               = "background=" background_value
+               = "bg=" background_value
                | ("border=" | "placeholder=" | "value=" | "selection=") color_ref
-               | ("border-width=" | "radius=" | "radius-tl="
-                 | "radius-tr=" | "radius-br=" | "radius-bl=") expr
+               | ("border-w=" | "r=" | "r-tl="
+                 | "r-tr=" | "r-br=" | "r-bl=") expr
 column_property = flex_property | "max-width=" expr
 flex_property  = ("width=" | "height=") length | "spacing=" expr
                | ("padding=" | "padding-x=" | "padding-y="
@@ -733,7 +732,7 @@ grid_sizing    = length | "aspect(" expr "," expr ")"
 scroll_property = "direction=" ("vertical" | "horizontal" | "both")
                 | ("width=" | "height=") length
                 | "bar=" ("visible" | "hidden")
-                | ("bar-width=" | "bar-margin=" | "scroller-width="
+                | ("bar-w=" | "bar-margin=" | "scroller-w="
                   | "bar-spacing=") expr
                 | ("anchor-x=" | "anchor-y=") ("start" | "end")
                 | "auto=" expr | ("scroll=" | "viewport=") route
@@ -741,23 +740,23 @@ scroll_property = "direction=" ("vertical" | "horizontal" | "both")
 scroll_status  = ("active" | "hovered" | "dragged")
                  scroll_selector*
                  (INDENT scroll_style_section*)?
-scroll_selector = ("horizontal-disabled=" | "vertical-disabled=") bool
-                | ("horizontal-hovered=" | "vertical-hovered=") bool
-                | ("horizontal-dragged=" | "vertical-dragged=") bool
+scroll_selector = ("x-disabled=" | "y-disabled=") bool
+                | ("x-hovered=" | "y-hovered=") bool
+                | ("x-dragged=" | "y-dragged=") bool
 scroll_bar_surface_property
-               = "background=" background_value | "border=" color_ref
-               | ("border-width=" | "radius=" | "radius-tl="
-                 | "radius-tr=" | "radius-br=" | "radius-bl=") expr
+               = "bg=" background_value | "border=" color_ref
+               | ("border-w=" | "r=" | "r-tl="
+                 | "r-tr=" | "r-br=" | "r-bl=") expr
 scroll_auto_property
                = scroll_bar_surface_property | "shadow=" color_ref
                | ("shadow-x=" | "shadow-y=" | "shadow-blur=") expr
                | "icon=" color_ref
 scroll_style_section
                = "container" surface_style_property*
-               | ("horizontal-rail" | "vertical-rail"
-                 | "horizontal-scroller" | "vertical-scroller")
+               | ("x-rail" | "y-rail"
+                 | "x-scroller" | "y-scroller")
                  scroll_bar_surface_property*
-               | "gap" "background=" background_value
+               | "gap" "bg=" background_value
                | "auto" scroll_auto_property*
 text           = "text" expr text_property* styles?
 text_property  = ("width=" | "height=") length | "size=" expr
@@ -784,11 +783,11 @@ input_child    = input_status | input_icon
 input_status   = ("active" | "hovered" | "focused"
                | "focused-hovered" | "disabled") input_style_property*
 input_style_property
-               = "background=" background_value
+               = "bg=" background_value
                | ("border=" | "icon=" | "placeholder="
                  | "value=" | "selection=") color_ref
-               | ("border-width=" | "radius=" | "radius-tl="
-                 | "radius-tr=" | "radius-br=" | "radius-bl=") expr
+               | ("border-w=" | "r=" | "r-tl="
+                 | "r-tr=" | "r-br=" | "r-bl=") expr
 input_icon     = "icon" combo_icon_property+
 button         = "button" (string | INDENT node) id? button_property*
                  styles? "->" route (INDENT button_status_style*)?
@@ -796,7 +795,7 @@ button_property = accessibility_property | "disabled=" expr
                 | ("width=" | "height=") length
                 | ("padding=" | "clip=") expr
                 | "style=" (("primary" | "secondary" | "success" | "warning"
-                  | "danger" | "text" | "background" | "subtle") | call)
+                  | "danger" | "text" | "bg" | "subtle") | call)
 button_status_style = ("active" | "hovered" | "pressed" | "disabled")
                       surface_style_property*
 checkbox       = "checkbox" expr id? accessibility_property* "checked=" expr
@@ -817,19 +816,19 @@ checkbox_icon_property = "icon=" string
 checkbox_style = "style=" ("primary" | "secondary" | "success" | "danger")
 checkbox_status_style = ("active" | "hovered" | "disabled")
                         ("checked" | "unchecked") checkbox_style_property*
-checkbox_style_property = "background=" background_value
+checkbox_style_property = "bg=" background_value
                         | ("icon=" | "text=" | "border=") color_ref
-                        | ("border-width=" | "radius=" | "radius-tl="
-                          | "radius-tr=" | "radius-br=" | "radius-bl=") expr
+                        | ("border-w=" | "r=" | "r-tl="
+                          | "r-tr=" | "r-br=" | "r-bl=") expr
 toggler_status_style = ("active" | "hovered" | "disabled")
                        ("checked" | "unchecked") toggler_style_property*
-toggler_style_property = ("background=" | "foreground=") background_value
-                       | ("background-border=" | "foreground-border="
+toggler_style_property = ("bg=" | "fg=") background_value
+                       | ("bg-border=" | "fg-border="
                          | "text=") color_ref
-                       | ("background-border-width="
-                         | "foreground-border-width=" | "radius="
-                         | "radius-tl=" | "radius-tr=" | "radius-br="
-                         | "radius-bl=" | "padding-ratio=") expr
+                       | ("bg-border-w="
+                         | "fg-border-w=" | "r="
+                         | "r-tl=" | "r-tr=" | "r-br="
+                         | "r-bl=" | "p-ratio=") expr
 text_alignment = "default" | "left" | "center" | "right" | "justified"
 text_wrapping  = "none" | "word" | "glyph" | "word-or-glyph"
 color_ref      = name ("/" u8)?
@@ -843,24 +842,24 @@ slider_style_property
                = ("rail-start=" | "rail-end=" | "handle-color=")
                  background_value
                | ("rail-border=" | "handle-border=") color_ref
-               | ("rail-width=" | "rail-border-width="
-                 | "handle-border-width=") expr
-               | ("rail-radius=" | "rail-radius-tl=" | "rail-radius-tr="
-                 | "rail-radius-br=" | "rail-radius-bl=") expr
+               | ("rail-w=" | "rail-border-w="
+                 | "handle-border-w=") expr
+               | ("rail-r=" | "rail-r-tl=" | "rail-r-tr="
+                 | "rail-r-br=" | "rail-r-bl=") expr
                | "handle=" ("circle(" expr ")" | "rect(" u16 ")")
-               | ("handle-radius=" | "handle-radius-tl="
-                 | "handle-radius-tr=" | "handle-radius-br="
-                 | "handle-radius-bl=") expr
+               | ("handle-r=" | "handle-r-tl="
+                 | "handle-r-tr=" | "handle-r-br="
+                 | "handle-r-bl=") expr
 progress       = "progress" expr progress_property* styles?
 progress_property
                = ("min=" | "max=") expr
                | ("length=" | "girth=") length | "vertical"
                | "style=" (("primary" | "secondary" | "success"
                  | "warning" | "danger") | call)
-               | ("background=" | "bar=") background_value
+               | ("bg=" | "bar=") background_value
                | "border=" color_ref
-               | ("border-width=" | "radius=" | "radius-tl="
-                 | "radius-tr=" | "radius-br=" | "radius-bl=") expr
+               | ("border-w=" | "r=" | "r-tl="
+                 | "r-tr=" | "r-br=" | "r-bl=") expr
 radio          = "radio" expr "value=" expr "selected=" expr
                  radio_property* styles? "->" route
                  (INDENT radio_status_style*)?
@@ -871,9 +870,9 @@ radio_property = ("size=" | "spacing=" | "text-size=" | "line-height=") expr
                | "font=" font_ref
 radio_status_style = ("active" | "hovered")
                      ("selected" | "unselected") radio_style_property*
-radio_style_property = "background=" background_value
+radio_style_property = "bg=" background_value
                      | ("dot=" | "border=" | "text=") color_ref
-                     | "border-width=" expr
+                     | "border-w=" expr
 pick_list      = "pick" expr expr pick_property* "->" route
                  (INDENT pick_child*)?
 pick_property  = "placeholder=" expr | "width=" length
@@ -886,16 +885,16 @@ pick_child     = pick_status | menu_style | pick_handle
 pick_status    = ("active" | "hovered" | "opened" | "opened-hovered")
                  pick_status_property*
 pick_status_property
-               = "background=" background_value
+               = "bg=" background_value
                | ("text=" | "placeholder=" | "handle=" | "border=") color_ref
-               | ("border-width=" | "radius=" | "radius-tl="
-                 | "radius-tr=" | "radius-br=" | "radius-bl=") expr
+               | ("border-w=" | "r=" | "r-tl="
+                 | "r-tr=" | "r-br=" | "r-bl=") expr
 menu_style     = "menu" menu_style_property*
 menu_style_property
-               = ("background=" | "selected-background=") background_value
+               = ("bg=" | "selected-bg=") background_value
                | ("text=" | "selected-text=" | "border=" | "shadow=") color_ref
-               | ("border-width=" | "radius=" | "radius-tl="
-                 | "radius-tr=" | "radius-br=" | "radius-bl="
+               | ("border-w=" | "r=" | "r-tl="
+                 | "r-tr=" | "r-br=" | "r-bl="
                  | "shadow-x=" | "shadow-y=" | "shadow-blur=") expr
 pick_handle    = "handle" ("arrow" ("size=" expr)?
                | "static" pick_icon_property+
@@ -920,11 +919,11 @@ combo_child    = combo_status | menu_style | combo_icon
 combo_status   = ("active" | "hovered" | "focused"
                | "focused-hovered" | "disabled") combo_style_property*
 combo_style_property
-               = "background=" background_value
+               = "bg=" background_value
                | ("border=" | "icon=" | "placeholder="
                  | "value=" | "selection=") color_ref
-               | ("border-width=" | "radius=" | "radius-tl="
-                 | "radius-tr=" | "radius-br=" | "radius-bl=") expr
+               | ("border-w=" | "r=" | "r-tl="
+                 | "r-tr=" | "r-br=" | "r-bl=") expr
 combo_icon     = "icon" combo_icon_property+
 combo_icon_property
                = "code=" string | "font=" font_ref
@@ -932,9 +931,9 @@ combo_icon_property
                | "side=" ("left" | "right")
 float          = "float" float_property* INDENT node
 float_property = ("scale=" | "x=" | "y=" | "shadow-x="
-                 | "shadow-y=" | "shadow-blur=" | "radius="
-                 | "radius-tl=" | "radius-tr=" | "radius-br="
-                 | "radius-bl=") expr
+                 | "shadow-y=" | "shadow-blur=" | "r="
+                 | "r-tl=" | "r-tr=" | "r-br="
+                 | "r-bl=") expr
                | "shadow=" color_ref
 pin            = "pin" (("width=" | "height=") length)?
                  ("x=" expr)? ("y=" expr)? INDENT node
@@ -947,14 +946,14 @@ responsive_mode = "at=" expr | "size=(" name "," name ")"
 rule           = "rule" ("horizontal" | "vertical") rule_property* styles?
 rule_property  = "thickness=" expr | "style=" ("default" | "weak")
                | "fill=" rule_fill | "color=" name ("/" u8)?
-               | ("radius=" | "radius-tl=" | "radius-tr="
-                 | "radius-br=" | "radius-bl=") expr
+               | ("r=" | "r-tl=" | "r-tr="
+                 | "r-br=" | "r-bl=") expr
                | "snap=" expr
 rule_fill      = "full" | "percent(" expr ")" | "pad(" u16 ")"
                | "pad(" u16 "," u16 ")"
 qr_code        = "qr" name qr_property*
 qr_property    = ("cell-size=" | "total-size=") expr
-               | ("cell=" | "background=") name ("/" u8)?
+               | ("cell=" | "bg=") name ("/" u8)?
 space          = "space" ("width=" length)? ("height=" length)? styles?
 media          = ("image" | "svg" | "viewer") expr media_property*
 media_property = accessibility_property | ("width=" | "height=") length
@@ -965,8 +964,8 @@ media_property = accessibility_property | ("width=" | "height=") length
                | "style=" name "(" expr_list? ")"
                | "filter=" ("linear" | "nearest")
                | "scale=" expr | "expand=" expr
-               | ("radius=" | "radius-tl=" | "radius-tr="
-                 | "radius-br=" | "radius-bl=") expr
+               | ("r=" | "r-tl=" | "r-tr="
+                 | "r-br=" | "r-bl=") expr
                | "crop=(" expr "," expr "," expr "," expr ")"
                | ("padding=" | "min-scale=" | "max-scale="
                  | "scale-step=") expr
@@ -978,12 +977,12 @@ tooltip_property
                | "style=" (("transparent" | "rounded" | "bordered" | "dark"
                  | "primary" | "secondary" | "success" | "warning" | "danger")
                  | name "(" expr_list? ")")
-               | "background=" background_value
+               | "bg=" background_value
                | ("text=" | "border=" | "shadow=") color_ref
-               | ("border-width=" | "radius=" | "radius-tl="
-                 | "radius-tr=" | "radius-br=" | "radius-bl="
+               | ("border-w=" | "r=" | "r-tl="
+                 | "r-tr=" | "r-br=" | "r-bl="
                  | "shadow-x=" | "shadow-y=" | "shadow-blur=") expr
-               | "pixel-snap=" expr
+               | "px-snap=" expr
 mouse_area     = "mouse" mouse_property+ INDENT node
 mouse_property = ("press=" | "release=" | "double=" | "right_press="
                | "right_release=" | "middle_press=" | "middle_release="
@@ -1015,7 +1014,7 @@ canvas_event_action
 canvas_command = canvas_rect | canvas_circle | canvas_line | canvas_text
                | canvas_path | canvas_group | canvas_if | canvas_for
 canvas_rect    = "rect" point size canvas_radius* canvas_paint+
-canvas_circle  = "circle" point "radius=" expr canvas_paint+
+canvas_circle  = "circle" point "r=" expr canvas_paint+
 canvas_line    = "line" "x1=" expr "y1=" expr "x2=" expr "y2=" expr
                  canvas_stroke
 canvas_text    = "text" expr "x=" expr "y=" expr canvas_text_property*
@@ -1032,11 +1031,11 @@ canvas_if      = "if" expr INDENT canvas_command*
 canvas_for     = "for" name "in" expr INDENT canvas_command*
 point          = "x=" expr "y=" expr
 size           = "width=" expr "height=" expr
-canvas_radius  = ("radius=" | "radius-tl=" | "radius-tr="
-                 | "radius-br=" | "radius-bl=") expr
+canvas_radius  = ("r=" | "r-tl=" | "r-tr="
+                 | "r-br=" | "r-bl=") expr
 canvas_paint   = "fill=" background_value | "fill-rule=" ("non-zero" | "even-odd")
                | canvas_stroke
-canvas_stroke  = "stroke=" background_value ("stroke-width=" expr)?
+canvas_stroke  = "stroke=" background_value ("stroke-w=" expr)?
                  ("cap=" ("butt" | "square" | "round"))?
                  ("join=" ("miter" | "round" | "bevel"))?
                  ("dash=" "(" expr_list ")")? ("dash-offset=" expr)?
@@ -1044,16 +1043,16 @@ canvas_transform = ("x=" | "y=" | "rotate=" | "scale="
                    | "scale-x=" | "scale-y=") expr
                  | "clip=(" expr "," expr "," expr "," expr ")"
 canvas_path_segment = "move" point | "line" point
-                    | "arc" point "radius=" expr "start=" expr "end=" expr
+                    | "arc" point "r=" expr "start=" expr "end=" expr
                     | "arc-to" "ax=" expr "ay=" expr "bx=" expr "by=" expr
-                      "radius=" expr
-                    | "ellipse" point "radius-x=" expr "radius-y=" expr
+                      "r=" expr
+                    | "ellipse" point "r-x=" expr "r-y=" expr
                       "rotation=" expr "start=" expr "end=" expr
                     | "bezier" "ax=" expr "ay=" expr "bx=" expr "by=" expr point
                     | "quadratic" "cx=" expr "cy=" expr point
                     | "rect" point size
                     | "rounded" point size canvas_radius+
-                    | "circle" point "radius=" expr | "close"
+                    | "circle" point "r=" expr | "close"
 theme_boundary = "theme" theme_preset? theme_property* INDENT node
 theme_preset   = "default" | "app" | built_in_iced_theme | theme_call
 theme_call     = name "(" expr_list? ")"
@@ -1066,7 +1065,7 @@ built_in_iced_theme
                | "tokyo-night" | "tokyo-night-storm" | "tokyo-night-light"
                | "kanagawa-wave" | "kanagawa-dragon" | "kanagawa-lotus"
                | "moonfly" | "nightfly" | "oxocarbon" | "ferra"
-theme_property = ("text=" | "background=") name ("/" u8)?
+theme_property = ("fg=" | "bg=") name ("/" u8)?
 component_name = PascalName ("." PascalName)*
 component_call = component_name ("(" expr_list? ")" id? | component_item*)
                  (INDENT (node | named_slot+ | component_call+))?
@@ -1098,8 +1097,8 @@ callbacks accept state expressions directly:
 app Tasks
   title window_title
   theme app_theme
-  background app_background
-  text-color app_text
+  bg app_background
+  fg app_text
   id "dev.ducktape.ice.tasks"
   executor iced::executor::Default
   renderer crate::backend::AppRenderer
@@ -1143,7 +1142,7 @@ state
   ui_scale = 1.0
 ```
 
-`title`, `theme`, `background`, `text-color`, and `scale-factor` are recomputed
+`title`, `theme`, `bg`, `fg`, and `scale-factor` are recomputed
 from current state through iced's native callbacks. Title/theme/style values are
 typed `str`; scale is `f64`. Theme accepts `app`, `default`, or any of iced's 22
 kebab-case built-ins. Application colors accept 3/4/6/8 digit hexadecimal
@@ -1180,7 +1179,7 @@ maximum size. `icon-rgba` embeds a relative raw RGBA file without an image
 codec; width and height are positive integers, and generated Rust rejects a
 byte length other than `width × height × 4`. `cargo ice check` reports a
 mismatch at the icon declaration, and generated Rust repeats the check at
-compile time. Encoded icon formats remain outside 1.59.
+compile time. Encoded icon formats remain outside 1.60.
 
 Use `daemon Name` instead of `app Name` for an iced daemon that starts without
 an initial window and remains alive after all windows close. A daemon rejects
@@ -1306,14 +1305,14 @@ scroll direction=both viewport=viewport_changed style=task_scroll(loading)
   col
     text "Scrollable"
   active
-    container background=background
-    horizontal-scroller background=primary
-    vertical-scroller background=primary
-    auto background=surface icon=foreground
-  hovered horizontal-hovered=true
-    horizontal-scroller background=foreground
-  dragged vertical-dragged=true
-    vertical-scroller background=danger
+    container bg=bg
+    x-scroller bg=primary
+    y-scroller bg=primary
+    auto bg=surface icon=fg
+  hovered x-hovered=true
+    x-scroller bg=fg
+  dragged y-dragged=true
+    y-scroller bg=danger
 ```
 
 `text` accepts str, i64, and f64 values plus typed width/height, positive size,
@@ -1332,9 +1331,9 @@ focus together. The old inline `icon=`, `icon-font=`, `icon-size=`,
 
 ```ice
 input "Search" #query <-> query hint="Find anything" font=ui
-  active background=surface border=border icon=primary placeholder=muted value=foreground selection=primary
-  focused-hovered background=surface border=primary border-width=2.0 radius=8.0
-  disabled background=background border=border value=muted
+  active bg=surface border=border icon=primary placeholder=muted value=fg selection=primary
+  focused-hovered bg=surface border=primary border-w=2.0 r=8.0
+  disabled bg=bg border=border value=muted
   icon code="⌕" font=ui size=14.0 spacing=6.0 side=left
 ```
 
@@ -1369,12 +1368,12 @@ form of its active, hovered, and disabled statuses independently:
 
 ```ice
 checkbox "Complete" checked=done style=success -> changed _
-  active checked background=linear(1.57, primary@0.0, surface@1.0) icon=foreground text=foreground border=primary border-width=1.0 radius=4.0
-  active unchecked background=surface icon=primary border=border
-  hovered checked background=primary icon=foreground border=foreground
-  hovered unchecked background=background icon=primary border=primary
-  disabled checked background=surface icon=muted text=muted border=border
-  disabled unchecked background=background icon=muted text=muted border=border
+  active checked bg=linear(1.57, primary@0.0, surface@1.0) icon=fg text=fg border=primary border-w=1.0 r=4.0
+  active unchecked bg=surface icon=primary border=border
+  hovered checked bg=primary icon=fg border=fg
+  hovered unchecked bg=bg icon=primary border=primary
+  disabled checked bg=surface icon=muted text=muted border=border
+  disabled unchecked bg=bg icon=muted text=muted border=border
 ```
 
 `style=task_checkbox(loading)` may instead call a declared `checkbox-style`.
@@ -1393,17 +1392,17 @@ checked/unchecked base cascade. Each line may override every concrete field:
 
 ```ice
 toggler "Notifications" checked=enabled -> changed _
-  active checked background=linear(1.57, primary@0.0, surface@1.0) background-border=primary background-border-width=1.0 foreground=foreground foreground-border=border foreground-border-width=1.0 text=foreground radius=8.0 padding-ratio=0.125
-  active unchecked background=surface foreground=foreground text=muted
-  hovered checked background=primary foreground=foreground text=foreground
-  hovered unchecked background=background foreground=primary text=foreground
-  disabled checked background=surface foreground=muted text=muted
-  disabled unchecked background=background foreground=muted text=muted
+  active checked bg=linear(1.57, primary@0.0, surface@1.0) bg-border=primary bg-border-w=1.0 fg=fg fg-border=border fg-border-w=1.0 text=fg r=8.0 p-ratio=0.125
+  active unchecked bg=surface fg=fg text=muted
+  hovered checked bg=primary fg=fg text=fg
+  hovered unchecked bg=bg fg=primary text=fg
+  disabled checked bg=surface fg=muted text=muted
+  disabled unchecked bg=bg fg=muted text=muted
 ```
 
 Background and foreground accept checked solid or linear values. Both borders,
 optional uniform/per-corner radius, and text color map directly to
-`toggler::Style`; widths and radii are non-negative, while `padding-ratio=` is
+`toggler::Style`; widths and radii are non-negative, while `p-ratio=` is
 checked in `0.0..=0.5` to keep the foreground dimensions non-negative.
 `style=notification_toggler(loading)` may call a declared `toggler-style` whose
 Rust function receives `&iced::Theme`, `toggler::Status`, then its owned
@@ -1488,10 +1487,10 @@ base:
 
 ```ice
 radio "Summary" value="summary" selected=(mode == "summary") size=18.0 width=fill font=ui -> mode_changed _
-  active selected background=linear(1.57, primary@0.0, surface@1.0) dot=foreground border=primary border-width=2.0 text=foreground
-  active unselected background=surface dot=primary border=border text=muted
-  hovered selected background=primary dot=foreground border=foreground text=foreground
-  hovered unselected background=background dot=primary border=primary text=foreground
+  active selected bg=linear(1.57, primary@0.0, surface@1.0) dot=fg border=primary border-w=2.0 text=fg
+  active unselected bg=surface dot=primary border=border text=muted
+  hovered selected bg=primary dot=fg border=fg text=fg
+  hovered unselected bg=bg dot=primary border=primary text=fg
 ```
 
 Background accepts checked solid or linear values; dot, border, and text are
@@ -1505,7 +1504,7 @@ secondary, success, warning, or danger iced container presets. A checked solid
 or linear background plus theme colors can override the preset's background,
 text, border, and shadow. Border width, shadow
 blur, and uniform/per-corner radii are non-negative f64 values; shadow x/y may
-be negative. `pixel-snap=` controls the container style's pixel-grid snap and is
+be negative. `px-snap=` controls the container style's pixel-grid snap and is
 separate from the tooltip overlay's viewport `snap=` behavior. A declared
 `container-style` call may replace the preset because iced uses the same
 `container::Style` callback for tooltip surfaces; concrete tooltip properties
@@ -1527,9 +1526,9 @@ remain final overrides.
 
 ```ice
 pick modes mode placeholder="Choose" font=ui shaping=advanced style=view_picker(loading) menu-style=view_menu(loading) -> changed _
-  active text=foreground placeholder=muted handle=primary background=surface border=border radius=6.0
-  opened-hovered text=foreground background=background border=primary
-  menu text=foreground selected-text=foreground selected-background=primary background=surface shadow=black/50 shadow-y=4.0
+  active text=fg placeholder=muted handle=primary bg=surface border=border r=6.0
+  opened-hovered text=fg bg=bg border=primary
+  menu text=fg selected-text=fg selected-bg=primary bg=surface shadow=black/50 shadow-y=4.0
   handle dynamic
     closed code="⌄" font=ui size=12.0
     open code="⌃" font=ui size=12.0 shaping=advanced
@@ -1557,9 +1556,9 @@ Structured lines override both callback results.
 
 ```ice
 combo modes mode "Search views" font=ui shaping=advanced style=form_input(loading) menu-style=view_menu(loading) -> changed _
-  active background=surface border=border icon=primary placeholder=muted value=foreground selection=primary
-  focused-hovered background=background border=primary border-width=2.0 radius=6.0
-  menu text=foreground selected-text=foreground selected-background=primary background=surface shadow=black/50
+  active bg=surface border=border icon=primary placeholder=muted value=fg selection=primary
+  focused-hovered bg=bg border=primary border-w=2.0 r=6.0
+  menu text=fg selected-text=fg selected-bg=primary bg=surface shadow=black/50
   icon code="⌕" font=ui size=14.0 spacing=6.0 side=right
 ```
 
@@ -1574,7 +1573,7 @@ expressions can use the scoped `f64` names `original_x`, `original_y`,
 `viewport_width`, and `viewport_height` from iced's translation callback:
 
 ```ice
-float scale=1.02 x=(viewport_width - original_width) y=-1.0 shadow=black/50 shadow-y=2.0 shadow-blur=4.0 radius=4.0
+float scale=1.02 x=(viewport_width - original_width) y=-1.0 shadow=black/50 shadow-y=2.0 shadow-blur=4.0 r=4.0
   text "Floating label"
 ```
 
@@ -1596,7 +1595,7 @@ conditions and component inputs can depend on either dimension.
 `default`, iced chooses the default theme for the outer light/dark mode; `app`
 reuses the app's generated custom palette. Every iced built-in theme is accepted
 in kebab case, such as `dark`, `catppuccin-mocha`, or `tokyo-night-storm`.
-Checked `text=` and solid or linear `background=` values override the subtree
+Checked `fg=` and solid or linear `bg=` values override the subtree
 defaults.
 
 `stack` accepts every iced `Length` for width and height. Its first rendered
@@ -1655,7 +1654,7 @@ on extend
 
 view
   markdown help text-size=16.0 spacing=12.0 -> open_link _
-    style font=ui inline-code-background=surface inline-code-color=foreground inline-code-font=mono code-block-font=mono link=primary inline-code-padding=3.0 inline-code-border=border inline-code-border-width=1.0 inline-code-radius=4.0
+    style font=ui inline-code-bg=surface inline-code-fg=fg inline-code-font=mono code-block-font=mono link=primary inline-code-p=3.0 inline-code-border=border inline-code-border-w=1.0 inline-code-r=4.0
 ```
 
 The route receives the clicked URI as str. `text-size`, every h1-h6 size,
@@ -1694,9 +1693,9 @@ state
 
 view
   editor #notes <-> notes placeholder="Write notes" width=640.0 height=fill min-height=80.0 max-height=240.0 size=14.0 line-height=1.3 padding=8.0 wrapping=word font=mono highlight="rs" highlight-theme=base16-ocean disabled=loading
-    active background=surface border=border placeholder=muted value=foreground selection=primary
-    focused-hovered background=surface border=primary border-width=2.0 radius=8.0
-    disabled background=background border=border value=muted
+    active bg=surface border=border placeholder=muted value=fg selection=primary
+    focused-hovered bg=surface border=primary border-w=2.0 r=8.0
+    disabled bg=bg border=border value=muted
 ```
 
 The compiler owns iced's `Action` message variant and calls `Content::perform`
@@ -1825,7 +1824,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 1.59 message payloads.
+`Clone` for 1.60 message payloads.
 
 Declared `sync` functions are checked, synchronous Rust calls available in
 Ice expressions. They are the small escape hatch for pure domain conversions
@@ -1957,7 +1956,7 @@ theme while retaining full `Palette` and `Extended` palette logic.
 `themer` applies any Rust `Theme: iced::theme::Base` to a Rust-owned subtree
 while the surrounding Ice app keeps its normal Theme. Its factory returns the
 optional alternate Theme, an `Element` using that exact Theme type, and
-optional Theme-dependent text-color and background function pointers. The
+optional Theme-dependent text color and background function pointers. The
 generated probe verifies all four tuple fields use the same Theme type; the
 view lowers through native `widget::themer`, applies both callbacks when
 present, and maps the declared event through an ordinary checked route.
@@ -1984,7 +1983,7 @@ declared arguments and returns any value convertible to the same default
 `text-style` receives the current Theme implicitly and returns native
 `text::Style`. Both `text ... style=summary_text(args)` and
 `rich-text style=summary_text(args)` use it as a runtime callback. An explicit
-rich-text `color=` or trailing text-color utility overrides the callback color.
+rich-text `color=` or trailing `@text-*` utility overrides the callback color.
 `button-style` also receives the current button Status and returns its native
 Style. `checkbox-style`, `toggler-style`, and `radio-style` do the same for
 their selection-aware widget Status values. `container-style` receives Theme
@@ -2465,7 +2464,7 @@ Typed properties and equivalent `@` utilities may each be used alone, but the
 checker rejects both owning the same field on one node:
 
 ```ice
-container #card width=fill max-width=640.0 align-x=center padding=12.0 background=linear(1.57, surface@0.0, background@1.0) radius=10.0 shadow=black/50 shadow-y=2.0 shadow-blur=8.0 pixel-snap=true
+container #card width=fill max-width=640.0 align-x=center padding=12.0 bg=linear(1.57, surface@0.0, bg@1.0) r=10.0 shadow=black/50 shadow-y=2.0 shadow-blur=8.0 px-snap=true
   TaskRow task=task loading=loading
 ```
 
@@ -2606,11 +2605,11 @@ as containers:
 ```ice
 pane-grid #workspace split=vertical resize=8.0 drag
   style
-    hovered-region background=linear(0.785, primary/10@0.0, primary/40@1.0) border=primary border-width=2.0 radius=8.0
-    hovered-split color=primary width=3.0
-    picked-split color=foreground width=3.0
-  pane files background=linear(1.57, surface@0.0, background@1.0) border=border border-width=1.0 radius=10.0 shadow=black/50 shadow-y=2.0 shadow-blur=8.0 pixel-snap=true
-    title padding=8.0 padding-x=12.0 always-controls background=background border=border border-width=1.0 radius-tl=8.0 radius-tr=8.0
+    hovered-region bg=linear(0.785, primary/10@0.0, primary/40@1.0) border=primary border-w=2.0 r=8.0
+    hovered-split color=primary w=3.0
+    picked-split color=fg w=3.0
+  pane files bg=linear(1.57, surface@0.0, bg@1.0) border=border border-w=1.0 r=10.0 shadow=black/50 shadow-y=2.0 shadow-blur=8.0 px-snap=true
+    title padding=8.0 padding-x=12.0 always-controls bg=bg border=border border-w=1.0 r-tl=8.0 r-tr=8.0
       text "Files" @font-bold
     controls
       row @gap-2
@@ -2644,7 +2643,7 @@ the structured child still applies checked field overrides after that callback:
 ```ice
 pane-grid #workspace split=vertical style=workspace_panes(loading)
   style
-    picked-split width=4.0
+    picked-split w=4.0
   pane files
     FileList
   pane editor
@@ -2677,15 +2676,15 @@ canvas width=fill height=220.0 cache=chart_version cache-group=charts capture=tr
   event keyboard press -> chart_key _
   capture touch lost
   redraw window frame after=16ms
-  rect x=0.0 y=0.0 width=canvas_width height=canvas_height fill=background
-  circle x=64.0 y=64.0 radius=28.0 fill=primary stroke=foreground stroke-width=2.0
-  path fill=primary/25 stroke=primary stroke-width=2.0 cap=round join=round
+  rect x=0.0 y=0.0 width=canvas_width height=canvas_height fill=bg
+  circle x=64.0 y=64.0 r=28.0 fill=primary stroke=fg stroke-w=2.0
+  path fill=primary/25 stroke=primary stroke-w=2.0 cap=round join=round
     move x=96.0 y=160.0
     bezier ax=140.0 ay=20.0 bx=180.0 by=200.0 x=240.0 y=80.0
     line x=240.0 y=160.0
     close
-  text "Drag me" x=16.0 y=196.0 color=foreground size=14.0
-  image logo x=264.0 y=16.0 width=48.0 height=48.0 filter=nearest opacity=0.9 snap=true radius=6.0
+  text "Drag me" x=16.0 y=196.0 color=fg size=14.0
+  image logo x=264.0 y=16.0 width=48.0 height=48.0 filter=nearest opacity=0.9 snap=true r=6.0
   svg "icon.svg" x=320.0 y=16.0 width=48.0 height=48.0 color=primary rotation=0.1 opacity=0.9
 ```
 
@@ -3942,13 +3941,13 @@ Theme colors are named tokens with `#RRGGBB` or `#RRGGBBAA` values:
 
 ```ice
 theme
-  background #0f172a
-  foreground #f8fafc
+  bg #0f172a
+  fg #f8fafc
   primary    #7c3aed
   danger     #dc2626
 ```
 
-`background`, `foreground`, `primary`, and `danger` are required. Other names
+`bg`, `fg`, `primary`, and `danger` are required. Other names
 are app-defined. `white`, `black`, and `transparent` are built in. A color may
 carry opacity, such as `bg-primary/70`.
 
@@ -3975,7 +3974,7 @@ probes reject a missing function, wrong arguments, or a different return type.
 `@` switches the remainder of a node to checked semantic color, font-emphasis,
 and design-token utilities. Layout, geometry, and text size use typed
 properties such as
-`width=`, `height=`, `padding=`, `spacing=`, and `radius=`. Fixed native widget
+`width=`, `height=`, `padding=`, `spacing=`, and `r=`. Fixed native widget
 appearance uses `style=` presets; reusable or state-dependent native appearance
 that is more complex than token variants crosses a typed Rust style or
 component boundary.
@@ -4015,7 +4014,7 @@ Spacing values are `0 1 2 3 4 5 6 8 10 12 16 20 24` and map to four iced
 logical pixels per unit. Opacity values are `0 25 50 75 100`; color opacity may
 be any integer from 0 through 100.
 
-`border-TOKEN` and `focus:border-TOKEN` require either `border-width=` or the
+`border-TOKEN` and `focus:border-TOKEN` require either `border-w=` or the
 deprecated `border`/`border-2` utility on the same node. A rounded row, column,
 grid, or stack requires a background or border, because iced would otherwise
 have nothing to round.
@@ -4061,7 +4060,7 @@ satisfies `E044`, so formatting cannot legalize invalid source.
 
 Those directly replaceable geometry utilities are deprecated compatibility
 spellings. `cargo ice fmt` is their migration path; they remain accepted on a
-node by themselves in revision 1.59 and are not removed without a later
+node by themselves in revision 1.60 and are not removed without a later
 language revision. Row/column/grid wrapper sizing, layout `max-w-*` and
 `self-center`, stack/grid wrapper padding, and axis-specific input/button
 padding are intentional utilities because their generated owner has no
@@ -4089,7 +4088,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 1.59 does not claim that remapping.
+extern line; 1.60 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -4144,7 +4143,7 @@ above.
 
 ## 12. Current coverage and escape hatches
 
-The 1.59 native backend covers both windowed applications and windowless
+The 1.60 native backend covers both windowed applications and windowless
 daemons alongside CRUD/settings-style screens, selection, media, hover
 overlays, declarative canvas geometry, and pointer events. Borrowed custom
 widgets and an application-wide renderer type remain the escape hatch for

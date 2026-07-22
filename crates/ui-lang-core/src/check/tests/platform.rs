@@ -6,8 +6,8 @@ fn rejects_state_capture_in_subscription_routes() {
 extern crate::backend
   subscription events() -> bool
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -26,8 +26,8 @@ view
 fn checks_native_keyboard_payload_fields() {
     let source = r#"app Shortcuts
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -108,8 +108,8 @@ view
 fn checks_native_system_tasks_and_theme_subscription() {
     let source = r#"app Diagnostics
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -152,8 +152,8 @@ view
 fn checks_native_clipboard_tasks() {
     let source = r#"app Clipboard
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -191,8 +191,8 @@ view
 fn checks_native_runtime_font_loading() {
     let source = r#"app Fonts
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -219,8 +219,8 @@ view
 fn checks_all_static_widget_operations() {
     let source = r#"app Operations
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -275,8 +275,8 @@ view
 fn checks_all_dynamic_widget_operations() {
     let source = r#"app DynamicOperations
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -412,8 +412,8 @@ fn checks_widget_selectors() {
 fn rejects_events_routed_to_mount() {
     let source = r#"app Demo
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 on mount
@@ -428,8 +428,8 @@ view
 fn rejects_invalid_media_options() {
     let source = r#"app Demo
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 view
@@ -485,8 +485,8 @@ fn checks_svg_style_calls() {
 extern crate::backend
   svg-style dynamic_svg(active:bool)
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -520,8 +520,8 @@ view
 fn rejects_invalid_canvas_programs() {
     let source = r#"app Drawing
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -534,9 +534,9 @@ view
     event keyboard press -> key _
     redraw window frame after=16ms
     capture touch lost
-    circle x=60.0 y=60.0 radius=24.0 fill=primary
+    circle x=60.0 y=60.0 r=24.0 fill=primary
     image picture x=4.0 y=4.0 width=16.0 height=16.0 opacity=0.8 snap=true
-    svg "<svg/>" memory x=24.0 y=4.0 width=16.0 height=16.0 color=foreground opacity=0.9
+    svg "<svg/>" memory x=24.0 y=4.0 width=16.0 height=16.0 color=fg opacity=0.9
 "#;
     analyze(source).unwrap();
 
@@ -556,13 +556,13 @@ view
     assert_eq!(error.code, "E128");
     assert!(error.message.contains("image opacity"));
 
-    let error = analyze(&source.replace("color=foreground", "color=missing")).unwrap_err();
+    let error = analyze(&source.replace("color=fg", "color=missing")).unwrap_err();
     assert_eq!(error.code, "E190");
     assert!(error.message.contains("svg color"));
 
-    let error = analyze(&source.replace(" radius=24.0", "")).unwrap_err();
+    let error = analyze(&source.replace(" r=24.0", "")).unwrap_err();
     assert_eq!(error.code, "E190");
-    assert!(error.message.contains("requires `radius=`"));
+    assert!(error.message.contains("requires `r=`"));
 
     let error = analyze(&source.replace(
         "event keyboard press -> key _",
@@ -595,8 +595,8 @@ view
 fn checks_canvas_local_state_and_event_blocks() {
     let source = r#"app Drawing
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 on released(button)
@@ -614,7 +614,7 @@ view
     event mouse released as button
       set cursor_state = "grab"
       emit released button
-    text hits x=8.0 y=20.0 color=foreground size=14.0
+    text hits x=8.0 y=20.0 color=fg size=14.0
 "#;
     analyze(source).unwrap();
 

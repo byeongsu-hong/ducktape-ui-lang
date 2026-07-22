@@ -4,8 +4,8 @@ extern crate::backend
   sync unit_round_trip(pixels:pixels, padding:padding, degrees:degrees, radians:radians) -> padding
 
 theme
-  background #111827
-  foreground #f9fafb
+  bg #111827
+  fg #f9fafb
   primary #60a5fa
   danger #f87171
 

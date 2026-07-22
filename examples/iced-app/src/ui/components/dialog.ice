@@ -1,5 +1,5 @@
 component Dialog()
-  container width=480.0 height=shrink max-width=720.0 padding=24.0 border-width=1.0 radius=10.0 @bg-surface border-border
+  container width=480.0 height=shrink max-width=720.0 padding=24.0 border-w=1.0 r=10.0 @bg-surface border-border
     col spacing=16.0 @w-full
       slot Header
       slot Body

@@ -4,8 +4,8 @@ use super::*;
 fn lowers_qr_data_and_widget_options() {
     let source = r#"app Codes
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 qr automatic "one"
@@ -15,7 +15,7 @@ qr binary bytes(00 ff a4)
 view
   col
     qr automatic cell-size=5.0
-    qr corrected total-size=120.0 cell=primary background=white
+    qr corrected total-size=120.0 cell=primary bg=white
     qr fixed
     qr binary
 "#;
@@ -34,8 +34,8 @@ view
 fn lowers_nested_iced_themes() {
     let source = r#"app Themes
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
   surface #111111
@@ -43,9 +43,9 @@ view
   col
     theme app
       text "App theme"
-    theme tokyo-night text=foreground background=linear(1.57, surface@0.0, background@1.0)
+    theme tokyo-night fg=fg bg=linear(1.57, surface@0.0, bg@1.0)
       text "Built-in theme"
-    theme dark background=surface
+    theme dark bg=surface
       text "Solid background"
     theme
       text "Default mode"
@@ -66,8 +66,8 @@ fn lowers_native_theme_factories() {
 app Themes
   theme native_theme(dark)
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -96,8 +96,8 @@ fn lowers_alternate_theme_subtrees() {
   themer alternate_panel(active:bool) -> bool
 app Themes
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -121,8 +121,8 @@ view
 fn lowers_component_children_and_slot_forwarding() {
     let source = r#"app Composition
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -149,8 +149,8 @@ view
 fn lowers_named_slots_and_named_slot_forwarding() {
     let source = r#"app Composition
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 component Frame()
@@ -189,8 +189,8 @@ view
 fn lowers_compound_components_into_named_slots() {
     let source = r#"app Composition
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 component Dialog()
@@ -223,8 +223,8 @@ fn lowers_fully_configured_keyed_columns() {
 extern crate::backend
   Item(id:i64, name:str)
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -251,8 +251,8 @@ view
 fn lowers_lazy_to_an_owned_static_subtree() {
     let source = r#"app LazyDemo
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -279,8 +279,8 @@ font ui family=sans
 extern crate::backend
   markdown-viewer docs_viewer(prefix:str) -> str
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -294,7 +294,7 @@ on extend
   images = markdown_images(docs)
 view
   markdown docs text-size=16.0 h1-size=32.0 h2-size=28.0 h3-size=24.0 h4-size=20.0 h5-size=18.0 h6-size=16.0 code-size=13.0 spacing=12.0 viewer=docs_viewer("docs") -> open _
-    style font=ui inline-code-background=linear(1.57, background@0.0, primary@1.0) inline-code-color=foreground inline-code-font=mono code-block-font=mono link=primary inline-code-padding=2.0 inline-code-padding-x=3.0 inline-code-padding-y=4.0 inline-code-padding-top=5.0 inline-code-padding-right=6.0 inline-code-padding-bottom=7.0 inline-code-padding-left=8.0 inline-code-border=primary inline-code-border-width=1.0 inline-code-radius=4.0 inline-code-radius-tl=1.0 inline-code-radius-tr=2.0 inline-code-radius-br=3.0 inline-code-radius-bl=4.0
+    style font=ui inline-code-bg=linear(1.57, bg@0.0, primary@1.0) inline-code-fg=fg inline-code-font=mono code-block-font=mono link=primary inline-code-p=2.0 inline-code-px=3.0 inline-code-py=4.0 inline-code-pt=5.0 inline-code-pr=6.0 inline-code-pb=7.0 inline-code-pl=8.0 inline-code-border=primary inline-code-border-w=1.0 inline-code-r=4.0 inline-code-r-tl=1.0 inline-code-r-tr=2.0 inline-code-r-br=3.0 inline-code-r-bl=4.0
 "##;
     let generated = compile(source, "docs.ice").unwrap();
     assert!(generated.contains("docs: ::iced::widget::markdown::Content::parse(\"# Hello\")"));
@@ -344,8 +344,8 @@ fn lowers_structured_tables_with_complete_native_options() {
 extern crate::backend
   Item(name:str, done:bool)
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -383,8 +383,8 @@ view
 fn lowers_bound_text_editors_and_internal_actions() {
     let source = r#"app Notes
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -392,11 +392,11 @@ state
   locked = false
 view
   editor #body <-> body placeholder="Write" width=640.0 height=fill min-height=80.0 max-height=240.0 size=14.0 line-height-px=18.0 padding=8.0 wrapping=word-or-glyph font=mono highlight="rs" highlight-theme=inspired-github disabled=locked
-    active background=background border=foreground border-width=1.0 radius=4.0 placeholder=danger value=foreground selection=primary
-    hovered background=background border=primary placeholder=danger value=foreground selection=primary
-    focused background=background border=primary
-    focused-hovered background=background border=foreground
-    disabled background=background value=danger
+    active bg=bg border=fg border-w=1.0 r=4.0 placeholder=danger value=fg selection=primary
+    hovered bg=bg border=primary placeholder=danger value=fg selection=primary
+    focused bg=bg border=primary
+    focused-hovered bg=bg border=fg
+    disabled bg=bg value=danger
 "#;
     let generated = compile(source, "notes.ice").unwrap();
     assert!(generated.contains("body: ::iced::widget::text_editor::Content::with_text"));
@@ -428,8 +428,8 @@ extern crate::backend
   editor-highlighter editor_highlight(language:str)
   editor-style editor_surface(readonly:bool)
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -467,8 +467,8 @@ view
 fn lowers_component_scoped_state_and_match() {
     let source = r#"app Local
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 component Counter()
@@ -504,8 +504,8 @@ fn lowers_component_latest_futures_with_a_scoped_generation() {
 extern crate::backend
   fetch(query:str) -> str
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 component SearchBox()

@@ -3,8 +3,8 @@ extern crate::backend
   Item(id:i64)
   load() -> [Item] ! Item
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
