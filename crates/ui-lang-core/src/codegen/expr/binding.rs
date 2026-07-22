@@ -82,6 +82,14 @@ pub(in crate::codegen) fn component_binding_variant(component: &str, state: &str
     format!("__{}Bind{}", pascal(component), pascal(state))
 }
 
+pub(in crate::codegen) fn component_latest_field(line: usize) -> String {
+    format!("__ice_latest_{line}")
+}
+
+pub(in crate::codegen) fn component_latest_variant(component: &str, line: usize) -> String {
+    format!("__{}Latest{line}", pascal(component))
+}
+
 pub(in crate::codegen) fn state_env(document: &Document, name: &str) -> HashMap<String, Binding> {
     document
         .states

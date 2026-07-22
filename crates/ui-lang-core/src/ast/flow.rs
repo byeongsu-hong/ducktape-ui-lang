@@ -79,6 +79,7 @@ pub enum Statement {
     },
     Run {
         kind: EffectKind,
+        latest: bool,
         function: String,
         args: Vec<Expr>,
         success: Route,

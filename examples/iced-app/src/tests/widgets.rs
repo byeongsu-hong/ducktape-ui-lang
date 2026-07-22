@@ -96,4 +96,35 @@ mod component_state {
         assert!(app.__ice_component_flag["first/flag"].checked);
         assert!(!app.__ice_component_flag.contains_key("second/flag"));
     }
+
+    #[test]
+    fn drops_stale_component_future_results() {
+        let (mut app, _) = ComponentState::__boot();
+        let _ = app.__update(__ComponentStateMessage::__LoaderHandleLoad("loader".into()));
+        let _ = app.__update(__ComponentStateMessage::__LoaderHandleLoad("loader".into()));
+        assert!(app.__ice_component_loader["loader"].loading);
+        assert_eq!(app.__ice_component_loader["loader"].__ice_latest_53, 2);
+
+        let stale = __ComponentStateMessage::__LoaderLatest53(
+            "loader".into(),
+            1,
+            Box::new(__ComponentStateMessage::__LoaderHandleLoaded(
+                "loader".into(),
+                Vec::new(),
+            )),
+        );
+        let _ = app.__update(stale);
+        assert!(app.__ice_component_loader["loader"].loading);
+
+        let current = __ComponentStateMessage::__LoaderLatest53(
+            "loader".into(),
+            2,
+            Box::new(__ComponentStateMessage::__LoaderHandleLoaded(
+                "loader".into(),
+                Vec::new(),
+            )),
+        );
+        let _ = app.__update(current);
+        assert!(!app.__ice_component_loader["loader"].loading);
+    }
 }

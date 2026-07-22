@@ -279,12 +279,15 @@ pub(in crate::check) fn infer_runs(
     handler: &Handler,
     document: &Document,
     signatures: &mut HashMap<String, Vec<Option<Type>>>,
+    base_env: &HashMap<String, Type>,
 ) -> Result<(), Error> {
-    let unknown_env: HashMap<String, Type> = handler
-        .params
-        .iter()
-        .map(|param| (param.name.clone(), Type::Unknown))
-        .collect();
+    let mut unknown_env = base_env.clone();
+    unknown_env.extend(
+        handler
+            .params
+            .iter()
+            .map(|param| (param.name.clone(), Type::Unknown)),
+    );
     for statement in &handler.statements {
         let nested = match statement {
             Statement::TaskGroup { statements, .. } => Some(statements.clone()),
@@ -299,6 +302,7 @@ pub(in crate::check) fn infer_runs(
                 },
                 document,
                 signatures,
+                base_env,
             )?;
             continue;
         }
@@ -463,6 +467,7 @@ pub(in crate::check) fn infer_runs(
             success,
             error,
             span,
+            ..
         } = statement
         {
             if *kind == EffectKind::Stream

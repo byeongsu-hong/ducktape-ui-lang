@@ -60,7 +60,9 @@ The punctuation has one job each:
 - `->` routes a widget or async result to a handler;
 - `_` is the payload supplied by that route.
 
-Components may keep instance-scoped UI state and synchronous local handlers.
+Components may keep instance-scoped UI state and local handlers. A handler may
+end with `run`; `run latest` discards an older Future completion from the same
+component scope and call site, while ordinary `run` delivers every completion.
 `match` selects the first matching view arm, with `_` as an optional final
 fallback:
 

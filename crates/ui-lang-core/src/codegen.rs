@@ -5,6 +5,36 @@ use std::collections::HashMap;
 use std::fmt::Write;
 use std::path::Path;
 
+pub(in crate::codegen) fn component_latest_lines(
+    component: &Component,
+) -> impl Iterator<Item = usize> + '_ {
+    component
+        .handlers
+        .iter()
+        .flat_map(|handler| &handler.statements)
+        .filter_map(|statement| match statement {
+            Statement::Run {
+                latest: true, span, ..
+            } => Some(span.line),
+            _ => None,
+        })
+}
+
+pub(in crate::codegen) fn handler_future(handler: &Handler) -> Option<(bool, usize)> {
+    handler
+        .statements
+        .iter()
+        .find_map(|statement| match statement {
+            Statement::Run {
+                kind: EffectKind::Future,
+                latest,
+                span,
+                ..
+            } => Some((*latest, span.line)),
+            _ => None,
+        })
+}
+
 pub fn generate(document: &CheckedDocument, source_path: &str) -> Result<String, Error> {
     let message = format!("__{}Message", document.app);
     let mut out = String::new();
@@ -40,6 +70,9 @@ pub fn generate(document: &CheckedDocument, source_path: &str) -> Result<String,
         for state in &component.states {
             writeln!(out, "{}: {},", state.name, state.ty.rust(&document.structs)).unwrap();
         }
+        for line in component_latest_lines(component) {
+            writeln!(out, "{}: u64,", component_latest_field(line)).unwrap();
+        }
         writeln!(
             out,
             "}}\nimpl ::std::default::Default for {ty} {{\nfn default() -> Self {{ Self {{"
@@ -47,6 +80,9 @@ pub fn generate(document: &CheckedDocument, source_path: &str) -> Result<String,
         .unwrap();
         for state in &component.states {
             writeln!(out, "{}: {},", state.name, initial_code(state, document)).unwrap();
+        }
+        for line in component_latest_lines(component) {
+            writeln!(out, "{}: 0,", component_latest_field(line)).unwrap();
         }
         writeln!(out, "}} }}\n}}").unwrap();
     }
@@ -152,6 +188,14 @@ pub fn generate(document: &CheckedDocument, source_path: &str) -> Result<String,
         }
     }
     for component in &document.components {
+        for line in component_latest_lines(component) {
+            writeln!(
+                out,
+                "{}(::std::string::String, u64, ::std::boxed::Box<{message}>),",
+                component_latest_variant(&component.name, line)
+            )
+            .unwrap();
+        }
         for handler in &component.handlers {
             let variant = component_handler_variant(&component.name, &handler.name);
             let fields = ::std::iter::once("::std::string::String".to_owned())

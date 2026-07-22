@@ -23,8 +23,9 @@ Editor diagnostics use open buffers throughout every open app root's import
 graph and fall back to disk when a buffer closes.
 
 Core view control includes checked `if`, `for`, and first-match `match` arms.
-Components may own ordinary cloneable state and synchronous local handlers;
-generated state is isolated by hierarchical component ID. Structured native
+Components may own ordinary cloneable state and local handlers, including
+Future externs; `run latest` filters stale completions by scope and call site.
+Generated state is isolated by hierarchical component ID. Structured native
 status styles inherit the matching `active` fields before applying the
 interaction-specific delta.
 

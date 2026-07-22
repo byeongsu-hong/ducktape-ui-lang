@@ -72,8 +72,14 @@ pub(in crate::codegen) fn generate_statements(
                 success,
                 error,
                 span,
+                ..
             } => {
                 has_task = true;
+                let mapper = if component_context(env).is_some() {
+                    "move "
+                } else {
+                    ""
+                };
                 if *kind == EffectKind::Task
                     && matches!(
                         function.as_str(),
@@ -158,7 +164,7 @@ pub(in crate::codegen) fn generate_statements(
                 if let (Some(error_route), Some(_)) = (error, &action.error) {
                     let error_message = route_code(error_route, "error", env, document, message)?;
                     match kind {
-                        EffectKind::Future => writeln!(out, "{}::iced::Task::perform({}({args}), |result| match result {{ ::std::result::Result::Ok(value) => {success_message}, ::std::result::Result::Err(error) => {error_message} }}){}", if return_task { "return " } else { "" }, action.rust_path, if return_task { ";" } else { "" }).unwrap(),
+                        EffectKind::Future => writeln!(out, "{}::iced::Task::perform({}({args}), {mapper}|result| match result {{ ::std::result::Result::Ok(value) => {success_message}, ::std::result::Result::Err(error) => {error_message} }}){}", if return_task { "return " } else { "" }, action.rust_path, if return_task { ";" } else { "" }).unwrap(),
                         EffectKind::Task => writeln!(out, "{}{}({args}).map(|result| match result {{ ::std::result::Result::Ok(value) => {success_message}, ::std::result::Result::Err(error) => {error_message} }}){}", if return_task { "return " } else { "" }, action.rust_path, if return_task { ";" } else { "" }).unwrap(),
                         EffectKind::Stream => writeln!(out, "{}::iced::Task::run({}({args}), |result| match result {{ ::std::result::Result::Ok(value) => {success_message}, ::std::result::Result::Err(error) => {error_message} }}){}", if return_task { "return " } else { "" }, action.rust_path, if return_task { ";" } else { "" }).unwrap(),
                     }
@@ -166,7 +172,7 @@ pub(in crate::codegen) fn generate_statements(
                     match kind {
                         EffectKind::Future => writeln!(
                             out,
-                            "{}::iced::Task::perform({}({args}), |value| {success_message}){}",
+                            "{}::iced::Task::perform({}({args}), {mapper}|value| {success_message}){}",
                             if return_task { "return " } else { "" },
                             action.rust_path,
                             if return_task { ";" } else { "" }
