@@ -60,17 +60,38 @@ The punctuation has one job each:
 - `->` routes a widget or async result to a handler;
 - `_` is the payload supplied by that route.
 
-`box` and `flex` are layout aliases for the existing checked primitives. A
-`box` has one child and the same sizing, padding, alignment, and surface
-properties as `container`; `flex` defaults to a row, accepts
-`direction=column`, and supports the same spacing, alignment, wrapping, and
-padding as `row`/`col`. Fill portions provide flex growth:
+Components may keep instance-scoped UI state and synchronous local handlers.
+`match` selects the first matching view arm, with `_` as an optional final
+fallback:
 
 ```ice
-flex spacing=8.0
-  box width=fill(1) padding=12.0 @bg-surface
+component Counter()
+  state
+    count = 0
+  on increment
+    count = count + 1
+  col
+    button "Increment" -> increment
+    match count
+      0
+        text "Start"
+      _
+        text count
+```
+
+Native interaction styles inherit their `active` fields, so hovered, pressed,
+focused, opened, dragged, and disabled blocks only declare their differences.
+
+`box` and `flex` provide a checked CSS-like flexbox. Containers support reverse
+directions, wrapping, `justify-content`, `align-items`, `align-content`, and
+axis-specific gaps. Direct `box` children support order, grow, shrink, basis,
+self-alignment, and auto/fixed/percentage margins:
+
+```ice
+flex width=fill gap=8.0 justify-content=space-between align-items=center
+  box flex-grow=1.0 padding=12.0 @bg-surface
     text "Sidebar"
-  box width=fill(2) padding=12.0 @bg-background
+  box flex-grow=2.0 padding=12.0 @bg-background
     text "Content"
 ```
 
@@ -175,10 +196,11 @@ the same construct table.
 UTF-16 diagnostics, whole-document formatting, and Core completion. For an
 existing app file it overlays every open buffer in the import graph, reanalyzes
 all open app roots after buffer changes, and publishes imported errors at the
-imported URI. Checked component and handler symbols support cross-file
+imported URI. Checked component and app-handler symbols support cross-file
 definition and collision-checked rename against those current buffers and every
 closed app root under the initialized workspace. Closing a buffer falls back to
-disk.
+disk. Component-local handlers are lexical implementation details and are not
+offered as workspace navigation symbols.
 
 Plain components and compound-family roots rename; renaming a family root
 updates its dotted descendants, while direct dotted descendants and the
@@ -228,15 +250,16 @@ next to their parser, checker, or code generator module.
 
 ## Status
 
-Ice 1.58 is an executable language revision, not an attempt to replace iced.
-Its stable authoring Core is app/state/component/handler/view structure, common
-layout and widgets, checked event routing, and typed Rust effects. Existing
+Ice 1.59 is an executable language revision, not an attempt to replace iced.
+Its stable authoring Core is app/state/component/handler/view structure,
+component-local state, `match`, common layout and widgets, checked event
+routing, and typed Rust effects. Existing
 advanced syntax remains available as a compatibility surface, while typed
 `Element`, `Task`, `Subscription`, style, and component boundaries cover unusual
 native behavior without growing Core merely for API parity.
 
 Language revisions and Cargo package versions are intentionally separate. The
-specification is revision 1.58; the workspace packages currently use pre-1.0
+specification is revision 1.59; the workspace packages currently use pre-1.0
 SemVer `0.1.0`.
 
 [`SPEC.md`](SPEC.md) defines the Core and compatibility boundary.

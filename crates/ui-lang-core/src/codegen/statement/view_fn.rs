@@ -13,6 +13,7 @@ pub(in crate::codegen) fn generate_view(
                 code: "window".into(),
                 ty: Type::WindowId,
                 local: true,
+                state: None,
             },
         );
     }

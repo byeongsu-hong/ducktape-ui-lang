@@ -1,5 +1,9 @@
 //! Runtime support for the accessibility contract emitted by `ui-lang`.
 
+mod flex;
+
+pub use flex::*;
+
 pub use accesskit::{Action, ActionRequest, Node, NodeId, Role, Toggled, TreeUpdate};
 
 use accesskit::{Rect, Tree, TreeId};

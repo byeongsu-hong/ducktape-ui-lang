@@ -52,6 +52,7 @@ pub(in crate::codegen) fn render_children(
                         code: item.clone(),
                         ty: *inner,
                         local: false,
+                        state: None,
                     },
                 );
                 render_children(

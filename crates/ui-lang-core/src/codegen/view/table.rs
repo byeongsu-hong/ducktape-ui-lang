@@ -34,6 +34,7 @@ pub(in crate::codegen) fn render_table(
             code: item.into(),
             ty: row_type,
             local: true,
+            state: None,
         },
     );
     let mut column_codes = Vec::with_capacity(columns.len());
@@ -134,6 +135,7 @@ pub(in crate::codegen) fn render_keyed_column(
             code: item.into(),
             ty: *inner,
             local: false,
+            state: None,
         },
     );
     let key = expr_code(key, &child_env, document, ValueMode::Owned)?;

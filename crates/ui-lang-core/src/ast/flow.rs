@@ -32,6 +32,8 @@ pub enum AnimationDuration {
 pub struct Component {
     pub name: String,
     pub params: Vec<(String, Type)>,
+    pub states: Vec<State>,
+    pub handlers: Vec<Handler>,
     pub root: ViewNode,
     pub span: Span,
 }

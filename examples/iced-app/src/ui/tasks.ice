@@ -53,7 +53,7 @@ view
   overlay when=about_open dismiss=close_about backdrop=black/60 padding=24.0 align-x=center align-y=center
     content
       col spacing=24.0 padding=24.0 @w-full h-full bg-background
-        row spacing=12.0 align=center @w-full
+        flex gap=12.0 justify-content=space-between align-items=center @w-full
           text "Tasks" size=24.0 @font-bold text-foreground
           text len(tasks) size=14.0 @text-muted
           toggler "About" checked=about_open disabled=loading size=18.0 spacing=8.0 -> about_toggled _

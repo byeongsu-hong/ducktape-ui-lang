@@ -87,6 +87,14 @@ fn check(document: &mut Document) -> Result<(), Error> {
             }
         }
     }
+    for component in &document.components {
+        for state in &component.states {
+            let actual = expr_type(&state.initial, &HashMap::new(), document, &state.span)?;
+            if actual != Type::Unknown && !compatible(&state.ty, &actual) {
+                return Err(type_error(&state.span, &state.ty, &actual));
+            }
+        }
+    }
     check_app_settings(document, &states)?;
     for handler in document.handlers.iter().chain(&preset_handlers) {
         check_structured_tasks(handler)?;
@@ -97,6 +105,14 @@ fn check(document: &mut Document) -> Result<(), Error> {
         .iter()
         .map(|handler| (handler.name.clone(), vec![None; handler.params.len()]))
         .collect();
+    for component in &document.components {
+        for handler in &component.handlers {
+            signatures.insert(
+                component_handler_key(&component.name, &handler.name),
+                vec![None; handler.params.len()],
+            );
+        }
+    }
 
     let mut ids = HashSet::new();
     let mut view_states = states.clone();
@@ -119,7 +135,14 @@ fn check(document: &mut Document) -> Result<(), Error> {
                 "pane-grid must live in the app view because it owns persistent layout state",
             ));
         }
-        let env = component.params.iter().cloned().collect();
+        let mut env: HashMap<String, Type> = component.params.iter().cloned().collect();
+        env.extend(
+            component
+                .states
+                .iter()
+                .map(|state| (state.name.clone(), state.ty.clone())),
+        );
+        env.insert(component_context_key(&component.name), Type::Unit);
         let mut ids = HashSet::new();
         infer_view(&component.root, &env, document, &mut signatures, &mut ids)?;
     }
@@ -147,11 +170,66 @@ fn check(document: &mut Document) -> Result<(), Error> {
             })?;
         }
     }
+    for component in &mut document.components {
+        for handler in &mut component.handlers {
+            let key = component_handler_key(&component.name, &handler.name);
+            let inferred = signatures.get(&key).expect("component handler signature");
+            for (param, inferred) in handler.params.iter_mut().zip(inferred) {
+                param.ty = inferred.clone().ok_or_else(|| {
+                    Error::new(
+                        "E102",
+                        &handler.span,
+                        format!(
+                            "cannot infer type of `{}` in component handler `{}.{}`",
+                            param.name, component.name, handler.name
+                        ),
+                    )
+                })?;
+            }
+        }
+    }
 
     for handler in document.handlers.iter().chain(&preset_handlers) {
         check_handler(handler, &states, document, &operation_ids, &pane_grids)?;
     }
+    for component in &document.components {
+        let states = component
+            .states
+            .iter()
+            .map(|state| (state.name.clone(), state.ty.clone()))
+            .collect();
+        for handler in &component.handlers {
+            if handler.statements.iter().any(|statement| {
+                !matches!(
+                    statement,
+                    Statement::Assign { .. } | Statement::ReturnIf { .. }
+                )
+            }) {
+                return Err(Error::new(
+                    "E140",
+                    &handler.span,
+                    "component handlers support synchronous state assignments only",
+                ));
+            }
+            check_handler(handler, &states, document, &[], &HashMap::new())?;
+        }
+    }
     Ok(())
+}
+
+const COMPONENT_CONTEXT_PREFIX: &str = "\0component:";
+
+fn component_context_key(component: &str) -> String {
+    format!("{COMPONENT_CONTEXT_PREFIX}{component}")
+}
+
+fn component_context(env: &HashMap<String, Type>) -> Option<&str> {
+    env.keys()
+        .find_map(|name| name.strip_prefix(COMPONENT_CONTEXT_PREFIX))
+}
+
+fn component_handler_key(component: &str, handler: &str) -> String {
+    format!("{component}.{handler}")
 }
 
 mod application;

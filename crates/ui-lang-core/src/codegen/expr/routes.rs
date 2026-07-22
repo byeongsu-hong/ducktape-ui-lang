@@ -32,39 +32,26 @@ pub(in crate::codegen) fn route_code(
     document: &Document,
     message: &str,
 ) -> Result<String, Error> {
-    let variant = pascal(&route.handler);
-    if route.args.is_empty() {
+    let local = local_route(route, env, document);
+    let variant = local.map_or_else(
+        || pascal(&route.handler),
+        |(component, _)| component_handler_variant(component, &route.handler),
+    );
+    if route.args.is_empty() && local.is_none() {
         return Ok(format!("{message}::{variant}"));
     }
-    let args = route
+    let mut args = route
         .args
         .iter()
         .map(|arg| match arg {
             RouteArg::Payload => Ok(payload.into()),
             RouteArg::Expr(expr) => expr_code(expr, env, document, ValueMode::Owned),
         })
-        .collect::<Result<Vec<_>, Error>>()?
-        .join(", ");
-    Ok(format!("{message}::{variant}({args})"))
-}
-
-pub(in crate::codegen) fn size_route_code(
-    route: &Route,
-    size: &str,
-    env: &HashMap<String, Binding>,
-    document: &Document,
-    message: &str,
-) -> Result<String, Error> {
-    ordered_route_code(
-        route,
-        &[
-            &format!("{size}.width as f64"),
-            &format!("{size}.height as f64"),
-        ],
-        env,
-        document,
-        message,
-    )
+        .collect::<Result<Vec<_>, Error>>()?;
+    if let Some((_, context)) = local {
+        args.insert(0, format!("({}).clone()", context.code));
+    }
+    Ok(format!("{message}::{variant}({})", args.join(", ")))
 }
 
 pub(in crate::codegen) fn ordered_route_code(
@@ -74,19 +61,125 @@ pub(in crate::codegen) fn ordered_route_code(
     document: &Document,
     message: &str,
 ) -> Result<String, Error> {
-    let variant = pascal(&route.handler);
-    if route.args.is_empty() {
+    let local = local_route(route, env, document);
+    let variant = local.map_or_else(
+        || pascal(&route.handler),
+        |(component, _)| component_handler_variant(component, &route.handler),
+    );
+    if route.args.is_empty() && local.is_none() {
         return Ok(format!("{message}::{variant}"));
     }
     let mut payload = payloads.iter();
-    let args = route
+    let mut args = route
         .args
         .iter()
         .map(|arg| match arg {
             RouteArg::Payload => Ok((*payload.next().expect("checked payload count")).to_owned()),
             RouteArg::Expr(expr) => expr_code(expr, env, document, ValueMode::Owned),
         })
-        .collect::<Result<Vec<_>, Error>>()?
-        .join(", ");
-    Ok(format!("{message}::{variant}({args})"))
+        .collect::<Result<Vec<_>, Error>>()?;
+    if let Some((_, context)) = local {
+        args.insert(0, format!("({}).clone()", context.code));
+    }
+    Ok(format!("{message}::{variant}({})", args.join(", ")))
+}
+
+fn local_route<'a>(
+    route: &Route,
+    env: &'a HashMap<String, Binding>,
+    document: &Document,
+) -> Option<(&'a str, &'a Binding)> {
+    component_context(env).filter(|(component, _)| {
+        document.components.iter().any(|item| {
+            item.name == *component
+                && item
+                    .handlers
+                    .iter()
+                    .any(|handler| handler.name == route.handler)
+        })
+    })
+}
+
+pub(in crate::codegen) fn route_callback_with_code(
+    route: &Route,
+    pattern: &str,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+    render: impl FnOnce(&HashMap<String, Binding>) -> Result<String, Error>,
+) -> Result<String, Error> {
+    let local = local_route(route, env, document)
+        .map(|(component, binding)| (component.to_owned(), binding.code.clone()));
+    let mut captures = Vec::<(String, String)>::new();
+    if let Some((_, scope)) = &local {
+        captures.push((scope.clone(), "__route_scope".into()));
+    }
+    let mut state_scopes = env
+        .values()
+        .filter_map(|binding| match &binding.state {
+            Some(StateBinding::Component { scope, .. }) => Some(scope.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    state_scopes.sort();
+    state_scopes.dedup();
+    for scope in state_scopes {
+        if !captures.iter().any(|(captured, _)| captured == &scope) {
+            captures.push((scope, format!("__route_state_scope_{}", captures.len())));
+        }
+    }
+    let mut callback_env = env.clone();
+    if let Some((component, _)) = &local {
+        callback_env
+            .get_mut(&component_context_key(component))
+            .expect("component context")
+            .code = "__route_scope".into();
+    }
+    for binding in callback_env.values_mut() {
+        for (scope, alias) in &captures {
+            binding.code = binding.code.replace(scope, alias);
+            if let Some(StateBinding::Component {
+                scope: state_scope, ..
+            }) = &mut binding.state
+                && state_scope == scope
+            {
+                *state_scope = alias.clone();
+            }
+        }
+    }
+    let body = render(&callback_env)?;
+    if captures.is_empty() {
+        Ok(format!("move |{pattern}| {body}"))
+    } else {
+        let captures = captures
+            .iter()
+            .map(|(scope, alias)| format!("let {alias} = ({scope}).clone();"))
+            .collect::<String>();
+        Ok(format!("{{ {captures} move |{pattern}| {body} }}"))
+    }
+}
+
+pub(in crate::codegen) fn route_callback_code(
+    route: &Route,
+    pattern: &str,
+    payload: &str,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+    message: &str,
+) -> Result<String, Error> {
+    route_callback_with_code(route, pattern, env, document, |callback_env| {
+        route_code(route, payload, callback_env, document, message)
+    })
+}
+
+pub(in crate::codegen) fn ordered_route_callback_code(
+    route: &Route,
+    pattern: &str,
+    payloads: &[&str],
+    env: &HashMap<String, Binding>,
+    document: &Document,
+    message: &str,
+) -> Result<String, Error> {
+    route_callback_with_code(route, pattern, env, document, |callback_env| {
+        ordered_route_code(route, payloads, callback_env, document, message)
+    })
 }

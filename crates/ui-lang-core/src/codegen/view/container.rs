@@ -161,12 +161,8 @@ pub(in crate::codegen) fn render_rich_text(
         write!(code, ".color({})", theme_color(document, color)).unwrap();
     }
     if let Some(route) = route {
-        write!(
-            code,
-            ".on_link_click(move |__link| {})",
-            route_code(route, "__link", env, document, message)?
-        )
-        .unwrap();
+        let callback = route_callback_code(route, "__link", "__link", env, document, message)?;
+        write!(code, ".on_link_click({callback})").unwrap();
     }
     Ok(format!(
         "{{ let __rich_spans: ::std::vec::Vec<::iced::widget::text::Span<'_, ::std::string::String>> = ::std::vec![{spans}]; {code}.into() }}"

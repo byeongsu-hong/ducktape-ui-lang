@@ -849,6 +849,7 @@ pub(in crate::codegen) fn expr_code(
                         },
                         ty: *inner,
                         local: true,
+                        state: None,
                     },
                 );
                 let projection = expr_code(&args[2], &projection_env, document, ValueMode::Owned)?;

@@ -83,7 +83,6 @@ view
             "::iced::widget::slider((crate::backend::slider_number(0.0))..=(crate::backend::slider_number(100.0)), self.precise, move |__value| __ControlsMessage::PreciseChanged(__value)).step(crate::backend::slider_number(5.0))"
         ));
     assert!(!generated.contains("self.precise.clone()"));
-    assert!(generated.contains("slider::Status::Active"));
     assert!(generated.contains("slider::Status::Hovered"));
     assert!(generated.contains("slider::Status::Dragged"));
     assert!(generated.contains("slider::HandleShape::Circle"));
@@ -244,7 +243,6 @@ view
     assert!(generated.contains(".label(\"Save\".to_owned())"));
     assert!(generated.contains("crate::backend::dynamic_button(__theme, __status, self.disabled)"));
     assert!(generated.contains("fn __ui_lang_check_button_style_dynamic_button"));
-    assert!(generated.contains("button::Status::Active =>"));
     assert!(generated.contains("button::Status::Hovered =>"));
     assert!(generated.contains("button::Status::Pressed =>"));
     assert!(generated.contains("button::Status::Disabled =>"));
@@ -268,6 +266,29 @@ view
         .unwrap();
         assert!(generated.contains(&format!("button::{preset}(__theme, __status)")));
     }
+}
+
+#[test]
+fn cascades_active_style_into_interaction_states() {
+    let source = r#"app Styles
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+on pressed
+view
+  button "Save" -> pressed
+    active background=background text=foreground radius=8.0
+    hovered text=primary
+"#;
+    let generated = compile(source, "styles.ice").unwrap();
+    let background = generated.find("__style.background =").unwrap();
+    let hovered = generated.find("button::Status::Hovered").unwrap();
+    assert!(background < hovered);
+    assert!(!generated.contains("button::Status::Active"));
+    assert!(generated.contains("__style.text_color ="));
+    assert!(generated.contains("__style.border.radius ="));
 }
 
 #[test]

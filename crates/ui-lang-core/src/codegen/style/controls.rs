@@ -35,29 +35,29 @@ pub(in crate::codegen) fn append_slider_styles(
         }
         return Ok(());
     }
-    let complete = styles.active.is_some() && styles.hovered.is_some() && styles.dragged.is_some();
     let base =
         custom.unwrap_or_else(|| "::iced::widget::slider::default(__theme, __status)".to_owned());
     write!(
         code,
-        ".style(move |__theme, __status| {{ let mut __style = {base}; match __status {{"
+        ".style(move |__theme, __status| {{ let mut __style = {base};"
     )
     .unwrap();
-    for (status, style) in [
-        ("Active", &styles.active),
-        ("Hovered", &styles.hovered),
-        ("Dragged", &styles.dragged),
-    ] {
-        if let Some(style) = style {
-            write!(code, " ::iced::widget::slider::Status::{status} => {{").unwrap();
-            append_slider_style_fields(code, style, env, document)?;
-            code.push_str(" }");
+    if let Some(active) = &styles.active {
+        append_slider_style_fields(code, active, env, document)?;
+    }
+    if styles.hovered.is_some() || styles.dragged.is_some() {
+        code.push_str(" match __status {");
+        for (status, style) in [("Hovered", &styles.hovered), ("Dragged", &styles.dragged)] {
+            if let Some(style) = style {
+                write!(code, " ::iced::widget::slider::Status::{status} => {{").unwrap();
+                append_slider_style_fields(code, style, env, document)?;
+                code.push_str(" }");
+            }
         }
-    }
-    if !complete {
         code.push_str(" _ => {}");
+        code.push_str(" }");
     }
-    code.push_str(" } __style })");
+    code.push_str(" __style })");
     Ok(())
 }
 

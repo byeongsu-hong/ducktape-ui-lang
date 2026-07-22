@@ -80,6 +80,7 @@ pub(in crate::check) fn infer_layout_group(
                 &options.padding.bottom,
                 &options.padding.left,
                 &options.max_width,
+                &options.max_height,
                 &options.wrap_spacing,
             ]
             .into_iter()
@@ -87,6 +88,15 @@ pub(in crate::check) fn infer_layout_group(
             {
                 require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
                 require_literal_range(value, 0.0, None, layout_metric, span)?;
+            }
+            if let Some(flexbox) = &options.flexbox {
+                for value in [&flexbox.row_gap, &flexbox.column_gap]
+                    .into_iter()
+                    .flatten()
+                {
+                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+                    require_literal_range(value, 0.0, None, "flex gap", span)?;
+                }
             }
             if let Some(scroll) = &options.scroll {
                 for length in [&scroll.width, &scroll.height].into_iter().flatten() {
@@ -172,6 +182,48 @@ pub(in crate::check) fn infer_layout_group(
             }
             if let Some(clip) = &options.clip {
                 require_type(&expr_type(clip, env, document, span)?, &Type::Bool, span)?;
+            }
+            if let Some(order) = &options.flex_item.order {
+                require_type(&expr_type(order, env, document, span)?, &Type::I64, span)?;
+            }
+            for (value, label) in [
+                (&options.flex_item.grow, "flex-grow"),
+                (&options.flex_item.shrink, "flex-shrink"),
+            ] {
+                if let Some(value) = value {
+                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+                    require_literal_range(value, 0.0, None, label, span)?;
+                }
+            }
+            if let Some(basis) = &options.flex_item.basis {
+                let value = match basis {
+                    FlexBasisValue::Fixed(value) | FlexBasisValue::Percent(value) => Some(value),
+                    FlexBasisValue::Auto | FlexBasisValue::Content => None,
+                };
+                if let Some(value) = value {
+                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+                    require_literal_range(value, 0.0, None, "flex-basis", span)?;
+                }
+            }
+            for margin in [
+                &options.flex_item.margin.all,
+                &options.flex_item.margin.x,
+                &options.flex_item.margin.y,
+                &options.flex_item.margin.top,
+                &options.flex_item.margin.right,
+                &options.flex_item.margin.bottom,
+                &options.flex_item.margin.left,
+            ]
+            .into_iter()
+            .flatten()
+            {
+                let value = match margin {
+                    FlexMarginValue::Fixed(value) | FlexMarginValue::Percent(value) => Some(value),
+                    FlexMarginValue::Auto => None,
+                };
+                if let Some(value) = value {
+                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+                }
             }
             if let Some(style) = &options.custom_style {
                 let function =

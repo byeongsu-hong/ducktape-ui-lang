@@ -95,12 +95,19 @@ pub(in crate::codegen) fn render_content(
                 } else {
                     &args[index]
                 };
+                let state = match &arg.value {
+                    Expr::Path(path) if path.len() == 1 => {
+                        env.get(&path[0]).and_then(|binding| binding.state.clone())
+                    }
+                    _ => None,
+                };
                 component_env.insert(
                     param.clone(),
                     Binding {
                         code: expr_code(&arg.value, env, document, ValueMode::Borrowed)?,
                         ty: ty.clone(),
                         local: false,
+                        state,
                     },
                 );
             }
@@ -108,6 +115,38 @@ pub(in crate::codegen) fn render_content(
                 || format!("format!(\"{{}}/{}@{}\", {scope})", name, span.line),
                 |id| id_code(id, scope, env, document).unwrap_or_else(|_| scope.into()),
             );
+            let scope_binding = component_scope_binding(name, span.line);
+            if !component.states.is_empty() || !component.handlers.is_empty() {
+                let field = component_state_field(name);
+                for state in &component.states {
+                    component_env.insert(
+                        state.name.clone(),
+                        Binding {
+                            code: format!(
+                                "self.{field}.get(&{scope_binding}).map_or_else(|| {}, |__state| __state.{}.clone())",
+                                initial_code(state, document),
+                                state.name
+                            ),
+                            ty: state.ty.clone(),
+                            local: true,
+                            state: Some(StateBinding::Component {
+                                component: name.clone(),
+                                name: state.name.clone(),
+                                scope: scope_binding.clone(),
+                            }),
+                        },
+                    );
+                }
+                component_env.insert(
+                    component_context_key(name),
+                    Binding {
+                        code: scope_binding.clone(),
+                        ty: Type::Unit,
+                        local: true,
+                        state: None,
+                    },
+                );
+            }
             let component_slots = (!slots.is_empty()).then(|| SlotContext {
                 entries: slots
                     .iter()
@@ -119,13 +158,25 @@ pub(in crate::codegen) fn render_content(
                     .collect(),
                 parent: slot.cloned().map(Box::new),
             });
-            render_node(
+            let render_scope = if component.states.is_empty() && component.handlers.is_empty() {
+                component_scope.clone()
+            } else {
+                format!("{scope_binding}.clone()")
+            };
+            let rendered = render_node(
                 &component.root,
                 document,
                 message,
                 &component_env,
-                &component_scope,
+                &render_scope,
                 component_slots.as_ref(),
+            )?;
+            Ok(
+                if component.states.is_empty() && component.handlers.is_empty() {
+                    rendered
+                } else {
+                    format!("{{ let {scope_binding} = {component_scope}; {rendered} }}")
+                },
             )
         }
         ViewNode::Slot { name, span } => {
@@ -195,12 +246,12 @@ pub(in crate::codegen) fn render_content(
                 .collect::<Result<Vec<_>, _>>()?
                 .join(", ");
             let mapped = if let Some(route) = route {
-                route_code(route, "__value", env, document, message)?
+                route_callback_code(route, "__value", "__value", env, document, message)?
             } else {
-                format!("{message}::__ExternNoop")
+                format!("move |__value| {message}::__ExternNoop")
             };
             Ok(format!(
-                "{}({args}).map(move |__value| {mapped}).into()",
+                "{}({args}).map({mapped}).into()",
                 component.rust_path
             ))
         }
@@ -223,12 +274,12 @@ pub(in crate::codegen) fn render_content(
                 .collect::<Result<Vec<_>, _>>()?
                 .join(", ");
             let mapped = if let Some(route) = route {
-                route_code(route, "__value", env, document, message)?
+                route_callback_code(route, "__value", "__value", env, document, message)?
             } else {
-                format!("{message}::__ExternNoop")
+                format!("move |__value| {message}::__ExternNoop")
             };
             Ok(format!(
-                "{{ let (__theme, __content, __text_color, __background) = {}({args}); let mut __themer = ::iced::widget::themer(__theme, __content); if let ::std::option::Option::Some(__text_color) = __text_color {{ __themer = __themer.text_color(__text_color); }} if let ::std::option::Option::Some(__background) = __background {{ __themer = __themer.background(__background); }} let __themed: __IceElement<'_, {}> = __themer.into(); __themed.map(move |__value| {mapped}).into() }}",
+                "{{ let (__theme, __content, __text_color, __background) = {}({args}); let mut __themer = ::iced::widget::themer(__theme, __content); if let ::std::option::Option::Some(__text_color) = __text_color {{ __themer = __themer.text_color(__text_color); }} if let ::std::option::Option::Some(__background) = __background {{ __themer = __themer.background(__background); }} let __themed: __IceElement<'_, {}> = __themer.into(); __themed.map({mapped}).into() }}",
                 themer.rust_path,
                 themer.output.rust(&document.structs)
             ))
@@ -260,12 +311,12 @@ pub(in crate::codegen) fn render_content(
             }
             let output = shader.output.rust(&document.structs);
             let mapped = if let Some(route) = route {
-                route_code(route, "__value", env, document, message)?
+                route_callback_code(route, "__value", "__value", env, document, message)?
             } else {
-                format!("{message}::__ExternNoop")
+                format!("move |__value| {message}::__ExternNoop")
             };
             Ok(format!(
-                "{{ let __shader: __IceElement<'_, {output}> = {code}.into(); __shader.map(move |__value| {mapped}).into() }}"
+                "{{ let __shader: __IceElement<'_, {output}> = {code}.into(); __shader.map({mapped}).into() }}"
             ))
         }
         _ => return Ok(None),

@@ -1,4 +1,4 @@
-# Ice Language Specification 1.58
+# Ice Language Specification 1.59
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 1.58 syntax.
+marked “planned” is a design constraint, not accepted 1.59 syntax.
 
 ## 1. Design contract
 
@@ -43,14 +43,14 @@ The Rust action must still validate its input.
 ### Core and compatibility boundary
 
 Ice Core is the stable authoring surface: `app`, `use`, `state`, `component`,
-`slot`, `on`, `view`, `if`, `for`, `keyed`, and `lazy`; common row, column,
+`slot`, `on`, `view`, `if`, `match`, `for`, `keyed`, and `lazy`; common row, column,
 stack, scroll, and container layout; text, input, button, checkbox, and image
 widgets; bindings, routes, payloads, scoped IDs, typed extern calls, and basic
 async success/failure routing.
 
 A new Core construct must be common UI authoring, have one canonical source
 form, and not fit an existing typed Rust boundary. Core vocabulary is frozen
-for revision 1.58; adding or changing it requires an explicit language design
+for revision 1.59; adding or changing it requires an explicit language design
 and a new revision, while removal requires deprecation and migration.
 
 Accepted advanced syntax such as Canvas paths, complete PaneGrid mutation, raw
@@ -61,7 +61,7 @@ type or method. Removing accepted compatibility syntax also requires a separate
 deprecation and migration decision.
 
 Language revisions and Cargo package versions use separate schemes. This
-document specifies language revision 1.58. The workspace packages are
+document specifies language revision 1.59. The workspace packages are
 pre-1.0 SemVer `0.1.0`; their package version does not claim language 0.1. The
 resolved iced/iced_widget versions are a third, independent backend baseline.
 
@@ -168,7 +168,7 @@ version. `cargo ice compat` verifies the lockfile and direct-manifest contract.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 1.58.
+  block comments are not part of 1.59.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -393,7 +393,12 @@ preset_override = name "=" expr
 preset_boot    = "boot" INDENT statement*
 
 component_decl = "component" component_name "(" field_list? ")"
-                 INDENT node
+                 INDENT component_member+
+component_member = component_state | component_handler | node
+component_state = "state" INDENT state_entry+
+component_handler = "on" name ("(" name_list? ")")?
+                    INDENT component_statement*
+component_statement = name "=" expr | "return if" expr
 
 handler_decl   = "on" name ("(" name_list? ")")?
                  INDENT statement*
@@ -535,13 +540,12 @@ node           = layout | text | input | button | checkbox | toggler
                | media | tooltip | mouse_area | canvas | theme_boundary
                | component_call | slot | extern_component_call | themer_view
                | shader_view
-               | if_node | for_node
+               | if_node | match_node | for_node
                | keyed_column | lazy_node | markdown_view | table_view
                | editor_view | container | overlay | rich_text | pane_grid
 layout         = "col" id? column_property* styles? INDENT node+
                | "row" id? flex_property* styles? INDENT node+
-               | "flex" id? ("direction=" ("row" | "column")
-                 | flex_property)* styles? INDENT node+
+               | "flex" id? css_flex_property* styles? INDENT node+
                | "scroll" id? scroll_property* styles? INDENT node scroll_status*
                | "grid" id? grid_property* styles? INDENT node+
                | "stack" id? stack_property* styles? INDENT node+
@@ -553,7 +557,19 @@ container_property = ("width=" | "height=") length
                    | ("padding=" | "padding-x=" | "padding-y="
                      | "padding-top=" | "padding-right=" | "padding-bottom="
                      | "padding-left=") expr
+                   | flex_item_property
                    | surface_style_property
+flex_item_property = "order=" expr
+                   | ("flex-grow=" | "flex-shrink=") expr
+                   | "flex-basis=" ("auto" | "content" | expr
+                     | "percent(" expr ")")
+                   | "flex=" ("none" | "auto" | "initial"
+                     | expr ("," expr ("," (expr | "auto" | "content"
+                       | "percent(" expr ")"))?)?)
+                   | "align-self=" ("auto" | flex_item_alignment)
+                   | ("margin=" | "margin-x=" | "margin-y="
+                     | "margin-top=" | "margin-right=" | "margin-bottom="
+                     | "margin-left=") ("auto" | expr | "percent(" expr ")")
 overlay        = "overlay" "when=" expr overlay_property*
                  INDENT "content" INDENT node
                  INDENT "layer" INDENT node
@@ -690,6 +706,24 @@ flex_property  = ("width=" | "height=") length | "spacing=" expr
                | "align=" ("start" | "center" | "end") | "clip=" expr
                | "wrap" | "wrap-spacing=" expr
                | "wrap-align=" ("start" | "center" | "end")
+css_flex_property = flex_property
+                  | ("direction=" | "flex-direction=")
+                    ("row" | "row-reverse" | "column" | "column-reverse")
+                  | "flex-flow=" ("row" | "row-reverse" | "column"
+                    | "column-reverse") "," ("nowrap" | "wrap"
+                    | "wrap-reverse")
+                  | "flex-wrap=" ("nowrap" | "wrap" | "wrap-reverse")
+                  | "justify-content=" flex_content_alignment
+                  | "align-items=" flex_item_alignment
+                  | "align-content=" flex_content_alignment
+                  | ("gap=" | "row-gap=" | "column-gap="
+                    | "max-width=" | "max-height=") expr
+flex_item_alignment = "normal" | "start" | "end" | "self-start"
+                    | "self-end" | "flex-start" | "flex-end" | "center"
+                    | "baseline" | "stretch"
+flex_content_alignment = "normal" | "start" | "end" | "left" | "right"
+                       | "flex-start" | "flex-end" | "center" | "stretch" | "space-between"
+                       | "space-around" | "space-evenly"
 stack_property = ("width=" | "height=") length | "clip=" expr
                | "under=" u16
 grid_property  = "columns=" expr | "fluid=" expr | "width=" expr
@@ -1045,6 +1079,8 @@ themer_view    = "themer" name "(" expr_list? ")" ("->" route)?
 shader_view    = "shader" name "(" expr_list? ")"
                  (("width=" | "height=") length)* ("->" route)?
 if_node        = "if" expr INDENT node+
+match_node     = "match" expr INDENT match_arm+
+match_arm      = (expr | "_") INDENT node+
 for_node       = "for" name "in" expr INDENT node+
 
 property       = "hint=" string | "disabled=" expr | "checked=" expr
@@ -1143,7 +1179,7 @@ maximum size. `icon-rgba` embeds a relative raw RGBA file without an image
 codec; width and height are positive integers, and generated Rust rejects a
 byte length other than `width × height × 4`. `cargo ice check` reports a
 mismatch at the icon declaration, and generated Rust repeats the check at
-compile time. Encoded icon formats remain outside 1.58.
+compile time. Encoded icon formats remain outside 1.59.
 
 Use `daemon Name` instead of `app Name` for an iced daemon that starts without
 an initial window and remains alive after all windows close. A daemon rejects
@@ -1261,8 +1297,8 @@ Optional `active`, `hovered`, and `dragged` lines expose every concrete
 scrollable Style field: its container, both rails and scrollers, corner gap,
 and auto-scroll overlay. Bool selectors match iced's horizontal/vertical
 hovered, dragged, and disabled status fields. Omitted selectors are wildcards;
-matching lines apply in source order after the typed callback, so a later
-specific line can refine its base style:
+the `active` line applies first as the shared base, then matching hovered or
+dragged lines apply in source order after the typed callback:
 
 ```ice
 scroll direction=both viewport=viewport_changed style=task_scroll(loading)
@@ -1345,12 +1381,14 @@ Its Rust function receives `&iced::Theme`, the current `checkbox::Status`, then
 its declared owned arguments and returns `checkbox::Style`. Status lines still
 override the returned base style.
 
-Each line starts from the selected preset for that exact status and overrides
-any listed solid/linear background, icon/text color, or border color, width, and
-uniform/per-corner radius. Metrics are checked non-negative f64 expressions.
+Each status starts from the selected preset, applies its matching `active
+checked|unchecked` line, then applies the more-specific hovered or disabled
+line. Listed solid/linear background, icon/text color, border color, width, and
+uniform/per-corner radius fields override that base. Metrics are checked
+non-negative f64 expressions.
 
-A toggler uses the same six checked-aware status selectors. Each starts from
-iced's default style and may override every concrete field:
+A toggler uses the same six checked-aware status selectors and the same active
+checked/unchecked base cascade. Each line may override every concrete field:
 
 ```ice
 toggler "Notifications" checked=enabled -> changed _
@@ -1403,9 +1441,10 @@ are rejected for every slider type.
 A slider may own one nested `active`, `hovered`, and `dragged` style block.
 `style=volume_slider(loading)` may call a declared `slider-style` whose Rust
 function receives `&iced::Theme`, `slider::Status`, then its owned arguments
-and returns `slider::Style`. Each block starts from that callback result, or
-iced's default style, and overrides any listed rail backgrounds/width/border/
-radius or handle shape/background/border.
+and returns `slider::Style`. Every status starts from that callback result, or
+iced's default style, applies the `active` block, then its hovered or dragged
+delta. Blocks override any listed rail backgrounds/width/border/radius or
+handle shape/background/border.
 Rail and handle backgrounds accept checked solid or linear values; borders stay
 checked theme colors. Rectangle widths are `u16`; every other metric is a
 non-negative f64. Handle corner radii require a rectangle handle in the same
@@ -1442,8 +1481,9 @@ same click semantics without pretending they are Rust `Copy` types.
 
 Size, every width `Length`, spacing, text size, relative line height, shaping,
 wrapping, and complete font descriptors map to the corresponding radio setters.
-Four optional `active|hovered × selected|unselected` child lines start from
-iced's default style and override every concrete field:
+Four optional `active|hovered × selected|unselected` child lines override every
+concrete field. Hovered styles inherit the matching active selected/unselected
+base:
 
 ```ice
 radio "Summary" value="summary" selected=(mode == "summary") size=18.0 width=fill font=ui -> mode_changed _
@@ -1477,8 +1517,9 @@ width/menu height, padding, text size, relative line height, complete font
 descriptors, and shaping map directly to iced's setters. All concrete field
 styles are structured children: `active`, `hovered`, `opened`, and
 `opened-hovered` cover the field statuses, while `menu` covers its overlay.
-Each starts from iced's status default and accepts checked solid/linear
-backgrounds, colors, border/per-corner radius, and menu shadow fields.
+Every field status starts from iced's status default and the `active` base;
+`opened-hovered` additionally inherits `opened`. Lines accept checked
+solid/linear backgrounds, colors, border/per-corner radius, and menu shadow fields.
 `style=view_picker(loading)` and `menu-style=view_menu(loading)` may instead
 start from declared native callbacks; the structured status and menu fields
 remain final overrides.
@@ -1506,8 +1547,9 @@ shaping, and complete fonts map to every native builder setter. A structured
 size, spacing, and side.
 
 The five `active`, `hovered`, `focused`, `focused-hovered`, and `disabled`
-lines start from iced's status default and expose every concrete input Style
-field. The shared `menu` line exposes every menu overlay Style field:
+lines expose every concrete input Style field. Every status inherits `active`,
+and `focused-hovered` additionally inherits `focused`. The shared `menu` line
+exposes every menu overlay Style field:
 `style=form_input(loading)` reuses the native `input-style` ABI, and
 `menu-style=view_menu(loading)` reuses the same menu callback as `pick`.
 Structured lines override both callback results.
@@ -1569,6 +1611,15 @@ more specific value wins regardless of property order. Bare `wrap` switches to
 iced's wrapping layout. `wrap-spacing=` controls spacing between wrapped rows or
 columns and `wrap-align=` controls their main-axis placement; both require
 `wrap`.
+
+`flex` uses Ice's native flexbox runtime. It supports row/column and reverse
+directions, nowrap/wrap/wrap-reverse, `justify-content`, `align-items`,
+`align-content`, axis-specific gaps, sizing, padding, and clipping. A direct
+`box` child can set `order`, `flex-grow`, `flex-shrink`, `flex-basis`,
+`align-self`, and uniform/axis/per-side margins, including `auto` and
+`percent(N)`. `flex=none|auto|initial|grow[,shrink[,basis]]` is the compact
+item form. Existing `spacing`, `align`, bare `wrap`, `wrap-spacing`, and
+`wrap-align` remain accepted aliases.
 
 `keyed item in items by=key` is iced's identity-preserving column. `items` must
 be a list, `key` is checked in the item scope and must be bool, i64, or f64,
@@ -1773,7 +1824,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 1.58 message payloads.
+`Clone` for 1.59 message payloads.
 
 Declared `sync` functions are checked, synchronous Rust calls available in
 Ice expressions. They are the small escape hatch for pure domain conversions
@@ -2717,20 +2768,54 @@ also marks routed and redraw actions captured. Event sources must be unique
 within a canvas and these directives are allowed only at its root, not inside
 drawing groups or control flow.
 
-### Components
+### View control flow
 
-Components are pure typed view templates:
+`match` has first-match semantics. Each arm owns one or more nodes; an optional
+`_` catch-all must be last:
 
 ```ice
-component TaskRow(task:Task, loading:bool)
-  row #root @w-full items-center p-4 bg-surface rounded-lg
-    checkbox task.title checked=task.done disabled=loading -> toggle(task.id, _)
+match status
+  "ready"
+    text "Ready"
+  "loading"
+    text "Loading"
+  _
+    text "Unavailable"
 ```
 
-They have one root, typed inputs, no local mutable state, no lifecycle, and no
-implicit capture of app state. They may route events to app handlers. The
-compiler expands them into the typed view IR; they are not runtime component
-objects.
+Arm values are compared with checked equality. Exhaustiveness is not required;
+without `_`, no arm renders when no value matches.
+
+### Components
+
+Components are typed view templates. They remain pure by default, and may own
+small UI-local state when the interaction belongs to the reusable view:
+
+```ice
+component Counter(label:str)
+  state
+    count = 0
+  on increment
+    count = count + 1
+  col #root
+    text label
+    text count
+    button "Increment" -> increment
+```
+
+They have one root, typed inputs, and no implicit capture of app state. A local
+`state` block accepts self-contained ordinary cloneable values. Local `on`
+handlers may assign that state or stop with `return if`; tasks, effects,
+lifecycle hooks, and implicit prop capture stay at app level. Pass a prop or
+event value explicitly through the route when a local handler needs it.
+
+Local state is keyed by the component's hierarchical instance scope, so two
+explicit component IDs own independent values. The declared initializer is
+used until the first local event materializes that instance. Entries persist
+for the app lifetime; repeated dynamic instances should therefore use stable
+IDs, and an unbounded stream of new IDs can grow the map. Components without
+local state or handlers remain compile-time view expansion rather than runtime
+component objects.
 
 A component may declare required slots. Bare `slot` is the conventional
 `children` slot and receives one structured child tree at its call site:
@@ -3890,6 +3975,14 @@ The accepted utility surface is:
 | states | `hover:bg-*`, `pressed:bg-*`, `disabled:opacity-*` | button |
 | focus | `focus:border-*` | input |
 
+Structured native status blocks use `active` as their shared base. A button's
+`hovered`, `pressed`, and `disabled` blocks only need their deltas; input,
+editor, combo, slider, and scroll statuses follow the same rule. Checked and
+selected controls inherit the corresponding `active checked|unchecked` or
+`active selected|unselected` block. `focused-hovered` additionally inherits
+`focused`, and `opened-hovered` additionally inherits `opened`. Later,
+more-specific fields win.
+
 Spacing values are `0 1 2 3 4 5 6 8 10 12 16 20 24` and map to four iced
 logical pixels per unit. Opacity values are `0 25 50 75 100`; color opacity may
 be any integer from 0 through 100.
@@ -3940,7 +4033,7 @@ satisfies `E044`, so formatting cannot legalize invalid source.
 
 Those directly replaceable geometry utilities are deprecated compatibility
 spellings. `cargo ice fmt` is their migration path; they remain accepted on a
-node by themselves in revision 1.58 and are not removed without a later
+node by themselves in revision 1.59 and are not removed without a later
 language revision. Row/column/grid wrapper sizing, layout `max-w-*` and
 `self-center`, stack/grid wrapper padding, and axis-specific input/button
 padding are intentional utilities because their generated owner has no
@@ -3968,7 +4061,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 1.58 does not claim that remapping.
+extern line; 1.59 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -4023,7 +4116,7 @@ above.
 
 ## 12. Current coverage and escape hatches
 
-The 1.58 native backend covers both windowed applications and windowless
+The 1.59 native backend covers both windowed applications and windowless
 daemons alongside CRUD/settings-style screens, selection, media, hover
 overlays, declarative canvas geometry, and pointer events. Borrowed custom
 widgets and an application-wide renderer type remain the escape hatch for

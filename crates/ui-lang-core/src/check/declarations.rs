@@ -56,8 +56,34 @@ pub(in crate::check) fn check_declared_types(document: &Document) -> Result<(), 
             reject_debug_span(ty, &component.span)?;
             check(ty, &component.span)?;
         }
+        for state in &component.states {
+            if !component_state_is_cloneable(&state.ty) {
+                return Err(Error::new(
+                    "E103",
+                    &state.span,
+                    "component state supports ordinary cloneable values only",
+                ));
+            }
+            check(&state.ty, &state.span)?;
+        }
     }
     Ok(())
+}
+
+fn component_state_is_cloneable(ty: &Type) -> bool {
+    match ty {
+        Type::Animation(_)
+        | Type::Combo(_)
+        | Type::DebugSpan
+        | Type::Editor
+        | Type::Markdown
+        | Type::TaskHandle => false,
+        Type::List(inner) | Type::Option(inner) => component_state_is_cloneable(inner),
+        Type::Result(output, error) => {
+            component_state_is_cloneable(output) && component_state_is_cloneable(error)
+        }
+        _ => true,
+    }
 }
 
 pub(in crate::check) fn contains_debug_span(ty: &Type) -> bool {
@@ -198,6 +224,32 @@ pub(in crate::check) fn check_unique(document: &Document) -> Result<(), Error> {
                     "E100",
                     &component.span,
                     format!("duplicate component prop `{param}`"),
+                ));
+            }
+        }
+        for state in &component.states {
+            if !params.insert(&state.name) {
+                return Err(Error::new(
+                    "E100",
+                    &state.span,
+                    format!("duplicate component value `{}`", state.name),
+                ));
+            }
+        }
+        let mut local_handlers = HashSet::new();
+        for handler in &component.handlers {
+            if handler.name == "mount" {
+                return Err(Error::new(
+                    "E100",
+                    &handler.span,
+                    "component handlers cannot be named `mount`",
+                ));
+            }
+            if !local_handlers.insert(&handler.name) {
+                return Err(Error::new(
+                    "E100",
+                    &handler.span,
+                    format!("duplicate component handler `{}`", handler.name),
                 ));
             }
         }

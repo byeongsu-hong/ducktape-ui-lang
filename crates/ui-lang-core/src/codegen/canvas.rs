@@ -27,6 +27,7 @@ pub(in crate::codegen) fn render_canvas(
                 code: format!("__state.{}", local.name),
                 ty: local.ty.clone(),
                 local: false,
+                state: None,
             },
         );
     }
@@ -36,6 +37,7 @@ pub(in crate::codegen) fn render_canvas(
             code: "(__bounds.width as f64)".into(),
             ty: Type::F64,
             local: true,
+            state: None,
         },
     );
     canvas_env.insert(
@@ -44,6 +46,7 @@ pub(in crate::codegen) fn render_canvas(
             code: "(__bounds.height as f64)".into(),
             ty: Type::F64,
             local: true,
+            state: None,
         },
     );
     let draw_commands = canvas_commands_code(commands, &canvas_env, document)?;

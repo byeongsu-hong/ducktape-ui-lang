@@ -1,6 +1,34 @@
 use super::*;
 
 #[test]
+fn checks_css_flexbox_container_and_items() {
+    let source = r#"app Flexbox
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+view
+  flex direction=column-reverse flex-wrap=wrap-reverse width=fill height=fill gap=8.0 row-gap=10.0 column-gap=12.0 justify-content=space-between align-items=stretch align-content=space-around
+    box order=-1 flex-grow=2.0 flex-shrink=0.5 flex-basis=percent(40.0) align-self=baseline margin-left=auto margin-right=-4.0
+      text "Flexible"
+"#;
+    analyze(source).unwrap();
+
+    let error = analyze(&source.replace("flex-grow=2.0", "flex-grow=-1.0")).unwrap_err();
+    assert_eq!(error.code, "E128");
+    assert!(error.message.contains("flex-grow"));
+
+    let error = analyze(&source.replace("order=-1", "order=true")).unwrap_err();
+    assert_eq!(error.code, "E101");
+
+    let error = analyze(&source.replace("space-between", "sideways")).unwrap_err();
+    assert_eq!(error.code, "E074");
+    assert!(error.message.contains("content alignment"));
+}
+
+#[test]
 fn checks_complete_flex_layout_options() {
     let source = r#"app Layouts
 theme

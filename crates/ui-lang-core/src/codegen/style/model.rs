@@ -269,31 +269,45 @@ pub(in crate::codegen) fn button_style_code(
         }
     }
     if has_typed {
-        code.push_str(" match __status {");
-        for (variant, status) in [
-            ("Active", &typed.active),
+        if let Some(active) = &typed.active {
+            append_button_status_style(&mut code, active, env, document)?;
+        }
+        let overrides = [
             ("Hovered", &typed.hovered),
             ("Pressed", &typed.pressed),
             ("Disabled", &typed.disabled),
-        ] {
-            write!(code, " ::iced::widget::button::Status::{variant} => {{").unwrap();
-            if let Some(status) = status {
-                append_surface_style_overrides(&mut code, &status.options, env, document)?;
-                if let Some(color) = &status.options.text_color {
-                    write!(
-                        code,
-                        " __style.text_color = {};",
-                        theme_color(document, color)
-                    )
-                    .unwrap();
-                }
+        ];
+        if overrides.iter().any(|(_, status)| status.is_some()) {
+            code.push_str(" match __status {");
+            for (variant, status) in overrides {
+                let Some(status) = status else { continue };
+                write!(code, " ::iced::widget::button::Status::{variant} => {{").unwrap();
+                append_button_status_style(&mut code, status, env, document)?;
+                code.push_str(" }");
             }
-            code.push_str(" }");
+            code.push_str(" _ => {} }");
         }
-        code.push_str(" }");
     }
     code.push_str(" __style })");
     Ok(code)
+}
+
+fn append_button_status_style(
+    code: &mut String,
+    style: &ButtonStatusStyle,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<(), Error> {
+    append_surface_style_overrides(code, &style.options, env, document)?;
+    if let Some(color) = &style.options.text_color {
+        write!(
+            code,
+            " __style.text_color = {};",
+            theme_color(document, color)
+        )
+        .unwrap();
+    }
+    Ok(())
 }
 
 pub(in crate::codegen) fn theme_color(document: &Document, token: &str) -> String {
@@ -419,7 +433,7 @@ pub(in crate::codegen) fn rust_f64(value: f64) -> String {
 
 pub(in crate::codegen) fn pascal(value: &str) -> String {
     value
-        .split(['_', '-'])
+        .split(['_', '-', '.'])
         .filter(|part| !part.is_empty())
         .map(|part| {
             let mut chars = part.chars();

@@ -5,6 +5,17 @@ pub(in crate::codegen) struct Binding {
     pub(in crate::codegen) code: String,
     pub(in crate::codegen) ty: Type,
     pub(in crate::codegen) local: bool,
+    pub(in crate::codegen) state: Option<StateBinding>,
+}
+
+#[derive(Clone)]
+pub(in crate::codegen) enum StateBinding {
+    App(String),
+    Component {
+        component: String,
+        name: String,
+        scope: String,
+    },
 }
 
 #[derive(Clone)]
@@ -26,6 +37,51 @@ pub(in crate::codegen) enum ValueMode {
     Borrowed,
 }
 
+const COMPONENT_CONTEXT_PREFIX: &str = "\0component:";
+
+pub(in crate::codegen) fn component_context_key(component: &str) -> String {
+    format!("{COMPONENT_CONTEXT_PREFIX}{component}")
+}
+
+pub(in crate::codegen) fn component_context(
+    env: &HashMap<String, Binding>,
+) -> Option<(&str, &Binding)> {
+    env.iter().find_map(|(name, binding)| {
+        name.strip_prefix(COMPONENT_CONTEXT_PREFIX)
+            .map(|component| (component, binding))
+    })
+}
+
+pub(in crate::codegen) fn component_state_field(component: &str) -> String {
+    format!(
+        "__ice_component_{}",
+        component
+            .chars()
+            .map(|value| if value.is_ascii_alphanumeric() {
+                value.to_ascii_lowercase()
+            } else {
+                '_'
+            })
+            .collect::<String>()
+    )
+}
+
+pub(in crate::codegen) fn component_state_type(component: &str) -> String {
+    format!("__Ice{}State", pascal(component))
+}
+
+pub(in crate::codegen) fn component_scope_binding(component: &str, line: usize) -> String {
+    format!("{}_scope_{line}", component_state_field(component))
+}
+
+pub(in crate::codegen) fn component_handler_variant(component: &str, handler: &str) -> String {
+    format!("__{}Handle{}", pascal(component), pascal(handler))
+}
+
+pub(in crate::codegen) fn component_binding_variant(component: &str, state: &str) -> String {
+    format!("__{}Bind{}", pascal(component), pascal(state))
+}
+
 pub(in crate::codegen) fn state_env(document: &Document, name: &str) -> HashMap<String, Binding> {
     document
         .states
@@ -37,6 +93,7 @@ pub(in crate::codegen) fn state_env(document: &Document, name: &str) -> HashMap<
                     code: format!("{name}.{}", state.name),
                     ty: state.ty.clone(),
                     local: false,
+                    state: Some(StateBinding::App(state.name.clone())),
                 },
             )
         })
