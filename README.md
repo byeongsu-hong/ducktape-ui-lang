@@ -108,7 +108,12 @@ contract.
 
 ```bash
 cargo run -p iced-app
+cargo run -p apple-music-example
 ```
+
+`apple-music-example` recreates the core macOS Music flows with original cover
+art, a real-time liquid-glass player, and a local mock API for discovery,
+library browsing, search, sign-in, queueing, and playback controls.
 
 The runnable task app is intentionally small and split by concern:
 

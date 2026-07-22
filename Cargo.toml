@@ -4,9 +4,14 @@ members = [
     "crates/ui-lang-runtime",
     "crates/ui-lang",
     "crates/cargo-ice",
+    "examples/apple-music",
     "examples/iced-app",
 ]
+exclude = ["vendor/iced_wgpu"]
 resolver = "3"
+
+[patch.crates-io]
+iced_wgpu = { path = "vendor/iced_wgpu" }
 
 [workspace.package]
 edition = "2024"
@@ -15,3 +20,6 @@ rust-version = "1.88"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
+
+[profile.dev.package.apple-music-example]
+debug = 0
