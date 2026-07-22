@@ -1,6 +1,6 @@
 use serde_json::{Value, json};
 
-pub const LANGUAGE_REVISION: &str = "1.60";
+pub const LANGUAGE_REVISION: &str = "1.61";
 pub const ICED_VERSION: &str = "0.14.0";
 pub const ICED_WIDGET_VERSION: &str = "0.14.2";
 pub const UI_LANG_RUNTIME_VERSION: &str = "0.1.0";
@@ -477,6 +477,7 @@ fn construct_schema(item: &Completion) -> Value {
                 ("hint", "string", false),
                 ("disabled", "bool-expression", false),
                 ("secure", "bool-expression", false),
+                ("change", "payload-route(text)", false),
                 ("submit", "route", false),
                 ("paste", "payload-route(text)", false),
                 ("width", "length", false),

@@ -84,7 +84,7 @@ pub(in crate::codegen) fn render_foundation(
             let state = env.get(binding).ok_or_else(|| {
                 Error::new("E150", span, format!("unknown input state `{binding}`"))
             })?;
-            let constructor = match &state.state {
+            let binding_constructor = match &state.state {
                 Some(StateBinding::App(name)) => {
                     let variant = binding_variant(name);
                     format!("{message}::{variant} as fn(::std::string::String) -> {message}")
@@ -107,6 +107,14 @@ pub(in crate::codegen) fn render_foundation(
                     ));
                 }
             };
+            let constructor = options
+                .change
+                .as_ref()
+                .map(|route| {
+                    route_callback_code(route, "__value", "__value", env, document, message)
+                })
+                .transpose()?
+                .unwrap_or(binding_constructor);
             let accessibility_key =
                 accessibility_key_code(id.as_ref(), "input", span, scope, env, document)?;
             let accessibility_label = options

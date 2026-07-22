@@ -45,6 +45,8 @@ pub(in crate::parser) fn parse_input(
             disabled = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else if let Some(value) = part.strip_prefix("secure=") {
             options.secure = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("change=") {
+            options.change = Some(parse_payload_route(value, line, 1)?);
         } else if let Some(value) = part.strip_prefix("submit=") {
             options.submit = Some(parse_route(value, line)?);
         } else if let Some(value) = part.strip_prefix("paste=") {

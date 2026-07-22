@@ -1,4 +1,4 @@
-# Ice Language Specification 1.60
+# Ice Language Specification 1.61
 
 Status: implemented reference slice
 
@@ -8,7 +8,7 @@ source, resolves names and types, checks UI semantics, and lowers a typed tree
 to backend code.
 
 This document describes what the repository implements. A section explicitly
-marked “planned” is a design constraint, not accepted 1.60 syntax.
+marked “planned” is a design constraint, not accepted 1.61 syntax.
 
 ## 1. Design contract
 
@@ -50,7 +50,7 @@ async success/failure routing.
 
 A new Core construct must be common UI authoring, have one canonical source
 form, and not fit an existing typed Rust boundary. Core vocabulary is frozen
-for revision 1.60; adding or changing it requires an explicit language design
+for revision 1.61; adding or changing it requires an explicit language design
 and a new revision, while removal requires deprecation and migration.
 
 Accepted advanced syntax such as Canvas paths, complete PaneGrid mutation, raw
@@ -61,7 +61,7 @@ type or method. Removing accepted compatibility syntax also requires a separate
 deprecation and migration decision.
 
 Language revisions and Cargo package versions use separate schemes. This
-document specifies language revision 1.60. The workspace packages are
+document specifies language revision 1.61. The workspace packages are
 pre-1.0 SemVer `0.1.0`; their package version does not claim language 0.1. The
 resolved iced/iced_widget versions are a third, independent backend baseline.
 
@@ -168,7 +168,7 @@ version. `cargo ice compat` verifies the lockfile and direct-manifest contract.
   line. Indentation may only return to an existing level.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
-  block comments are not part of 1.60.
+  block comments are not part of 1.61.
 - Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
@@ -772,7 +772,8 @@ input          = "input" string id? accessibility_property* "<->" name
                  input_property* styles?
                  (INDENT input_child*)?
 input_property = "hint=" string | ("disabled=" | "secure=") expr
-               | ("submit=" | "paste=") route | "width=" length
+               | ("change=" | "submit=" | "paste=") route
+               | "width=" length
                | ("padding=" | "text-size=" | "line-height=") expr
                | "align=" ("left" | "center" | "right")
                | "font=" font_ref | "style=" call
@@ -1179,7 +1180,7 @@ maximum size. `icon-rgba` embeds a relative raw RGBA file without an image
 codec; width and height are positive integers, and generated Rust rejects a
 byte length other than `width × height × 4`. `cargo ice check` reports a
 mismatch at the icon declaration, and generated Rust repeats the check at
-compile time. Encoded icon formats remain outside 1.60.
+compile time. Encoded icon formats remain outside 1.61.
 
 Use `daemon Name` instead of `app Name` for an iced daemon that starts without
 an initial window and remains alive after all windows close. A daemon rejects
@@ -1322,11 +1323,14 @@ overrides a `@text-*` utility; `font=mono @font-bold` preserves both choices.
 
 `input` keeps its required `str` binding and additionally supports checked
 `label=`/`description=` accessibility text, bool secure mode, submit routes,
-str-payload paste routes, typed width/padding/text size, relative line height,
+str-payload change/paste routes, typed width/padding/text size, relative line height,
 horizontal alignment, complete font descriptors, and a complete text-input
 icon. Its five optional status lines expose every concrete iced text-input Style
-field. A disabled input suppresses typing, submit, paste, and accessibility
-focus together. The old inline `icon=`, `icon-font=`, `icon-size=`,
+field. Without `change=`, typing writes the bound state directly. With
+`change=handler _`, the handler receives the new text and owns that assignment,
+which lets one state transition also launch validation or autosave. A disabled
+input suppresses typing, submit, paste, and accessibility focus together. The
+old inline `icon=`, `icon-font=`, `icon-size=`,
 `icon-spacing=`, and `icon-side=` properties remain accepted as compact syntax.
 
 ```ice
@@ -1824,7 +1828,7 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 1.60 message payloads.
+`Clone` for 1.61 message payloads.
 
 Declared `sync` functions are checked, synchronous Rust calls available in
 Ice expressions. They are the small escape hatch for pure domain conversions
@@ -4060,7 +4064,7 @@ satisfies `E044`, so formatting cannot legalize invalid source.
 
 Those directly replaceable geometry utilities are deprecated compatibility
 spellings. `cargo ice fmt` is their migration path; they remain accepted on a
-node by themselves in revision 1.60 and are not removed without a later
+node by themselves in revision 1.61 and are not removed without a later
 language revision. Row/column/grid wrapper sizing, layout `max-w-*` and
 `self-center`, stack/grid wrapper padding, and axis-specific input/button
 padding are intentional utilities because their generated owner has no
@@ -4088,7 +4092,7 @@ The implemented families are:
 Rust item is named by its `crate::module::item` path in rustc's diagnostic.
 Imported-language diagnostics already point to the original fragment and line.
 A future generated-Rust source-map layer may remap rustc spans into the precise
-extern line; 1.60 does not claim that remapping.
+extern line; 1.61 does not claim that remapping.
 
 ## 11. Cargo commands
 
@@ -4143,7 +4147,7 @@ above.
 
 ## 12. Current coverage and escape hatches
 
-The 1.60 native backend covers both windowed applications and windowless
+The 1.61 native backend covers both windowed applications and windowless
 daemons alongside CRUD/settings-style screens, selection, media, hover
 overlays, declarative canvas geometry, and pointer events. Borrowed custom
 widgets and an application-wide renderer type remain the escape hatch for

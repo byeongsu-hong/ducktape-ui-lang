@@ -160,6 +160,7 @@ pub struct AccessibilityOptions {
 pub struct InputOptions {
     pub accessibility: AccessibilityOptions,
     pub secure: Option<Expr>,
+    pub change: Option<Route>,
     pub submit: Option<Route>,
     pub paste: Option<Route>,
     pub width: Option<LengthValue>,
