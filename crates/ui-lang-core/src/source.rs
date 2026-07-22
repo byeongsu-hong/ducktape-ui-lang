@@ -395,11 +395,11 @@ mod tests {
         );
         fixture.write(
             "shared/theme.ice",
-            "theme\n  foreground #ffffff\n  background #000000\n  primary #333333\n  danger #ff0000\n",
+            "theme\n  fg #ffffff\n  bg #000000\n  primary #333333\n  danger #ff0000\n",
         );
         fixture.write(
             "parts/body.ice",
-            "use \"../shared/theme.ice\"\ncomponent Card()\n  text \"Hello\" @text-foreground\n",
+            "use \"../shared/theme.ice\"\ncomponent Card()\n  text \"Hello\" @text-fg\n",
         );
 
         let compiled = compile_file(fixture.path("app.ice")).unwrap();
@@ -428,7 +428,7 @@ mod tests {
         let fixture = Fixture::new();
         fixture.write(
             "app.ice",
-            "app Saved\ntheme\n  background #000000\n  foreground #ffffff\n  primary #333333\n  danger #ff0000\nview\n  text \"Saved\"\n",
+            "app Saved\ntheme\n  bg #000000\n  fg #ffffff\n  primary #333333\n  danger #ff0000\nview\n  text \"Saved\"\n",
         );
         fixture.write("part.ice", "component Broken()\n  text \"Saved\"\n");
         let root = fixture.path("app.ice");
@@ -436,7 +436,7 @@ mod tests {
         let mut overlays = HashMap::from([
             (
                 root.clone(),
-                "app Overlay\nuse \"part.ice\"\ntheme\n  background #000000\n  foreground #ffffff\n  primary #333333\n  danger #ff0000\nview\n  Broken()\n"
+                "app Overlay\nuse \"part.ice\"\ntheme\n  bg #000000\n  fg #ffffff\n  primary #333333\n  danger #ff0000\nview\n  Broken()\n"
                     .into(),
             ),
             (part.clone(), "component Broken()\n  wat\n".into()),
@@ -455,7 +455,7 @@ mod tests {
     #[test]
     fn retains_checked_component_and_handler_locations_across_imports() {
         let fixture = Fixture::new();
-        let root = "app Demo\nuse \"part.ice\"\ntheme\n  background #000000\n  foreground #ffffff\n  primary #333333\n  danger #ff0000\nview\n  Card()\n";
+        let root = "app Demo\nuse \"part.ice\"\ntheme\n  bg #000000\n  fg #ffffff\n  primary #333333\n  danger #ff0000\nview\n  Card()\n";
         fixture.write("app.ice", root);
         fixture.write(
             "part.ice",
@@ -482,7 +482,7 @@ mod tests {
     #[test]
     fn keeps_component_local_handlers_out_of_global_symbol_navigation() {
         let fixture = Fixture::new();
-        let root = "app Demo\ntheme\n  background #000000\n  foreground #ffffff\n  primary #333333\n  danger #ff0000\ncomponent Toggle()\n  state\n    enabled = false\n  on changed(next)\n    enabled = next\n  checkbox \"Enabled\" checked=enabled -> changed _\non changed\nview\n  Toggle #toggle\n";
+        let root = "app Demo\ntheme\n  bg #000000\n  fg #ffffff\n  primary #333333\n  danger #ff0000\ncomponent Toggle()\n  state\n    enabled = false\n  on changed(next)\n    enabled = next\n  checkbox \"Enabled\" checked=enabled -> changed _\non changed\nview\n  Toggle #toggle\n";
         fixture.write("app.ice", root);
 
         let checked = analyze_file_with_source(fixture.path("app.ice"), root).unwrap();
@@ -503,7 +503,7 @@ mod tests {
     #[test]
     fn retains_handler_locations_in_named_route_properties() {
         let fixture = Fixture::new();
-        let root = "app Demo\ntheme\n  background #000000\n  foreground #ffffff\n  primary #333333\n  danger #ff0000\nstate\n  draft:str = \"\"\non submit\nview\n  input \"Draft\" <-> draft submit=submit\n";
+        let root = "app Demo\ntheme\n  bg #000000\n  fg #ffffff\n  primary #333333\n  danger #ff0000\nstate\n  draft:str = \"\"\non submit\nview\n  input \"Draft\" <-> draft submit=submit\n";
         fixture.write("app.ice", root);
 
         let checked = analyze_file_with_source(fixture.path("app.ice"), root).unwrap();
@@ -520,7 +520,7 @@ mod tests {
     #[test]
     fn keeps_the_implicit_mount_hook_out_of_rename() {
         let fixture = Fixture::new();
-        let root = "app Demo\ntheme\n  background #000000\n  foreground #ffffff\n  primary #333333\n  danger #ff0000\non mount\nview\n  text \"Ready\"\n";
+        let root = "app Demo\ntheme\n  bg #000000\n  fg #ffffff\n  primary #333333\n  danger #ff0000\non mount\nview\n  text \"Ready\"\n";
         fixture.write("app.ice", root);
 
         let checked = analyze_file_with_source(fixture.path("app.ice"), root).unwrap();
@@ -539,7 +539,7 @@ mod tests {
         let fixture = Fixture::new();
         let indent = "\u{a0}\u{a0}";
         let root = format!(
-            "app Demo\ntheme\n{indent}background #000000\n{indent}foreground #ffffff\n{indent}primary #333333\n{indent}danger #ff0000\ncomponent Card()\n{indent}text \"Card\"\nview\n{indent}Card()\n"
+            "app Demo\ntheme\n{indent}bg #000000\n{indent}fg #ffffff\n{indent}primary #333333\n{indent}danger #ff0000\ncomponent Card()\n{indent}text \"Card\"\nview\n{indent}Card()\n"
         );
         fixture.write("app.ice", &root);
 
@@ -555,7 +555,7 @@ mod tests {
     #[test]
     fn retains_compact_canvas_routes_without_synthetic_references() {
         let fixture = Fixture::new();
-        let root = "app Demo\ntheme\n  background #000000\n  foreground #ffffff\n  primary #333333\n  danger #ff0000\non pressed(button)\non __canvas_event\nview\n  canvas\n    event mouse pressed -> pressed _\n    capture touch lost\n";
+        let root = "app Demo\ntheme\n  bg #000000\n  fg #ffffff\n  primary #333333\n  danger #ff0000\non pressed(button)\non __canvas_event\nview\n  canvas\n    event mouse pressed -> pressed _\n    capture touch lost\n";
         fixture.write("app.ice", root);
 
         let checked = analyze_file_with_source(fixture.path("app.ice"), root).unwrap();
@@ -612,7 +612,7 @@ mod tests {
         let fixture = Fixture::new();
         fixture.write(
             "app.ice",
-            "app Demo\n  font \"assets/Brand.ttf\"\n  window\n    icon-rgba \"assets/app.rgba\" 2 1\ntheme\n  background #000000\n  foreground #ffffff\n  primary #333333\n  danger #ff0000\nview\n  text \"Hi\"\n",
+            "app Demo\n  font \"assets/Brand.ttf\"\n  window\n    icon-rgba \"assets/app.rgba\" 2 1\ntheme\n  bg #000000\n  fg #ffffff\n  primary #333333\n  danger #ff0000\nview\n  text \"Hi\"\n",
         );
         fixture.write("assets/Brand.ttf", "font bytes");
         fixture.write("assets/app.rgba", "RGBAABC\n");
@@ -636,7 +636,7 @@ mod tests {
         let fixture = Fixture::new();
         fixture.write(
             "app.ice",
-            "app Demo\n  font \"assets/Missing.ttf\"\ntheme\n  background #000000\n  foreground #ffffff\n  primary #333333\n  danger #ff0000\nview\n  text \"Hi\"\n",
+            "app Demo\n  font \"assets/Missing.ttf\"\ntheme\n  bg #000000\n  fg #ffffff\n  primary #333333\n  danger #ff0000\nview\n  text \"Hi\"\n",
         );
 
         let error = compile_file(fixture.path("app.ice")).unwrap_err();
@@ -647,7 +647,7 @@ mod tests {
 
         fixture.write(
             "app.ice",
-            "app Demo\n  window child\n    icon-rgba \"assets/missing.rgba\" 2 1\ntheme\n  background #000000\n  foreground #ffffff\n  primary #333333\n  danger #ff0000\nview\n  text \"Hi\"\n",
+            "app Demo\n  window child\n    icon-rgba \"assets/missing.rgba\" 2 1\ntheme\n  bg #000000\n  fg #ffffff\n  primary #333333\n  danger #ff0000\nview\n  text \"Hi\"\n",
         );
         let error = compile_file(fixture.path("app.ice")).unwrap_err();
         assert_eq!(error.code, "E192");
@@ -657,7 +657,7 @@ mod tests {
         fixture.write("assets/wrong.rgba", "RGBA");
         fixture.write(
             "app.ice",
-            "app Demo\n  window\n    icon-rgba \"assets/wrong.rgba\" 2 1\ntheme\n  background #000000\n  foreground #ffffff\n  primary #333333\n  danger #ff0000\nview\n  text \"Hi\"\n",
+            "app Demo\n  window\n    icon-rgba \"assets/wrong.rgba\" 2 1\ntheme\n  bg #000000\n  fg #ffffff\n  primary #333333\n  danger #ff0000\nview\n  text \"Hi\"\n",
         );
         let error = compile_file(fixture.path("app.ice")).unwrap_err();
         assert_eq!(error.code, "E193");

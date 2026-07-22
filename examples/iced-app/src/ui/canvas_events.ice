@@ -1,8 +1,8 @@
 app CanvasEvents
 
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 
@@ -75,5 +75,5 @@ view
     event window file-hovered -> file_hovered _
     event window file-dropped -> file_dropped _
     event window files-hovered-left -> files_left
-    rect x=0.0 y=0.0 width=canvas_width height=canvas_height fill=background
-    text move_count x=8.0 y=20.0 color=foreground size=14.0
+    rect x=0.0 y=0.0 width=canvas_width height=canvas_height fill=bg
+    text move_count x=8.0 y=20.0 color=fg size=14.0

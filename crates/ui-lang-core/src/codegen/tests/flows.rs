@@ -4,8 +4,8 @@ use super::*;
 fn lowers_structured_task_groups_to_native_combinators() {
     let source = r#"app Grouped
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 on start
@@ -31,8 +31,8 @@ view
 fn lowers_native_task_cancellation() {
     let source = r#"app Cancel
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -68,8 +68,8 @@ extern crate::backend
   recipe snapshot(id:i64) -> str
   event-filter raw_event() -> str
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 on start
@@ -122,8 +122,8 @@ extern crate::backend
   sip transfer(size:i64) progress=f64 -> bytes
   sip fallible() progress=i64 -> str ! AppError
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 on start
@@ -160,8 +160,8 @@ extern crate::backend
   task double(value:i64) -> i64
   task fallible(value:i64) -> i64 ! AppError
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 on start
@@ -209,8 +209,8 @@ extern crate::backend
   sync normalize(error:NetworkError) -> AppError
   task request() -> i64 ! NetworkError
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state

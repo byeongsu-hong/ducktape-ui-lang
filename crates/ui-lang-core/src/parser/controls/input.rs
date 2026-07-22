@@ -202,7 +202,7 @@ pub(in crate::parser) fn parse_button(
                 "warning" => Some(ButtonStylePreset::Warning),
                 "danger" => Some(ButtonStylePreset::Danger),
                 "text" => Some(ButtonStylePreset::Text),
-                "background" => Some(ButtonStylePreset::Background),
+                "bg" => Some(ButtonStylePreset::Background),
                 "subtle" => Some(ButtonStylePreset::Subtle),
                 _ => None,
             } {
@@ -422,7 +422,7 @@ pub(in crate::parser) fn parse_checkbox_status_style(
     };
     for part in &parts[2..] {
         let parse = |value: &str| parse_expr(strip_wrapping_parens(value), line);
-        if let Some(value) = part.strip_prefix("background=") {
+        if let Some(value) = part.strip_prefix("bg=") {
             style.background = Some(parse_background_value(value, line)?);
         } else if let Some(value) = part.strip_prefix("icon=") {
             style.icon_color = Some(value.to_owned());
@@ -430,17 +430,17 @@ pub(in crate::parser) fn parse_checkbox_status_style(
             style.text_color = Some(value.to_owned());
         } else if let Some(value) = part.strip_prefix("border=") {
             style.border_color = Some(value.to_owned());
-        } else if let Some(value) = part.strip_prefix("border-width=") {
+        } else if let Some(value) = part.strip_prefix("border-w=") {
             style.border_width = Some(parse(value)?);
-        } else if let Some(value) = part.strip_prefix("radius=") {
+        } else if let Some(value) = part.strip_prefix("r=") {
             style.radius = Some(parse(value)?);
-        } else if let Some(value) = part.strip_prefix("radius-tl=") {
+        } else if let Some(value) = part.strip_prefix("r-tl=") {
             style.radius_top_left = Some(parse(value)?);
-        } else if let Some(value) = part.strip_prefix("radius-tr=") {
+        } else if let Some(value) = part.strip_prefix("r-tr=") {
             style.radius_top_right = Some(parse(value)?);
-        } else if let Some(value) = part.strip_prefix("radius-br=") {
+        } else if let Some(value) = part.strip_prefix("r-br=") {
             style.radius_bottom_right = Some(parse(value)?);
-        } else if let Some(value) = part.strip_prefix("radius-bl=") {
+        } else if let Some(value) = part.strip_prefix("r-bl=") {
             style.radius_bottom_left = Some(parse(value)?);
         } else {
             return Err(error(
@@ -546,31 +546,31 @@ pub(in crate::parser) fn parse_toggler_status_style(
     };
     for part in &parts[2..] {
         let parse = |value: &str| parse_expr(strip_wrapping_parens(value), line);
-        if let Some(value) = part.strip_prefix("background=") {
+        if let Some(value) = part.strip_prefix("bg=") {
             style.background = Some(parse_background_value(value, line)?);
-        } else if let Some(value) = part.strip_prefix("background-border=") {
+        } else if let Some(value) = part.strip_prefix("bg-border=") {
             style.background_border_color = Some(value.to_owned());
-        } else if let Some(value) = part.strip_prefix("background-border-width=") {
+        } else if let Some(value) = part.strip_prefix("bg-border-w=") {
             style.background_border_width = Some(parse(value)?);
-        } else if let Some(value) = part.strip_prefix("foreground=") {
+        } else if let Some(value) = part.strip_prefix("fg=") {
             style.foreground = Some(parse_background_value(value, line)?);
-        } else if let Some(value) = part.strip_prefix("foreground-border=") {
+        } else if let Some(value) = part.strip_prefix("fg-border=") {
             style.foreground_border_color = Some(value.to_owned());
-        } else if let Some(value) = part.strip_prefix("foreground-border-width=") {
+        } else if let Some(value) = part.strip_prefix("fg-border-w=") {
             style.foreground_border_width = Some(parse(value)?);
         } else if let Some(value) = part.strip_prefix("text=") {
             style.text_color = Some(value.to_owned());
-        } else if let Some(value) = part.strip_prefix("radius=") {
+        } else if let Some(value) = part.strip_prefix("r=") {
             style.radius = Some(parse(value)?);
-        } else if let Some(value) = part.strip_prefix("radius-tl=") {
+        } else if let Some(value) = part.strip_prefix("r-tl=") {
             style.radius_top_left = Some(parse(value)?);
-        } else if let Some(value) = part.strip_prefix("radius-tr=") {
+        } else if let Some(value) = part.strip_prefix("r-tr=") {
             style.radius_top_right = Some(parse(value)?);
-        } else if let Some(value) = part.strip_prefix("radius-br=") {
+        } else if let Some(value) = part.strip_prefix("r-br=") {
             style.radius_bottom_right = Some(parse(value)?);
-        } else if let Some(value) = part.strip_prefix("radius-bl=") {
+        } else if let Some(value) = part.strip_prefix("r-bl=") {
             style.radius_bottom_left = Some(parse(value)?);
-        } else if let Some(value) = part.strip_prefix("padding-ratio=") {
+        } else if let Some(value) = part.strip_prefix("p-ratio=") {
             style.padding_ratio = Some(parse(value)?);
         } else {
             return Err(error(

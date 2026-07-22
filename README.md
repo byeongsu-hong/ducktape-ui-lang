@@ -40,7 +40,7 @@ on submit
   run create_task(trim(draft)) -> created _ | failed _
 
 view
-  col width=fill height=fill padding=24.0 spacing=16.0 @bg-background
+  col width=fill height=fill padding=24.0 spacing=16.0 @bg-bg
     Panel title="Create task" #create-task
       row width=fill spacing=12.0
         input "New task" #new-task <-> draft width=fill padding=12.0 @bg-surface
@@ -93,7 +93,7 @@ self-alignment, and auto/fixed/percentage margins:
 flex width=fill gap=8.0 justify-content=space-between align-items=center
   box flex-grow=1.0 padding=12.0 @bg-surface
     text "Sidebar"
-  box flex-grow=2.0 padding=12.0 @bg-background
+  box flex-grow=2.0 padding=12.0 @bg-bg
     text "Content"
 ```
 
@@ -252,7 +252,7 @@ next to their parser, checker, or code generator module.
 
 ## Status
 
-Ice 1.59 is an executable language revision, not an attempt to replace iced.
+Ice 1.60 is an executable language revision, not an attempt to replace iced.
 Its stable authoring Core is app/state/component/handler/view structure,
 component-local state, `match`, common layout and widgets, checked event
 routing, and typed Rust effects. Existing
@@ -261,7 +261,7 @@ advanced syntax remains available as a compatibility surface, while typed
 native behavior without growing Core merely for API parity.
 
 Language revisions and Cargo package versions are intentionally separate. The
-specification is revision 1.59; the workspace packages currently use pre-1.0
+specification is revision 1.60; the workspace packages currently use pre-1.0
 SemVer `0.1.0`.
 
 [`SPEC.md`](SPEC.md) defines the Core and compatibility boundary.

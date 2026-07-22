@@ -4,8 +4,8 @@ extern crate::backend
   sync pointer_click(click:mouse-click, cursor:mouse-cursor, button:mouse-button, finger:touch-finger, position:point, bounds:rectangle) -> mouse-click
 
 theme
-  background #111827
-  foreground #f9fafb
+  bg #111827
+  fg #f9fafb
   primary #60a5fa
   danger #f87171
 

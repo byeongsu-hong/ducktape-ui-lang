@@ -500,8 +500,8 @@ fn checks_native_image_allocation_results_and_errors() {
 fn rejects_invalid_animation_boundaries_before_codegen() {
     let source = r#"app Motion
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -532,8 +532,8 @@ view
 fn checks_exit_is_a_final_native_task() {
     let source = r#"daemon Agent
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 on quit
@@ -560,8 +560,8 @@ extern crate::backend
   sync label(id:window-id) -> str
   sync scale(id:window-id) -> f64
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 component WindowBody(id:window-id)

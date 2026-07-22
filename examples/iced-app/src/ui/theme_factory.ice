@@ -5,8 +5,8 @@ app NativeTheme
   theme native_theme(dark)
 
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 

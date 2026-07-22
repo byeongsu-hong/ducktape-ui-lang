@@ -4,8 +4,8 @@ extern crate::backend
   sync keyboard_value(key:key, physical:physical-key, location:key-location, modifiers:key-modifiers) -> key
 
 theme
-  background #111827
-  foreground #f9fafb
+  bg #111827
+  fg #f9fafb
   primary #60a5fa
   danger #f87171
 

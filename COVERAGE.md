@@ -6,7 +6,7 @@ resolved by this workspace: `iced 0.14.0` and `iced_widget 0.14.2`.
 This is a compatibility inventory, not a roadmap. A partial or missing row does
 not imply planned Ice syntax; uncommon behavior should use an existing typed
 Rust boundary unless it satisfies the Core criteria in [`SPEC.md`](SPEC.md).
-Language revision 1.59 and the workspace's pre-1.0 package version `0.1.0`
+Language revision 1.60 and the workspace's pre-1.0 package version `0.1.0`
 are intentionally separate version schemes.
 
 - **native**: accepted Ice syntax is parsed, type-checked, lowered, and compiled
@@ -64,7 +64,7 @@ and remain outside native export.
 
 ## Typed system reachability
 
-Ice 1.59 has thirty-three checked Rust boundaries:
+Ice 1.60 has thirty-three checked Rust boundaries:
 
 | Boundary | Rust ABI | Covers |
 | --- | --- | --- |

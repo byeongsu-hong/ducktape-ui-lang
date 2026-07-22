@@ -15,6 +15,24 @@ fn parses_compact_app() {
 }
 
 #[test]
+fn rejects_long_style_spelling() {
+    let source = r#"app Demo
+theme
+  bg #000000
+view
+  container background=bg
+    text \"Demo\"
+"#;
+    let error = parse(source).unwrap_err();
+    assert_eq!(error.code, "E184");
+    assert!(
+        error
+            .message
+            .contains("unknown container property `background=bg`")
+    );
+}
+
+#[test]
 fn parses_daemon_root_and_exit() {
     let source = r#"daemon Agent
   window dashboard
@@ -45,8 +63,8 @@ extern crate::backend
   Item(label:str)
   component native_row(label:&str, items:&[Item], active:&bool) -> bool
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state

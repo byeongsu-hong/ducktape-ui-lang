@@ -44,9 +44,9 @@ pub(in crate::check) fn check_id(
 // | text.weight              | @font-bold               | font= descriptor          |
 // | surface.background       | @bg-TOKEN                | property/status/callback  |
 // | surface.text_color       | @text-TOKEN              | property/status/callback  |
-// | surface.border_width     | border-width=            | @border/@border-2         |
+// | surface.border_width     | border-w=                | @border/@border-2         |
 // | surface.border_color     | @border-TOKEN            | property/status/callback  |
-// | surface.radius.*         | radius[-corner]=         | @rounded-*                |
+// | surface.radius.*         | r[-corner]=              | @rounded-*                |
 // | button state background  | @hover:bg-/pressed:bg-   | button status background  |
 // | input focused border     | @focus:border-*          | input focused border      |
 // | button disabled opacity  | @disabled:opacity-*      | (no typed form)           |
@@ -283,7 +283,7 @@ pub(in crate::check) fn check_styles(
         return Err(Error::new(
             "E044",
             span,
-            "border colors require `border-width=` (or deprecated `@border`/`@border-2`) on the same node",
+            "border colors require `border-w=` (or deprecated `@border`/`@border-2`) on the same node",
         ));
     }
     let has_radius = styles
@@ -528,7 +528,7 @@ fn check_direct_surface_ownership(
         (
             style.background.is_some(),
             "background",
-            "background=",
+            "bg=",
             last_utility(styles, None, |utility| utility.starts_with("bg-")),
         ),
         (
@@ -540,7 +540,7 @@ fn check_direct_surface_ownership(
         (
             style.border_width.is_some(),
             "border width",
-            "border-width=",
+            "border-w=",
             last_utility(styles, None, |utility| {
                 matches!(utility, "border" | "border-2")
             }),
@@ -554,7 +554,7 @@ fn check_direct_surface_ownership(
         (
             has_radius(style),
             "radius",
-            "radius=",
+            "r=",
             last_utility(styles, None, |utility| utility.starts_with("rounded")),
         ),
     ] {
@@ -583,13 +583,13 @@ fn check_input_status_ownership(
         (
             options.background.is_some(),
             "background",
-            "background=",
+            "bg=",
             background,
         ),
         (
             options.border_width.is_some(),
             "border width",
-            "border-width=",
+            "border-w=",
             last_utility(styles, None, |utility| {
                 matches!(utility, "border" | "border-2")
             }),
@@ -603,7 +603,7 @@ fn check_input_status_ownership(
         (
             has_radius(options),
             "radius",
-            "radius=",
+            "r=",
             last_utility(styles, None, |utility| utility.starts_with("rounded")),
         ),
     ];
@@ -635,7 +635,7 @@ fn check_button_status_ownership(
         (
             options.background.is_some(),
             "background",
-            "background=",
+            "bg=",
             background,
         ),
         (
@@ -647,7 +647,7 @@ fn check_button_status_ownership(
         (
             has_radius(options),
             "radius",
-            "radius=",
+            "r=",
             last_utility(styles, None, |utility| utility.starts_with("rounded")),
         ),
     ] {

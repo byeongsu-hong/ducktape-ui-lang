@@ -432,14 +432,14 @@ pub(in crate::parser) fn parse_menu_style(
     for part in &parts[1..] {
         if let Some(value) = part.strip_prefix("selected-text=") {
             style.selected_text_color = Some(value.to_owned());
-        } else if let Some(value) = part.strip_prefix("selected-background=") {
+        } else if let Some(value) = part.strip_prefix("selected-bg=") {
             style.selected_background = Some(parse_background_value(value, line)?);
         } else if parse_container_style_option(part, &mut style.options, line)? {
             if style.options.pixel_snap.is_some() {
                 return Err(error(
                     code,
                     line,
-                    format!("{widget} menu does not support pixel-snap"),
+                    format!("{widget} menu does not support px-snap"),
                 ));
             }
         } else {

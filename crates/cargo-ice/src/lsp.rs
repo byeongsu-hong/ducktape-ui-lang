@@ -878,7 +878,7 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    const APP_WITH_PART: &str = "app Demo\nuse \"part.ice\"\ntheme\n  background #000000\n  foreground #ffffff\n  primary #333333\n  danger #ff0000\nview\n  Broken()\n";
+    const APP_WITH_PART: &str = "app Demo\nuse \"part.ice\"\ntheme\n  bg #000000\n  fg #ffffff\n  primary #333333\n  danger #ff0000\nview\n  Broken()\n";
 
     struct Fixture(PathBuf);
 
@@ -964,14 +964,14 @@ mod tests {
             json!({
                 "jsonrpc": "2.0",
                 "method": "textDocument/didOpen",
-                "params": { "textDocument": { "uri": uri, "text": "app Demo\ntheme\n  background #000000\n  foreground #ffffff\n  primary #333333\n  danger #ff0000\nview\n  wat\n" } },
+                "params": { "textDocument": { "uri": uri, "text": "app Demo\ntheme\n  bg #000000\n  fg #ffffff\n  primary #333333\n  danger #ff0000\nview\n  wat\n" } },
             }),
             json!({
                 "jsonrpc": "2.0",
                 "method": "textDocument/didChange",
                 "params": {
                     "textDocument": { "uri": uri },
-                    "contentChanges": [{ "text": "app Demo\ntheme\n    background #000000\n    foreground #ffffff\n    primary #333333\n    danger #ff0000\nview\n    text \"Hi\"\n" }],
+                    "contentChanges": [{ "text": "app Demo\ntheme\n    bg #000000\n    fg #ffffff\n    primary #333333\n    danger #ff0000\nview\n    text \"Hi\"\n" }],
                 },
             }),
             json!({ "jsonrpc": "2.0", "id": 2, "method": "shutdown" }),
@@ -1213,7 +1213,7 @@ mod tests {
     #[test]
     fn formats_open_documents_and_completes_from_the_schema() {
         let uri = "file:///tmp/demo.ice";
-        let source = "app Demo\ntheme\n    background #000000\n    foreground #ffffff\n    primary #333333\n    danger #ff0000\nview\n    text \"😀\"";
+        let source = "app Demo\ntheme\n    bg #000000\n    fg #ffffff\n    primary #333333\n    danger #ff0000\nview\n    text \"😀\"";
         let messages = run(&[
             json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {} }),
             json!({
@@ -1264,8 +1264,8 @@ mod tests {
     #[test]
     fn defines_and_safely_renames_checked_symbols_across_imports() {
         let fixture = Fixture::new();
-        let root = "app Demo\nuse \"part.ice\"\ntheme\n  background #000000\n  foreground #ffffff\n  primary #333333\n  danger #ff0000\nview\n  Card()\n";
-        let other = "app Other\nuse \"part.ice\"\ntheme\n  background #000000\n  foreground #ffffff\n  primary #333333\n  danger #ff0000\nview\n  Card()\n";
+        let root = "app Demo\nuse \"part.ice\"\ntheme\n  bg #000000\n  fg #ffffff\n  primary #333333\n  danger #ff0000\nview\n  Card()\n";
+        let other = "app Other\nuse \"part.ice\"\ntheme\n  bg #000000\n  fg #ffffff\n  primary #333333\n  danger #ff0000\nview\n  Card()\n";
         let part = "component Card()\n  button \"😀\" -> clicked\ncomponent Panel()\n  text \"Other\"\non clicked\non mount\n";
         fixture.write("app.ice", root);
         fixture.write("other.ice", other);
@@ -1407,7 +1407,7 @@ mod tests {
     #[test]
     fn imported_rename_requires_an_initialized_workspace() {
         let fixture = Fixture::new();
-        let root = "app Demo\nuse \"part.ice\"\ntheme\n  background #000000\n  foreground #ffffff\n  primary #333333\n  danger #ff0000\nview\n  Card()\n";
+        let root = "app Demo\nuse \"part.ice\"\ntheme\n  bg #000000\n  fg #ffffff\n  primary #333333\n  danger #ff0000\nview\n  Card()\n";
         let part = "component Card()\n  text \"Card\"\n";
         fixture.write("app.ice", root);
         fixture.write("part.ice", part);
@@ -1435,8 +1435,8 @@ mod tests {
         let outside = fixture.path("outside");
         fs::create_dir_all(&workspace).unwrap();
         fs::create_dir_all(&outside).unwrap();
-        let workspace_app = "app Workspace\ntheme\n  background #000000\n  foreground #ffffff\n  primary #333333\n  danger #ff0000\nview\n  text \"Workspace\"\n";
-        let outside_app = "app Outside\nuse \"part.ice\"\ntheme\n  background #000000\n  foreground #ffffff\n  primary #333333\n  danger #ff0000\nview\n  Card()\n";
+        let workspace_app = "app Workspace\ntheme\n  bg #000000\n  fg #ffffff\n  primary #333333\n  danger #ff0000\nview\n  text \"Workspace\"\n";
+        let outside_app = "app Outside\nuse \"part.ice\"\ntheme\n  bg #000000\n  fg #ffffff\n  primary #333333\n  danger #ff0000\nview\n  Card()\n";
         let part = "component Card()\n  text \"Card\"\n";
         fs::write(workspace.join("app.ice"), workspace_app).unwrap();
         fs::write(outside.join("app.ice"), outside_app).unwrap();
@@ -1461,7 +1461,7 @@ mod tests {
     #[test]
     fn open_fragment_new_facts_participate_in_rename_checks() {
         let fixture = Fixture::new();
-        let root = "app Demo\nuse \"part.ice\"\nuse \"extra.ice\"\ntheme\n  background #000000\n  foreground #ffffff\n  primary #333333\n  danger #ff0000\nview\n  Card()\n";
+        let root = "app Demo\nuse \"part.ice\"\nuse \"extra.ice\"\ntheme\n  bg #000000\n  fg #ffffff\n  primary #333333\n  danger #ff0000\nview\n  Card()\n";
         let part = "component Card()\n  text \"Card\"\n";
         fixture.write("app.ice", root);
         fixture.write("part.ice", part);
@@ -1488,7 +1488,7 @@ mod tests {
     #[test]
     fn renames_a_compound_component_family_together() {
         let fixture = Fixture::new();
-        let root = "app Demo\nuse \"part.ice\"\ntheme\n  background #000000\n  foreground #ffffff\n  primary #333333\n  danger #ff0000\nview\n  Dialog\n    Dialog.Header\n";
+        let root = "app Demo\nuse \"part.ice\"\ntheme\n  bg #000000\n  fg #ffffff\n  primary #333333\n  danger #ff0000\nview\n  Dialog\n    Dialog.Header\n";
         let part =
             "component Dialog()\n  slot Header\ncomponent Dialog.Header()\n  text \"Header\"\n";
         fixture.write("app.ice", root);
@@ -1559,7 +1559,7 @@ mod tests {
     #[test]
     fn rename_waits_until_every_workspace_app_root_checks() {
         let fixture = Fixture::new();
-        let root = "app Demo\nuse \"part.ice\"\ntheme\n  background #000000\n  foreground #ffffff\n  primary #333333\n  danger #ff0000\nview\n  Card()\n";
+        let root = "app Demo\nuse \"part.ice\"\ntheme\n  bg #000000\n  fg #ffffff\n  primary #333333\n  danger #ff0000\nview\n  Card()\n";
         let part = "component Card()\n  text \"Card\"\n";
         let broken = "app Broken\nview\n  wat\n";
         fixture.write("app.ice", root);
@@ -1612,7 +1612,7 @@ mod tests {
     #[test]
     fn uses_unsaved_import_ranges_for_navigation() {
         let fixture = Fixture::new();
-        let root = "app Demo\nuse \"part.ice\"\ntheme\n  background #000000\n  foreground #ffffff\n  primary #333333\n  danger #ff0000\nview\n  Card()\n";
+        let root = "app Demo\nuse \"part.ice\"\ntheme\n  bg #000000\n  fg #ffffff\n  primary #333333\n  danger #ff0000\nview\n  Card()\n";
         let part = "component Card()\n  text \"Card\"\n";
         let dirty_part = format!("// unsaved line\n{part}");
         fixture.write("app.ice", root);

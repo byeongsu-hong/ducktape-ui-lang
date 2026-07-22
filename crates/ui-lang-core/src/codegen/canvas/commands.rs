@@ -114,7 +114,7 @@ pub(in crate::codegen) fn canvas_commands_code(
                     .transpose()?
                     .map_or_else(|| "f32::INFINITY".into(), |value| format!("{value} as f32"));
                 let color = color.as_ref().map_or_else(
-                    || theme_color(document, "foreground"),
+                    || theme_color(document, "fg"),
                     |color| theme_color(document, color),
                 );
                 let size = size

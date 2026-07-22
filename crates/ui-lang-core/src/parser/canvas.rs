@@ -384,15 +384,15 @@ pub(in crate::parser) fn parse_canvas_command(line: &Line) -> Result<CanvasComma
                     "y",
                     "width",
                     "height",
-                    "radius",
-                    "radius-tl",
-                    "radius-tr",
-                    "radius-br",
-                    "radius-bl",
+                    "r",
+                    "r-tl",
+                    "r-tr",
+                    "r-br",
+                    "r-bl",
                     "fill",
                     "fill-rule",
                     "stroke",
-                    "stroke-width",
+                    "stroke-w",
                     "cap",
                     "join",
                     "dash",
@@ -419,11 +419,11 @@ pub(in crate::parser) fn parse_canvas_command(line: &Line) -> Result<CanvasComma
                 &[
                     "x",
                     "y",
-                    "radius",
+                    "r",
                     "fill",
                     "fill-rule",
                     "stroke",
-                    "stroke-width",
+                    "stroke-w",
                     "cap",
                     "join",
                     "dash",
@@ -436,7 +436,7 @@ pub(in crate::parser) fn parse_canvas_command(line: &Line) -> Result<CanvasComma
             Ok(CanvasCommand::Circle {
                 x: canvas_required_expr(&fields, "x", line)?,
                 y: canvas_required_expr(&fields, "y", line)?,
-                radius: canvas_required_expr(&fields, "radius", line)?,
+                radius: canvas_required_expr(&fields, "r", line)?,
                 paint: Box::new(paint),
                 span,
             })
@@ -451,7 +451,7 @@ pub(in crate::parser) fn parse_canvas_command(line: &Line) -> Result<CanvasComma
                     "x2",
                     "y2",
                     "stroke",
-                    "stroke-width",
+                    "stroke-w",
                     "cap",
                     "join",
                     "dash",
@@ -481,19 +481,8 @@ pub(in crate::parser) fn parse_canvas_command(line: &Line) -> Result<CanvasComma
             let fields = canvas_fields(
                 &parts[2..],
                 &[
-                    "x",
-                    "y",
-                    "width",
-                    "height",
-                    "filter",
-                    "rotation",
-                    "opacity",
-                    "snap",
-                    "radius",
-                    "radius-tl",
-                    "radius-tr",
-                    "radius-br",
-                    "radius-bl",
+                    "x", "y", "width", "height", "filter", "rotation", "opacity", "snap", "r",
+                    "r-tl", "r-tr", "r-br", "r-bl",
                 ],
                 line,
             )?;
@@ -579,7 +568,7 @@ pub(in crate::parser) fn parse_canvas_command(line: &Line) -> Result<CanvasComma
                     "fill",
                     "fill-rule",
                     "stroke",
-                    "stroke-width",
+                    "stroke-w",
                     "cap",
                     "join",
                     "dash",
@@ -744,24 +733,16 @@ pub(in crate::parser) fn parse_canvas_path_segment(
         .ok_or_else(|| error("E190", line, "empty canvas path segment"))?;
     let allowed = match kind {
         "move" | "line" => &["x", "y"][..],
-        "arc" => &["x", "y", "radius", "start", "end"],
-        "arc-to" => &["ax", "ay", "bx", "by", "radius"],
-        "ellipse" => &["x", "y", "radius-x", "radius-y", "rotation", "start", "end"],
+        "arc" => &["x", "y", "r", "start", "end"],
+        "arc-to" => &["ax", "ay", "bx", "by", "r"],
+        "ellipse" => &["x", "y", "r-x", "r-y", "rotation", "start", "end"],
         "bezier" => &["ax", "ay", "bx", "by", "x", "y"],
         "quadratic" => &["cx", "cy", "x", "y"],
         "rect" => &["x", "y", "width", "height"],
         "rounded" => &[
-            "x",
-            "y",
-            "width",
-            "height",
-            "radius",
-            "radius-tl",
-            "radius-tr",
-            "radius-br",
-            "radius-bl",
+            "x", "y", "width", "height", "r", "r-tl", "r-tr", "r-br", "r-bl",
         ],
-        "circle" => &["x", "y", "radius"],
+        "circle" => &["x", "y", "r"],
         "close" if parts.len() == 1 => return Ok(CanvasPathSegment::Close),
         _ => {
             return Err(error(
@@ -773,7 +754,7 @@ pub(in crate::parser) fn parse_canvas_path_segment(
     };
     let fields = canvas_fields(&parts[1..], allowed, line)?;
     if kind == "rounded"
-        && !["radius", "radius-tl", "radius-tr", "radius-br", "radius-bl"]
+        && !["r", "r-tl", "r-tr", "r-br", "r-bl"]
             .iter()
             .any(|name| fields.contains_key(*name))
     {
@@ -790,7 +771,7 @@ pub(in crate::parser) fn parse_canvas_path_segment(
         "arc" => CanvasPathSegment::Arc {
             x: value("x")?,
             y: value("y")?,
-            radius: value("radius")?,
+            radius: value("r")?,
             start: value("start")?,
             end: value("end")?,
         },
@@ -799,13 +780,13 @@ pub(in crate::parser) fn parse_canvas_path_segment(
             ay: value("ay")?,
             bx: value("bx")?,
             by: value("by")?,
-            radius: value("radius")?,
+            radius: value("r")?,
         },
         "ellipse" => CanvasPathSegment::Ellipse {
             x: value("x")?,
             y: value("y")?,
-            radius_x: value("radius-x")?,
-            radius_y: value("radius-y")?,
+            radius_x: value("r-x")?,
+            radius_y: value("r-y")?,
             rotation: value("rotation")?,
             start: value("start")?,
             end: value("end")?,
@@ -840,7 +821,7 @@ pub(in crate::parser) fn parse_canvas_path_segment(
         "circle" => CanvasPathSegment::Circle {
             x: value("x")?,
             y: value("y")?,
-            radius: value("radius")?,
+            radius: value("r")?,
         },
         _ => unreachable!("canvas path kind checked above"),
     })
@@ -905,11 +886,11 @@ pub(in crate::parser) fn parse_canvas_radius(
     line: &Line,
 ) -> Result<CanvasRadius, Error> {
     Ok(CanvasRadius {
-        all: canvas_optional_expr(fields, "radius", line)?,
-        top_left: canvas_optional_expr(fields, "radius-tl", line)?,
-        top_right: canvas_optional_expr(fields, "radius-tr", line)?,
-        bottom_right: canvas_optional_expr(fields, "radius-br", line)?,
-        bottom_left: canvas_optional_expr(fields, "radius-bl", line)?,
+        all: canvas_optional_expr(fields, "r", line)?,
+        top_left: canvas_optional_expr(fields, "r-tl", line)?,
+        top_right: canvas_optional_expr(fields, "r-tr", line)?,
+        bottom_right: canvas_optional_expr(fields, "r-br", line)?,
+        bottom_left: canvas_optional_expr(fields, "r-bl", line)?,
     })
 }
 
@@ -958,7 +939,7 @@ pub(in crate::parser) fn parse_canvas_stroke(
     line: &Line,
 ) -> Result<Option<CanvasStroke>, Error> {
     let Some(style) = fields.get("stroke") else {
-        if ["stroke-width", "cap", "join", "dash", "dash-offset"]
+        if ["stroke-w", "cap", "join", "dash", "dash-offset"]
             .iter()
             .any(|name| fields.contains_key(*name))
         {
@@ -997,7 +978,7 @@ pub(in crate::parser) fn parse_canvas_stroke(
         .unwrap_or_default();
     Ok(Some(CanvasStroke {
         style: parse_background_value(style, line)?,
-        width: fields.get("stroke-width").map_or_else(
+        width: fields.get("stroke-w").map_or_else(
             || Ok(Expr::F64(1.0)),
             |value| parse_expr(strip_wrapping_parens(value), line),
         )?,

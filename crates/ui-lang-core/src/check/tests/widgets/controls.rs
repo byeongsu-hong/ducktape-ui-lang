@@ -4,8 +4,8 @@ use super::*;
 fn rejects_invalid_rule_style_values() {
     let source = r#"app Structure
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 view
@@ -29,8 +29,8 @@ extern crate::backend
   sync slider_number(value:f64) -> SliderNumber
   slider-style dynamic_slider(active:bool)
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -44,8 +44,8 @@ on precise_changed(next)
 view
   col
     slider amount min=0.0 max=100.0 step=5.0 default=50.0 shift-step=1.0 width=fill(2) height=20.0 style=dynamic_slider(active) -> changed _
-      active rail-start=linear(0.0, primary@0.0, danger@1.0) rail-end=linear(1.57, background@0.0, primary/25@1.0) rail-width=4.0 rail-border=transparent rail-border-width=1.0 rail-radius=2.0 rail-radius-tl=1.0 handle=circle(7.0) handle-color=linear(0.785, primary@0.0, foreground@1.0) handle-border=foreground handle-border-width=1.0
-      hovered rail-start=foreground rail-end=background rail-radius-tr=3.0 rail-radius-br=3.0 rail-radius-bl=2.0 handle=rect(12) handle-color=foreground handle-radius=3.0 handle-radius-tl=1.0 handle-radius-tr=2.0 handle-radius-br=3.0 handle-radius-bl=4.0
+      active rail-start=linear(0.0, primary@0.0, danger@1.0) rail-end=linear(1.57, bg@0.0, primary/25@1.0) rail-w=4.0 rail-border=transparent rail-border-w=1.0 rail-r=2.0 rail-r-tl=1.0 handle=circle(7.0) handle-color=linear(0.785, primary@0.0, fg@1.0) handle-border=fg handle-border-w=1.0
+      hovered rail-start=fg rail-end=bg rail-r-tr=3.0 rail-r-br=3.0 rail-r-bl=2.0 handle=rect(12) handle-color=fg handle-r=3.0 handle-r-tl=1.0 handle-r-tr=2.0 handle-r-br=3.0 handle-r-bl=4.0
       dragged rail-start=danger handle=circle(8.0) handle-color=danger
     slider amount min=0.0 max=100.0 step=5.0 default=50.0 shift-step=1.0 vertical width=20.0 height=fill -> changed _
     slider precise min=slider_number(0.0) max=slider_number(100.0) step=slider_number(5.0) default=slider_number(50.0) shift-step=slider_number(1.0) -> precise_changed _
@@ -73,7 +73,7 @@ view
     assert_eq!(error.code, "E129");
     assert!(error.message.contains("unknown slider rail start color"));
 
-    let bad_metric = source.replace("rail-width=4.0", "rail-width=-1.0");
+    let bad_metric = source.replace("rail-w=4.0", "rail-w=-1.0");
     let error = analyze(&bad_metric).unwrap_err();
     assert_eq!(error.code, "E128");
     assert!(error.message.contains("slider rail width"));
@@ -110,8 +110,8 @@ fn checks_progress_options_and_rejects_invalid_style() {
 extern crate::backend
   progress-style dynamic_progress(active:bool)
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -119,7 +119,7 @@ state
   active = true
 view
   col
-    progress amount min=0.0 max=100.0 length=fill(2) girth=20.0 style=dynamic_progress(active) background=linear(1.57, background@0.0, primary/25@1.0) bar=linear(0.0, primary/75@0.0, danger@1.0) border=foreground border-width=1.0 radius=4.0 radius-tl=2.0 radius-tr=3.0 radius-br=4.0 radius-bl=5.0
+    progress amount min=0.0 max=100.0 length=fill(2) girth=20.0 style=dynamic_progress(active) bg=linear(1.57, bg@0.0, primary/25@1.0) bar=linear(0.0, primary/75@0.0, danger@1.0) border=fg border-w=1.0 r=4.0 r-tl=2.0 r-tr=3.0 r-br=4.0 r-bl=5.0
     progress amount vertical length=120.0 girth=fill style=warning
 "#;
     analyze(source).unwrap();
@@ -134,7 +134,7 @@ view
     assert_eq!(error.code, "E129");
     assert!(error.message.contains("unknown progress bar color"));
 
-    let bad_radius = source.replace("radius=4.0", "radius=-1.0");
+    let bad_radius = source.replace("r=4.0", "r=-1.0");
     let error = analyze(&bad_radius).unwrap_err();
     assert_eq!(error.code, "E128");
     assert!(error.message.contains("progress radius"));
@@ -159,14 +159,14 @@ fn checks_tooltip_style_and_rejects_invalid_values() {
 extern crate::backend
   container-style tooltip_surface(active:bool)
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
   active = true
 view
-  tooltip position=bottom style=tooltip_surface(active) background=linear(1.57, background@0.0, primary/25@1.0) text=foreground border=primary/75 border-width=1.0 radius=5.0 radius-tl=2.0 radius-tr=3.0 radius-br=4.0 radius-bl=5.0 shadow=black/50 shadow-x=-1.0 shadow-y=2.0 shadow-blur=8.0 pixel-snap=true
+  tooltip position=bottom style=tooltip_surface(active) bg=linear(1.57, bg@0.0, primary/25@1.0) text=fg border=primary/75 border-w=1.0 r=5.0 r-tl=2.0 r-tr=3.0 r-br=4.0 r-bl=5.0 shadow=black/50 shadow-x=-1.0 shadow-y=2.0 shadow-blur=8.0 px-snap=true
     text "Hover"
     text "Tip"
 "#;
@@ -208,8 +208,8 @@ view
 fn rejects_a_negative_space_length() {
     let source = r#"app Structure
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 view
@@ -229,8 +229,8 @@ view
 fn rejects_a_non_positive_responsive_breakpoint() {
     let source = r#"app Structure
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 view
@@ -247,8 +247,8 @@ view
 fn infers_mouse_move_and_scroll_payloads() {
     let source = r#"app Pointer
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -277,8 +277,8 @@ view
 fn rejects_wrong_mouse_move_arity() {
     let source = r#"app Pointer
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 on moved(x)
@@ -297,8 +297,8 @@ fn checks_scrollable_configuration_and_offsets() {
 extern crate::backend
   scroll-style dynamic_scroll(busy:bool)
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -315,23 +315,23 @@ on scrolled(ax, ay, rx, ry)
 on viewport(ax, ay, reversed_x, reversed_y, rx, ry, bx, by, bw, bh, cx, cy, cw, ch)
 view
   col
-    scroll #feed direction=both width=fill height=200.0 bar=hidden bar-width=8.0 bar-margin=2.0 scroller-width=6.0 bar-spacing=4.0 anchor-x=end anchor-y=start auto=true scroll=scrolled style=dynamic_scroll(busy)
+    scroll #feed direction=both width=fill height=200.0 bar=hidden bar-w=8.0 bar-margin=2.0 scroller-w=6.0 bar-spacing=4.0 anchor-x=end anchor-y=start auto=true scroll=scrolled style=dynamic_scroll(busy)
       text "Legacy offsets"
     scroll direction=both width=fill height=200.0 viewport=viewport style=dynamic_scroll(busy)
       col
         text "Complete viewport"
-      active horizontal-disabled=false vertical-disabled=false
-        container background=background text=foreground border=primary border-width=1.0 radius=4.0 radius-tl=1.0 radius-tr=2.0 radius-br=3.0 radius-bl=4.0 shadow=danger shadow-x=1.0 shadow-y=2.0 shadow-blur=4.0 pixel-snap=true
-        horizontal-rail background=background border=primary border-width=1.0 radius=2.0
-        horizontal-scroller background=primary border=foreground border-width=1.0 radius=2.0
-        vertical-rail background=background border=primary border-width=1.0 radius=2.0
-        vertical-scroller background=primary border=foreground border-width=1.0 radius=2.0
-        gap background=background
-        auto background=background border=primary border-width=1.0 radius=4.0 shadow=danger shadow-x=1.0 shadow-y=2.0 shadow-blur=4.0 icon=foreground
-      hovered horizontal-hovered=true vertical-hovered=false horizontal-disabled=false vertical-disabled=false
-        horizontal-scroller background=foreground
-      dragged horizontal-dragged=false vertical-dragged=true horizontal-disabled=false vertical-disabled=false
-        vertical-scroller background=danger
+      active x-disabled=false y-disabled=false
+        container bg=bg text=fg border=primary border-w=1.0 r=4.0 r-tl=1.0 r-tr=2.0 r-br=3.0 r-bl=4.0 shadow=danger shadow-x=1.0 shadow-y=2.0 shadow-blur=4.0 px-snap=true
+        x-rail bg=bg border=primary border-w=1.0 r=2.0
+        x-scroller bg=primary border=fg border-w=1.0 r=2.0
+        y-rail bg=bg border=primary border-w=1.0 r=2.0
+        y-scroller bg=primary border=fg border-w=1.0 r=2.0
+        gap bg=bg
+        auto bg=bg border=primary border-w=1.0 r=4.0 shadow=danger shadow-x=1.0 shadow-y=2.0 shadow-blur=4.0 icon=fg
+      hovered x-hovered=true y-hovered=false x-disabled=false y-disabled=false
+        x-scroller bg=fg
+      dragged x-dragged=false y-dragged=true x-disabled=false y-disabled=false
+        y-scroller bg=danger
 "#;
     let document = analyze(source).unwrap();
     for param in &document.handlers[0].params {
@@ -342,8 +342,7 @@ view
         assert_eq!(param.ty.display(), "f64");
     }
 
-    let error = analyze(&source.replace("horizontal-hovered=true", "horizontal-hovered=maybe"))
-        .unwrap_err();
+    let error = analyze(&source.replace("x-hovered=true", "x-hovered=maybe")).unwrap_err();
     assert_eq!(error.code, "E074");
     assert!(error.message.contains("true or false"));
 
@@ -373,12 +372,12 @@ view
 fn rejects_negative_scrollbar_size() {
     let source = r#"app Scrolling
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 view
-  scroll bar-width=-1.0
+  scroll bar-w=-1.0
     text "Scrollable"
 "#;
     let error = analyze(source).unwrap_err();
@@ -393,8 +392,8 @@ extern crate::backend
   input-style dynamic_input(disabled:bool)
 font ui family=sans
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -406,11 +405,11 @@ on pasted(next)
   value = next
 view
   input "Secret" #secret <-> value hint="Paste token" disabled=disabled secure=secure submit=submitted paste=pasted width=240.0 padding=8.0 text-size=14.0 line-height=1.2 align=center font=mono style=dynamic_input(disabled)
-    active background=background border=foreground border-width=1.0 radius=4.0 icon=primary placeholder=danger value=foreground selection=primary
-    hovered background=background icon=foreground placeholder=danger value=foreground selection=primary
-    focused background=background border=primary
-    focused-hovered background=background border=foreground
-    disabled background=background value=danger
+    active bg=bg border=fg border-w=1.0 r=4.0 icon=primary placeholder=danger value=fg selection=primary
+    hovered bg=bg icon=fg placeholder=danger value=fg selection=primary
+    focused bg=bg border=primary
+    focused-hovered bg=bg border=fg
+    disabled bg=bg value=danger
     icon code="•" font=ui size=12.0 spacing=4.0 side=right
 "#;
     let document = analyze(source).unwrap();
@@ -435,8 +434,8 @@ view
 fn rejects_input_icon_options_without_an_icon() {
     let source = r#"app Form
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -453,8 +452,8 @@ view
 fn rejects_negative_input_icon_spacing() {
     let source = r#"app Form
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -474,8 +473,8 @@ fn checks_button_child_and_typed_properties() {
 extern crate::backend
   button-style dynamic_button(disabled:bool)
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -486,10 +485,10 @@ view
     row
       text "Save"
       text "⌘S"
-    active background=linear(1.57, primary@0.0, background@1.0) text=foreground border=primary border-width=1.0 radius=4.0 radius-tl=2.0 radius-tr=3.0 radius-br=5.0 radius-bl=6.0 shadow=black/50 shadow-x=-1.0 shadow-y=2.0 shadow-blur=4.0 pixel-snap=true
-    hovered background=foreground text=background
-    pressed background=primary
-    disabled background=background text=foreground
+    active bg=linear(1.57, primary@0.0, bg@1.0) text=fg border=primary border-w=1.0 r=4.0 r-tl=2.0 r-tr=3.0 r-br=5.0 r-bl=6.0 shadow=black/50 shadow-x=-1.0 shadow-y=2.0 shadow-blur=4.0 px-snap=true
+    hovered bg=fg text=bg
+    pressed bg=primary
+    disabled bg=bg text=fg
 "#;
     analyze(source).unwrap();
 
@@ -517,8 +516,8 @@ view
 fn rejects_button_label_and_child_together() {
     let source = r#"app Actions
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 on pressed
@@ -538,8 +537,8 @@ extern crate::backend
   checkbox-style dynamic_checkbox(disabled:bool)
   toggler-style dynamic_toggler(disabled:bool)
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -549,29 +548,28 @@ on changed(next)
 view
   col
     checkbox "Checkbox" checked=enabled style=dynamic_checkbox(enabled) size=20.0 width=fill spacing=8.0 text-size=14.0 line-height=1.2 shaping=advanced wrapping=word-or-glyph font=mono icon="✓" icon-size=12.0 icon-line-height=1.0 icon-shaping=basic -> changed _
-      active checked background=linear(1.57, primary@0.0, background@1.0) icon=foreground text=foreground border=primary border-width=1.0 radius=4.0 radius-tl=2.0 radius-tr=3.0 radius-br=5.0 radius-bl=6.0
-      active unchecked background=background icon=primary text=foreground border=foreground
-      hovered checked background=primary icon=foreground text=foreground border=primary
-      hovered unchecked background=foreground icon=background text=primary border=primary
-      disabled checked background=background icon=foreground text=foreground border=foreground
-      disabled unchecked background=background icon=primary text=foreground border=primary
+      active checked bg=linear(1.57, primary@0.0, bg@1.0) icon=fg text=fg border=primary border-w=1.0 r=4.0 r-tl=2.0 r-tr=3.0 r-br=5.0 r-bl=6.0
+      active unchecked bg=bg icon=primary text=fg border=fg
+      hovered checked bg=primary icon=fg text=fg border=primary
+      hovered unchecked bg=fg icon=bg text=primary border=primary
+      disabled checked bg=bg icon=fg text=fg border=fg
+      disabled unchecked bg=bg icon=primary text=fg border=primary
     toggler "Toggler" checked=enabled style=dynamic_toggler(enabled) size=20.0 width=fill spacing=8.0 text-size=14.0 line-height=1.2 shaping=auto wrapping=glyph font=default align=right -> changed _
-      active checked background=linear(1.57, primary@0.0, background@1.0) background-border=primary background-border-width=1.0 foreground=linear(0.0, foreground@0.0, primary@1.0) foreground-border=foreground foreground-border-width=2.0 text=foreground radius=7.0 radius-tl=6.0 radius-tr=7.0 radius-br=8.0 radius-bl=9.0 padding-ratio=0.125
-      active unchecked background=background foreground=foreground text=primary
-      hovered checked background=primary foreground=foreground text=foreground
-      hovered unchecked background=foreground foreground=background text=primary
-      disabled checked background=background foreground=foreground text=foreground
-      disabled unchecked background=background foreground=primary text=foreground
+      active checked bg=linear(1.57, primary@0.0, bg@1.0) bg-border=primary bg-border-w=1.0 fg=linear(0.0, fg@0.0, primary@1.0) fg-border=fg fg-border-w=2.0 text=fg r=7.0 r-tl=6.0 r-tr=7.0 r-br=8.0 r-bl=9.0 p-ratio=0.125
+      active unchecked bg=bg fg=fg text=primary
+      hovered checked bg=primary fg=fg text=fg
+      hovered unchecked bg=fg fg=bg text=primary
+      disabled checked bg=bg fg=fg text=fg
+      disabled unchecked bg=bg fg=primary text=fg
 "#;
     analyze(source).unwrap();
 
     let error =
-        analyze(&source.replace("border=primary border-width", "border=missing border-width"))
-            .unwrap_err();
+        analyze(&source.replace("border=primary border-w", "border=missing border-w")).unwrap_err();
     assert_eq!(error.code, "E129");
     assert!(error.message.contains("checkbox border color `missing`"));
 
-    let error = analyze(&source.replace("border-width=1.0", "border-width=-1.0")).unwrap_err();
+    let error = analyze(&source.replace("border-w=1.0", "border-w=-1.0")).unwrap_err();
     assert_eq!(error.code, "E128");
     assert!(error.message.contains("checkbox style metric"));
 
@@ -604,16 +602,16 @@ view
     assert_eq!(error.code, "E101");
 
     let error = analyze(&source.replace(
-        "      active unchecked background=background",
-        "      active checked background=background\n      active unchecked background=background",
+        "      active unchecked bg=bg",
+        "      active checked bg=bg\n      active unchecked bg=bg",
     ))
     .unwrap_err();
     assert_eq!(error.code, "E067");
     assert!(error.message.contains("duplicate checkbox active checked"));
 
     let error = analyze(&source.replace(
-        "background-border=primary background-border-width",
-        "background-border=missing background-border-width",
+        "bg-border=primary bg-border-w",
+        "bg-border=missing bg-border-w",
     ))
     .unwrap_err();
     assert_eq!(error.code, "E129");
@@ -623,15 +621,15 @@ view
             .contains("toggler background border color `missing`")
     );
 
-    let error = analyze(&source.replace("padding-ratio=0.125", "padding-ratio=0.6")).unwrap_err();
+    let error = analyze(&source.replace("p-ratio=0.125", "p-ratio=0.6")).unwrap_err();
     assert_eq!(error.code, "E128");
     assert!(error.message.contains("toggler padding ratio"));
 
     let error = analyze(&source.replace(
-            "      active unchecked background=background foreground=foreground",
-            "      active checked background=background\n      active unchecked background=background foreground=foreground",
-        ))
-        .unwrap_err();
+        "      active unchecked bg=bg fg=fg",
+        "      active checked bg=bg\n      active unchecked bg=bg fg=fg",
+    ))
+    .unwrap_err();
     assert_eq!(error.code, "E075");
     assert!(error.message.contains("duplicate toggler active checked"));
 }
@@ -643,8 +641,8 @@ extern crate::backend
   Item(id:i64)
   radio-style dynamic_radio(highlight:bool)
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -658,10 +656,10 @@ on item_changed(next)
 view
   col
     radio "List" value="list" selected=(choice == "list") style=dynamic_radio(highlight) size=20.0 width=fill spacing=8.0 text-size=14.0 line-height=1.2 shaping=advanced wrapping=word-or-glyph font=mono -> changed _
-      active selected background=linear(1.57, primary@0.0, background@1.0) dot=foreground border=primary border-width=2.0 text=foreground
-      active unselected background=background dot=primary border=foreground text=foreground
-      hovered selected background=primary dot=foreground border=foreground text=foreground
-      hovered unselected background=foreground dot=background border=primary text=primary
+      active selected bg=linear(1.57, primary@0.0, bg@1.0) dot=fg border=primary border-w=2.0 text=fg
+      active unselected bg=bg dot=primary border=fg text=fg
+      hovered selected bg=primary dot=fg border=fg text=fg
+      hovered unselected bg=fg dot=bg border=primary text=primary
     radio "Float" value=1.5 selected=false -> float_changed _
     for item in items
       radio "Item" value=item selected=false -> item_changed _
@@ -672,12 +670,11 @@ view
     assert_eq!(document.handlers[2].params[0].ty.display(), "Item");
 
     let error =
-        analyze(&source.replace("border=primary border-width", "border=missing border-width"))
-            .unwrap_err();
+        analyze(&source.replace("border=primary border-w", "border=missing border-w")).unwrap_err();
     assert_eq!(error.code, "E129");
     assert!(error.message.contains("radio border color `missing`"));
 
-    let error = analyze(&source.replace("border-width=2.0", "border-width=-1.0")).unwrap_err();
+    let error = analyze(&source.replace("border-w=2.0", "border-w=-1.0")).unwrap_err();
     assert_eq!(error.code, "E128");
     assert!(error.message.contains("radio border width"));
 
@@ -700,10 +697,10 @@ view
     assert_eq!(error.code, "E101");
 
     let error = analyze(&source.replace(
-            "      active unselected background=background",
-            "      active selected background=background\n      active unselected background=background",
-        ))
-        .unwrap_err();
+        "      active unselected bg=bg",
+        "      active selected bg=bg\n      active unselected bg=bg",
+    ))
+    .unwrap_err();
     assert_eq!(error.code, "E078");
     assert!(error.message.contains("duplicate radio active selected"));
 }
@@ -712,8 +709,8 @@ view
 fn checks_text_format_options_and_rejects_zero_line_height() {
     let source = r#"app Typography
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -734,8 +731,8 @@ fn checks_native_text_style_callbacks() {
 extern crate::backend
   text-style dynamic_text(active:bool)
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -771,15 +768,15 @@ fn checks_structured_rich_text_spans() {
     let source = r#"app Typography
 font ui family=sans weight=medium stretch=normal style=normal
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
 on link(url)
 view
-  rich-text width=fill height=48.0 size=16.0 line-height=1.2 font=ui align-x=justified align-y=center wrapping=word color=foreground @font-bold -> link _
-    span "Ice " size=18.0 line-height-px=22.0 font=ui color=primary background=linear(1.57, background@0.0, primary@1.0) border=foreground border-width=1.0 radius=4.0 radius-tl=2.0 radius-tr=3.0 radius-br=5.0 radius-bl=6.0 padding=2.0 padding-left=4.0 underline strike=false
+  rich-text width=fill height=48.0 size=16.0 line-height=1.2 font=ui align-x=justified align-y=center wrapping=word color=fg @font-bold -> link _
+    span "Ice " size=18.0 line-height-px=22.0 font=ui color=primary bg=linear(1.57, bg@0.0, primary@1.0) border=fg border-w=1.0 r=4.0 r-tl=2.0 r-tr=3.0 r-br=5.0 r-bl=6.0 p=2.0 pl=4.0 underline strike=false
     span "language" link="https://example.com" @text-lg font-bold text-primary
 "#;
     analyze(source).unwrap();
@@ -798,7 +795,7 @@ view
     assert_eq!(error.code, "E186");
     assert!(error.message.contains("require `-> handler _`"));
 
-    let bad_padding = source.replace("padding-left=4.0", "padding-left=-1.0");
+    let bad_padding = source.replace("pl=4.0", "pl=-1.0");
     let error = analyze(&bad_padding).unwrap_err();
     assert_eq!(error.code, "E128");
     assert!(error.message.contains("span padding"));
@@ -822,8 +819,8 @@ font bold weight=bold stretch=expanded style=normal
 font extra_bold weight=extra-bold stretch=extra-expanded style=normal
 font black weight=black stretch=ultra-expanded style=normal
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -850,8 +847,8 @@ view
 fn rejects_checkbox_icon_options_without_icon() {
     let source = r#"app Preferences
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state

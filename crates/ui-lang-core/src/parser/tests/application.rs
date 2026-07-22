@@ -7,8 +7,8 @@ fn parses_checked_application_and_window_settings() {
         r##"app Demo
   title "Configured"
   theme "dark"
-  background "#123456"
-  text-color "#abcdef"
+  bg "#123456"
+  fg "#abcdef"
   id "dev.example.demo"
   executor iced::executor::Default
   renderer crate::backend::Renderer
@@ -202,7 +202,7 @@ fn parses_native_theme_factories() {
 app Themes
   theme native_theme(dark)
 theme
-  background #000000
+  bg #000000
 state
   dark = true
 view
@@ -285,11 +285,11 @@ on selected(next)
   selected = some(next)
 view
   pick choices selected -> selected _
-    active text=foreground placeholder=muted handle=primary background=surface border=border border-width=1.0 radius=4.0
-    hovered text=foreground
-    opened text=foreground
-    opened-hovered text=foreground
-    menu text=foreground selected-text=foreground selected-background=primary background=surface shadow=black shadow-y=2.0
+    active text=fg placeholder=muted handle=primary bg=surface border=border border-w=1.0 r=4.0
+    hovered text=fg
+    opened text=fg
+    opened-hovered text=fg
+    menu text=fg selected-text=fg selected-bg=primary bg=surface shadow=black shadow-y=2.0
     {handle}
 "#
         );

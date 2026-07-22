@@ -39,8 +39,8 @@ pub(in crate::codegen) fn generate_theme(
         document.app
     )
     .unwrap();
-    writeln!(out, "background: {},", color("background", "#000000")).unwrap();
-    writeln!(out, "text: {},", color("foreground", "#ffffff")).unwrap();
+    writeln!(out, "background: {},", color("bg", "#000000")).unwrap();
+    writeln!(out, "text: {},", color("fg", "#ffffff")).unwrap();
     writeln!(out, "primary: {},", color("primary", "#5865f2")).unwrap();
     writeln!(out, "success: {},", color("primary", "#5865f2")).unwrap();
     writeln!(out, "warning: {},", color("danger", "#c3423f")).unwrap();

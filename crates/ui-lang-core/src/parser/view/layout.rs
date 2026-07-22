@@ -341,23 +341,23 @@ pub(in crate::parser) fn parse_container_style_option(
     line: &Line,
 ) -> Result<bool, Error> {
     let parse = |value: &str| parse_expr(strip_wrapping_parens(value), line);
-    if let Some(value) = part.strip_prefix("background=") {
+    if let Some(value) = part.strip_prefix("bg=") {
         style.background = Some(parse_background_value(value, line)?);
     } else if let Some(value) = part.strip_prefix("text=") {
         style.text_color = Some(value.to_owned());
     } else if let Some(value) = part.strip_prefix("border=") {
         style.border_color = Some(value.to_owned());
-    } else if let Some(value) = part.strip_prefix("border-width=") {
+    } else if let Some(value) = part.strip_prefix("border-w=") {
         style.border_width = Some(parse(value)?);
-    } else if let Some(value) = part.strip_prefix("radius=") {
+    } else if let Some(value) = part.strip_prefix("r=") {
         style.radius = Some(parse(value)?);
-    } else if let Some(value) = part.strip_prefix("radius-tl=") {
+    } else if let Some(value) = part.strip_prefix("r-tl=") {
         style.radius_top_left = Some(parse(value)?);
-    } else if let Some(value) = part.strip_prefix("radius-tr=") {
+    } else if let Some(value) = part.strip_prefix("r-tr=") {
         style.radius_top_right = Some(parse(value)?);
-    } else if let Some(value) = part.strip_prefix("radius-br=") {
+    } else if let Some(value) = part.strip_prefix("r-br=") {
         style.radius_bottom_right = Some(parse(value)?);
-    } else if let Some(value) = part.strip_prefix("radius-bl=") {
+    } else if let Some(value) = part.strip_prefix("r-bl=") {
         style.radius_bottom_left = Some(parse(value)?);
     } else if let Some(value) = part.strip_prefix("shadow=") {
         style.shadow_color = Some(value.to_owned());
@@ -367,7 +367,7 @@ pub(in crate::parser) fn parse_container_style_option(
         style.shadow_y = Some(parse(value)?);
     } else if let Some(value) = part.strip_prefix("shadow-blur=") {
         style.shadow_blur = Some(parse(value)?);
-    } else if let Some(value) = part.strip_prefix("pixel-snap=") {
+    } else if let Some(value) = part.strip_prefix("px-snap=") {
         style.pixel_snap = Some(parse(value)?);
     } else {
         return Ok(false);
@@ -936,21 +936,21 @@ pub(in crate::parser) fn parse_pane_grid_style(line: &Line) -> Result<PaneGridSt
         for part in &parts[1..] {
             match kind {
                 "hovered-region" => {
-                    if let Some(value) = part.strip_prefix("background=") {
+                    if let Some(value) = part.strip_prefix("bg=") {
                         style.region_background = Some(parse_background_value(value, status)?);
                     } else if let Some(value) = part.strip_prefix("border=") {
                         style.region_border = Some(value.to_owned());
-                    } else if let Some(value) = part.strip_prefix("border-width=") {
+                    } else if let Some(value) = part.strip_prefix("border-w=") {
                         style.region_border_width = Some(parse(value)?);
-                    } else if let Some(value) = part.strip_prefix("radius=") {
+                    } else if let Some(value) = part.strip_prefix("r=") {
                         style.region_radius = Some(parse(value)?);
-                    } else if let Some(value) = part.strip_prefix("radius-tl=") {
+                    } else if let Some(value) = part.strip_prefix("r-tl=") {
                         style.region_radius_top_left = Some(parse(value)?);
-                    } else if let Some(value) = part.strip_prefix("radius-tr=") {
+                    } else if let Some(value) = part.strip_prefix("r-tr=") {
                         style.region_radius_top_right = Some(parse(value)?);
-                    } else if let Some(value) = part.strip_prefix("radius-br=") {
+                    } else if let Some(value) = part.strip_prefix("r-br=") {
                         style.region_radius_bottom_right = Some(parse(value)?);
-                    } else if let Some(value) = part.strip_prefix("radius-bl=") {
+                    } else if let Some(value) = part.strip_prefix("r-bl=") {
                         style.region_radius_bottom_left = Some(parse(value)?);
                     } else {
                         return Err(error(
@@ -968,7 +968,7 @@ pub(in crate::parser) fn parse_pane_grid_style(line: &Line) -> Result<PaneGridSt
                     };
                     if let Some(value) = part.strip_prefix("color=") {
                         *color = Some(value.to_owned());
-                    } else if let Some(value) = part.strip_prefix("width=") {
+                    } else if let Some(value) = part.strip_prefix("w=") {
                         *width = Some(parse(value)?);
                     } else {
                         return Err(error(

@@ -4,8 +4,8 @@ use super::*;
 fn rejects_a_utility_that_the_widget_would_ignore() {
     let source = r#"app Demo
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 view
@@ -22,8 +22,8 @@ fn names_an_undeclared_extern_type() {
 extern crate::backend
   load() -> [Missing]
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 view
@@ -40,8 +40,8 @@ fn requires_a_route_for_an_emitting_extern_component() {
 extern crate::backend
   component native_control() -> bool
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 view
@@ -59,8 +59,8 @@ extern crate::backend
   shader native_shader(value:f64) -> bool
   shader passive_shader() -> unit
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state

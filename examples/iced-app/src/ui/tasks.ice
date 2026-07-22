@@ -1,8 +1,8 @@
 app Tasks
   title window_title
   theme app_theme
-  background app_background
-  text-color app_text
+  bg app_background
+  fg app_text
   id "dev.ducktape.ice.tasks"
   executor iced::executor::Default
   default-text-size 16
@@ -52,17 +52,17 @@ preset seeded
 view
   overlay when=about_open dismiss=close_about backdrop=black/60 padding=24.0 align-x=center align-y=center
     content
-      col spacing=24.0 padding=24.0 @w-full h-full bg-background
+      col spacing=24.0 padding=24.0 @w-full h-full bg-bg
         flex gap=12.0 justify-content=space-between align-items=center @w-full
-          text "Tasks" size=24.0 @font-bold text-foreground
+          text "Tasks" size=24.0 @font-bold text-fg
           text len(tasks) size=14.0 @text-muted
           toggler "About" checked=about_open disabled=loading size=18.0 spacing=8.0 -> about_toggled _
-            active checked background=linear(1.57, primary@0.0, surface@1.0) background-border=primary background-border-width=1.0 foreground=linear(0.0, foreground@0.0, primary@1.0) foreground-border=foreground foreground-border-width=1.0 text=foreground radius=7.0 radius-tl=6.0 radius-tr=7.0 radius-br=8.0 radius-bl=9.0 padding-ratio=0.125
-            active unchecked background=surface foreground=foreground text=muted
-            hovered checked background=primary foreground=foreground text=foreground
-            hovered unchecked background=background foreground=primary text=foreground
-            disabled checked background=surface foreground=muted text=muted
-            disabled unchecked background=background foreground=muted text=muted
+            active checked bg=linear(1.57, primary@0.0, surface@1.0) bg-border=primary bg-border-w=1.0 fg=linear(0.0, fg@0.0, primary@1.0) fg-border=fg fg-border-w=1.0 text=fg r=7.0 r-tl=6.0 r-tr=7.0 r-br=8.0 r-bl=9.0 p-ratio=0.125
+            active unchecked bg=surface fg=fg text=muted
+            hovered checked bg=primary fg=fg text=fg
+            hovered unchecked bg=bg fg=primary text=fg
+            disabled checked bg=surface fg=muted text=muted
+            disabled unchecked bg=bg fg=muted text=muted
           button "About" style=text -> open_about
           button "New window" style=secondary -> open_child
           text "Child:" size=14.0 @text-muted
@@ -86,10 +86,10 @@ view
         row spacing=12.0 align=center @w-full
           input "New task" <-> draft hint="What needs doing?" disabled=loading submit=submit width=fill @px-4 py-3 bg-surface border border-border rounded-lg
           button "Add" disabled=(loading || empty(trim(draft))) style=success @px-4 py-3 disabled:opacity-50 -> submit
-            active background=linear(1.57, primary@0.0, surface@1.0) text=white border=primary border-width=1.0 radius=8.0 shadow=black/25 shadow-y=2.0 shadow-blur=4.0 pixel-snap=true
-            hovered background=linear(1.57, surface@0.0, primary@1.0) text=white radius=10.0
-            pressed background=primary/80 text=white radius=10.0
-            disabled background=surface text=muted radius=10.0
+            active bg=linear(1.57, primary@0.0, surface@1.0) text=white border=primary border-w=1.0 r=8.0 shadow=black/25 shadow-y=2.0 shadow-blur=4.0 px-snap=true
+            hovered bg=linear(1.57, surface@0.0, primary@1.0) text=white r=10.0
+            pressed bg=primary/80 text=white r=10.0
+            disabled bg=surface text=muted r=10.0
 
         if error != ""
           row spacing=16.0 padding=16.0 align=center @w-full bg-danger rounded-lg
@@ -106,12 +106,12 @@ view
 
         pane-grid #workspace split=vertical ratio=0.7 width=fill height=fill spacing=8.0 min-size=120.0 resize=8.0 drag click=pane_clicked(_)
           style
-            hovered-region background=linear(0.785, primary/10@0.0, primary/40@1.0) border=primary border-width=2.0 radius=8.0
-            hovered-split color=primary width=3.0
-            picked-split color=foreground width=3.0
-          pane tasks background=linear(1.57, surface@0.0, background@1.0) shadow=black/50 shadow-y=2.0 shadow-blur=8.0 pixel-snap=true border-width=1.0 radius=10.0 @border-border
-            title padding=12.0 always-controls background=linear(1.57, background@0.0, surface@1.0) border=border border-width=1.0 radius-tl=8.0 radius-tr=8.0 shadow=black/25 shadow-y=1.0 shadow-blur=3.0 pixel-snap=true
-              text "Task list" size=18.0 @font-bold text-foreground
+            hovered-region bg=linear(0.785, primary/10@0.0, primary/40@1.0) border=primary border-w=2.0 r=8.0
+            hovered-split color=primary w=3.0
+            picked-split color=fg w=3.0
+          pane tasks bg=linear(1.57, surface@0.0, bg@1.0) shadow=black/50 shadow-y=2.0 shadow-blur=8.0 px-snap=true border-w=1.0 r=10.0 @border-border
+            title padding=12.0 always-controls bg=linear(1.57, bg@0.0, surface@1.0) border=border border-w=1.0 r-tl=8.0 r-tr=8.0 shadow=black/25 shadow-y=1.0 shadow-blur=3.0 px-snap=true
+              text "Task list" size=18.0 @font-bold text-fg
             controls
               button "Inspect" style=secondary -> inspect_adjacent
             compact-controls
@@ -120,11 +120,11 @@ view
               scroll #task-list direction=vertical width=fill height=fill
                 keyed task in tasks by=task.id width=fill spacing=8.0
                   TaskRow task=task loading=loading
-          pane details border-width=1.0 radius=10.0 @bg-surface border-border
-            title padding=12.0 always-controls border-width=1.0 @bg-background border-border
-              text "Details" size=18.0 @font-bold text-foreground
+          pane details border-w=1.0 r=10.0 @bg-surface border-border
+            title padding=12.0 always-controls border-w=1.0 @bg-bg border-border
+              text "Details" size=18.0 @font-bold text-fg
             controls
-              button "Maximize" style=background -> maximize_details
+              button "Maximize" style=bg -> maximize_details
             compact-controls
               button "↗" style=warning -> maximize_details
             content
@@ -147,32 +147,32 @@ view
                     event keyboard press -> canvas_key _
                     redraw window frame after=1s
                     capture touch lost
-                    rect x=0.0 y=0.0 width=canvas_width height=canvas_height fill=linear(1.57, background@0.0, surface@1.0) stroke=border
-                    circle x=48.0 y=48.0 radius=28.0 fill=primary stroke=foreground stroke-width=2.0
-                    path fill=primary/25 stroke=primary stroke-width=2.0 cap=round join=round
+                    rect x=0.0 y=0.0 width=canvas_width height=canvas_height fill=linear(1.57, bg@0.0, surface@1.0) stroke=border
+                    circle x=48.0 y=48.0 r=28.0 fill=primary stroke=fg stroke-w=2.0
+                    path fill=primary/25 stroke=primary stroke-w=2.0 cap=round join=round
                       move x=96.0 y=112.0
                       bezier ax=136.0 ay=24.0 bx=176.0 by=152.0 x=224.0 y=64.0
                       line x=224.0 y=112.0
                       close
-                    text detail_mode x=16.0 y=136.0 color=foreground size=14.0 font=default
+                    text detail_mode x=16.0 y=136.0 color=fg size=14.0 font=default
                     text hits x=112.0 y=136.0 color=primary size=14.0 font=default
-                    image "examples/iced-app/assets/checker.ppm" x=256.0 y=16.0 width=48.0 height=48.0 filter=nearest opacity=0.9 snap=true radius=6.0
+                    image "examples/iced-app/assets/checker.ppm" x=256.0 y=16.0 width=48.0 height=48.0 filter=nearest opacity=0.9 snap=true r=6.0
                     svg "examples/iced-app/assets/ice.svg" x=312.0 y=16.0 width=48.0 height=48.0 color=primary opacity=0.9
                   shader status_shader(1.0) width=fill height=32.0 -> shader_hovered _
                   row wrap spacing=8.0
                     radio "Summary" value="summary" selected=(detail_mode == "summary") size=16.0 spacing=6.0 text-size=14.0 line-height=1.2 shaping=advanced wrapping=word font=default -> detail_mode_changed _
-                      active selected background=linear(1.57, primary@0.0, surface@1.0) dot=foreground border=primary border-width=2.0 text=foreground
-                      active unselected background=surface dot=primary border=border text=muted
-                      hovered selected background=primary dot=foreground border=foreground text=foreground
-                      hovered unselected background=background dot=primary border=primary text=foreground
+                      active selected bg=linear(1.57, primary@0.0, surface@1.0) dot=fg border=primary border-w=2.0 text=fg
+                      active unselected bg=surface dot=primary border=border text=muted
+                      hovered selected bg=primary dot=fg border=fg text=fg
+                      hovered unselected bg=bg dot=primary border=primary text=fg
                     radio "Activity" value="activity" selected=(detail_mode == "activity") -> detail_mode_changed _
                     button "Restore" -> restore_workspace
                     button "Swap" -> swap_workspace
                     button "Move left" -> move_details_left
                     button "Open preview" -> open_preview
-          pane preview closed border-width=1.0 radius=10.0 @bg-surface border-border
-            title padding=12.0 always-controls border-width=1.0 @bg-background border-border
-              text "Preview" size=18.0 @font-bold text-foreground
+          pane preview closed border-w=1.0 r=10.0 @bg-surface border-border
+            title padding=12.0 always-controls border-w=1.0 @bg-bg border-border
+              text "Preview" size=18.0 @font-bold text-fg
             controls
               button "Close" -> close_preview
             compact-controls
@@ -183,11 +183,11 @@ view
     layer
       Dialog
         Dialog.Header
-          text "About Ice Tasks" size=20.0 @font-bold text-foreground
+          text "About Ice Tasks" size=20.0 @font-bold text-fg
         Dialog.Body
           rich-text width=fill wrapping=word size=14.0 @text-muted -> about_link _
             span "This dialog is a structured overlay written entirely in "
-            span ".ice" link="https://github.com/byeongsu-hong/ducktape-ui-lang" background=linear(1.57, primary/20@0.0, surface@1.0) padding=2.0 radius=2.0 underline @font-bold text-primary
+            span ".ice" link="https://github.com/byeongsu-hong/ducktape-ui-lang" bg=linear(1.57, primary/20@0.0, surface@1.0) p=2.0 r=2.0 underline @font-bold text-primary
             span "."
         Dialog.Actions
           button "Close" style=primary @px-4 py-2 bg-primary text-white rounded-md -> close_about

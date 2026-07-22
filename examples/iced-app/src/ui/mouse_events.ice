@@ -1,8 +1,8 @@
 app MouseEvents
 
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 

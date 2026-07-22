@@ -6,8 +6,8 @@ extern crate::backend
   create_task(title:str) -> [Task] ! AppError
 
 theme
-  background #111111
-  foreground #eeeeee
+  bg #111111
+  fg #eeeeee
   primary #3366ff
   danger #cc3333
 

@@ -198,35 +198,35 @@ pub(in crate::parser) fn parse_rich_span(line: &Line) -> Result<RichSpan, Error>
             options.color = Some(value.to_owned());
         } else if let Some(value) = part.strip_prefix("link=") {
             options.link = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("background=") {
+        } else if let Some(value) = part.strip_prefix("bg=") {
             options.background = Some(parse_background_value(value, line)?);
         } else if let Some(value) = part.strip_prefix("border=") {
             options.border = Some(value.to_owned());
-        } else if let Some(value) = part.strip_prefix("border-width=") {
+        } else if let Some(value) = part.strip_prefix("border-w=") {
             options.border_width = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("radius=") {
+        } else if let Some(value) = part.strip_prefix("r=") {
             options.radius = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("radius-tl=") {
+        } else if let Some(value) = part.strip_prefix("r-tl=") {
             options.radius_top_left = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("radius-tr=") {
+        } else if let Some(value) = part.strip_prefix("r-tr=") {
             options.radius_top_right = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("radius-br=") {
+        } else if let Some(value) = part.strip_prefix("r-br=") {
             options.radius_bottom_right = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("radius-bl=") {
+        } else if let Some(value) = part.strip_prefix("r-bl=") {
             options.radius_bottom_left = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("padding=") {
+        } else if let Some(value) = part.strip_prefix("p=") {
             options.padding.all = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("padding-x=") {
+        } else if let Some(value) = part.strip_prefix("px=") {
             options.padding.x = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("padding-y=") {
+        } else if let Some(value) = part.strip_prefix("py=") {
             options.padding.y = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("padding-top=") {
+        } else if let Some(value) = part.strip_prefix("pt=") {
             options.padding.top = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("padding-right=") {
+        } else if let Some(value) = part.strip_prefix("pr=") {
             options.padding.right = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("padding-bottom=") {
+        } else if let Some(value) = part.strip_prefix("pb=") {
             options.padding.bottom = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("padding-left=") {
+        } else if let Some(value) = part.strip_prefix("pl=") {
             options.padding.left = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else if part == "underline" {
             options.underline = Some(Expr::Bool(true));

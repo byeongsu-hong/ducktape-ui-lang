@@ -602,8 +602,8 @@ extern crate::backend
   sync label(id:window-id) -> str
   sync scale(id:window-id) -> f64
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 on opened(id)
@@ -643,8 +643,8 @@ fn lowers_complete_common_application_and_window_settings() {
     let source = r#"app Configured
   title "Configured app"
   theme "dark"
-  background "123456"
-  text-color "abcdef"
+  bg "123456"
+  fg "abcdef"
   id "dev.example.configured"
   executor iced::executor::Default
   font "fonts/Brand.ttf"
@@ -696,8 +696,8 @@ preset ready
 on seeded(value)
   ready = value
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 view
@@ -770,11 +770,7 @@ view
     for (from, to, expected) in [
         ("title \"Configured app\"", "title ready", "expected `str`"),
         ("theme \"dark\"", "theme \"unknown\"", "unknown iced theme"),
-        (
-            "background \"123456\"",
-            "background \"not-a-color\"",
-            "hexadecimal",
-        ),
+        ("bg \"123456\"", "bg \"not-a-color\"", "hexadecimal"),
         ("scale-factor 1.25", "scale-factor 0", "greater than zero"),
     ] {
         let error = compile(&source.replace(from, to), "configured.ice").unwrap_err();
@@ -790,8 +786,8 @@ extern crate::backend
   AppError(message:str)
   load(id:i64) -> [Item] ! AppError
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -816,8 +812,8 @@ view
 fn lowers_accessibility_into_the_runtime_bridge() {
     let source = r#"app Accessible
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -875,7 +871,7 @@ view
 fn defers_windows_show_state_until_native_adapter_setup() {
     let source = |window: &str| {
         format!(
-            "app Accessible\n  window\n    {window}\ntheme\n  background #000000\n  foreground #ffffff\n  primary #333333\n  danger #ff0000\nview\n  text \"Ready\"\n"
+            "app Accessible\n  window\n    {window}\ntheme\n  bg #000000\n  fg #ffffff\n  primary #333333\n  danger #ff0000\nview\n  text \"Ready\"\n"
         )
     };
 
@@ -913,8 +909,8 @@ fn restores_only_the_initial_primary_window() {
     maximized true
     visible false
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 view
@@ -955,8 +951,8 @@ on mount
 on loaded(value)
   ready = value
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 view
@@ -988,8 +984,8 @@ fn snapshots_after_handlers_that_return_tasks_early() {
   save() -> unit
 app Accessible
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 on press

@@ -4,8 +4,8 @@ extern crate::backend
   sync window_id_round_trip(value:window-id) -> window-id
 
 theme
-  background #111827
-  foreground #f9fafb
+  bg #111827
+  fg #f9fafb
   primary #60a5fa
   danger #f87171
 

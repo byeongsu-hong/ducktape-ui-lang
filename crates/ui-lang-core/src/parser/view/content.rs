@@ -428,27 +428,27 @@ pub(in crate::parser) fn parse_markdown_style(line: &Line) -> Result<MarkdownSty
         };
         match name {
             "font" => style.font = Some(parse_font_preset(value, line)?),
-            "inline-code-background" => {
+            "inline-code-bg" => {
                 style.inline_code_background = Some(parse_background_value(value, line)?)
             }
-            "inline-code-color" => style.inline_code_color = Some(value.to_owned()),
+            "inline-code-fg" => style.inline_code_color = Some(value.to_owned()),
             "inline-code-font" => style.inline_code_font = Some(parse_font_preset(value, line)?),
             "code-block-font" => style.code_block_font = Some(parse_font_preset(value, line)?),
             "link" => style.link_color = Some(value.to_owned()),
-            "inline-code-padding" => style.inline_code_padding.all = Some(parse(value)?),
-            "inline-code-padding-x" => style.inline_code_padding.x = Some(parse(value)?),
-            "inline-code-padding-y" => style.inline_code_padding.y = Some(parse(value)?),
-            "inline-code-padding-top" => style.inline_code_padding.top = Some(parse(value)?),
-            "inline-code-padding-right" => style.inline_code_padding.right = Some(parse(value)?),
-            "inline-code-padding-bottom" => style.inline_code_padding.bottom = Some(parse(value)?),
-            "inline-code-padding-left" => style.inline_code_padding.left = Some(parse(value)?),
+            "inline-code-p" => style.inline_code_padding.all = Some(parse(value)?),
+            "inline-code-px" => style.inline_code_padding.x = Some(parse(value)?),
+            "inline-code-py" => style.inline_code_padding.y = Some(parse(value)?),
+            "inline-code-pt" => style.inline_code_padding.top = Some(parse(value)?),
+            "inline-code-pr" => style.inline_code_padding.right = Some(parse(value)?),
+            "inline-code-pb" => style.inline_code_padding.bottom = Some(parse(value)?),
+            "inline-code-pl" => style.inline_code_padding.left = Some(parse(value)?),
             "inline-code-border" => style.inline_code_border_color = Some(value.to_owned()),
-            "inline-code-border-width" => style.inline_code_border_width = Some(parse(value)?),
-            "inline-code-radius" => style.inline_code_radius = Some(parse(value)?),
-            "inline-code-radius-tl" => style.inline_code_radius_top_left = Some(parse(value)?),
-            "inline-code-radius-tr" => style.inline_code_radius_top_right = Some(parse(value)?),
-            "inline-code-radius-br" => style.inline_code_radius_bottom_right = Some(parse(value)?),
-            "inline-code-radius-bl" => style.inline_code_radius_bottom_left = Some(parse(value)?),
+            "inline-code-border-w" => style.inline_code_border_width = Some(parse(value)?),
+            "inline-code-r" => style.inline_code_radius = Some(parse(value)?),
+            "inline-code-r-tl" => style.inline_code_radius_top_left = Some(parse(value)?),
+            "inline-code-r-tr" => style.inline_code_radius_top_right = Some(parse(value)?),
+            "inline-code-r-br" => style.inline_code_radius_bottom_right = Some(parse(value)?),
+            "inline-code-r-bl" => style.inline_code_radius_bottom_left = Some(parse(value)?),
             _ => {
                 return Err(error(
                     "E097",
@@ -575,9 +575,9 @@ pub(in crate::parser) fn parse_theme(
         start = 2;
     }
     for part in &parts[start..] {
-        if let Some(value) = part.strip_prefix("text=") {
+        if let Some(value) = part.strip_prefix("fg=") {
             text = Some(value.to_owned());
-        } else if let Some(value) = part.strip_prefix("background=") {
+        } else if let Some(value) = part.strip_prefix("bg=") {
             background = Some(parse_background_value(value, line)?);
         } else {
             return Err(error(
@@ -639,7 +639,7 @@ pub(in crate::parser) fn parse_qr_code(
             total_size = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else if let Some(value) = part.strip_prefix("cell=") {
             cell = Some(value.to_owned());
-        } else if let Some(value) = part.strip_prefix("background=") {
+        } else if let Some(value) = part.strip_prefix("bg=") {
             background = Some(value.to_owned());
         } else {
             return Err(error("E093", line, format!("unknown qr property `{part}`")));

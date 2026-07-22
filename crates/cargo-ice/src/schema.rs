@@ -1,6 +1,6 @@
 use serde_json::{Value, json};
 
-pub const LANGUAGE_REVISION: &str = "1.59";
+pub const LANGUAGE_REVISION: &str = "1.60";
 pub const ICED_VERSION: &str = "0.14.0";
 pub const ICED_WIDGET_VERSION: &str = "0.14.2";
 pub const UI_LANG_RUNTIME_VERSION: &str = "0.1.0";
@@ -103,20 +103,20 @@ fn padding_properties() -> Vec<Value> {
 
 fn surface_properties() -> Vec<Value> {
     properties(&[
-        ("background", "background", false),
+        ("bg", "background", false),
         ("text", "color-token", false),
         ("border", "color-token", false),
-        ("border-width", "number", false),
-        ("radius", "number", false),
-        ("radius-tl", "number", false),
-        ("radius-tr", "number", false),
-        ("radius-br", "number", false),
-        ("radius-bl", "number", false),
+        ("border-w", "number", false),
+        ("r", "number", false),
+        ("r-tl", "number", false),
+        ("r-tr", "number", false),
+        ("r-br", "number", false),
+        ("r-bl", "number", false),
         ("shadow", "color-token", false),
         ("shadow-x", "number", false),
         ("shadow-y", "number", false),
         ("shadow-blur", "number", false),
-        ("pixel-snap", "bool-expression", false),
+        ("px-snap", "bool-expression", false),
     ])
 }
 
@@ -429,9 +429,9 @@ fn construct_schema(item: &Completion) -> Value {
                 ("width", "length", false),
                 ("height", "length", false),
                 ("bar", "enum(visible|hidden)", false),
-                ("bar-width", "number", false),
+                ("bar-w", "number", false),
                 ("bar-margin", "number", false),
-                ("scroller-width", "number", false),
+                ("scroller-w", "number", false),
                 ("bar-spacing", "number", false),
                 ("anchor-x", "enum(start|end)", false),
                 ("anchor-y", "enum(start|end)", false),
@@ -562,11 +562,11 @@ fn construct_schema(item: &Completion) -> Value {
                 ("filter", "enum(linear|nearest)", false),
                 ("scale", "number", false),
                 ("expand", "number", false),
-                ("radius", "number", false),
-                ("radius-tl", "number", false),
-                ("radius-tr", "number", false),
-                ("radius-br", "number", false),
-                ("radius-bl", "number", false),
+                ("r", "number", false),
+                ("r-tl", "number", false),
+                ("r-tr", "number", false),
+                ("r-br", "number", false),
+                ("r-bl", "number", false),
                 ("crop", "tuple(number,number,number,number)", false),
             ]);
             image.insert(
@@ -718,18 +718,18 @@ fn style_compatibility() -> Value {
                 {
                     "targets": ["container", "box", "pane", "title"],
                     "forms": {
-                        "border": "border-width=1.0",
-                        "border-2": "border-width=2.0",
+                        "border": "border-w=1.0",
+                        "border-2": "border-w=2.0",
                     },
                 },
                 {
                     "targets": ["container", "box", "pane", "title"],
                     "forms": {
-                        "rounded-sm": "radius=2.0",
-                        "rounded": "radius=6.0",
-                        "rounded-md": "radius=6.0",
-                        "rounded-lg": "radius=10.0",
-                        "rounded-full": "radius=999.0",
+                        "rounded-sm": "r=2.0",
+                        "rounded": "r=6.0",
+                        "rounded-md": "r=6.0",
+                        "rounded-lg": "r=10.0",
+                        "rounded-full": "r=999.0",
                     },
                     "condition": "the original utility sequence satisfies E044 by also providing a utility background or border",
                 },
@@ -863,14 +863,14 @@ pub fn document() -> Value {
             "frozenAt": LANGUAGE_REVISION,
             "generative": true,
             "documentPrelude": {
-                "syntax": "app <Name>\ntheme\n  background <color>\n  foreground <color>\n  primary <color>\n  danger <color>",
+                "syntax": "app <Name>\ntheme\n  bg <color>\n  fg <color>\n  primary <color>\n  danger <color>",
                 "requiredDeclarations": ["app", "theme", "view"],
                 "theme": {
                     "required": true,
                     "syntax": "theme",
                     "tokens": [
-                        { "name": "background", "type": "color", "required": true },
-                        { "name": "foreground", "type": "color", "required": true },
+                        { "name": "bg", "type": "color", "required": true },
+                        { "name": "fg", "type": "color", "required": true },
                         { "name": "primary", "type": "color", "required": true },
                         { "name": "danger", "type": "color", "required": true },
                     ],
@@ -1082,7 +1082,7 @@ mod tests {
         }));
         assert!(mappings.iter().any(|mapping| {
             mapping["targets"] == serde_json::json!(["container", "box", "pane", "title"])
-                && mapping["forms"]["border"] == "border-width=1.0"
+                && mapping["forms"]["border"] == "border-w=1.0"
         }));
         assert_eq!(
             styles["intentionalUtilities"]["dualOwnerGeometry"][0]["targets"],
@@ -1107,7 +1107,7 @@ mod tests {
                 .iter()
                 .map(|token| token["name"].as_str().unwrap())
                 .collect::<Vec<_>>(),
-            ["background", "foreground", "primary", "danger"]
+            ["bg", "fg", "primary", "danger"]
         );
 
         let constructs = schema["core"]["constructs"].as_array().unwrap();
@@ -1147,8 +1147,8 @@ mod tests {
 
         let source = r#"app Accessible
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state

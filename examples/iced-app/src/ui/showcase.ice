@@ -36,9 +36,9 @@ extern crate::backend
   subscription app_events() -> bool
 
 theme
-  background #0f172a
+  bg #0f172a
   surface    #111827
-  foreground #f8fafc
+  fg #f8fafc
   muted      #94a3b8
   primary    #7c3aed
   danger     #dc2626
@@ -106,11 +106,11 @@ component EditorPanel(content:editor, heading:str, busy:bool)
   col spacing=8.0
     input "Editor heading" <-> heading hint="Editor heading" disabled=busy
     editor #notes <-> content placeholder="Write notes" width=640.0 height=120.0 min-height=80.0 max-height=240.0 size=14.0 line-height=1.3 padding=8.0 wrapping=word font=ui highlighter=editor_highlight("fn") key-binding=editor_keys(busy) style=editor_surface(busy) disabled=busy -> editor_command _
-      active background=surface border=border border-width=1.0 radius=8.0 placeholder=muted value=foreground selection=primary
-      hovered background=surface border=foreground placeholder=muted value=foreground selection=primary
-      focused background=surface border=primary border-width=2.0 radius=8.0
-      focused-hovered background=surface border=primary border-width=2.0 radius=8.0
-      disabled background=background border=border placeholder=muted value=muted selection=primary
+      active bg=surface border=border border-w=1.0 r=8.0 placeholder=muted value=fg selection=primary
+      hovered bg=surface border=fg placeholder=muted value=fg selection=primary
+      focused bg=surface border=primary border-w=2.0 r=8.0
+      focused-hovered bg=surface border=primary border-w=2.0 r=8.0
+      disabled bg=bg border=border placeholder=muted value=muted selection=primary
 
 on mount
   loading = true
@@ -465,7 +465,7 @@ subscribe
   system theme -> system_theme_changed _
 
 view
-  col spacing=24.0 padding=24.0 @w-full h-full bg-background
+  col spacing=24.0 padding=24.0 @w-full h-full bg-bg
     row spacing=12.0 align=center @w-full
       text "Tasks" font=ui style=summary_text(loading) size=24.0 @font-bold
       lazy tasks as cached_tasks
@@ -488,15 +488,15 @@ view
 
     row spacing=12.0 align=center @w-full
       input "New task" #new-task <-> draft hint="What needs doing?" disabled=loading secure=false submit=submit paste=draft_pasted width=fill text-size=14.0 line-height=1.2 align=left font=ui style=form_input(loading) @px-4 py-3
-        active background=surface border=border border-width=1.0 radius=8.0 icon=primary placeholder=muted value=foreground selection=primary
-        hovered background=surface border=foreground border-width=1.0 radius=10.0 icon=primary placeholder=muted value=foreground selection=primary
-        focused background=surface border=primary border-width=2.0 radius=8.0
-        focused-hovered background=surface border=primary border-width=2.0 radius=8.0
-        disabled background=background border=border border-width=1.0 radius=10.0 icon=muted placeholder=muted value=muted selection=primary
+        active bg=surface border=border border-w=1.0 r=8.0 icon=primary placeholder=muted value=fg selection=primary
+        hovered bg=surface border=fg border-w=1.0 r=10.0 icon=primary placeholder=muted value=fg selection=primary
+        focused bg=surface border=primary border-w=2.0 r=8.0
+        focused-hovered bg=surface border=primary border-w=2.0 r=8.0
+        disabled bg=bg border=border border-w=1.0 r=10.0 icon=muted placeholder=muted value=muted selection=primary
         icon code="+" font=ui size=14.0 spacing=6.0 side=left
-      button label="Copy draft" disabled=empty(trim(draft)) height=44.0 padding=8.0 clip=true @bg-surface text-foreground rounded-lg disabled:opacity-50 -> copy_draft
+      button label="Copy draft" disabled=empty(trim(draft)) height=44.0 padding=8.0 clip=true @bg-surface text-fg rounded-lg disabled:opacity-50 -> copy_draft
         row spacing=8.0 align=center
-          text "Copy" size=14.0 @text-foreground
+          text "Copy" size=14.0 @text-fg
           text "⌘C" size=12.0 @text-muted
       button "Add" disabled=(loading || empty(trim(draft))) style=action_button(loading) @px-4 py-3 bg-primary text-white rounded-lg hover:bg-primary/90 pressed:bg-primary/70 disabled:opacity-50 -> submit
 
@@ -512,59 +512,59 @@ view
       col padding=24.0 align=center @w-full bg-surface border border-border rounded-lg
         text "No tasks yet." size=14.0 @text-muted
 
-    container #summary style=summary_container(loading) width=fill height=80.0 max-width=720.0 max-height=120.0 align-x=center align-y=center clip=true padding=8.0 padding-left=12.0 background=linear(1.57, surface@0.0, background@1.0) text=muted border=primary border-width=1.0 radius=8.0 shadow=black/50 shadow-y=2.0 shadow-blur=6.0 pixel-snap=true
+    container #summary style=summary_container(loading) width=fill height=80.0 max-width=720.0 max-height=120.0 align-x=center align-y=center clip=true padding=8.0 padding-left=12.0 bg=linear(1.57, surface@0.0, bg@1.0) text=muted border=primary border-w=1.0 r=8.0 shadow=black/50 shadow-y=2.0 shadow-blur=6.0 px-snap=true
       text "A native container owns one structured child tree." size=14.0 @text-muted
 
-    rule horizontal thickness=1.0 style=weak fill=pad(12,4) color=border radius=2.0 snap=true
+    rule horizontal thickness=1.0 style=weak fill=pad(12,4) color=border r=2.0 snap=true
 
     grid spacing=16.0 width=640.0 height=aspect(16.0,9.0) fluid=280.0 @w-full
       col spacing=8.0 padding=16.0 @w-full bg-surface rounded-lg
-        text "Controls" width=fill height=30.0 size=18.0 line-height-px=22.0 font=default align-x=left align-y=center shaping=advanced wrapping=word @font-bold text-foreground
-        theme tokyo-night text=white background=linear(1.57, background@0.0, surface@1.0)
-          qr project_code total-size=112.0 cell=foreground background=surface
+        text "Controls" width=fill height=30.0 size=18.0 line-height-px=22.0 font=default align-x=left align-y=center shaping=advanced wrapping=word @font-bold text-fg
+        theme tokyo-night fg=white bg=linear(1.57, bg@0.0, surface@1.0)
+          qr project_code total-size=112.0 cell=fg bg=surface
         toggler "Notifications" checked=notifications style=notification_toggler(loading) size=20.0 width=fill spacing=8.0 text-size=14.0 line-height=1.2 shaping=auto wrapping=word font=default align=left -> notifications_changed _
         slider volume min=0.0 max=100.0 step=5.0 default=50.0 shift-step=1.0 width=fill(2) height=20.0 style=volume_slider(loading) release=volume_committed -> volume_changed _
-          active rail-start=linear(0.0, primary@0.0, foreground@1.0) rail-end=linear(1.57, border@0.0, background@1.0) rail-width=4.0 rail-radius=2.0 handle=circle(7.0) handle-color=linear(0.785, primary@0.0, foreground@1.0)
-          hovered rail-start=foreground rail-end=border rail-width=5.0 handle=rect(12) handle-color=foreground handle-radius=3.0
-          dragged rail-start=danger rail-end=border handle=circle(8.0) handle-color=danger handle-border=foreground handle-border-width=1.0
+          active rail-start=linear(0.0, primary@0.0, fg@1.0) rail-end=linear(1.57, border@0.0, bg@1.0) rail-w=4.0 rail-r=2.0 handle=circle(7.0) handle-color=linear(0.785, primary@0.0, fg@1.0)
+          hovered rail-start=fg rail-end=border rail-w=5.0 handle=rect(12) handle-color=fg handle-r=3.0
+          dragged rail-start=danger rail-end=border handle=circle(8.0) handle-color=danger handle-border=fg handle-border-w=1.0
         slider volume min=0.0 max=100.0 step=5.0 default=50.0 shift-step=1.0 vertical width=20.0 height=120.0 style=volume_slider(loading) release=volume_committed -> volume_changed _
         slider precise_volume min=slider_number(0.0) max=slider_number(100.0) step=slider_number(0.5) default=slider_number(50.0) shift-step=slider_number(0.1) style=volume_slider(loading) -> precise_volume_changed _
-        progress volume length=fill girth=24.0 style=loading_progress(loading) background=linear(1.57, background@0.0, surface@1.0) bar=linear(0.0, primary@0.0, foreground@1.0) border=foreground border-width=1.0 radius=4.0 radius-tl=2.0
-        progress volume vertical length=120.0 girth=20.0 style=warning background=linear(1.57, background@0.0, surface@1.0) bar=linear(0.0, danger@0.0, primary@1.0) radius=3.0
+        progress volume length=fill girth=24.0 style=loading_progress(loading) bg=linear(1.57, bg@0.0, surface@1.0) bar=linear(0.0, primary@0.0, fg@1.0) border=fg border-w=1.0 r=4.0 r-tl=2.0
+        progress volume vertical length=120.0 girth=20.0 style=warning bg=linear(1.57, bg@0.0, surface@1.0) bar=linear(0.0, danger@0.0, primary@1.0) r=3.0
         extern native_help(external_hover) -> external_hover_changed _
         extern borrowed_help(draft, external_hover) -> external_hover_changed _
         if event_seen
           text "External subscription active" size=12.0 @text-muted
         row width=fill height=shrink spacing=12.0 padding-y=4.0 align=center clip=false wrap wrap-spacing=8.0 wrap-align=start
-          image "examples/iced-app/assets/checker.ppm" width=48.0 height=48.0 fit=cover filter=nearest radius=8.0
+          image "examples/iced-app/assets/checker.ppm" width=48.0 height=48.0 fit=cover filter=nearest r=8.0
           image encoded_image width=24.0 height=48.0 fit=cover filter=nearest
-          image memory_image width=48.0 height=48.0 fit=cover filter=nearest rotation=solid(0.1) radius=8.0 radius-tl=2.0 radius-br=2.0 crop=(0, 0, 1, 2)
+          image memory_image width=48.0 height=48.0 fit=cover filter=nearest rotation=solid(0.1) r=8.0 r-tl=2.0 r-br=2.0 crop=(0, 0, 1, 2)
           viewer memory_image width=160.0 height=96.0 fit=contain filter=nearest padding=4.0 min-scale=0.5 max-scale=8.0 scale-step=0.25
-          svg "examples/iced-app/assets/ice.svg" width=48.0 height=48.0 fit=contain opacity=0.9 color=foreground hover=primary style=status_svg(loading)
-          svg "<svg xmlns='http://www.w3.org/2000/svg' width='1' height='1'><rect width='1' height='1'/></svg>" memory width=16.0 height=16.0 color=foreground hover=primary
-          svg bytes(3c 73 76 67 2f 3e) memory width=16.0 height=16.0 color=foreground hover=primary
-          tooltip position=bottom gap=4.0 padding=8.0 delay=100 snap=true style=summary_container(loading) background=linear(1.57, surface@0.0, background@1.0) text=foreground border=border border-width=1.0 radius=8.0 radius-tl=4.0 shadow=black/50 shadow-x=0.0 shadow-y=4.0 shadow-blur=12.0 pixel-snap=true
+          svg "examples/iced-app/assets/ice.svg" width=48.0 height=48.0 fit=contain opacity=0.9 color=fg hover=primary style=status_svg(loading)
+          svg "<svg xmlns='http://www.w3.org/2000/svg' width='1' height='1'><rect width='1' height='1'/></svg>" memory width=16.0 height=16.0 color=fg hover=primary
+          svg bytes(3c 73 76 67 2f 3e) memory width=16.0 height=16.0 color=fg hover=primary
+          tooltip position=bottom gap=4.0 padding=8.0 delay=100 snap=true style=summary_container(loading) bg=linear(1.57, surface@0.0, bg@1.0) text=fg border=border border-w=1.0 r=8.0 r-tl=4.0 shadow=black/50 shadow-x=0.0 shadow-y=4.0 shadow-blur=12.0 px-snap=true
             mouse enter=native_enter exit=native_exit press=native_press move=native_move scroll=native_scroll cursor=pointer
-              text "Native pointer area" size=14.0 @text-foreground
+              text "Native pointer area" size=14.0 @text-fg
             col padding=8.0 @bg-surface rounded-md
-              text "Native tooltip" size=14.0 @text-foreground
+              text "Native tooltip" size=14.0 @text-fg
               if native_hover
                 text "Pointer is inside" size=12.0 @text-muted
               text pointer_x size=12.0 @text-muted
       col width=fill height=shrink spacing=8.0 padding=16.0 max-width=672.0 align=start clip=false wrap wrap-spacing=8.0 wrap-align=start @bg-surface rounded-lg
-        text "View mode" size=18.0 @font-bold text-foreground
+        text "View mode" size=18.0 @font-bold text-fg
         markdown help text-size=14.0 h1-size=28.0 h2-size=24.0 h3-size=20.0 h4-size=18.0 h5-size=16.0 h6-size=14.0 code-size=12.0 spacing=10.0 viewer=docs_viewer("showcase") -> docs_link _
-          style font=ui inline-code-background=background inline-code-color=foreground inline-code-font=mono code-block-font=mono link=primary inline-code-padding=2.0 inline-code-padding-x=4.0 inline-code-padding-y=3.0 inline-code-border=border inline-code-border-width=1.0 inline-code-radius=4.0
+          style font=ui inline-code-bg=bg inline-code-fg=fg inline-code-font=mono code-block-font=mono link=primary inline-code-p=2.0 inline-code-px=4.0 inline-code-py=3.0 inline-code-border=border inline-code-border-w=1.0 inline-code-r=4.0
         row spacing=8.0 align=center
           button "Append Markdown image" -> extend_markdown
           text len(help_images) size=12.0 @text-muted
         EditorPanel(notes, editor_title, loading)
         pick display_modes display_mode placeholder="Choose a view" width=fill menu-height=160.0 padding=8.0 text-size=14.0 line-height=1.2 shaping=advanced font=ui open=picker_opened close=picker_closed style=view_picker(loading) menu-style=view_menu(loading) -> display_mode_changed _
-          active text=foreground placeholder=muted handle=primary background=surface border=border border-width=1.0 radius=6.0
-          hovered text=foreground placeholder=muted handle=foreground background=background border=primary border-width=1.0 radius=6.0
-          opened text=foreground placeholder=muted handle=primary background=surface border=primary border-width=1.0 radius=6.0
-          opened-hovered text=foreground placeholder=muted handle=foreground background=background border=primary border-width=2.0 radius=6.0
-          menu text=foreground selected-text=foreground selected-background=linear(1.57, primary@0.0, surface@1.0) background=surface border=border border-width=1.0 radius=6.0 shadow=black/50 shadow-y=4.0 shadow-blur=12.0
+          active text=fg placeholder=muted handle=primary bg=surface border=border border-w=1.0 r=6.0
+          hovered text=fg placeholder=muted handle=fg bg=bg border=primary border-w=1.0 r=6.0
+          opened text=fg placeholder=muted handle=primary bg=surface border=primary border-w=1.0 r=6.0
+          opened-hovered text=fg placeholder=muted handle=fg bg=bg border=primary border-w=2.0 r=6.0
+          menu text=fg selected-text=fg selected-bg=linear(1.57, primary@0.0, surface@1.0) bg=surface border=border border-w=1.0 r=6.0 shadow=black/50 shadow-y=4.0 shadow-blur=12.0
           handle dynamic
             closed code="⌄" font=ui size=12.0 line-height=1.0 shaping=basic
             open code="⌃" font=ui size=12.0 line-height=1.0 shaping=advanced
@@ -577,12 +577,12 @@ view
             pick display_modes display_mode -> display_mode_changed _
               handle none
         combo searchable_modes display_mode "Search views" width=fill menu-height=160.0 padding=8.0 text-size=14.0 line-height=1.2 shaping=advanced font=ui input=mode_searched hover=mode_hovered open=picker_opened close=picker_closed style=form_input(loading) menu-style=view_menu(loading) -> display_mode_changed _
-          active background=surface border=border border-width=1.0 radius=6.0 icon=primary placeholder=muted value=foreground selection=primary
-          hovered background=background border=primary border-width=1.0 radius=6.0 icon=foreground placeholder=muted value=foreground selection=primary
-          focused background=surface border=primary border-width=1.0 radius=6.0 icon=primary placeholder=muted value=foreground selection=primary
-          focused-hovered background=background border=foreground border-width=2.0 radius=6.0 icon=foreground placeholder=muted value=foreground selection=primary
-          disabled background=background border=border border-width=1.0 radius=6.0 icon=muted placeholder=muted value=muted selection=primary
-          menu text=foreground selected-text=foreground selected-background=linear(1.57, primary@0.0, surface@1.0) background=surface border=border border-width=1.0 radius=6.0 shadow=black/50 shadow-y=4.0 shadow-blur=12.0
+          active bg=surface border=border border-w=1.0 r=6.0 icon=primary placeholder=muted value=fg selection=primary
+          hovered bg=bg border=primary border-w=1.0 r=6.0 icon=fg placeholder=muted value=fg selection=primary
+          focused bg=surface border=primary border-w=1.0 r=6.0 icon=primary placeholder=muted value=fg selection=primary
+          focused-hovered bg=bg border=fg border-w=2.0 r=6.0 icon=fg placeholder=muted value=fg selection=primary
+          disabled bg=bg border=border border-w=1.0 r=6.0 icon=muted placeholder=muted value=muted selection=primary
+          menu text=fg selected-text=fg selected-bg=linear(1.57, primary@0.0, surface@1.0) bg=surface border=border border-w=1.0 r=6.0 shadow=black/50 shadow-y=4.0 shadow-blur=12.0
           icon code="⌕" font=ui size=14.0 spacing=6.0 side=right
         button "Reset search options" -> reset_search_modes
         button "Add search option" -> add_search_mode
@@ -603,8 +603,8 @@ view
                   text available_height size=12.0 @text-muted
                   text observed_width size=12.0 @text-muted
                   text observed_height size=12.0 @text-muted
-        float scale=1.02 x=(viewport_width - original_width) y=-1.0 shadow=black/50 shadow-y=2.0 shadow-blur=4.0 radius=4.0
-          text "Floating label" size=12.0 @text-foreground
+        float scale=1.02 x=(viewport_width - original_width) y=-1.0 shadow=black/50 shadow-y=2.0 shadow-blur=4.0 r=4.0
+          text "Floating label" size=12.0 @text-fg
         pin width=fill height=28.0 x=4.0 y=4.0
           text "Pinned label" size=12.0 @text-muted
         pin width=fill(2) height=shrink x=8.0 y=6.0
@@ -621,14 +621,14 @@ view
         grid columns=1 height=24.0 @w-full
           text "Fixed height" size=12.0 @text-muted
         space width=fill(2) height=8.0
-        stack clip=true width=fill height=shrink under=1 @p-4 bg-background rounded-lg
+        stack clip=true width=fill height=shrink under=1 @p-4 bg-bg rounded-lg
           text "Stack underlay" size=14.0 @text-muted
           text "Stack base" size=14.0 @text-muted
-          text "Stack overlay" size=14.0 @text-foreground
+          text "Stack overlay" size=14.0 @text-fg
 
     pane-grid #nested_workspace width=fill height=180.0 spacing=4.0 resize=4.0 drag style=workspace_panes(loading)
       style
-        picked-split width=4.0
+        picked-split w=4.0
       split workspace_root vertical ratio=0.65
         pane nested_files
           text "Nested files" size=14.0 @text-muted
@@ -643,11 +643,11 @@ view
             text "Nested terminal" size=14.0 @text-muted
       pane nested_preview closed
         col spacing=8.0
-          text "Dynamic preview" size=14.0 @text-foreground
+          text "Dynamic preview" size=14.0 @text-fg
           button "Close nested preview" -> close_nested_preview
       pane pane_task in tasks by=pane_task.id maximized=task_pane_maximized
         title
-          text pane_task.title size=14.0 @text-foreground
+          text pane_task.title size=14.0 @text-fg
         controls
           row spacing=8.0
             button "Maximize" -> maximize_task_pane
@@ -655,40 +655,40 @@ view
         content
           col spacing=8.0
             if task_pane_maximized
-              text "Maximized task pane" size=14.0 @text-foreground
+              text "Maximized task pane" size=14.0 @text-fg
             TaskRow task=pane_task loading=loading
       pane mode_pane in display_modes by=mode_pane
         title
-          text mode_pane size=14.0 @text-foreground
+          text mode_pane size=14.0 @text-fg
         controls
           button "Close" -> close_mode_pane mode_pane
         content
           text "String-keyed runtime pane" size=14.0 @text-muted
 
-    scroll #task-list direction=vertical width=fill height=fill bar=visible bar-width=8.0 bar-margin=2.0 scroller-width=6.0 bar-spacing=2.0 anchor-y=start auto=true viewport=task_list_scrolled style=task_scroll(loading)
+    scroll #task-list direction=vertical width=fill height=fill bar=visible bar-w=8.0 bar-margin=2.0 scroller-w=6.0 bar-spacing=2.0 anchor-y=start auto=true viewport=task_list_scrolled style=task_scroll(loading)
       keyed task in tasks by=task.id width=fill height=shrink spacing=8.0 padding=4.0 padding-left=8.0 max-width=720.0 align=center
         TaskRow task=task loading=loading
-      active vertical-disabled=false
-        container background=background text=foreground border=border border-width=1.0 radius=8.0 shadow=black/25 shadow-y=2.0 shadow-blur=4.0 pixel-snap=true
-        horizontal-rail background=surface border=border border-width=1.0 radius=4.0
-        horizontal-scroller background=primary border=foreground border-width=1.0 radius=4.0
-        vertical-rail background=surface border=border border-width=1.0 radius=4.0
-        vertical-scroller background=primary border=foreground border-width=1.0 radius=4.0
-        gap background=background
-        auto background=surface border=primary border-width=1.0 radius=999.0 shadow=black/50 shadow-y=2.0 shadow-blur=4.0 icon=foreground
-      hovered vertical-hovered=true vertical-disabled=false
-        vertical-scroller background=foreground
-      dragged vertical-dragged=true vertical-disabled=false
-        vertical-scroller background=danger
+      active y-disabled=false
+        container bg=bg text=fg border=border border-w=1.0 r=8.0 shadow=black/25 shadow-y=2.0 shadow-blur=4.0 px-snap=true
+        x-rail bg=surface border=border border-w=1.0 r=4.0
+        x-scroller bg=primary border=fg border-w=1.0 r=4.0
+        y-rail bg=surface border=border border-w=1.0 r=4.0
+        y-scroller bg=primary border=fg border-w=1.0 r=4.0
+        gap bg=bg
+        auto bg=surface border=primary border-w=1.0 r=999.0 shadow=black/50 shadow-y=2.0 shadow-blur=4.0 icon=fg
+      hovered y-hovered=true y-disabled=false
+        y-scroller bg=fg
+      dragged y-dragged=true y-disabled=false
+        y-scroller bg=danger
 
     table task in tasks width=fill padding=4.0 padding-x=8.0 padding-y=6.0 separator=1.0 separator-x=2.0 separator-y=1.0
       column width=fill align-x=left align-y=center
         header
-          text "Task" @font-bold text-foreground
+          text "Task" @font-bold text-fg
         cell
-          text task.title size=14.0 @text-foreground
+          text task.title size=14.0 @text-fg
       column width=120.0 align-x=center align-y=center
         header
-          text "Done" @font-bold text-foreground
+          text "Done" @font-bold text-fg
         cell
           checkbox "Complete" checked=task.done disabled=loading -> toggle(task.id, _)

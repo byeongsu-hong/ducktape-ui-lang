@@ -4,8 +4,8 @@ use super::*;
 fn lowers_native_canvas_geometry_cache_and_events() {
     let source = r#"app Drawing
 theme
-  background #0f172a
-  foreground #f8fafc
+  bg #0f172a
+  fg #f8fafc
   primary #7c3aed
   danger #dc2626
 state
@@ -19,31 +19,31 @@ on entered
 on exited
 view
   canvas width=fill height=240.0 cache=cached cache-group=drawings capture=true cursor=crosshair press=pressed release=released move=moved scroll=scrolled enter=entered exit=exited
-    rect x=0.0 y=0.0 width=canvas_width height=canvas_height fill=linear(1.57, background@0.0, primary@1.0) stroke=foreground
-    rect x=8.0 y=8.0 width=72.0 height=40.0 radius=8.0 radius-tl=4.0 stroke=foreground stroke-width=2.0 dash=(4.0, 2.0) dash-offset=1 cap=round join=bevel
-    circle x=120.0 y=60.0 radius=24.0 fill=primary fill-rule=even-odd stroke=foreground
-    line x1=16.0 y1=120.0 x2=200.0 y2=120.0 stroke=foreground stroke-width=3.0 cap=square
-    text "Canvas" x=16.0 y=150.0 max-width=180.0 color=foreground size=18.0 line-height=1.2 font=default align-x=left align-y=top shaping=advanced
-    image picture x=8.0 y=160.0 width=32.0 height=24.0 filter=nearest rotation=0.2 opacity=0.8 snap=true radius=4.0 radius-tl=2.0
-    svg "<svg/>" memory x=48.0 y=160.0 width=24.0 height=24.0 color=foreground rotation=0.1 opacity=0.9
-    path fill=primary stroke=foreground stroke-width=1.0
+    rect x=0.0 y=0.0 width=canvas_width height=canvas_height fill=linear(1.57, bg@0.0, primary@1.0) stroke=fg
+    rect x=8.0 y=8.0 width=72.0 height=40.0 r=8.0 r-tl=4.0 stroke=fg stroke-w=2.0 dash=(4.0, 2.0) dash-offset=1 cap=round join=bevel
+    circle x=120.0 y=60.0 r=24.0 fill=primary fill-rule=even-odd stroke=fg
+    line x1=16.0 y1=120.0 x2=200.0 y2=120.0 stroke=fg stroke-w=3.0 cap=square
+    text "Canvas" x=16.0 y=150.0 max-width=180.0 color=fg size=18.0 line-height=1.2 font=default align-x=left align-y=top shaping=advanced
+    image picture x=8.0 y=160.0 width=32.0 height=24.0 filter=nearest rotation=0.2 opacity=0.8 snap=true r=4.0 r-tl=2.0
+    svg "<svg/>" memory x=48.0 y=160.0 width=24.0 height=24.0 color=fg rotation=0.1 opacity=0.9
+    path fill=primary stroke=fg stroke-w=1.0
       move x=220.0 y=20.0
       line x=260.0 y=20.0
-      arc x=260.0 y=40.0 radius=20.0 start=0.0 end=3.14
-      arc-to ax=280.0 ay=60.0 bx=300.0 by=40.0 radius=8.0
-      ellipse x=320.0 y=40.0 radius-x=20.0 radius-y=10.0 rotation=0.2 start=0.0 end=6.28
+      arc x=260.0 y=40.0 r=20.0 start=0.0 end=3.14
+      arc-to ax=280.0 ay=60.0 bx=300.0 by=40.0 r=8.0
+      ellipse x=320.0 y=40.0 r-x=20.0 r-y=10.0 rotation=0.2 start=0.0 end=6.28
       bezier ax=340.0 ay=10.0 bx=360.0 by=70.0 x=380.0 y=40.0
       quadratic cx=400.0 cy=10.0 x=420.0 y=40.0
       rect x=220.0 y=80.0 width=30.0 height=20.0
-      rounded x=260.0 y=80.0 width=30.0 height=20.0 radius=4.0
-      circle x=320.0 y=90.0 radius=10.0
+      rounded x=260.0 y=80.0 width=30.0 height=20.0 r=4.0
+      circle x=320.0 y=90.0 r=10.0
       close
     group x=10.0 y=10.0 rotate=0.1 scale=1.1 scale-x=1.0 scale-y=0.9 clip=(0.0, 0.0, 100.0, 100.0)
-      circle x=20.0 y=20.0 radius=10.0 fill=foreground
+      circle x=20.0 y=20.0 r=10.0 fill=fg
     if cached
-      circle x=360.0 y=180.0 radius=12.0 fill=primary
+      circle x=360.0 y=180.0 r=12.0 fill=primary
     for value in [12.0, 24.0]
-      circle x=value y=210.0 radius=4.0 fill=foreground
+      circle x=value y=210.0 r=4.0 fill=fg
 "#;
     let generated = compile(source, "drawing.ice").unwrap();
     for expected in [
@@ -128,8 +128,8 @@ extern crate::backend
   svg-style dynamic_svg(active:bool)
   container-style dynamic_tooltip(active:bool)
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -143,15 +143,15 @@ on moved(x, y)
 on scrolled(x, y, pixels)
 view
   col
-    image "photo.ppm" width=fill height=64.0 fit=cover filter=nearest rotation=solid(0.5) opacity=0.8 scale=1.2 expand=true radius=4.0 radius-tl=1.0 radius-br=2.0 crop=(1, 2, 30, 40)
+    image "photo.ppm" width=fill height=64.0 fit=cover filter=nearest rotation=solid(0.5) opacity=0.8 scale=1.2 expand=true r=4.0 r-tl=1.0 r-br=2.0 crop=(1, 2, 30, 40)
     image encoded_image
     image rgba_image
     viewer encoded_image width=fill(2) height=120.0 fit=contain filter=linear padding=8.0 min-scale=0.5 max-scale=4.0 scale-step=0.25
     viewer "photo.ppm" width=64.0 height=64.0
-    svg "icon.svg" width=48.0 height=shrink fit=scale-down rotation=0.1 opacity=0.9 color=foreground hover=primary style=dynamic_svg(active)
-    svg "<svg/>" memory width=16.0 color=foreground hover=none
+    svg "icon.svg" width=48.0 height=shrink fit=scale-down rotation=0.1 opacity=0.9 color=fg hover=primary style=dynamic_svg(active)
+    svg "<svg/>" memory width=16.0 color=fg hover=none
     svg bytes(3c 73 76 67 2f 3e) memory width=16.0
-    tooltip position=cursor gap=2.0 padding=5.0 delay=100 snap=false style=dynamic_tooltip(active) background=linear(1.57, background@0.0, primary/25@1.0) text=foreground border=primary/75 border-width=1.0 radius=5.0 radius-tl=2.0 shadow=black/50 shadow-x=-1.0 shadow-y=2.0 shadow-blur=8.0 pixel-snap=true
+    tooltip position=cursor gap=2.0 padding=5.0 delay=100 snap=false style=dynamic_tooltip(active) bg=linear(1.57, bg@0.0, primary/25@1.0) text=fg border=primary/75 border-w=1.0 r=5.0 r-tl=2.0 shadow=black/50 shadow-x=-1.0 shadow-y=2.0 shadow-blur=8.0 px-snap=true
       mouse enter=entered exit=exited press=pressed move=moved scroll=scrolled cursor=pointer
         text "Hover"
       text "Tip"

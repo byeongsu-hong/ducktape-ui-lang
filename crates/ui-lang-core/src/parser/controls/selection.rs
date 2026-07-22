@@ -103,21 +103,21 @@ pub(in crate::parser) fn parse_slider_style(
             style.rail_start = Some(parse_background_value(value, line)?);
         } else if let Some(value) = part.strip_prefix("rail-end=") {
             style.rail_end = Some(parse_background_value(value, line)?);
-        } else if let Some(value) = part.strip_prefix("rail-width=") {
+        } else if let Some(value) = part.strip_prefix("rail-w=") {
             style.rail_width = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else if let Some(value) = part.strip_prefix("rail-border=") {
             style.rail_border_color = Some(value.to_owned());
-        } else if let Some(value) = part.strip_prefix("rail-border-width=") {
+        } else if let Some(value) = part.strip_prefix("rail-border-w=") {
             style.rail_border_width = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("rail-radius=") {
+        } else if let Some(value) = part.strip_prefix("rail-r=") {
             style.rail_radius = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("rail-radius-tl=") {
+        } else if let Some(value) = part.strip_prefix("rail-r-tl=") {
             style.rail_radius_top_left = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("rail-radius-tr=") {
+        } else if let Some(value) = part.strip_prefix("rail-r-tr=") {
             style.rail_radius_top_right = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("rail-radius-br=") {
+        } else if let Some(value) = part.strip_prefix("rail-r-br=") {
             style.rail_radius_bottom_right = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("rail-radius-bl=") {
+        } else if let Some(value) = part.strip_prefix("rail-r-bl=") {
             style.rail_radius_bottom_left = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else if let Some(value) = part.strip_prefix("handle=") {
             style.handle_shape = Some(parse_slider_handle(value, line)?);
@@ -125,18 +125,18 @@ pub(in crate::parser) fn parse_slider_style(
             style.handle_color = Some(parse_background_value(value, line)?);
         } else if let Some(value) = part.strip_prefix("handle-border=") {
             style.handle_border_color = Some(value.to_owned());
-        } else if let Some(value) = part.strip_prefix("handle-border-width=") {
+        } else if let Some(value) = part.strip_prefix("handle-border-w=") {
             style.handle_border_width = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("handle-radius=") {
+        } else if let Some(value) = part.strip_prefix("handle-r=") {
             style.handle_radius = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("handle-radius-tl=") {
+        } else if let Some(value) = part.strip_prefix("handle-r-tl=") {
             style.handle_radius_top_left = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("handle-radius-tr=") {
+        } else if let Some(value) = part.strip_prefix("handle-r-tr=") {
             style.handle_radius_top_right = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("handle-radius-br=") {
+        } else if let Some(value) = part.strip_prefix("handle-r-br=") {
             style.handle_radius_bottom_right =
                 Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("handle-radius-bl=") {
+        } else if let Some(value) = part.strip_prefix("handle-r-bl=") {
             style.handle_radius_bottom_left = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else {
             return Err(error(
@@ -224,23 +224,23 @@ pub(in crate::parser) fn parse_progress(
                 });
                 options.style = None;
             }
-        } else if let Some(value) = part.strip_prefix("background=") {
+        } else if let Some(value) = part.strip_prefix("bg=") {
             options.background = Some(parse_background_value(value, line)?);
         } else if let Some(value) = part.strip_prefix("bar=") {
             options.bar = Some(parse_background_value(value, line)?);
         } else if let Some(value) = part.strip_prefix("border=") {
             options.border_color = Some(value.to_owned());
-        } else if let Some(value) = part.strip_prefix("border-width=") {
+        } else if let Some(value) = part.strip_prefix("border-w=") {
             options.border_width = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("radius=") {
+        } else if let Some(value) = part.strip_prefix("r=") {
             options.radius = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("radius-tl=") {
+        } else if let Some(value) = part.strip_prefix("r-tl=") {
             options.radius_top_left = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("radius-tr=") {
+        } else if let Some(value) = part.strip_prefix("r-tr=") {
             options.radius_top_right = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("radius-br=") {
+        } else if let Some(value) = part.strip_prefix("r-br=") {
             options.radius_bottom_right = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("radius-bl=") {
+        } else if let Some(value) = part.strip_prefix("r-bl=") {
             options.radius_bottom_left = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else if part == "vertical" {
             vertical = true;
@@ -353,13 +353,13 @@ pub(in crate::parser) fn parse_radio_status_style(
         ..RadioStatusStyle::default()
     };
     for part in &parts[2..] {
-        if let Some(value) = part.strip_prefix("background=") {
+        if let Some(value) = part.strip_prefix("bg=") {
             style.background = Some(parse_background_value(value, line)?);
         } else if let Some(value) = part.strip_prefix("dot=") {
             style.dot_color = Some(value.to_owned());
         } else if let Some(value) = part.strip_prefix("border=") {
             style.border_color = Some(value.to_owned());
-        } else if let Some(value) = part.strip_prefix("border-width=") {
+        } else if let Some(value) = part.strip_prefix("border-w=") {
             style.border_width = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else if let Some(value) = part.strip_prefix("text=") {
             style.text_color = Some(value.to_owned());
@@ -401,15 +401,15 @@ pub(in crate::parser) fn parse_rule(
             options.fill = Some(parse_rule_fill(value, line)?);
         } else if let Some(value) = part.strip_prefix("color=") {
             options.color = Some(value.to_owned());
-        } else if let Some(value) = part.strip_prefix("radius=") {
+        } else if let Some(value) = part.strip_prefix("r=") {
             options.radius = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("radius-tl=") {
+        } else if let Some(value) = part.strip_prefix("r-tl=") {
             options.radius_top_left = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("radius-tr=") {
+        } else if let Some(value) = part.strip_prefix("r-tr=") {
             options.radius_top_right = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("radius-br=") {
+        } else if let Some(value) = part.strip_prefix("r-br=") {
             options.radius_bottom_right = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("radius-bl=") {
+        } else if let Some(value) = part.strip_prefix("r-bl=") {
             options.radius_bottom_left = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else if let Some(value) = part.strip_prefix("snap=") {
             options.snap = Some(parse_expr(strip_wrapping_parens(value), line)?);

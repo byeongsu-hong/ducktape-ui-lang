@@ -7,8 +7,8 @@ fn checks_native_theme_factories() {
 app Themes
   theme native_theme(dark)
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -34,8 +34,8 @@ fn checks_alternate_theme_subtrees() {
   themer alternate_panel(active:bool) -> bool
 app Themes
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -70,8 +70,8 @@ extern crate::backend
   sync event_name(value:event) -> str
   sync event_label(value:event) -> str?
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state

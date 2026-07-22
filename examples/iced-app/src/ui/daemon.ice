@@ -13,8 +13,8 @@ extern crate::backend
   sync daemon_scale(id:window-id) -> f64
 
 theme
-  background #0f172a
-  foreground #f8fafc
+  bg #0f172a
+  fg #f8fafc
   primary #7c3aed
   danger #dc2626
 

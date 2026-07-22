@@ -4,13 +4,13 @@ use super::*;
 fn lowers_box_and_flex_sugar_to_native_layouts() {
     let source = r#"app Layouts
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
 view
-  box width=fill padding=8.0 background=background
+  box width=fill padding=8.0 bg=bg
     flex direction=column spacing=6.0
       text "Header"
       flex spacing=4.0
@@ -46,8 +46,8 @@ view
 fn lowers_complete_css_flexbox() {
     let source = r#"app Flexbox
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -92,8 +92,8 @@ view
 fn lowers_complete_flex_layouts_and_wrapping() {
     let source = r#"app Layouts
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -122,14 +122,14 @@ fn lowers_complete_container_layout() {
 extern crate::backend
   container-style dynamic_container(highlight:bool)
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
   highlight = false
 view
-  container #card style=dynamic_container(highlight) width=fill height=80.0 max-width=640.0 max-height=120.0 align-x=center align-y=end clip=true padding=8.0 padding-left=12.0 background=linear(1.57, background@0.0, primary/25@1.0) text=foreground border=primary border-width=2.0 radius=4.0 radius-tl=1.0 radius-tr=2.0 radius-br=3.0 radius-bl=4.0 shadow=black/50 shadow-x=-1.0 shadow-y=2.0 shadow-blur=6.0 pixel-snap=true
+  container #card style=dynamic_container(highlight) width=fill height=80.0 max-width=640.0 max-height=120.0 align-x=center align-y=end clip=true padding=8.0 padding-left=12.0 bg=linear(1.57, bg@0.0, primary/25@1.0) text=fg border=primary border-w=2.0 r=4.0 r-tl=1.0 r-tr=2.0 r-br=3.0 r-bl=4.0 shadow=black/50 shadow-x=-1.0 shadow-y=2.0 shadow-blur=6.0 px-snap=true
     text "Card"
 "#;
     let generated = compile(source, "boxed.ice").unwrap();
@@ -154,8 +154,8 @@ view
 fn lowers_structured_overlays_to_native_overlay_widgets() {
     let source = r#"app Dialog
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -167,7 +167,7 @@ view
     content
       text "Page"
     layer
-      container width=320.0 padding=16.0 @bg-background rounded-lg
+      container width=320.0 padding=16.0 @bg-bg rounded-lg
         text "Dialog"
 "#;
     let generated = compile(source, "dialog.ice").unwrap();
@@ -186,8 +186,8 @@ view
 fn lowers_persistent_pane_grids() {
     let source = r#"app Workspace
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 on clicked(name)
@@ -215,8 +215,8 @@ view
 fn lowers_nested_pane_configuration_and_closed_templates() {
     let source = r#"app Workspace
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 on open_preview
@@ -260,8 +260,8 @@ fn lowers_runtime_pane_templates() {
 extern crate::backend
   Task(id:i64, title:str)
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -307,8 +307,8 @@ fn lowers_structured_pane_titles_and_dynamic_controls() {
 extern crate::backend
   pane-grid-style dynamic_panes(active:bool)
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -318,11 +318,11 @@ on close
 view
   pane-grid #work split=vertical style=dynamic_panes(active)
     style
-      hovered-region background=linear(0.785, primary/25@0.0, background@0.5, danger@1.0) border=foreground border-width=2.0 radius=4.0 radius-tl=1.0 radius-tr=2.0 radius-br=3.0 radius-bl=4.0
-      hovered-split color=primary width=3.0
-      picked-split color=danger width=4.0
-    pane files background=linear(1.57, background@0.0, primary/25@1.0) text=foreground border=primary border-width=2.0 radius=4.0 radius-tl=1.0 radius-tr=2.0 radius-br=3.0 radius-bl=4.0 shadow=black/50 shadow-x=-1.0 shadow-y=2.0 shadow-blur=6.0 pixel-snap=true
-      title padding=4.0 padding-x=8.0 padding-top=6.0 always-controls background=primary/50 text=foreground border=danger border-width=1.0 radius=3.0 shadow=black/50 shadow-x=1.0 shadow-y=2.0 shadow-blur=4.0 pixel-snap=false
+      hovered-region bg=linear(0.785, primary/25@0.0, bg@0.5, danger@1.0) border=fg border-w=2.0 r=4.0 r-tl=1.0 r-tr=2.0 r-br=3.0 r-bl=4.0
+      hovered-split color=primary w=3.0
+      picked-split color=danger w=4.0
+    pane files bg=linear(1.57, bg@0.0, primary/25@1.0) text=fg border=primary border-w=2.0 r=4.0 r-tl=1.0 r-tr=2.0 r-br=3.0 r-bl=4.0 shadow=black/50 shadow-x=-1.0 shadow-y=2.0 shadow-blur=6.0 px-snap=true
+      title padding=4.0 padding-x=8.0 padding-top=6.0 always-controls bg=primary/50 text=fg border=danger border-w=1.0 r=3.0 shadow=black/50 shadow-x=1.0 shadow-y=2.0 shadow-blur=4.0 px-snap=false
         text "Files"
       controls
         button "Close" -> close
@@ -378,8 +378,8 @@ view
 fn lowers_pane_state_operations_and_queries() {
     let source = r#"app Workspace
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 on arrange
@@ -430,8 +430,8 @@ extern crate::backend
   menu-style dynamic_menu(busy:bool)
 font ui family=sans
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -444,11 +444,11 @@ on opened
 on closed
 view
   pick choices selected placeholder="Choose" width=fill menu-height=120.0 padding=8.0 text-size=14.0 line-height=1.2 shaping=advanced font=ui open=opened close=closed style=dynamic_pick(busy) menu-style=dynamic_menu(busy) -> selected _
-    active text=foreground placeholder=danger handle=primary background=background border=foreground border-width=1.0 radius=4.0
-    hovered text=foreground
-    opened text=foreground
-    opened-hovered text=foreground
-    menu text=foreground selected-text=background selected-background=primary background=background border=foreground border-width=1.0 radius=6.0 shadow=danger shadow-x=1.0 shadow-y=2.0 shadow-blur=4.0
+    active text=fg placeholder=danger handle=primary bg=bg border=fg border-w=1.0 r=4.0
+    hovered text=fg
+    opened text=fg
+    opened-hovered text=fg
+    menu text=fg selected-text=bg selected-bg=primary bg=bg border=fg border-w=1.0 r=6.0 shadow=danger shadow-x=1.0 shadow-y=2.0 shadow-blur=4.0
     handle dynamic
       closed code="⌄" font=ui size=12.0 line-height=1.0 shaping=basic
       open code="⌃" font=ui size=13.0 line-height=1.1 shaping=advanced
@@ -505,8 +505,8 @@ extern crate::backend
   menu-style dynamic_menu(busy:bool)
 font ui family=sans
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -527,12 +527,12 @@ on add
   combo modes push "Calendar"
 view
   combo modes selected "Search modes" width=fill menu-height=120.0 padding=8.0 text-size=14.0 line-height=1.2 shaping=advanced font=ui input=searched hover=hovered open=opened close=closed style=dynamic_input(busy) menu-style=dynamic_menu(busy) -> selected _
-    active background=background border=foreground border-width=1.0 radius=4.0 icon=primary placeholder=danger value=foreground selection=primary
-    hovered background=background icon=foreground placeholder=danger value=foreground selection=primary
-    focused background=background border=primary
-    focused-hovered background=background border=foreground
-    disabled background=background value=danger
-    menu text=foreground selected-text=background selected-background=primary background=background border=foreground border-width=1.0 radius=6.0 shadow=danger shadow-x=1.0 shadow-y=2.0 shadow-blur=4.0
+    active bg=bg border=fg border-w=1.0 r=4.0 icon=primary placeholder=danger value=fg selection=primary
+    hovered bg=bg icon=fg placeholder=danger value=fg selection=primary
+    focused bg=bg border=primary
+    focused-hovered bg=bg border=fg
+    disabled bg=bg value=danger
+    menu text=fg selected-text=bg selected-bg=primary bg=bg border=fg border-w=1.0 r=6.0 shadow=danger shadow-x=1.0 shadow-y=2.0 shadow-blur=4.0
     icon code="⌕" font=ui size=12.0 spacing=6.0 side=right
 "#;
     let generated = compile(source, "search.ice").unwrap();
@@ -574,8 +574,8 @@ view
 fn lowers_structural_widgets_and_size_events() {
     let source = r#"app Structure
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -591,7 +591,7 @@ on resized(w, h)
 on hidden
 view
   col
-    float scale=1.1 x=(viewport_x + viewport_width - original_x - original_width) y=(viewport_y + viewport_height - original_y - original_height) shadow=black/50 shadow-x=1.0 shadow-y=2.0 shadow-blur=4.0 radius=8.0 radius-tl=1.0 radius-tr=2.0 radius-br=3.0 radius-bl=4.0
+    float scale=1.1 x=(viewport_x + viewport_width - original_x - original_width) y=(viewport_y + viewport_height - original_y - original_height) shadow=black/50 shadow-x=1.0 shadow-y=2.0 shadow-blur=4.0 r=8.0 r-tl=1.0 r-tr=2.0 r-br=3.0 r-bl=4.0
       text "Floating"
     pin width=fill height=80.0 x=12.0 y=8.0
       text "Pinned"
@@ -643,8 +643,8 @@ fn lowers_configured_scrollables_and_viewport_events() {
 extern crate::backend
   scroll-style dynamic_scroll(busy:bool)
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -661,23 +661,23 @@ on scrolled(ax, ay, rx, ry)
 on viewport(ax, ay, reversed_x, reversed_y, rx, ry, bx, by, bw, bh, cx, cy, cw, ch)
 view
   col
-    scroll #feed direction=both width=fill height=200.0 bar=hidden bar-width=8.0 bar-margin=2.0 scroller-width=6.0 bar-spacing=4.0 anchor-x=end anchor-y=start auto=true scroll=scrolled style=dynamic_scroll(busy)
+    scroll #feed direction=both width=fill height=200.0 bar=hidden bar-w=8.0 bar-margin=2.0 scroller-w=6.0 bar-spacing=4.0 anchor-x=end anchor-y=start auto=true scroll=scrolled style=dynamic_scroll(busy)
       text "Legacy offsets"
     scroll direction=both width=fill height=200.0 viewport=viewport style=dynamic_scroll(busy)
       col
         text "Complete viewport"
-      active horizontal-disabled=false vertical-disabled=false
-        container background=background text=foreground border=primary border-width=1.0 radius=4.0 radius-tl=1.0 radius-tr=2.0 radius-br=3.0 radius-bl=4.0 shadow=danger shadow-x=1.0 shadow-y=2.0 shadow-blur=4.0 pixel-snap=true
-        horizontal-rail background=background border=primary border-width=1.0 radius=2.0
-        horizontal-scroller background=primary border=foreground border-width=1.0 radius=2.0
-        vertical-rail background=background border=primary border-width=1.0 radius=2.0
-        vertical-scroller background=primary border=foreground border-width=1.0 radius=2.0
-        gap background=background
-        auto background=background border=primary border-width=1.0 radius=4.0 shadow=danger shadow-x=1.0 shadow-y=2.0 shadow-blur=4.0 icon=foreground
-      hovered horizontal-hovered=true vertical-hovered=false horizontal-disabled=false vertical-disabled=false
-        horizontal-scroller background=foreground
-      dragged horizontal-dragged=false vertical-dragged=true horizontal-disabled=false vertical-disabled=false
-        vertical-scroller background=danger
+      active x-disabled=false y-disabled=false
+        container bg=bg text=fg border=primary border-w=1.0 r=4.0 r-tl=1.0 r-tr=2.0 r-br=3.0 r-bl=4.0 shadow=danger shadow-x=1.0 shadow-y=2.0 shadow-blur=4.0 px-snap=true
+        x-rail bg=bg border=primary border-w=1.0 r=2.0
+        x-scroller bg=primary border=fg border-w=1.0 r=2.0
+        y-rail bg=bg border=primary border-w=1.0 r=2.0
+        y-scroller bg=primary border=fg border-w=1.0 r=2.0
+        gap bg=bg
+        auto bg=bg border=primary border-w=1.0 r=4.0 shadow=danger shadow-x=1.0 shadow-y=2.0 shadow-blur=4.0 icon=fg
+      hovered x-hovered=true y-hovered=false x-disabled=false y-disabled=false
+        x-scroller bg=fg
+      dragged x-dragged=false y-dragged=true x-disabled=false y-disabled=false
+        y-scroller bg=danger
 "#;
     let generated = compile(source, "scrolling.ice").unwrap();
     assert!(generated.contains("scrollable::Direction::Both"));

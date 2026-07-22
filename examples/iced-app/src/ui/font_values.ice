@@ -8,8 +8,8 @@ extern crate::backend
   sync style_round_trip(value:font-style) -> font-style
 
 theme
-  background #111827
-  foreground #f9fafb
+  bg #111827
+  fg #f9fafb
   primary #60a5fa
   danger #f87171
 

@@ -7,8 +7,8 @@ extern crate::backend
   Item(id:i64)
   load() -> [Item] ! Item
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -30,8 +30,8 @@ view
 fn checks_structured_task_groups() {
     let source = r#"app Grouped
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -75,8 +75,8 @@ view
 fn checks_native_task_cancellation() {
     let source = r#"app Cancel
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -143,8 +143,8 @@ extern crate::backend
   recipe snapshot(value:i64) -> str
   event-filter raw_event() -> str
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -236,8 +236,8 @@ extern crate::backend
   sip transfer(size:i64) progress=f64 -> bytes
   sip fallible() progress=i64 -> str ! AppError
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 on start
@@ -298,8 +298,8 @@ extern crate::backend
   task fallible_double(value:i64) -> i64 ! AppError
   task wrong_error(value:i64) -> i64 ! OtherError
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state
@@ -383,8 +383,8 @@ extern crate::backend
   sync normalize(error:NetworkError) -> AppError
   task request() -> i64 ! NetworkError
 theme
-  background #000000
-  foreground #ffffff
+  bg #000000
+  fg #ffffff
   primary #333333
   danger #ff0000
 state

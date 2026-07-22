@@ -313,7 +313,7 @@ pub(in crate::check) fn check_qr_data(document: &Document) -> Result<(), Error> 
 }
 
 pub(in crate::check) fn check_theme(document: &Document) -> Result<(), Error> {
-    for required in ["background", "foreground", "primary", "danger"] {
+    for required in ["bg", "fg", "primary", "danger"] {
         if !document.theme.contains_key(required) {
             return Err(Error::new(
                 "E110",
