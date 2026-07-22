@@ -424,16 +424,35 @@ pub(in crate::codegen) fn generate_update(
     }
     for component in &document.components {
         let field = component_state_field(&component.name);
+        for line in component_latest_lines(component) {
+            let latest = component_latest_field(line);
+            let variant = component_latest_variant(&component.name, line);
+            writeln!(
+                out,
+                "{message}::{variant}(__scope, __generation, __message) => {{ if self.{field}.get(&__scope).is_some_and(|__local| __local.{latest} == __generation) {{ return self.__update(*__message); }} return ::iced::Task::none(); }},"
+            )
+            .unwrap();
+        }
         for handler in &component.handlers {
             let variant = component_handler_variant(&component.name, &handler.name);
             let mut bindings = vec!["__scope".to_owned()];
             bindings.extend(handler.params.iter().map(|param| param.name.clone()));
             writeln!(
                 out,
-                "{message}::{variant}({}) => (|| {{ let __local = self.{field}.entry(__scope).or_default();",
+                "{message}::{variant}({}) => (|| {{",
                 bindings.join(", ")
             )
             .unwrap();
+            let future = handler_future(handler);
+            if future.is_some() {
+                writeln!(out, "let __route_scope = __scope.clone(); let __task = {{ let __local = self.{field}.entry(__scope.clone()).or_default();").unwrap();
+            } else {
+                writeln!(
+                    out,
+                    "let __local = self.{field}.entry(__scope).or_default();"
+                )
+                .unwrap();
+            }
             let mut env = HashMap::new();
             for state in &component.states {
                 env.insert(
@@ -457,6 +476,19 @@ pub(in crate::codegen) fn generate_update(
                     },
                 );
             }
+            env.insert(
+                component_context_key(&component.name),
+                Binding {
+                    code: if future.is_some() {
+                        "__route_scope".into()
+                    } else {
+                        "__scope".into()
+                    },
+                    ty: Type::Unit,
+                    local: true,
+                    state: None,
+                },
+            );
             let has_task = generate_statements(
                 out,
                 &handler.statements,
@@ -464,9 +496,20 @@ pub(in crate::codegen) fn generate_update(
                 message,
                 &env,
                 "__local",
-                true,
+                future.is_none(),
             )?;
-            if !has_task {
+            if let Some((latest, line)) = future {
+                debug_assert!(has_task);
+                writeln!(out, "}};").unwrap();
+                if latest {
+                    let generation = component_latest_field(line);
+                    let latest_variant = component_latest_variant(&component.name, line);
+                    writeln!(out, "let __generation = {{ let __local = self.{field}.entry(__scope.clone()).or_default(); __local.{generation} = __local.{generation}.wrapping_add(1); __local.{generation} }};").unwrap();
+                    writeln!(out, "__task.map(move |__message| {message}::{latest_variant}(__scope.clone(), __generation, ::std::boxed::Box::new(__message)))").unwrap();
+                } else {
+                    writeln!(out, "__task").unwrap();
+                }
+            } else if !has_task {
                 writeln!(out, "::iced::Task::none()").unwrap();
             }
             writeln!(out, "}})(),").unwrap();

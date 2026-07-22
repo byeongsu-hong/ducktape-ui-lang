@@ -1,4 +1,5 @@
 use super::*;
+use crate::{EffectKind, Statement};
 
 #[test]
 fn checks_optional_selection_values() {
@@ -578,6 +579,71 @@ view
     let error =
         analyze(&source.replace("enabled = next", "task system theme -> changed _")).unwrap_err();
     assert_eq!(error.code, "E140");
+}
+
+#[test]
+fn checks_component_scoped_futures_and_latest() {
+    let source = r#"app Search
+extern crate::backend
+  AppError(message:str)
+  fetch(query:str) -> str ! AppError
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+component SearchBox()
+  state
+    query = ""
+    loading = false
+    result:str? = none
+  on search
+    loading = true
+    run latest fetch(query) -> loaded _ | failed _
+  on loaded(value)
+    result = some(value)
+    loading = false
+  on failed(error)
+    loading = false
+  col
+    input "Query" <-> query
+    button "Search" disabled=loading -> search
+view
+  SearchBox #search
+"#;
+    let document = analyze(source).unwrap();
+    assert!(matches!(
+        document.components[0].handlers[0].statements[1],
+        Statement::Run {
+            kind: EffectKind::Future,
+            latest: true,
+            ..
+        }
+    ));
+    assert_eq!(document.components[0].handlers[1].params[0].ty, Type::Str);
+    assert_eq!(
+        document.components[0].handlers[2].params[0].ty,
+        Type::Named("AppError".into())
+    );
+    analyze(&source.replace("run latest", "run")).unwrap();
+
+    let global = r#"app GlobalLatest
+extern crate::backend
+  fetch(query:str) -> str
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+on search
+  run latest fetch("") -> loaded _
+on loaded(value)
+view
+  text "Search"
+"#;
+    let error = analyze(global).unwrap_err();
+    assert_eq!(error.code, "E140");
+    assert!(error.message.contains("only valid in component handlers"));
 }
 
 #[test]

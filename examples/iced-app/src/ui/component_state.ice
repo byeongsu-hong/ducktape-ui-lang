@@ -1,5 +1,10 @@
 app ComponentState
 
+extern crate::backend
+  Task(id:i64, title:str, done:bool)
+  AppError(message:str)
+  create_task(title:str) -> [Task] ! AppError
+
 theme
   background #111111
   foreground #eeeeee
@@ -38,7 +43,26 @@ component Counter(label:str)
       _
         text draft
 
+component Loader()
+  state
+    query = ""
+    loading = false
+    tasks:[Task] = []
+  on load
+    loading = true
+    run latest create_task(query) -> loaded _ | failed _
+  on loaded(next)
+    tasks = next
+    loading = false
+  on failed(error)
+    loading = false
+  col
+    input "Task" <-> query
+    button "Load" disabled=loading -> load
+    text len(tasks)
+
 view
   row
     Counter label="First" #first
     Counter label="Second" #second
+    Loader #loader

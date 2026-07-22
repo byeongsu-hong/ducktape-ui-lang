@@ -399,6 +399,7 @@ component_state = "state" INDENT state_entry+
 component_handler = "on" name ("(" name_list? ")")?
                     INDENT component_statement*
 component_statement = name "=" expr | "return if" expr
+                    | "run" ("latest")? call "->" route ("|" route)?
 
 handler_decl   = "on" name ("(" name_list? ")")?
                  INDENT statement*
@@ -2805,9 +2806,36 @@ component Counter(label:str)
 
 They have one root, typed inputs, and no implicit capture of app state. A local
 `state` block accepts self-contained ordinary cloneable values. Local `on`
-handlers may assign that state or stop with `return if`; tasks, effects,
-lifecycle hooks, and implicit prop capture stay at app level. Pass a prop or
-event value explicitly through the route when a local handler needs it.
+handlers may assign that state, stop with `return if`, or end with a Future
+extern call using `run`. Native tasks, streams, task composition, lifecycle
+hooks, and implicit prop capture stay at app level. Pass a prop or event value
+explicitly through the route when a local handler needs it.
+
+`run latest` gives local request/response interactions latest-wins behavior:
+
+```ice
+component Search()
+  state
+    query = ""
+    loading = false
+    result:str? = none
+  on search
+    loading = true
+    run latest fetch(query) -> loaded _ | failed _
+  on loaded(value)
+    result = some(value)
+    loading = false
+  on failed(error)
+    loading = false
+  col
+    input "Query" <-> query
+    button "Search" disabled=loading -> search
+```
+
+Each start advances an internal generation for that component scope and source
+call site. A completion is routed only while its generation remains current;
+ordinary `run` performs no filtering and delivers every completion. Future
+values, request IDs, and generations are not part of the language surface.
 
 Local state is keyed by the component's hierarchical instance scope, so two
 explicit component IDs own independent values. The declared initializer is

@@ -497,3 +497,40 @@ view
     assert!(generated.contains("__local.count = (__local.count + 1)"));
     assert!(generated.contains("self.__ice_component_counter.get(&__ice_component_counter_scope_"));
 }
+
+#[test]
+fn lowers_component_latest_futures_with_a_scoped_generation() {
+    let source = r#"app Search
+extern crate::backend
+  fetch(query:str) -> str
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+component SearchBox()
+  state
+    query = ""
+    result:str? = none
+  on search
+    run latest fetch(query) -> loaded _
+  on loaded(value)
+    result = some(value)
+  col
+    input "Query" <-> query
+    button "Search" -> search
+view
+  SearchBox #search
+"#;
+    let generated = compile(source, "search.ice").unwrap();
+    assert!(generated.contains("__ice_latest_14: u64"));
+    assert!(generated.contains("__SearchBoxLatest14(::std::string::String, u64"));
+    assert!(generated.contains("__local.__ice_latest_14.wrapping_add(1)"));
+    assert!(generated.contains("__SearchMessage::__SearchBoxLatest14(__scope.clone()"));
+    assert!(generated.contains("__local.__ice_latest_14 == __generation"));
+    assert!(generated.contains("return self.__update(*__message)"));
+
+    let ordinary = compile(&source.replace("run latest", "run"), "search.ice").unwrap();
+    assert!(!ordinary.contains("Latest14"));
+    assert!(!ordinary.contains("wrapping_add(1)"));
+}

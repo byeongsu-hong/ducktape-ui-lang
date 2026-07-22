@@ -97,7 +97,35 @@ fn check(document: &mut Document) -> Result<(), Error> {
     }
     check_app_settings(document, &states)?;
     for handler in document.handlers.iter().chain(&preset_handlers) {
+        if let Some(span) = latest_run_span(&handler.statements) {
+            return Err(Error::new(
+                "E140",
+                span,
+                "`run latest` is only valid in component handlers",
+            ));
+        }
         check_structured_tasks(handler)?;
+    }
+    for component in &document.components {
+        for handler in &component.handlers {
+            if handler.statements.iter().any(|statement| {
+                !matches!(
+                    statement,
+                    Statement::Assign { .. }
+                        | Statement::ReturnIf { .. }
+                        | Statement::Run {
+                            kind: EffectKind::Future,
+                            ..
+                        }
+                )
+            }) {
+                return Err(Error::new(
+                    "E140",
+                    &handler.span,
+                    "component handlers support state assignments and `run` futures only",
+                ));
+            }
+        }
     }
 
     let mut signatures: HashMap<String, Vec<Option<Type>>> = document
@@ -150,8 +178,16 @@ fn check(document: &mut Document) -> Result<(), Error> {
     controlled_state_bindings(document, false)?;
     controlled_state_bindings(document, true)?;
     infer_subscriptions(document, &states, &mut signatures)?;
+    let empty_env = HashMap::new();
     for handler in document.handlers.iter().chain(&preset_handlers) {
-        infer_runs(handler, document, &mut signatures)?;
+        infer_runs(handler, document, &mut signatures, &empty_env)?;
+    }
+    for component in &document.components {
+        let mut env = HashMap::new();
+        env.insert(component_context_key(&component.name), Type::Unit);
+        for handler in &component.handlers {
+            infer_runs(handler, document, &mut signatures, &env)?;
+        }
     }
 
     for handler in &mut document.handlers {
@@ -199,18 +235,6 @@ fn check(document: &mut Document) -> Result<(), Error> {
             .map(|state| (state.name.clone(), state.ty.clone()))
             .collect();
         for handler in &component.handlers {
-            if handler.statements.iter().any(|statement| {
-                !matches!(
-                    statement,
-                    Statement::Assign { .. } | Statement::ReturnIf { .. }
-                )
-            }) {
-                return Err(Error::new(
-                    "E140",
-                    &handler.span,
-                    "component handlers support synchronous state assignments only",
-                ));
-            }
             check_handler(handler, &states, document, &[], &HashMap::new())?;
         }
     }
@@ -230,6 +254,17 @@ fn component_context(env: &HashMap<String, Type>) -> Option<&str> {
 
 fn component_handler_key(component: &str, handler: &str) -> String {
     format!("{component}.{handler}")
+}
+
+fn latest_run_span(statements: &[Statement]) -> Option<&Span> {
+    statements.iter().find_map(|statement| match statement {
+        Statement::Run {
+            latest: true, span, ..
+        } => Some(span),
+        Statement::TaskGroup { statements, .. } => latest_run_span(statements),
+        Statement::Abortable { task, .. } => latest_run_span(::std::slice::from_ref(task.as_ref())),
+        _ => None,
+    })
 }
 
 mod application;
