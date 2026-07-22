@@ -452,7 +452,12 @@ where
                 natural_cross: axis.cross(node.size()),
                 grow: non_negative(grow),
                 shrink: item.shrink,
-                margins: resolve_margins(item.margins, axis, inner_limits.max().width),
+                margins: resolve_margins(
+                    item.margins,
+                    axis,
+                    self.direction.is_reverse(),
+                    inner_limits.max().width,
+                ),
             });
         }
 
@@ -793,21 +798,26 @@ fn resolve_margin(margin: FlexMargin, percentage_base: f32) -> Option<f32> {
     }
 }
 
-fn resolve_margins(margins: FlexMargins, axis: Axis, percentage_base: f32) -> ResolvedMargins {
+fn resolve_margins(
+    margins: FlexMargins,
+    axis: Axis,
+    reverse: bool,
+    percentage_base: f32,
+) -> ResolvedMargins {
     let top = resolve_margin(margins.top, percentage_base);
     let right = resolve_margin(margins.right, percentage_base);
     let bottom = resolve_margin(margins.bottom, percentage_base);
     let left = resolve_margin(margins.left, percentage_base);
     match axis {
         Axis::Horizontal => ResolvedMargins {
-            main_start: left,
-            main_end: right,
+            main_start: if reverse { right } else { left },
+            main_end: if reverse { left } else { right },
             cross_start: top,
             cross_end: bottom,
         },
         Axis::Vertical => ResolvedMargins {
-            main_start: top,
-            main_end: bottom,
+            main_start: if reverse { bottom } else { top },
+            main_end: if reverse { top } else { bottom },
             cross_start: left,
             cross_end: right,
         },
@@ -895,9 +905,6 @@ fn resolve_flex_line(items: &mut [ItemLayout], target: f32, gap: f32) {
     let used = line_base(items, gap);
     let free = target - used;
     if free > 0.0 {
-        if items.iter().any(|item| item.margins.main_auto_count() > 0) {
-            return;
-        }
         let grow = items.iter().map(|item| item.grow).sum::<f32>();
         if grow > 0.0 {
             let distributable = free * grow.min(1.0);
@@ -1110,6 +1117,12 @@ mod tests {
         close(shrinking[0].target_main, 150.0);
         close(shrinking[1].target_main, 150.0);
 
+        let mut growing_with_auto_margin = [item(50.0, 1.0, 1.0), item(50.0, 0.0, 1.0)];
+        growing_with_auto_margin[1].margins.main_start = None;
+        resolve_flex_line(&mut growing_with_auto_margin, 300.0, 0.0);
+        close(growing_with_auto_margin[0].target_main, 250.0);
+        close(growing_with_auto_margin[1].target_main, 50.0);
+
         assert_eq!(
             justify_line(JustifyContent::SpaceBetween, 90.0, 4, false),
             (0.0, 30.0)
@@ -1176,5 +1189,30 @@ mod tests {
         );
 
         assert_eq!(node.size(), Size::new(50.0, 20.0));
+    }
+
+    #[test]
+    fn keeps_physical_margins_on_their_side_when_reversed() {
+        let child: Element<'_, (), Theme, TestRenderer> =
+            iced::widget::Space::new().width(10.0).height(10.0).into();
+        let flex = flex(vec![flex_item(child).margins(FlexMargins {
+            left: FlexMargin::Fixed(20.0),
+            ..FlexMargins::default()
+        })])
+        .direction(FlexDirection::RowReverse)
+        .width(100.0)
+        .height(10.0);
+        let mut element: Element<'_, (), Theme, TestRenderer> = flex.into();
+        let mut tree = Tree::new(&element);
+        let node = element.as_widget_mut().layout(
+            &mut tree,
+            &renderer(),
+            &layout::Limits::new(Size::ZERO, Size::new(100.0, 10.0)),
+        );
+
+        assert_eq!(
+            node.children()[0].bounds(),
+            Rectangle::new(Point::new(90.0, 0.0), Size::new(10.0, 10.0))
+        );
     }
 }
