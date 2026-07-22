@@ -540,10 +540,12 @@ node           = layout | text | input | button | checkbox | toggler
                | editor_view | container | overlay | rich_text | pane_grid
 layout         = "col" id? column_property* styles? INDENT node+
                | "row" id? flex_property* styles? INDENT node+
+               | "flex" id? ("direction=" ("row" | "column")
+                 | flex_property)* styles? INDENT node+
                | "scroll" id? scroll_property* styles? INDENT node scroll_status*
                | "grid" id? grid_property* styles? INDENT node+
                | "stack" id? stack_property* styles? INDENT node+
-container      = "container" id? container_property* styles? INDENT node
+container      = ("container" | "box") id? container_property* styles? INDENT node
 container_property = ("width=" | "height=") length
                    | ("max-width=" | "max-height=") expr
                    | ("align-x=" | "align-y=") ("start" | "center" | "end")

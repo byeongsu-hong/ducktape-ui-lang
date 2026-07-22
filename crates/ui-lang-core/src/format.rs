@@ -74,7 +74,7 @@ fn canonicalize_style_line(source: &str) -> String {
                 "height=fill",
             );
         }
-        "container" => {
+        "container" | "box" => {
             canonical_flag(
                 &mut styles,
                 &mut properties,
@@ -103,7 +103,7 @@ fn canonicalize_style_line(source: &str) -> String {
             );
             canonical_surface(core, &mut styles, &mut properties);
         }
-        "row" | "col" => {
+        "row" | "col" | "flex" => {
             canonical_mapped(
                 &mut styles,
                 &mut properties,
@@ -410,6 +410,14 @@ mod tests {
             "button \"Zero\" @p-2 p-0 -> save"
         );
         assert_eq!(canonicalize_style_line("col @gap-7"), "col @gap-7");
+        assert_eq!(
+            canonicalize_style_line("flex direction=column @gap-2 items-center"),
+            "flex direction=column spacing=8.0 align=center"
+        );
+        assert_eq!(
+            canonicalize_style_line("box @w-full p-2"),
+            "box width=fill padding=8.0"
+        );
         assert_eq!(
             canonicalize_style_line("container @rounded"),
             "container @rounded"

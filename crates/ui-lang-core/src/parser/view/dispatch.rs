@@ -64,15 +64,30 @@ pub(in crate::parser) fn parse_view(line: &Line) -> Result<ViewNode, Error> {
     let span = Span::line(line.number);
 
     match kind {
-        "col" | "row" | "scroll" | "grid" | "stack" => {
+        "col" | "row" | "flex" | "scroll" | "grid" | "stack" => {
             let id = parts
                 .get(1)
                 .filter(|part| part.starts_with('#'))
                 .map(|part| parse_id(part, line))
                 .transpose()?;
             let option_start = usize::from(id.is_some()) + 1;
-            let mut options = parse_layout_options(kind, &parts[option_start..], line)?;
-            let children = if kind == "scroll" {
+            let mut layout_kind = kind;
+            let mut option_parts = parts[option_start..].to_vec();
+            if kind == "flex" {
+                let direction = option_parts
+                    .iter()
+                    .position(|part| part.starts_with("direction="))
+                    .map(|index| option_parts.remove(index));
+                layout_kind = match direction.as_deref() {
+                    None | Some("direction=row") => "row",
+                    Some("direction=column") => "col",
+                    Some(_) => {
+                        return Err(error("E074", line, "flex direction must be row or column"));
+                    }
+                };
+            }
+            let mut options = parse_layout_options(layout_kind, &option_parts, line)?;
+            let children = if layout_kind == "scroll" {
                 let scroll = options.scroll.as_mut().expect("scroll options");
                 let mut content = Vec::new();
                 for child in &line.children {
@@ -103,7 +118,7 @@ pub(in crate::parser) fn parse_view(line: &Line) -> Result<ViewNode, Error> {
                     .collect::<Result<_, _>>()?
             };
             Ok(ViewNode::Layout {
-                kind: match kind {
+                kind: match layout_kind {
                     "col" => Layout::Column,
                     "row" => Layout::Row,
                     "scroll" => Layout::Scroll,
@@ -119,7 +134,7 @@ pub(in crate::parser) fn parse_view(line: &Line) -> Result<ViewNode, Error> {
         }
         "text" => parse_text(&parts, styles, line),
         "rich-text" => parse_rich_text(&parts, styles, route_source, line),
-        "container" => parse_container(&parts, styles, line),
+        "container" | "box" => parse_container(&parts, styles, line),
         "overlay" => parse_overlay(&parts, styles, line),
         "pane-grid" => parse_pane_grid(&parts, styles, line),
         "input" => parse_input(&parts, styles, line),
