@@ -83,16 +83,14 @@ component NavItem(icon:str, label:str, selected:bool)
           text icon width=20.0 size=17.0 align-x=center @text-accent
           text label size=14.0 @text-accent
         active background=selection text=accent radius=8.0
-        hovered background=selection text=accent radius=8.0
-        pressed background=selection text=accent radius=8.0
     if !selected
       button label=label width=fill padding=8.0 -> navigate(trim(label))
         row width=fill spacing=10.0 align=center
           text icon width=20.0 size=17.0 align-x=center @text-foreground
           text label size=14.0 @text-foreground
         active background=transparent text=foreground radius=8.0
-        hovered background=selection text=foreground radius=8.0
-        pressed background=selection text=accent radius=8.0
+        hovered background=selection
+        pressed background=selection text=accent
 
 component Sidebar(query:str, section:str, signed_in:bool, profile_name:str, loading:bool)
   container width=196.0 height=fill background=sidebar border=border border-width=1.0 radius-tr=18.0 radius-br=18.0 clip=true
@@ -100,10 +98,8 @@ component Sidebar(query:str, section:str, signed_in:bool, profile_name:str, load
       TrafficLights
       input "" #music-search label="Search" <-> query hint="Search" submit=search width=fill padding=8.0 text-size=13.0 icon="⌕" icon-size=17.0 icon-spacing=8.0
         active background=surface border=border value=foreground placeholder=muted selection=accent border-width=0.0 radius=8.0
-        hovered background=surface border=border value=foreground placeholder=muted selection=accent border-width=0.0 radius=8.0
-        focused background=surface border=accent value=foreground placeholder=muted selection=accent border-width=1.0 radius=8.0
-        focused-hovered background=surface border=accent value=foreground placeholder=muted selection=accent border-width=1.0 radius=8.0
-        disabled background=selection border=border value=muted placeholder=muted selection=accent border-width=0.0 radius=8.0
+        focused border=accent border-width=1.0
+        disabled background=selection value=muted
       NavItem icon="⌂" label="Home" selected=(section == "Home")
       NavItem icon="▦" label="New" selected=(section == "New")
       NavItem icon="◉" label="Radio" selected=(section == "Radio")
@@ -122,8 +118,8 @@ component Sidebar(query:str, section:str, signed_in:bool, profile_name:str, load
               text "E" size=12.0 @text-white font-bold
             text profile_name size=12.0 @text-foreground
           active background=transparent text=foreground radius=8.0
-          hovered background=selection text=foreground radius=8.0
-          pressed background=selection text=accent radius=8.0
+          hovered background=selection
+          pressed background=selection text=accent
 
 component Cover(source:str, size:f64, radius:f64)
   container width=size height=size clip=true radius=radius
@@ -137,8 +133,7 @@ component FeaturedCard(album:Album)
         text album.title size=13.0 wrapping=none @text-white font-bold
         text album.artist size=11.0 wrapping=none @text-white/70
     active background=card text=white radius=8.0
-    hovered background=card text=white radius=8.0 shadow=black/25 shadow-y=3.0 shadow-blur=8.0
-    pressed background=card text=white radius=8.0
+    hovered shadow=black/25 shadow-y=3.0 shadow-blur=8.0
 
 component RecentCard(album:Album)
   button label=album.title width=160.0 height=206.0 padding=0.0 -> play(album.title, album.artist, album.cover)
@@ -147,8 +142,7 @@ component RecentCard(album:Album)
       text album.title size=12.0 wrapping=none @text-foreground
       text album.artist size=11.0 wrapping=none @text-muted
     active background=transparent text=foreground radius=8.0
-    hovered background=transparent text=foreground radius=8.0
-    pressed background=selection text=foreground radius=8.0
+    pressed background=selection
 
 component AlbumStrip(albums:[Album], featured:bool)
   col width=fill
@@ -181,8 +175,7 @@ component StationCard(album:Album)
           text album.title size=16.0 @text-white font-bold
           text album.artist size=11.0 @text-white/75
     active background=card text=white radius=9.0
-    hovered background=card text=white radius=9.0 shadow=black/25 shadow-y=3.0 shadow-blur=9.0
-    pressed background=card text=white radius=9.0
+    hovered shadow=black/25 shadow-y=3.0 shadow-blur=9.0
 
 component StationStrip(albums:[Album])
   scroll direction=horizontal width=fill height=168.0 bar=hidden
@@ -199,8 +192,8 @@ component ArtistRow(album:Album)
         text album.eyebrow size=11.0 @text-muted
       text "›" size=22.0 @text-muted
     active background=transparent text=foreground radius=8.0
-    hovered background=selection text=foreground radius=8.0
-    pressed background=selection text=accent radius=8.0
+    hovered background=selection
+    pressed background=selection text=accent
 
 component SongRow(album:Album)
   button label=album.title width=fill height=52.0 padding=6.0 -> play(album.title, album.artist, album.cover)
@@ -212,8 +205,8 @@ component SongRow(album:Album)
       text album.eyebrow width=126.0 size=11.0 wrapping=none @text-muted
       text "•••" size=11.0 @text-muted
     active background=transparent text=foreground radius=7.0
-    hovered background=selection text=foreground radius=7.0
-    pressed background=selection text=accent radius=7.0
+    hovered background=selection
+    pressed background=selection text=accent
 
 component QueueRow(album:Album, selected:bool)
   button label=album.title width=fill height=54.0 padding=5.0 -> play(album.title, album.artist, album.cover)
@@ -227,8 +220,8 @@ component QueueRow(album:Album, selected:bool)
       if !selected
         text "▶" size=10.0 @text-muted
     active background=transparent text=foreground radius=7.0
-    hovered background=selection text=foreground radius=7.0
-    pressed background=selection text=accent radius=7.0
+    hovered background=selection
+    pressed background=selection text=accent
 
 component QueuePanel(albums:[Album], current_title:str)
   container width=304.0 height=fill padding=16.0 background=surface border=border border-width=1.0 radius-tl=14.0 radius-bl=14.0 shadow=black/18 shadow-x=-4.0 shadow-blur=14.0
@@ -268,15 +261,15 @@ component PlayerBar(title:str, artist:str, cover:str, active:bool, playhead:f64,
           text artist size=11.0 wrapping=none @text-muted
           slider playhead min=0.0 max=100.0 step=1.0 width=fill height=8.0 -> seek _
             active rail-start=accent rail-end=track rail-width=2.0 rail-radius=1.0 handle=circle(0.0) handle-color=accent
-            hovered rail-start=accent rail-end=track rail-width=3.0 rail-radius=1.5 handle=circle(4.0) handle-color=accent
-            dragged rail-start=accent rail-end=track rail-width=3.0 rail-radius=1.5 handle=circle(5.0) handle-color=accent
+            hovered rail-width=3.0 rail-radius=1.5 handle=circle(4.0)
+            dragged rail-width=3.0 rail-radius=1.5 handle=circle(5.0)
         button label="Playing Next" padding=5.0 style=text -> queue
           text "☵"
         text "◖" size=14.0 @text-foreground
         slider loudness min=0.0 max=100.0 step=1.0 width=76.0 height=12.0 -> volume_changed _
           active rail-start=foreground rail-end=track rail-width=3.0 rail-radius=1.5 handle=circle(0.0) handle-color=foreground
-          hovered rail-start=foreground rail-end=track rail-width=3.0 rail-radius=1.5 handle=circle(4.0) handle-color=foreground
-          dragged rail-start=accent rail-end=track rail-width=3.0 rail-radius=1.5 handle=circle(5.0) handle-color=accent
+          hovered handle=circle(4.0)
+          dragged rail-start=accent handle=circle(5.0) handle-color=accent
 
 on mount
   loading = true
@@ -358,60 +351,61 @@ view
         Sidebar query=query section=section signed_in=signed_in profile_name=profile_name loading=loading
         scroll direction=vertical width=fill height=fill bar=hidden
           col width=fill padding-top=40.0 padding-left=36.0 padding-bottom=92.0 spacing=14.0
-            if section == "Home"
-              PageHeader title="Home" subtitle="Music picked for you"
-              text "Top Picks for You" size=16.0 @text-foreground font-bold
-              AlbumStrip albums=top_picks featured=true
-              row spacing=5.0 align=center
+            match section
+              "Home"
+                PageHeader title="Home" subtitle="Music picked for you"
+                text "Top Picks for You" size=16.0 @text-foreground font-bold
+                AlbumStrip albums=top_picks featured=true
+                row spacing=5.0 align=center
+                  text "Recently Played" size=16.0 @text-foreground font-bold
+                  text "›" size=25.0 @text-muted
+                AlbumStrip albums=recently_played featured=false
+              "New"
+                PageHeader title="New" subtitle="Fresh music, updated daily"
+                text "Featured Releases" size=16.0 @text-foreground font-bold
+                AlbumStrip albums=recently_played featured=true
+                text "New Releases" size=16.0 @text-foreground font-bold
+                AlbumStrip albums=recently_played featured=false
+              "Radio"
+                PageHeader title="Radio" subtitle="Live and on demand"
+                text "Live Stations" size=16.0 @text-foreground font-bold
+                StationStrip albums=top_picks
+                text "Recently Aired" size=16.0 @text-foreground font-bold
+                AlbumStrip albums=recently_played featured=false
+              "Recently Added"
+                PageHeader title="Recently Added" subtitle="The newest albums in your library"
+                text "Albums" size=16.0 @text-foreground font-bold
+                AlbumStrip albums=recently_played featured=false
+                text "Play Something Next" size=16.0 @text-foreground font-bold
+                col width=fill spacing=2.0
+                  for album in top_picks
+                    SongRow album=album
+              "Artists"
+                PageHeader title="Artists" subtitle="Artists in your library"
+                col width=fill spacing=2.0
+                  for album in recently_played
+                    ArtistRow album=album
+              "Albums"
+                PageHeader title="Albums" subtitle="Your full album collection"
+                AlbumStrip albums=recently_played featured=true
                 text "Recently Played" size=16.0 @text-foreground font-bold
-                text "›" size=25.0 @text-muted
-              AlbumStrip albums=recently_played featured=false
-            if section == "New"
-              PageHeader title="New" subtitle="Fresh music, updated daily"
-              text "Featured Releases" size=16.0 @text-foreground font-bold
-              AlbumStrip albums=recently_played featured=true
-              text "New Releases" size=16.0 @text-foreground font-bold
-              AlbumStrip albums=recently_played featured=false
-            if section == "Radio"
-              PageHeader title="Radio" subtitle="Live and on demand"
-              text "Live Stations" size=16.0 @text-foreground font-bold
-              StationStrip albums=top_picks
-              text "Recently Aired" size=16.0 @text-foreground font-bold
-              AlbumStrip albums=recently_played featured=false
-            if section == "Recently Added"
-              PageHeader title="Recently Added" subtitle="The newest albums in your library"
-              text "Albums" size=16.0 @text-foreground font-bold
-              AlbumStrip albums=recently_played featured=false
-              text "Play Something Next" size=16.0 @text-foreground font-bold
-              col width=fill spacing=2.0
-                for album in top_picks
-                  SongRow album=album
-            if section == "Artists"
-              PageHeader title="Artists" subtitle="Artists in your library"
-              col width=fill spacing=2.0
-                for album in recently_played
-                  ArtistRow album=album
-            if section == "Albums"
-              PageHeader title="Albums" subtitle="Your full album collection"
-              AlbumStrip albums=recently_played featured=true
-              text "Recently Played" size=16.0 @text-foreground font-bold
-              AlbumStrip albums=recently_played featured=false
-            if section == "Songs"
-              PageHeader title="Songs" subtitle="Every song in your mock library"
-              row width=fill padding-left=58.0 padding-right=11.0
-                text "TITLE" width=fill size=10.0 @text-muted font-bold
-                text "CATEGORY" width=126.0 size=10.0 @text-muted font-bold
-                text "" width=25.0
-              col width=fill spacing=1.0
-                for album in recently_played
-                  SongRow album=album
-            if section == "Search"
-              PageHeader title="Search" subtitle=query
-              if empty(search_results) && !loading
-                text "No results" size=14.0 @text-muted
-              if !empty(search_results)
-                text "Top Results" size=16.0 @text-foreground font-bold
-                AlbumStrip albums=search_results featured=false
+                AlbumStrip albums=recently_played featured=false
+              "Songs"
+                PageHeader title="Songs" subtitle="Every song in your mock library"
+                row width=fill padding-left=58.0 padding-right=11.0
+                  text "TITLE" width=fill size=10.0 @text-muted font-bold
+                  text "CATEGORY" width=126.0 size=10.0 @text-muted font-bold
+                  text "" width=25.0
+                col width=fill spacing=1.0
+                  for album in recently_played
+                    SongRow album=album
+              "Search"
+                PageHeader title="Search" subtitle=query
+                if empty(search_results) && !loading
+                  text "No results" size=14.0 @text-muted
+                if !empty(search_results)
+                  text "Top Results" size=16.0 @text-foreground font-bold
+                  AlbumStrip albums=search_results featured=false
             if loading
               text "Loading…" size=13.0 @text-muted
             if error != ""

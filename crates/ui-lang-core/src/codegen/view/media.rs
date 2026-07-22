@@ -282,39 +282,43 @@ pub(in crate::codegen) fn render_media(
                 }
             }
             if let Some(route) = &options.move_route {
-                write!(
-                    code,
-                    ".on_move(move |__point| {})",
-                    ordered_route_code(
-                        route,
-                        &["__point.x as f64", "__point.y as f64"],
-                        env,
-                        document,
-                        message,
-                    )?
-                )
-                .unwrap();
+                let callback = ordered_route_callback_code(
+                    route,
+                    "__point",
+                    &["__point.x as f64", "__point.y as f64"],
+                    env,
+                    document,
+                    message,
+                )?;
+                write!(code, ".on_move({callback})").unwrap();
             }
             if let Some(route) = &options.scroll {
-                let lines = ordered_route_code(
+                let callback = route_callback_with_code(
                     route,
-                    &["__x as f64", "__y as f64", "false"],
+                    "__delta",
                     env,
                     document,
-                    message,
+                    |callback_env| {
+                        let lines = ordered_route_code(
+                            route,
+                            &["__x as f64", "__y as f64", "false"],
+                            callback_env,
+                            document,
+                            message,
+                        )?;
+                        let pixels = ordered_route_code(
+                            route,
+                            &["__x as f64", "__y as f64", "true"],
+                            callback_env,
+                            document,
+                            message,
+                        )?;
+                        Ok(format!(
+                            "match __delta {{ ::iced::mouse::ScrollDelta::Lines {{ x: __x, y: __y }} => {lines}, ::iced::mouse::ScrollDelta::Pixels {{ x: __x, y: __y }} => {pixels} }}"
+                        ))
+                    },
                 )?;
-                let pixels = ordered_route_code(
-                    route,
-                    &["__x as f64", "__y as f64", "true"],
-                    env,
-                    document,
-                    message,
-                )?;
-                write!(
-                    code,
-                    ".on_scroll(move |__delta| match __delta {{ ::iced::mouse::ScrollDelta::Lines {{ x: __x, y: __y }} => {lines}, ::iced::mouse::ScrollDelta::Pixels {{ x: __x, y: __y }} => {pixels} }})"
-                )
-                .unwrap();
+                write!(code, ".on_scroll({callback})").unwrap();
             }
             if let Some(interaction) = options.interaction {
                 write!(

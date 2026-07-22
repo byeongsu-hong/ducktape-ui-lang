@@ -13,6 +13,7 @@ pub(in crate::codegen) fn generate_theme(
                 code: "window".into(),
                 ty: Type::WindowId,
                 local: true,
+                state: None,
             },
         );
     }
@@ -172,6 +173,18 @@ pub(in crate::codegen) fn generate_boot(
     for state in &document.states {
         writeln!(out, "{}: {},", state.name, initial_code(state, document)).unwrap();
     }
+    for component in document
+        .components
+        .iter()
+        .filter(|component| !component.states.is_empty() || !component.handlers.is_empty())
+    {
+        writeln!(
+            out,
+            "{}: ::std::collections::HashMap::new(),",
+            component_state_field(&component.name)
+        )
+        .unwrap();
+    }
     for node in pane_grids(&document.view) {
         let ViewNode::PaneGrid {
             name,
@@ -284,6 +297,10 @@ pub(in crate::codegen) fn generate_update(
         .handlers
         .iter()
         .any(|handler| handler.name != "mount")
+        || document.components.iter().any(|component| {
+            !component.handlers.is_empty()
+                || component.states.iter().any(|state| state.ty == Type::Str)
+        })
         || pane_grids(&document.view).into_iter().any(|node| {
             matches!(node, ViewNode::PaneGrid { options, .. } if options.resize_leeway.is_some() || options.draggable)
         })
@@ -325,7 +342,7 @@ pub(in crate::codegen) fn generate_update(
     };
     writeln!(
         out,
-        "fn __update(&mut self, message: {message}) -> ::iced::Task<{message}> {{"
+        "#[allow(clippy::assign_op_pattern)]\nfn __update(&mut self, message: {message}) -> ::iced::Task<{message}> {{"
     )
     .unwrap();
     if !document.daemon {
@@ -387,6 +404,7 @@ pub(in crate::codegen) fn generate_update(
                     code: param.name.clone(),
                     ty: param.ty.clone(),
                     local: true,
+                    state: None,
                 },
             );
         }
@@ -403,6 +421,69 @@ pub(in crate::codegen) fn generate_update(
             writeln!(out, "::iced::Task::none()").unwrap();
         }
         writeln!(out, "}})(),").unwrap();
+    }
+    for component in &document.components {
+        let field = component_state_field(&component.name);
+        for handler in &component.handlers {
+            let variant = component_handler_variant(&component.name, &handler.name);
+            let mut bindings = vec!["__scope".to_owned()];
+            bindings.extend(handler.params.iter().map(|param| param.name.clone()));
+            writeln!(
+                out,
+                "{message}::{variant}({}) => (|| {{ let __local = self.{field}.entry(__scope).or_default();",
+                bindings.join(", ")
+            )
+            .unwrap();
+            let mut env = HashMap::new();
+            for state in &component.states {
+                env.insert(
+                    state.name.clone(),
+                    Binding {
+                        code: format!("__local.{}", state.name),
+                        ty: state.ty.clone(),
+                        local: false,
+                        state: None,
+                    },
+                );
+            }
+            for param in &handler.params {
+                env.insert(
+                    param.name.clone(),
+                    Binding {
+                        code: param.name.clone(),
+                        ty: param.ty.clone(),
+                        local: true,
+                        state: None,
+                    },
+                );
+            }
+            let has_task = generate_statements(
+                out,
+                &handler.statements,
+                document,
+                message,
+                &env,
+                "__local",
+                true,
+            )?;
+            if !has_task {
+                writeln!(out, "::iced::Task::none()").unwrap();
+            }
+            writeln!(out, "}})(),").unwrap();
+        }
+        for state in component
+            .states
+            .iter()
+            .filter(|state| state.ty == Type::Str)
+        {
+            let variant = component_binding_variant(&component.name, &state.name);
+            writeln!(
+                out,
+                "{message}::{variant}(__scope, value) => {{ self.{field}.entry(__scope).or_default().{} = value; ::iced::Task::none() }},",
+                state.name
+            )
+            .unwrap();
+        }
     }
     for node in pane_grids(&document.view) {
         let ViewNode::PaneGrid { name, options, .. } = node else {

@@ -480,6 +480,27 @@ mod tests {
     }
 
     #[test]
+    fn keeps_component_local_handlers_out_of_global_symbol_navigation() {
+        let fixture = Fixture::new();
+        let root = "app Demo\ntheme\n  background #000000\n  foreground #ffffff\n  primary #333333\n  danger #ff0000\ncomponent Toggle()\n  state\n    enabled = false\n  on changed(next)\n    enabled = next\n  checkbox \"Enabled\" checked=enabled -> changed _\non changed\nview\n  Toggle #toggle\n";
+        fixture.write("app.ice", root);
+
+        let checked = analyze_file_with_source(fixture.path("app.ice"), root).unwrap();
+        let app = fixture.path("app.ice").canonicalize().unwrap();
+        let changed = checked
+            .symbols()
+            .iter()
+            .find(|symbol| symbol.kind == SymbolKind::Handler && symbol.name == "changed")
+            .unwrap();
+
+        assert_eq!(changed.definition.line, 13);
+        assert!(changed.references.is_empty());
+        assert!(checked.symbol_at(Some(&app), 10, 6).is_none());
+        let route_column = root.lines().nth(11).unwrap().rfind("changed").unwrap() + 1;
+        assert!(checked.symbol_at(Some(&app), 12, route_column).is_none());
+    }
+
+    #[test]
     fn retains_handler_locations_in_named_route_properties() {
         let fixture = Fixture::new();
         let root = "app Demo\ntheme\n  background #000000\n  foreground #ffffff\n  primary #333333\n  danger #ff0000\nstate\n  draft:str = \"\"\non submit\nview\n  input \"Draft\" <-> draft submit=submit\n";

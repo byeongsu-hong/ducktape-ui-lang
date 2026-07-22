@@ -350,7 +350,11 @@ fn check_style_ownership(
                 )?;
                 reject_duplicate_style_property(
                     span,
-                    options.align.is_some(),
+                    options.align.is_some()
+                        || options
+                            .flexbox
+                            .as_ref()
+                            .is_some_and(|flexbox| flexbox.align_items.is_some()),
                     "alignment",
                     "align=",
                     true,

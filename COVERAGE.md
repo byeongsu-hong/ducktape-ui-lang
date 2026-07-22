@@ -6,7 +6,7 @@ resolved by this workspace: `iced 0.14.0` and `iced_widget 0.14.2`.
 This is a compatibility inventory, not a roadmap. A partial or missing row does
 not imply planned Ice syntax; uncommon behavior should use an existing typed
 Rust boundary unless it satisfies the Core criteria in [`SPEC.md`](SPEC.md).
-Language revision 1.58 and the workspace's pre-1.0 package version `0.1.0`
+Language revision 1.59 and the workspace's pre-1.0 package version `0.1.0`
 are intentionally separate version schemes.
 
 - **native**: accepted Ice syntax is parsed, type-checked, lowered, and compiled
@@ -21,6 +21,12 @@ counts toward the row below.
 
 Editor diagnostics use open buffers throughout every open app root's import
 graph and fall back to disk when a buffer closes.
+
+Core view control includes checked `if`, `for`, and first-match `match` arms.
+Components may own ordinary cloneable state and synchronous local handlers;
+generated state is isolated by hierarchical component ID. Structured native
+status styles inherit the matching `active` fields before applying the
+interaction-specific delta.
 
 ## Accessibility
 
@@ -57,7 +63,7 @@ and remain outside native export.
 
 ## Typed system reachability
 
-Ice 1.58 has thirty-three checked Rust boundaries:
+Ice 1.59 has thirty-three checked Rust boundaries:
 
 | Boundary | Rust ABI | Covers |
 | --- | --- | --- |
@@ -107,6 +113,7 @@ public behavior has direct documented Ice syntax and tests.
 | `canvas` | native | declarative rectangle/circle/line/text/path geometry; complete path builder segments, fill rules, solid/linear fill and stroke, caps/joins/dashes, transforms, clips, typed `if`/`for`, complete raster/SVG frame drawing fields, dependency-keyed geometry cache with shared named groups, typed local `Program::State`, all five event families and every variant, state updates, publish/capture/next-frame/timed-redraw actions, pointer routes, and static/state-dependent/out-of-bounds interaction cover the complete public Program behavior |
 | `checkbox` | native | native label/value/disabled event, size/width/spacing, text typography/wrapping, complete font descriptors and custom icon; all four presets, every concrete Style field across active/hovered/disabled checked and unchecked statuses, and typed theme/status-aware runtime callbacks covering the default Theme's advanced classes |
 | `column` | native | children, typed spacing/per-side padding, all `Length` bounds, max width, cross-axis alignment, clipping and wrapping column spacing/alignment |
+| `flex` | native | dependency-free runtime flexbox with row/column reverse directions, nowrap/wrap/wrap-reverse, justify/align content and items, axis gaps, padding and clipping; box items support stable order, grow/shrink/basis, align-self, and fixed/percentage/auto margins |
 | `combo_box` | native | native typed replaceable and incrementally pushable search state/selection, every builder setter, complete text-input icon, every concrete input Style field across active/hovered/focused/focused-hovered/disabled statuses, complete menu overlay Style fields, typed native input/menu style callbacks, and all events |
 | `container` | native | native one-child container with ID, complete concrete layout API, every concrete Style field including linear background, text, per-corner border, shadow and pixel snap, plus typed theme-aware runtime callbacks covering the default Theme's advanced classes |
 | `float` | native | one child, positive scale, all original-bounds and viewport geometry exposed as scoped f64 translation inputs, and every concrete Style field through checked shadow color/offset/blur and per-corner shadow radius |
@@ -137,7 +144,7 @@ public behavior has direct documented Ice syntax and tests.
 | `table` | native | typed cloned rows, arbitrary header/cell subtrees, automatic row/column identity scopes, all table width/padding/separator setters and all column width/alignment setters |
 | `text` | native | native string/numeric text plus structured rich spans; complete Text/Rich bounds, size, relative/absolute line height, font, alignment, wrapping and color, plus Text shaping and Rich str link events; every concrete Span field including solid/linear highlight background, border/per-corner radius/padding/underline/strike; typed theme-aware runtime callbacks cover the default Theme's advanced classes |
 | `text_editor` | native | app-owned direct or component-prop content, generated action application, every concrete builder setter, all five built-in themes, typed arbitrary native Highlighter adapters, complete native key bindings with custom routed payloads, every concrete Style field across all statuses, and typed Theme/Status callbacks covering advanced classes |
-| `text_input` | native | app-owned direct or component-prop binding, ID, every concrete builder setter, complete custom icon, every concrete Style field across active/hovered/focused/focused-hovered/disabled statuses, and typed theme/status-aware runtime callbacks covering the default Theme's advanced classes |
+| `text_input` | native | app-owned, component-prop, or component-local str binding, ID, every concrete builder setter, complete custom icon, every concrete Style field across active/hovered/focused/focused-hovered/disabled statuses, and typed theme/status-aware runtime callbacks covering the default Theme's advanced classes |
 | `themer` | native | default/app/all 22 built-in and arbitrary typed `Theme: Base` subtrees; checked default text color and solid/linear background plus typed alternate-Theme text/background callbacks cover the complete public builder behavior |
 | `toggler` | native | native label/value/disabled event, size/width/spacing, text typography/wrapping/alignment and complete font descriptors; every concrete Style field across active/hovered/disabled checked and unchecked statuses, plus typed theme/status-aware runtime callbacks covering the default Theme's advanced classes |
 | `tooltip` | native | native two-child content, all positions, gap, padding, viewport snap, delay, nine container presets, every concrete container Style field, and checked `container-style` callbacks covering the default Theme's advanced classes |

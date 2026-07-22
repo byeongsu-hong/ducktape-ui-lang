@@ -1,6 +1,69 @@
 use super::*;
 
 pub(in crate::parser) fn parse_view(line: &Line) -> Result<ViewNode, Error> {
+    if let Some(value) = line.text.strip_prefix("match ") {
+        if line.children.is_empty() {
+            return Err(error("E060", line, "match requires at least one arm"));
+        }
+        // ponytail: lower through the existing If IR; add a Match node only if
+        // single evaluation of large or expensive match expressions matters.
+        let value = parse_expr(value, line)?;
+        let mut matched = None;
+        let mut branches = Vec::new();
+        for (index, arm) in line.children.iter().enumerate() {
+            if arm.children.is_empty() {
+                return Err(error("E060", arm, "match arms require view content"));
+            }
+            let condition = if arm.text == "_" {
+                if index + 1 != line.children.len() {
+                    return Err(error("E060", arm, "the `_` match arm must be last"));
+                }
+                matched
+                    .take()
+                    .map_or(Expr::Bool(true), |value| Expr::Unary {
+                        op: UnaryOp::Not,
+                        value: Box::new(value),
+                    })
+            } else {
+                let current = Expr::Binary {
+                    left: Box::new(value.clone()),
+                    op: BinaryOp::Eq,
+                    right: Box::new(parse_expr(&arm.text, arm)?),
+                };
+                let condition = matched.as_ref().map_or_else(
+                    || current.clone(),
+                    |previous| Expr::Binary {
+                        left: Box::new(Expr::Unary {
+                            op: UnaryOp::Not,
+                            value: Box::new(previous.clone()),
+                        }),
+                        op: BinaryOp::And,
+                        right: Box::new(current.clone()),
+                    },
+                );
+                matched = Some(matched.map_or(current.clone(), |previous| Expr::Binary {
+                    left: Box::new(previous),
+                    op: BinaryOp::Or,
+                    right: Box::new(current),
+                }));
+                condition
+            };
+            branches.push(ViewNode::If {
+                condition,
+                children: arm
+                    .children
+                    .iter()
+                    .map(parse_view)
+                    .collect::<Result<_, _>>()?,
+                span: Span::line(arm.number),
+            });
+        }
+        return Ok(ViewNode::If {
+            condition: Expr::Bool(true),
+            children: branches,
+            span: Span::line(line.number),
+        });
+    }
     if let Some(condition) = line.text.strip_prefix("if ") {
         return Ok(ViewNode::If {
             condition: parse_expr(condition, line)?,
@@ -71,22 +134,17 @@ pub(in crate::parser) fn parse_view(line: &Line) -> Result<ViewNode, Error> {
                 .map(|part| parse_id(part, line))
                 .transpose()?;
             let option_start = usize::from(id.is_some()) + 1;
-            let mut layout_kind = kind;
-            let mut option_parts = parts[option_start..].to_vec();
-            if kind == "flex" {
-                let direction = option_parts
-                    .iter()
-                    .position(|part| part.starts_with("direction="))
-                    .map(|index| option_parts.remove(index));
-                layout_kind = match direction.as_deref() {
-                    None | Some("direction=row") => "row",
-                    Some("direction=column") => "col",
-                    Some(_) => {
-                        return Err(error("E074", line, "flex direction must be row or column"));
-                    }
-                };
-            }
-            let mut options = parse_layout_options(layout_kind, &option_parts, line)?;
+            let option_parts = parts[option_start..].to_vec();
+            let mut options = if kind == "flex" {
+                parse_flexbox_options(&option_parts, line)?
+            } else {
+                parse_layout_options(kind, &option_parts, line)?
+            };
+            let layout_kind = match options.flexbox.as_ref().map(|flex| flex.direction) {
+                Some(FlexDirectionValue::Row | FlexDirectionValue::RowReverse) => "row",
+                Some(FlexDirectionValue::Column | FlexDirectionValue::ColumnReverse) => "col",
+                None => kind,
+            };
             let children = if layout_kind == "scroll" {
                 let scroll = options.scroll.as_mut().expect("scroll options");
                 let mut content = Vec::new();

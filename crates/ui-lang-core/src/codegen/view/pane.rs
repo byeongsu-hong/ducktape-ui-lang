@@ -24,6 +24,7 @@ pub(in crate::codegen) fn render_pane_grid(
                         code: "__pane_maximized".into(),
                         ty: Type::Bool,
                         local: true,
+                        state: None,
                     },
                 );
             }
@@ -48,6 +49,7 @@ pub(in crate::codegen) fn render_pane_grid(
                 code: format!("(*{})", template.item),
                 ty: item_type,
                 local: false,
+                state: None,
             },
         );
         if let Some(binding) = &template.pane.maximized {
@@ -57,6 +59,7 @@ pub(in crate::codegen) fn render_pane_grid(
                     code: "__pane_maximized".into(),
                     ty: Type::Bool,
                     local: true,
+                    state: None,
                 },
             );
         }

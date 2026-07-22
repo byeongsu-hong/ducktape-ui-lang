@@ -30,6 +30,27 @@ pub fn generate(document: &CheckedDocument, source_path: &str) -> Result<String,
     generate_canvas_types(&mut out, document);
     generate_pane_types(&mut out, document)?;
 
+    for component in document
+        .components
+        .iter()
+        .filter(|component| !component.states.is_empty() || !component.handlers.is_empty())
+    {
+        let ty = component_state_type(&component.name);
+        writeln!(out, "#[derive(Debug)]\nstruct {ty} {{").unwrap();
+        for state in &component.states {
+            writeln!(out, "{}: {},", state.name, state.ty.rust(&document.structs)).unwrap();
+        }
+        writeln!(
+            out,
+            "}}\nimpl ::std::default::Default for {ty} {{\nfn default() -> Self {{ Self {{"
+        )
+        .unwrap();
+        for state in &component.states {
+            writeln!(out, "{}: {},", state.name, initial_code(state, document)).unwrap();
+        }
+        writeln!(out, "}} }}\n}}").unwrap();
+    }
+
     writeln!(out, "#[derive(Debug)]\npub struct {} {{", document.app).unwrap();
     writeln!(
         out,
@@ -90,6 +111,21 @@ pub fn generate(document: &CheckedDocument, source_path: &str) -> Result<String,
         )
         .unwrap();
     }
+    // ponytail: scoped entries persist for the app lifetime; add active-tree pruning if
+    // unbounded dynamic component IDs become a measured source of map growth.
+    for component in document
+        .components
+        .iter()
+        .filter(|component| !component.states.is_empty() || !component.handlers.is_empty())
+    {
+        writeln!(
+            out,
+            "pub(crate) {}: ::std::collections::HashMap<::std::string::String, {}>,",
+            component_state_field(&component.name),
+            component_state_type(&component.name)
+        )
+        .unwrap();
+    }
     writeln!(out, "}}").unwrap();
 
     writeln!(out, "#[derive(Debug, Clone)]\nenum {message} {{").unwrap();
@@ -113,6 +149,33 @@ pub fn generate(document: &CheckedDocument, source_path: &str) -> Result<String,
                 .collect::<Vec<_>>()
                 .join(", ");
             writeln!(out, "{variant}({fields}),").unwrap();
+        }
+    }
+    for component in &document.components {
+        for handler in &component.handlers {
+            let variant = component_handler_variant(&component.name, &handler.name);
+            let fields = ::std::iter::once("::std::string::String".to_owned())
+                .chain(
+                    handler
+                        .params
+                        .iter()
+                        .map(|param| param.ty.rust(&document.structs)),
+                )
+                .collect::<Vec<_>>()
+                .join(", ");
+            writeln!(out, "{variant}({fields}),").unwrap();
+        }
+        for state in component
+            .states
+            .iter()
+            .filter(|state| state.ty == Type::Str)
+        {
+            writeln!(
+                out,
+                "{}(::std::string::String, ::std::string::String),",
+                component_binding_variant(&component.name, &state.name)
+            )
+            .unwrap();
         }
     }
     for binding in controlled_state_bindings(document, false)

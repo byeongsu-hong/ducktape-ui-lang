@@ -252,69 +252,91 @@ pub(in crate::codegen) fn checkbox_style_code(
     let mut code =
         format!(".style(move |__theme, __status| {{ let mut __style = {base}; match __status {{");
     for (status, checked, style) in overrides {
-        let Some(style) = style else { continue };
+        let inherited = match (status, checked) {
+            ("Active", _) => None,
+            (_, true) => styles.active_checked.as_ref(),
+            (_, false) => styles.active_unchecked.as_ref(),
+        };
+        if inherited.is_none() && style.is_none() {
+            continue;
+        }
         write!(
             code,
             " ::iced::widget::checkbox::Status::{status} {{ is_checked: {checked} }} => {{"
         )
         .unwrap();
-        if let Some(background) = &style.background {
-            write!(
-                code,
-                " __style.background = {};",
-                background_code(background, env, document)?
-            )
-            .unwrap();
+        if let Some(inherited) = inherited {
+            append_checkbox_status_style(&mut code, inherited, env, document)?;
         }
-        if let Some(color) = &style.icon_color {
-            write!(
-                code,
-                " __style.icon_color = {};",
-                theme_color(document, color)
-            )
-            .unwrap();
-        }
-        if let Some(color) = &style.text_color {
-            write!(
-                code,
-                " __style.text_color = ::std::option::Option::Some({});",
-                theme_color(document, color)
-            )
-            .unwrap();
-        }
-        if let Some(color) = &style.border_color {
-            write!(
-                code,
-                " __style.border.color = {};",
-                theme_color(document, color)
-            )
-            .unwrap();
-        }
-        if let Some(width) = &style.border_width {
-            write!(
-                code,
-                " __style.border.width = {} as f32;",
-                expr_code(width, env, document, ValueMode::Owned)?
-            )
-            .unwrap();
-        }
-        if let Some(radius) = radius_code(
-            style.radius.as_ref(),
-            [
-                style.radius_top_left.as_ref(),
-                style.radius_top_right.as_ref(),
-                style.radius_bottom_right.as_ref(),
-                style.radius_bottom_left.as_ref(),
-            ],
-            env,
-            document,
-        )? {
-            write!(code, " __style.border.radius = {radius};").unwrap();
+        if let Some(style) = style {
+            append_checkbox_status_style(&mut code, style, env, document)?;
         }
         code.push_str(" }");
     }
     code.push_str(" _ => {} } __style })");
     Ok(code)
+}
+
+fn append_checkbox_status_style(
+    code: &mut String,
+    style: &CheckboxStatusStyle,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<(), Error> {
+    if let Some(background) = &style.background {
+        write!(
+            code,
+            " __style.background = {};",
+            background_code(background, env, document)?
+        )
+        .unwrap();
+    }
+    if let Some(color) = &style.icon_color {
+        write!(
+            code,
+            " __style.icon_color = {};",
+            theme_color(document, color)
+        )
+        .unwrap();
+    }
+    if let Some(color) = &style.text_color {
+        write!(
+            code,
+            " __style.text_color = ::std::option::Option::Some({});",
+            theme_color(document, color)
+        )
+        .unwrap();
+    }
+    if let Some(color) = &style.border_color {
+        write!(
+            code,
+            " __style.border.color = {};",
+            theme_color(document, color)
+        )
+        .unwrap();
+    }
+    if let Some(width) = &style.border_width {
+        write!(
+            code,
+            " __style.border.width = {} as f32;",
+            expr_code(width, env, document, ValueMode::Owned)?
+        )
+        .unwrap();
+    }
+    if let Some(radius) = radius_code(
+        style.radius.as_ref(),
+        [
+            style.radius_top_left.as_ref(),
+            style.radius_top_right.as_ref(),
+            style.radius_bottom_right.as_ref(),
+            style.radius_bottom_left.as_ref(),
+        ],
+        env,
+        document,
+    )? {
+        write!(code, " __style.border.radius = {radius};").unwrap();
+    }
+    Ok(())
 }
 
 pub(in crate::codegen) fn toggler_style_code(
@@ -364,97 +386,119 @@ pub(in crate::codegen) fn toggler_style_code(
     let mut code =
         format!(".style(move |__theme, __status| {{ let mut __style = {base}; match __status {{");
     for (status, checked, style) in overrides {
-        let Some(style) = style else { continue };
+        let inherited = match (status, checked) {
+            ("Active", _) => None,
+            (_, true) => styles.active_checked.as_ref(),
+            (_, false) => styles.active_unchecked.as_ref(),
+        };
+        if inherited.is_none() && style.is_none() {
+            continue;
+        }
         write!(
             code,
             " ::iced::widget::toggler::Status::{status} {{ is_toggled: {checked} }} => {{"
         )
         .unwrap();
-        if let Some(background) = &style.background {
-            write!(
-                code,
-                " __style.background = {};",
-                background_code(background, env, document)?
-            )
-            .unwrap();
+        if let Some(inherited) = inherited {
+            append_toggler_status_style(&mut code, inherited, env, document)?;
         }
-        if let Some(color) = &style.background_border_color {
-            write!(
-                code,
-                " __style.background_border_color = {};",
-                theme_color(document, color)
-            )
-            .unwrap();
-        }
-        if let Some(width) = &style.background_border_width {
-            write!(
-                code,
-                " __style.background_border_width = {} as f32;",
-                expr_code(width, env, document, ValueMode::Owned)?
-            )
-            .unwrap();
-        }
-        if let Some(foreground) = &style.foreground {
-            write!(
-                code,
-                " __style.foreground = {};",
-                background_code(foreground, env, document)?
-            )
-            .unwrap();
-        }
-        if let Some(color) = &style.foreground_border_color {
-            write!(
-                code,
-                " __style.foreground_border_color = {};",
-                theme_color(document, color)
-            )
-            .unwrap();
-        }
-        if let Some(width) = &style.foreground_border_width {
-            write!(
-                code,
-                " __style.foreground_border_width = {} as f32;",
-                expr_code(width, env, document, ValueMode::Owned)?
-            )
-            .unwrap();
-        }
-        if let Some(color) = &style.text_color {
-            write!(
-                code,
-                " __style.text_color = ::std::option::Option::Some({});",
-                theme_color(document, color)
-            )
-            .unwrap();
-        }
-        if let Some(radius) = radius_code(
-            style.radius.as_ref(),
-            [
-                style.radius_top_left.as_ref(),
-                style.radius_top_right.as_ref(),
-                style.radius_bottom_right.as_ref(),
-                style.radius_bottom_left.as_ref(),
-            ],
-            env,
-            document,
-        )? {
-            write!(
-                code,
-                " __style.border_radius = ::std::option::Option::Some({radius});"
-            )
-            .unwrap();
-        }
-        if let Some(ratio) = &style.padding_ratio {
-            write!(
-                code,
-                " __style.padding_ratio = {} as f32;",
-                expr_code(ratio, env, document, ValueMode::Owned)?
-            )
-            .unwrap();
+        if let Some(style) = style {
+            append_toggler_status_style(&mut code, style, env, document)?;
         }
         code.push_str(" }");
     }
     code.push_str(" _ => {} } __style })");
     Ok(code)
+}
+
+fn append_toggler_status_style(
+    code: &mut String,
+    style: &TogglerStatusStyle,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<(), Error> {
+    if let Some(background) = &style.background {
+        write!(
+            code,
+            " __style.background = {};",
+            background_code(background, env, document)?
+        )
+        .unwrap();
+    }
+    if let Some(color) = &style.background_border_color {
+        write!(
+            code,
+            " __style.background_border_color = {};",
+            theme_color(document, color)
+        )
+        .unwrap();
+    }
+    if let Some(width) = &style.background_border_width {
+        write!(
+            code,
+            " __style.background_border_width = {} as f32;",
+            expr_code(width, env, document, ValueMode::Owned)?
+        )
+        .unwrap();
+    }
+    if let Some(foreground) = &style.foreground {
+        write!(
+            code,
+            " __style.foreground = {};",
+            background_code(foreground, env, document)?
+        )
+        .unwrap();
+    }
+    if let Some(color) = &style.foreground_border_color {
+        write!(
+            code,
+            " __style.foreground_border_color = {};",
+            theme_color(document, color)
+        )
+        .unwrap();
+    }
+    if let Some(width) = &style.foreground_border_width {
+        write!(
+            code,
+            " __style.foreground_border_width = {} as f32;",
+            expr_code(width, env, document, ValueMode::Owned)?
+        )
+        .unwrap();
+    }
+    if let Some(color) = &style.text_color {
+        write!(
+            code,
+            " __style.text_color = ::std::option::Option::Some({});",
+            theme_color(document, color)
+        )
+        .unwrap();
+    }
+    if let Some(radius) = radius_code(
+        style.radius.as_ref(),
+        [
+            style.radius_top_left.as_ref(),
+            style.radius_top_right.as_ref(),
+            style.radius_bottom_right.as_ref(),
+            style.radius_bottom_left.as_ref(),
+        ],
+        env,
+        document,
+    )? {
+        write!(
+            code,
+            " __style.border_radius = ::std::option::Option::Some({radius});"
+        )
+        .unwrap();
+    }
+    if let Some(ratio) = &style.padding_ratio {
+        write!(
+            code,
+            " __style.padding_ratio = {} as f32;",
+            expr_code(ratio, env, document, ValueMode::Owned)?
+        )
+        .unwrap();
+    }
+    Ok(())
 }
 
 pub(in crate::codegen) fn radio_style_code(
@@ -502,54 +546,76 @@ pub(in crate::codegen) fn radio_style_code(
     let mut code =
         format!(".style(move |__theme, __status| {{ let mut __style = {base}; match __status {{");
     for (status, selected, style) in overrides {
-        let Some(style) = style else { continue };
+        let inherited = match (status, selected) {
+            ("Active", _) => None,
+            (_, true) => styles.active_selected.as_ref(),
+            (_, false) => styles.active_unselected.as_ref(),
+        };
+        if inherited.is_none() && style.is_none() {
+            continue;
+        }
         write!(
             code,
             " ::iced::widget::radio::Status::{status} {{ is_selected: {selected} }} => {{"
         )
         .unwrap();
-        if let Some(background) = &style.background {
-            write!(
-                code,
-                " __style.background = {};",
-                background_code(background, env, document)?
-            )
-            .unwrap();
+        if let Some(inherited) = inherited {
+            append_radio_status_style(&mut code, inherited, env, document)?;
         }
-        if let Some(color) = &style.dot_color {
-            write!(
-                code,
-                " __style.dot_color = {};",
-                theme_color(document, color)
-            )
-            .unwrap();
-        }
-        if let Some(color) = &style.border_color {
-            write!(
-                code,
-                " __style.border_color = {};",
-                theme_color(document, color)
-            )
-            .unwrap();
-        }
-        if let Some(width) = &style.border_width {
-            write!(
-                code,
-                " __style.border_width = {} as f32;",
-                expr_code(width, env, document, ValueMode::Owned)?
-            )
-            .unwrap();
-        }
-        if let Some(color) = &style.text_color {
-            write!(
-                code,
-                " __style.text_color = ::std::option::Option::Some({});",
-                theme_color(document, color)
-            )
-            .unwrap();
+        if let Some(style) = style {
+            append_radio_status_style(&mut code, style, env, document)?;
         }
         code.push_str(" }");
     }
     code.push_str(" _ => {} } __style })");
     Ok(code)
+}
+
+fn append_radio_status_style(
+    code: &mut String,
+    style: &RadioStatusStyle,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<(), Error> {
+    if let Some(background) = &style.background {
+        write!(
+            code,
+            " __style.background = {};",
+            background_code(background, env, document)?
+        )
+        .unwrap();
+    }
+    if let Some(color) = &style.dot_color {
+        write!(
+            code,
+            " __style.dot_color = {};",
+            theme_color(document, color)
+        )
+        .unwrap();
+    }
+    if let Some(color) = &style.border_color {
+        write!(
+            code,
+            " __style.border_color = {};",
+            theme_color(document, color)
+        )
+        .unwrap();
+    }
+    if let Some(width) = &style.border_width {
+        write!(
+            code,
+            " __style.border_width = {} as f32;",
+            expr_code(width, env, document, ValueMode::Owned)?
+        )
+        .unwrap();
+    }
+    if let Some(color) = &style.text_color {
+        write!(
+            code,
+            " __style.text_color = ::std::option::Option::Some({});",
+            theme_color(document, color)
+        )
+        .unwrap();
+    }
+    Ok(())
 }

@@ -539,6 +539,48 @@ view
 }
 
 #[test]
+fn checks_component_scoped_state_and_handlers() {
+    let source = r#"app Local
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+component Toggle()
+  state
+    enabled = false
+  on changed(next)
+    enabled = next
+  col
+    checkbox "Enabled" checked=enabled -> changed _
+view
+  Toggle #first
+"#;
+    let document = analyze(source).unwrap();
+    assert_eq!(document.components[0].states[0].ty, Type::Bool);
+    assert_eq!(document.components[0].handlers[0].params[0].ty, Type::Bool);
+
+    let error = analyze(&source.replace("enabled = false", "enabled = missing")).unwrap_err();
+    assert_eq!(error.code, "E031");
+
+    let nested_owned = source.replace(
+        "enabled = false",
+        "enabled = false\n    handles:[task-handle?] = []",
+    );
+    let error = analyze(&nested_owned).unwrap_err();
+    assert_eq!(error.code, "E103");
+    assert!(error.message.contains("cloneable values"));
+
+    let error = analyze(&source.replace("    enabled = false\n", "")).unwrap_err();
+    assert_eq!(error.code, "E040");
+    assert!(error.message.contains("state cannot be empty"));
+
+    let error =
+        analyze(&source.replace("enabled = next", "task system theme -> changed _")).unwrap_err();
+    assert_eq!(error.code, "E140");
+}
+
+#[test]
 fn rejects_slots_outside_components_and_duplicate_slots() {
     let outside = r#"app Demo
 theme

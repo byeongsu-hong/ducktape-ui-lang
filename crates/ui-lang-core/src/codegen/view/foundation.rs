@@ -84,8 +84,29 @@ pub(in crate::codegen) fn render_foundation(
             let state = env.get(binding).ok_or_else(|| {
                 Error::new("E150", span, format!("unknown input state `{binding}`"))
             })?;
-            let state_name = controlled_state_name(&state.code, "input", span)?;
-            let variant = binding_variant(&state_name);
+            let constructor = match &state.state {
+                Some(StateBinding::App(name)) => {
+                    let variant = binding_variant(name);
+                    format!("{message}::{variant} as fn(::std::string::String) -> {message}")
+                }
+                Some(StateBinding::Component {
+                    component,
+                    name,
+                    scope,
+                }) => {
+                    let variant = component_binding_variant(component, name);
+                    format!(
+                        "{{ let __scope = ({scope}).clone(); move |__value| {message}::{variant}(__scope.clone(), __value) }}"
+                    )
+                }
+                None => {
+                    return Err(Error::new(
+                        "E139",
+                        span,
+                        "input binding must resolve to state",
+                    ));
+                }
+            };
             let accessibility_key =
                 accessibility_key_code(id.as_ref(), "input", span, scope, env, document)?;
             let accessibility_label = options
@@ -173,8 +194,6 @@ pub(in crate::codegen) fn render_foundation(
                 )
                 .unwrap();
             }
-            let constructor =
-                format!("{message}::{variant} as fn(::std::string::String) -> {message}");
             write!(
                 input,
                 ".on_input_maybe(if __disabled {{ None }} else {{ Some({constructor}) }})"
@@ -189,10 +208,11 @@ pub(in crate::codegen) fn render_foundation(
                 .unwrap();
             }
             if let Some(route) = &options.paste {
-                let paste = route_code(route, "__value", env, document, message)?;
+                let paste =
+                    route_callback_code(route, "__value", "__value", env, document, message)?;
                 write!(
                     input,
-                    ".on_paste_maybe(if __disabled {{ None }} else {{ Some(move |__value| {paste}) }})"
+                    ".on_paste_maybe(if __disabled {{ None }} else {{ Some({paste}) }})"
                 )
                 .unwrap();
             }

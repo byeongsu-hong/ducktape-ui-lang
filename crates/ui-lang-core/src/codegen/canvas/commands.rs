@@ -364,6 +364,7 @@ pub(in crate::codegen) fn canvas_commands_code(
                         code: item.clone(),
                         ty: *inner,
                         local: false,
+                        state: None,
                     },
                 );
                 write!(

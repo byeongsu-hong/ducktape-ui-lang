@@ -145,6 +145,7 @@ pub(in crate::codegen) fn canvas_update_code(
                     code: binding.clone(),
                     ty,
                     local: false,
+                    state: None,
                 },
             );
         }

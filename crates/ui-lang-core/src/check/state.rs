@@ -8,7 +8,7 @@ pub(crate) fn controlled_state_bindings(
         node: &ViewNode,
         document: &Document,
         editors: bool,
-        env: &HashMap<String, String>,
+        env: &HashMap<String, Option<String>>,
         components: &mut HashSet<String>,
         output: &mut Vec<String>,
     ) -> Result<(), Error> {
@@ -27,7 +27,9 @@ pub(crate) fn controlled_state_bindings(
                     format!("{widget} binding must resolve to an app state"),
                 )
             })?;
-            if !output.contains(state) {
+            if let Some(state) = state
+                && !output.contains(state)
+            {
                 output.push(state.clone());
             }
             return Ok(());
@@ -153,6 +155,12 @@ pub(crate) fn controlled_state_bindings(
                         component_env.insert(param.clone(), state.clone());
                     }
                 }
+                component_env.extend(
+                    component
+                        .states
+                        .iter()
+                        .map(|state| (state.name.clone(), None)),
+                );
                 collect(
                     &component.root,
                     document,
@@ -187,7 +195,7 @@ pub(crate) fn controlled_state_bindings(
     let env = document
         .states
         .iter()
-        .map(|state| (state.name.clone(), state.name.clone()))
+        .map(|state| (state.name.clone(), Some(state.name.clone())))
         .collect();
     let mut output = Vec::new();
     collect(

@@ -127,7 +127,8 @@ pub(in crate::codegen) fn render_documents(
                 )
                 .unwrap();
             }
-            let route = route_code(route, "__event", env, document, message)?;
+            let callback =
+                route_callback_code(route, "__event", "__event", env, document, message)?;
             let view = if let Some(viewer) = &options.viewer {
                 let function = document
                     .functions
@@ -151,9 +152,7 @@ pub(in crate::codegen) fn render_documents(
                     "::iced::widget::markdown::view(self.{content}.items(), __markdown_settings)"
                 )
             };
-            Ok(format!(
-                "{{ {settings} {view}.map(move |__event| {route}) }}"
-            ))
+            Ok(format!("{{ {settings} {view}.map({callback}) }}"))
         }
         ViewNode::TextEditor {
             binding,
@@ -257,28 +256,32 @@ pub(in crate::codegen) fn render_documents(
                         item.name == binding.function && item.kind == ExternKind::EditorBinding
                     })
                     .expect("checker validates editor binding");
-                let args = binding
-                    .args
-                    .iter()
-                    .map(|arg| expr_code(arg, env, document, ValueMode::Owned))
-                    .collect::<Result<Vec<_>, _>>()?;
-                let route = route_code(
-                    options
-                        .key_binding_route
-                        .as_ref()
-                        .expect("parser requires a key-binding route"),
-                    "__value",
+                let route = options
+                    .key_binding_route
+                    .as_ref()
+                    .expect("parser requires a key-binding route");
+                let callback = route_callback_with_code(
+                    route,
+                    "__key_press",
                     env,
                     document,
-                    message,
+                    |callback_env| {
+                        let args = binding
+                            .args
+                            .iter()
+                            .map(|arg| expr_code(arg, callback_env, document, ValueMode::Owned))
+                            .collect::<Result<Vec<_>, _>>()?;
+                        let route = route_code(route, "__value", callback_env, document, message)?;
+                        Ok(format!(
+                            "{}(__key_press{}).map(|__binding| __ice_map_editor_binding(__binding, &|__value| {route}))",
+                            function.rust_path,
+                            args.iter()
+                                .map(|arg| format!(", {arg}"))
+                                .collect::<String>()
+                        ))
+                    },
                 )?;
-                write!(
-                    code,
-                    ".key_binding(move |__key_press| {}(__key_press{}).map(|__binding| __ice_map_editor_binding(__binding, &|__value| {route})))",
-                    function.rust_path,
-                    args.iter().map(|arg| format!(", {arg}")).collect::<String>()
-                )
-                .unwrap();
+                write!(code, ".key_binding({callback})").unwrap();
             }
             code.push_str(&text_input_style_code(
                 &options.style,

@@ -71,51 +71,65 @@ pub(in crate::codegen) fn render_layout(
             .unwrap();
         }
         if let Some(route) = &scroll.route {
-            let message_code = ordered_route_code(
+            let callback = route_callback_with_code(
                 route,
-                &[
-                    "__absolute.x as f64",
-                    "__absolute.y as f64",
-                    "__relative.x as f64",
-                    "__relative.y as f64",
-                ],
+                "__viewport",
                 env,
                 document,
-                message,
+                |callback_env| {
+                    let message_code = ordered_route_code(
+                        route,
+                        &[
+                            "__absolute.x as f64",
+                            "__absolute.y as f64",
+                            "__relative.x as f64",
+                            "__relative.y as f64",
+                        ],
+                        callback_env,
+                        document,
+                        message,
+                    )?;
+                    Ok(format!(
+                        "{{ let __absolute = __viewport.absolute_offset(); let __relative = __viewport.relative_offset(); {message_code} }}"
+                    ))
+                },
             )?;
-            write!(
-                code,
-                ".on_scroll(move |__viewport| {{ let __absolute = __viewport.absolute_offset(); let __relative = __viewport.relative_offset(); {message_code} }})"
-            )
-            .unwrap();
+            write!(code, ".on_scroll({callback})").unwrap();
         } else if let Some(route) = &scroll.viewport_route {
-            let message_code = ordered_route_code(
+            let callback = route_callback_with_code(
                 route,
-                &[
-                    "__absolute.x as f64",
-                    "__absolute.y as f64",
-                    "__reversed.x as f64",
-                    "__reversed.y as f64",
-                    "__relative.x as f64",
-                    "__relative.y as f64",
-                    "__bounds.x as f64",
-                    "__bounds.y as f64",
-                    "__bounds.width as f64",
-                    "__bounds.height as f64",
-                    "__content_bounds.x as f64",
-                    "__content_bounds.y as f64",
-                    "__content_bounds.width as f64",
-                    "__content_bounds.height as f64",
-                ],
+                "__viewport",
                 env,
                 document,
-                message,
+                |callback_env| {
+                    let message_code = ordered_route_code(
+                        route,
+                        &[
+                            "__absolute.x as f64",
+                            "__absolute.y as f64",
+                            "__reversed.x as f64",
+                            "__reversed.y as f64",
+                            "__relative.x as f64",
+                            "__relative.y as f64",
+                            "__bounds.x as f64",
+                            "__bounds.y as f64",
+                            "__bounds.width as f64",
+                            "__bounds.height as f64",
+                            "__content_bounds.x as f64",
+                            "__content_bounds.y as f64",
+                            "__content_bounds.width as f64",
+                            "__content_bounds.height as f64",
+                        ],
+                        callback_env,
+                        document,
+                        message,
+                    )?;
+                    Ok(format!(
+                        "{{ let __absolute = __viewport.absolute_offset(); let __reversed = __viewport.absolute_offset_reversed(); let __relative = __viewport.relative_offset(); let __bounds = __viewport.bounds(); let __content_bounds = __viewport.content_bounds(); {message_code} }}"
+                    ))
+                },
             )?;
-            write!(
-                code,
-                ".on_scroll(move |__viewport| {{ let __absolute = __viewport.absolute_offset(); let __reversed = __viewport.absolute_offset_reversed(); let __relative = __viewport.relative_offset(); let __bounds = __viewport.bounds(); let __content_bounds = __viewport.content_bounds(); {message_code} }})"
-            )
-            .unwrap();
+            write!(code, ".on_scroll({callback})").unwrap();
         }
         code.push_str(&scroll_style_code(
             &scroll.styles,
@@ -133,6 +147,12 @@ pub(in crate::codegen) fn render_layout(
         return Ok(format!(
             "{{ let __a11y_key = {accessibility_key}; let __scroll_content: __IceElement<'_, {message}> = {child}; let __layout = {code}; ::ui_lang_runtime::accessible(__layout, ::ui_lang_runtime::StableId::new(&__a11y_key), ::ui_lang_runtime::Role::GenericContainer).into() }}"
         ));
+    }
+
+    if options.flexbox.is_some() {
+        return render_flexbox(
+            options, id, styles, children, span, document, message, env, scope, slot,
+        );
     }
 
     let mut body = String::from("{ let mut __children: ::std::vec::Vec<__IceElement<'_, ");
@@ -361,6 +381,416 @@ pub(in crate::codegen) fn render_layout(
     Ok(body)
 }
 
+#[allow(clippy::too_many_arguments)]
+fn render_flexbox(
+    options: &LayoutOptions,
+    id: &Option<Id>,
+    styles: &[String],
+    children: &[ViewNode],
+    span: &Span,
+    document: &Document,
+    message: &str,
+    env: &HashMap<String, Binding>,
+    scope: &str,
+    slot: Option<&SlotContext>,
+) -> Result<String, Error> {
+    let flexbox = options.flexbox.as_ref().expect("flexbox options");
+    let style = Style::parse(styles, document);
+    let accessibility_key =
+        accessibility_key_code(id.as_ref(), "layout", span, scope, env, document)?;
+    let child_scope = id.as_ref().map_or_else(
+        || Ok(scope.to_owned()),
+        |id| id_code(id, scope, env, document),
+    )?;
+    let mut body = String::from("{ let mut __items = ::std::vec::Vec::new();");
+    render_flex_children(
+        &mut body,
+        children,
+        document,
+        message,
+        env,
+        &child_scope,
+        slot,
+    )?;
+    write!(
+        body,
+        " let __layout = ::ui_lang_runtime::flex(__items).direction(::ui_lang_runtime::FlexDirection::{})",
+        flex_direction_name(flexbox.direction)
+    )
+    .unwrap();
+    if flexbox.wrap != FlexWrapValue::NoWrap {
+        write!(
+            body,
+            ".wrap(::ui_lang_runtime::FlexWrap::{})",
+            match flexbox.wrap {
+                FlexWrapValue::NoWrap => unreachable!(),
+                FlexWrapValue::Wrap => "Wrap",
+                FlexWrapValue::WrapReverse => "WrapReverse",
+            }
+        )
+        .unwrap();
+    }
+    if let Some(justify) = flexbox.justify_content {
+        write!(
+            body,
+            ".justify_content(::ui_lang_runtime::JustifyContent::{})",
+            flex_content_alignment_name(justify)
+        )
+        .unwrap();
+    }
+    if let Some(align) = flexbox.align_items {
+        write!(
+            body,
+            ".align_items(::ui_lang_runtime::AlignItems::{})",
+            flex_item_alignment_name(align)
+        )
+        .unwrap();
+    } else if style.items_center {
+        body.push_str(".align_items(::ui_lang_runtime::AlignItems::Center)");
+    }
+    if let Some(align) = flexbox.align_content {
+        write!(
+            body,
+            ".align_content(::ui_lang_runtime::AlignContent::{})",
+            flex_content_alignment_name(align)
+        )
+        .unwrap();
+    }
+    if let Some(gap) = style.gap {
+        write!(body, ".gap({gap}.0)").unwrap();
+    }
+    if let Some(gap) = &options.spacing {
+        write!(
+            body,
+            ".gap({} as f32)",
+            expr_code(gap, env, document, ValueMode::Owned)?
+        )
+        .unwrap();
+    }
+    if let Some(gap) = &options.wrap_spacing {
+        let method = match flexbox.direction {
+            FlexDirectionValue::Row | FlexDirectionValue::RowReverse => "row_gap",
+            FlexDirectionValue::Column | FlexDirectionValue::ColumnReverse => "column_gap",
+        };
+        write!(
+            body,
+            ".{method}({} as f32)",
+            expr_code(gap, env, document, ValueMode::Owned)?
+        )
+        .unwrap();
+    }
+    for (gap, method) in [
+        (&flexbox.row_gap, "row_gap"),
+        (&flexbox.column_gap, "column_gap"),
+    ] {
+        if let Some(gap) = gap {
+            write!(
+                body,
+                ".{method}({} as f32)",
+                expr_code(gap, env, document, ValueMode::Owned)?
+            )
+            .unwrap();
+        }
+    }
+    if let Some(padding) = style.padding_code() {
+        write!(body, ".padding({padding})").unwrap();
+    }
+    if let Some(padding) = typed_padding_code(&options.padding, env, document)? {
+        write!(body, ".padding({padding})").unwrap();
+    }
+    if style.width_fill {
+        body.push_str(".width(::iced::Fill)");
+    }
+    if style.height_fill {
+        body.push_str(".height(::iced::Fill)");
+    }
+    if let Some(width) = &options.width {
+        write!(body, ".width({})", length_code(width, env, document)?).unwrap();
+    }
+    if let Some(height) = &options.height {
+        write!(body, ".height({})", length_code(height, env, document)?).unwrap();
+    }
+    if let Some(max_width) = &options.max_width {
+        write!(
+            body,
+            ".max_width({} as f32)",
+            expr_code(max_width, env, document, ValueMode::Owned)?
+        )
+        .unwrap();
+    } else if let Some(max_width) = style.max_width {
+        write!(body, ".max_width({max_width}.0)").unwrap();
+    }
+    if let Some(max_height) = &options.max_height {
+        write!(
+            body,
+            ".max_height({} as f32)",
+            expr_code(max_height, env, document, ValueMode::Owned)?
+        )
+        .unwrap();
+    }
+    if let Some(clip) = &options.clip {
+        write!(
+            body,
+            ".clip({})",
+            expr_code(clip, env, document, ValueMode::Owned)?
+        )
+        .unwrap();
+    }
+    body.push(';');
+    body.push_str(" let __content = ::iced::widget::container(__layout)");
+    append_size(&mut body, &style);
+    if let Some(max_width) = style.max_width {
+        write!(body, ".max_width({max_width})").unwrap();
+    }
+    body.push_str(&container_style_code(&style, document));
+    body.push_str("; let __layout_content: __IceElement<'_, ");
+    write!(body, "{message}> = __content.into();").unwrap();
+    write!(body, " let __a11y_key = {accessibility_key}; ::ui_lang_runtime::accessible(__layout_content, ::ui_lang_runtime::StableId::new(&__a11y_key), ::ui_lang_runtime::Role::GenericContainer).into() }}").unwrap();
+    Ok(body)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_flex_children(
+    out: &mut String,
+    children: &[ViewNode],
+    document: &Document,
+    message: &str,
+    env: &HashMap<String, Binding>,
+    scope: &str,
+    slot: Option<&SlotContext>,
+) -> Result<(), Error> {
+    for child in children {
+        match child {
+            ViewNode::If {
+                condition,
+                children,
+                ..
+            } => {
+                let condition = expr_code(condition, env, document, ValueMode::Owned)?;
+                write!(out, " if {condition} {{").unwrap();
+                render_flex_children(out, children, document, message, env, scope, slot)?;
+                out.push_str(" }");
+            }
+            ViewNode::For {
+                item,
+                items,
+                children,
+                span,
+            } => {
+                let Type::List(inner) = expr_type(
+                    items,
+                    &env.iter()
+                        .map(|(name, binding)| (name.clone(), binding.ty.clone()))
+                        .collect(),
+                    document,
+                    span,
+                )?
+                else {
+                    return Err(Error::new("E121", span, "for expects a list"));
+                };
+                let items = expr_code(items, env, document, ValueMode::Borrowed)?;
+                write!(
+                    out,
+                    " for (__ice_index, {item}) in {items}.iter().enumerate() {{ let __for_scope = format!(\"{{}}/@for:{}({{}})\", {scope}, __ice_index);",
+                    span.line
+                )
+                .unwrap();
+                let mut child_env = env.clone();
+                child_env.insert(
+                    item.clone(),
+                    Binding {
+                        code: item.clone(),
+                        ty: *inner,
+                        local: false,
+                        state: None,
+                    },
+                );
+                render_flex_children(
+                    out,
+                    children,
+                    document,
+                    message,
+                    &child_env,
+                    "__for_scope.clone()",
+                    slot,
+                )?;
+                out.push_str(" }");
+            }
+            _ => {
+                let rendered = render_node(child, document, message, env, scope, slot)?;
+                let options = match child {
+                    ViewNode::Container { options, .. } => Some(&options.flex_item),
+                    _ => None,
+                };
+                let item = flex_item_code("__flex_child", options, env, document)?;
+                write!(
+                    out,
+                    " let __flex_child: __IceElement<'_, {message}> = {rendered}; __items.push({item});"
+                )
+                .unwrap();
+            }
+        }
+    }
+    Ok(())
+}
+
+fn flex_item_code(
+    child: &str,
+    options: Option<&FlexItemOptions>,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<String, Error> {
+    let mut code = format!("::ui_lang_runtime::flex_item({child})");
+    let Some(options) = options else {
+        return Ok(code);
+    };
+    if let Some(order) = &options.order {
+        write!(
+            code,
+            ".order({} as i64)",
+            expr_code(order, env, document, ValueMode::Owned)?
+        )
+        .unwrap();
+    }
+    for (value, method) in [(&options.grow, "grow"), (&options.shrink, "shrink")] {
+        if let Some(value) = value {
+            write!(
+                code,
+                ".{method}({} as f32)",
+                expr_code(value, env, document, ValueMode::Owned)?
+            )
+            .unwrap();
+        }
+    }
+    if let Some(basis) = &options.basis {
+        let basis = match basis {
+            FlexBasisValue::Auto => "::ui_lang_runtime::FlexBasis::Auto".to_owned(),
+            FlexBasisValue::Content => "::ui_lang_runtime::FlexBasis::Content".to_owned(),
+            FlexBasisValue::Fixed(value) => format!(
+                "::ui_lang_runtime::FlexBasis::Fixed({} as f32)",
+                expr_code(value, env, document, ValueMode::Owned)?
+            ),
+            FlexBasisValue::Percent(value) => format!(
+                "::ui_lang_runtime::FlexBasis::Percent(({} as f32) / 100.0)",
+                expr_code(value, env, document, ValueMode::Owned)?
+            ),
+        };
+        write!(code, ".basis({basis})").unwrap();
+    }
+    if let Some(align) = options.align_self {
+        write!(
+            code,
+            ".align_self(::ui_lang_runtime::AlignItems::{})",
+            flex_item_alignment_name(align)
+        )
+        .unwrap();
+    }
+    if flex_margin_present(&options.margin) {
+        let top = flex_margin_side(
+            options.margin.top.as_ref(),
+            options.margin.y.as_ref(),
+            options.margin.all.as_ref(),
+        );
+        let right = flex_margin_side(
+            options.margin.right.as_ref(),
+            options.margin.x.as_ref(),
+            options.margin.all.as_ref(),
+        );
+        let bottom = flex_margin_side(
+            options.margin.bottom.as_ref(),
+            options.margin.y.as_ref(),
+            options.margin.all.as_ref(),
+        );
+        let left = flex_margin_side(
+            options.margin.left.as_ref(),
+            options.margin.x.as_ref(),
+            options.margin.all.as_ref(),
+        );
+        write!(
+            code,
+            ".margins(::ui_lang_runtime::FlexMargins {{ top: {}, right: {}, bottom: {}, left: {} }})",
+            flex_margin_code(top, env, document)?,
+            flex_margin_code(right, env, document)?,
+            flex_margin_code(bottom, env, document)?,
+            flex_margin_code(left, env, document)?,
+        )
+        .unwrap();
+    }
+    Ok(code)
+}
+
+fn flex_margin_present(margin: &FlexMarginOptions) -> bool {
+    margin.all.is_some()
+        || margin.x.is_some()
+        || margin.y.is_some()
+        || margin.top.is_some()
+        || margin.right.is_some()
+        || margin.bottom.is_some()
+        || margin.left.is_some()
+}
+
+fn flex_margin_side<'a>(
+    side: Option<&'a FlexMarginValue>,
+    axis: Option<&'a FlexMarginValue>,
+    all: Option<&'a FlexMarginValue>,
+) -> Option<&'a FlexMarginValue> {
+    side.or(axis).or(all)
+}
+
+fn flex_margin_code(
+    margin: Option<&FlexMarginValue>,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<String, Error> {
+    Ok(match margin {
+        None => "::ui_lang_runtime::FlexMargin::Zero".to_owned(),
+        Some(FlexMarginValue::Auto) => "::ui_lang_runtime::FlexMargin::Auto".to_owned(),
+        Some(FlexMarginValue::Fixed(value)) => format!(
+            "::ui_lang_runtime::FlexMargin::Fixed({} as f32)",
+            expr_code(value, env, document, ValueMode::Owned)?
+        ),
+        Some(FlexMarginValue::Percent(value)) => format!(
+            "::ui_lang_runtime::FlexMargin::Percent(({} as f32) / 100.0)",
+            expr_code(value, env, document, ValueMode::Owned)?
+        ),
+    })
+}
+
+fn flex_direction_name(direction: FlexDirectionValue) -> &'static str {
+    match direction {
+        FlexDirectionValue::Row => "Row",
+        FlexDirectionValue::RowReverse => "RowReverse",
+        FlexDirectionValue::Column => "Column",
+        FlexDirectionValue::ColumnReverse => "ColumnReverse",
+    }
+}
+
+fn flex_item_alignment_name(align: FlexItemAlignment) -> &'static str {
+    match align {
+        FlexItemAlignment::Start => "Start",
+        FlexItemAlignment::End => "End",
+        FlexItemAlignment::FlexStart => "FlexStart",
+        FlexItemAlignment::FlexEnd => "FlexEnd",
+        FlexItemAlignment::Center => "Center",
+        FlexItemAlignment::Baseline => "Baseline",
+        FlexItemAlignment::Stretch => "Stretch",
+    }
+}
+
+fn flex_content_alignment_name(align: FlexContentAlignment) -> &'static str {
+    match align {
+        FlexContentAlignment::Start => "Start",
+        FlexContentAlignment::End => "End",
+        FlexContentAlignment::FlexStart => "FlexStart",
+        FlexContentAlignment::FlexEnd => "FlexEnd",
+        FlexContentAlignment::Center => "Center",
+        FlexContentAlignment::Stretch => "Stretch",
+        FlexContentAlignment::SpaceBetween => "SpaceBetween",
+        FlexContentAlignment::SpaceAround => "SpaceAround",
+        FlexContentAlignment::SpaceEvenly => "SpaceEvenly",
+    }
+}
+
 pub(in crate::codegen) fn scroll_bar_code(
     scroll: &ScrollOptions,
     env: &HashMap<String, Binding>,
@@ -437,7 +867,11 @@ pub(in crate::codegen) fn scroll_style_code(
         ),
     ] {
         write!(code, " ::iced::widget::scrollable::Status::{pattern} => {{").unwrap();
-        for style in styles.iter().filter(|style| style.status == status) {
+        for style in styles
+            .iter()
+            .filter(|style| status != ScrollStatus::Active && style.status == ScrollStatus::Active)
+            .chain(styles.iter().filter(|style| style.status == status))
+        {
             write!(code, " if {} {{", scroll_selector_code(style)).unwrap();
             append_scroll_status_style(&mut code, style, env, document)?;
             code.push_str(" }");

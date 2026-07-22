@@ -462,3 +462,38 @@ view
     assert!(generated.contains("self.title = value"));
     assert!(generated.contains("self.body.perform(action)"));
 }
+
+#[test]
+fn lowers_component_scoped_state_and_match() {
+    let source = r#"app Local
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+component Counter()
+  state
+    count = 0
+    draft = ""
+  on increment
+    count = count + 1
+  col
+    input "Draft" <-> draft
+    button "Increment" -> increment
+    match count
+      0
+        text "zero"
+      _
+        text count
+view
+  Counter #counter
+"#;
+    let generated = compile(source, "local.ice").unwrap();
+    assert!(generated.contains("struct __IceCounterState"));
+    assert!(generated.contains("__ice_component_counter: ::std::collections::HashMap"));
+    assert!(generated.contains("__CounterHandleIncrement(::std::string::String)"));
+    assert!(generated.contains("__CounterBindDraft(::std::string::String, ::std::string::String)"));
+    assert!(generated.contains("self.__ice_component_counter.entry(__scope).or_default()"));
+    assert!(generated.contains("__local.count = (__local.count + 1)"));
+    assert!(generated.contains("self.__ice_component_counter.get(&__ice_component_counter_scope_"));
+}

@@ -21,8 +21,12 @@ view
 "#;
     let generated = compile(source, "layouts.ice").unwrap();
     assert!(generated.contains("::iced::widget::container(__container_content)"));
-    assert!(generated.contains("::iced::widget::column(__children).spacing(6.0 as f32)"));
-    assert!(generated.contains("::iced::widget::row(__children).spacing(4.0 as f32)"));
+    assert!(
+        generated.contains(".direction(::ui_lang_runtime::FlexDirection::Column).gap(6.0 as f32)")
+    );
+    assert!(
+        generated.contains(".direction(::ui_lang_runtime::FlexDirection::Row).gap(4.0 as f32)")
+    );
     assert!(generated.contains(".width(::iced::Length::FillPortion(2))"));
 
     let error = compile(
@@ -31,7 +35,57 @@ view
     )
     .unwrap_err();
     assert_eq!(error.code, "E074");
-    assert!(error.message.contains("row or column"));
+    assert!(
+        error
+            .message
+            .contains("row, row-reverse, column, or column-reverse")
+    );
+}
+
+#[test]
+fn lowers_complete_css_flexbox() {
+    let source = r#"app Flexbox
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+view
+  flex direction=row-reverse flex-wrap=wrap-reverse width=fill height=300.0 max-width=900.0 max-height=500.0 gap=8.0 row-gap=12.0 column-gap=16.0 justify-content=space-evenly align-items=baseline align-content=space-between padding=4.0 clip=true
+    box order=2 flex-grow=1.0 flex-shrink=0.5 flex-basis=percent(40.0) align-self=flex-end margin=auto
+      text "First"
+    box flex=2.0,1.0,120.0 margin-x=percent(5.0) margin-top=-2.0
+      text "Second"
+"#;
+    let generated = compile(source, "flexbox.ice").unwrap();
+    for expected in [
+        "FlexDirection::RowReverse",
+        "FlexWrap::WrapReverse",
+        "JustifyContent::SpaceEvenly",
+        "AlignItems::Baseline",
+        "AlignContent::SpaceBetween",
+        ".gap(8.0 as f32).row_gap(12.0 as f32).column_gap(16.0 as f32)",
+        ".max_width(900.0 as f32).max_height(500.0 as f32).clip(true)",
+        ".order(2 as i64).grow(1.0 as f32).shrink(0.5 as f32)",
+        "FlexBasis::Percent((40.0 as f32) / 100.0)",
+        ".align_self(::ui_lang_runtime::AlignItems::FlexEnd)",
+        "top: ::ui_lang_runtime::FlexMargin::Auto",
+        "FlexBasis::Fixed(120.0 as f32)",
+        "FlexMargin::Percent((5.0 as f32) / 100.0)",
+        "top: ::ui_lang_runtime::FlexMargin::Fixed(",
+    ] {
+        assert!(generated.contains(expected), "missing `{expected}`");
+    }
+    let shorthand = source.replace(
+        "direction=row-reverse flex-wrap=wrap-reverse",
+        "flex-flow=row-reverse,wrap-reverse",
+    );
+    assert!(
+        compile(&shorthand, "flexbox.ice")
+            .unwrap()
+            .contains("FlexWrap::WrapReverse")
+    );
 }
 
 #[test]
@@ -414,9 +468,12 @@ view
     );
     assert!(generated.contains(".text_shaping(::iced::widget::text::Shaping::Advanced)"));
     assert!(generated.contains("::iced::widget::pick_list::Handle::Dynamic"));
-    assert!(generated.contains(
-            "let mut __style = crate::backend::dynamic_pick(__theme, __status, self.busy); match __status"
-        ));
+    assert!(
+        generated.contains(
+            "let mut __style = crate::backend::dynamic_pick(__theme, __status, self.busy);"
+        )
+    );
+    assert!(generated.contains("match __status"));
     assert!(
         generated.contains("let mut __style = crate::backend::dynamic_menu(__theme, self.busy);")
     );

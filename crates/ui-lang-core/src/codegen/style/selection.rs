@@ -113,32 +113,46 @@ pub(in crate::codegen) fn pick_list_style_code(
             .unwrap_or_else(|| "::iced::widget::pick_list::default(__theme, __status)".to_owned());
         write!(
             code,
-            ".style(move |__theme, __status| {{ let mut __style = {base}; match __status {{"
+            ".style(move |__theme, __status| {{ let mut __style = {base};"
         )
         .unwrap();
-        for (status, style) in overrides {
-            let Some(style) = style else { continue };
-            write!(code, " ::iced::widget::pick_list::Status::{status} => {{").unwrap();
-            append_select_surface_overrides(&mut code, &style.options, env, document, false)?;
-            if let Some(color) = &style.placeholder_color {
-                write!(
-                    code,
-                    " __style.placeholder_color = {};",
-                    theme_color(document, color)
-                )
-                .unwrap();
-            }
-            if let Some(color) = &style.handle_color {
-                write!(
-                    code,
-                    " __style.handle_color = {};",
-                    theme_color(document, color)
-                )
-                .unwrap();
-            }
-            code.push_str(" }");
+        if let Some(active) = &options.style.active {
+            append_pick_list_status_style(&mut code, active, env, document)?;
         }
-        code.push_str(" _ => {} } __style })");
+        let overrides = [
+            ("Hovered", None, options.style.hovered.as_ref()),
+            (
+                "Opened { is_hovered: false }",
+                None,
+                options.style.opened.as_ref(),
+            ),
+            (
+                "Opened { is_hovered: true }",
+                options.style.opened.as_ref(),
+                options.style.opened_hovered.as_ref(),
+            ),
+        ];
+        if overrides
+            .iter()
+            .any(|(_, inherited, style)| inherited.is_some() || style.is_some())
+        {
+            code.push_str(" match __status {");
+            for (status, inherited, style) in overrides {
+                if inherited.is_none() && style.is_none() {
+                    continue;
+                }
+                write!(code, " ::iced::widget::pick_list::Status::{status} => {{").unwrap();
+                if let Some(inherited) = inherited {
+                    append_pick_list_status_style(&mut code, inherited, env, document)?;
+                }
+                if let Some(style) = style {
+                    append_pick_list_status_style(&mut code, style, env, document)?;
+                }
+                code.push_str(" }");
+            }
+            code.push_str(" _ => {} }");
+        }
+        code.push_str(" __style })");
     } else if let Some(custom) = custom {
         write!(code, ".style(move |__theme, __status| {custom})").unwrap();
     }
@@ -149,6 +163,32 @@ pub(in crate::codegen) fn pick_list_style_code(
         document,
     )?);
     Ok(code)
+}
+
+fn append_pick_list_status_style(
+    code: &mut String,
+    style: &PickListStatusStyle,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<(), Error> {
+    append_select_surface_overrides(code, &style.options, env, document, false)?;
+    if let Some(color) = &style.placeholder_color {
+        write!(
+            code,
+            " __style.placeholder_color = {};",
+            theme_color(document, color)
+        )
+        .unwrap();
+    }
+    if let Some(color) = &style.handle_color {
+        write!(
+            code,
+            " __style.handle_color = {};",
+            theme_color(document, color)
+        )
+        .unwrap();
+    }
+    Ok(())
 }
 
 pub(in crate::codegen) fn menu_style_code(
@@ -413,14 +453,43 @@ pub(in crate::codegen) fn text_input_style_code(
         }
     }
     if has_overrides {
-        code.push_str(" match __status {");
-        for (status, style) in overrides {
-            let Some(style) = style else { continue };
-            write!(code, " ::iced::widget::{widget}::Status::{status} => {{").unwrap();
-            append_text_input_style_overrides(&mut code, style, env, document)?;
-            code.push_str(" }");
+        if let Some(active) = &styles.active {
+            append_text_input_style_overrides(&mut code, active, env, document)?;
         }
-        code.push_str(" _ => {} }");
+        let overrides = [
+            ("Hovered", None, styles.hovered.as_ref()),
+            (
+                "Focused { is_hovered: false }",
+                None,
+                styles.focused.as_ref(),
+            ),
+            (
+                "Focused { is_hovered: true }",
+                styles.focused.as_ref(),
+                styles.focused_hovered.as_ref(),
+            ),
+            ("Disabled", None, styles.disabled.as_ref()),
+        ];
+        if overrides
+            .iter()
+            .any(|(_, inherited, style)| inherited.is_some() || style.is_some())
+        {
+            code.push_str(" match __status {");
+            for (status, inherited, style) in overrides {
+                if inherited.is_none() && style.is_none() {
+                    continue;
+                }
+                write!(code, " ::iced::widget::{widget}::Status::{status} => {{").unwrap();
+                if let Some(inherited) = inherited {
+                    append_text_input_style_overrides(&mut code, inherited, env, document)?;
+                }
+                if let Some(style) = style {
+                    append_text_input_style_overrides(&mut code, style, env, document)?;
+                }
+                code.push_str(" }");
+            }
+            code.push_str(" _ => {} }");
+        }
     }
     code.push_str(" __style })");
     Ok(code)

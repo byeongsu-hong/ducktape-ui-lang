@@ -18,10 +18,12 @@ pub struct LayoutOptions {
     pub spacing: Option<Expr>,
     pub padding: PaddingOptions,
     pub max_width: Option<Expr>,
+    pub max_height: Option<Expr>,
     pub align: Option<FlexAlignment>,
     pub wrap: bool,
     pub wrap_spacing: Option<Expr>,
     pub wrap_align: Option<FlexAlignment>,
+    pub flexbox: Option<FlexboxOptions>,
     pub fluid: Option<Expr>,
     pub grid_height: Option<GridSizing>,
     pub under: u16,
@@ -40,6 +42,107 @@ pub struct ContainerOptions {
     pub clip: Option<Expr>,
     pub custom_style: Option<ExternCall>,
     pub style: ContainerStyleOptions,
+    pub flex_item: FlexItemOptions,
+}
+
+#[derive(Clone, Debug)]
+pub struct FlexboxOptions {
+    pub direction: FlexDirectionValue,
+    pub wrap: FlexWrapValue,
+    pub justify_content: Option<FlexContentAlignment>,
+    pub align_items: Option<FlexItemAlignment>,
+    pub align_content: Option<FlexContentAlignment>,
+    pub row_gap: Option<Expr>,
+    pub column_gap: Option<Expr>,
+}
+
+impl Default for FlexboxOptions {
+    fn default() -> Self {
+        Self {
+            direction: FlexDirectionValue::Row,
+            wrap: FlexWrapValue::NoWrap,
+            justify_content: None,
+            align_items: None,
+            align_content: None,
+            row_gap: None,
+            column_gap: None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FlexDirectionValue {
+    Row,
+    RowReverse,
+    Column,
+    ColumnReverse,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FlexWrapValue {
+    NoWrap,
+    Wrap,
+    WrapReverse,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FlexContentAlignment {
+    Start,
+    End,
+    FlexStart,
+    FlexEnd,
+    Center,
+    Stretch,
+    SpaceBetween,
+    SpaceAround,
+    SpaceEvenly,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FlexItemAlignment {
+    Start,
+    End,
+    FlexStart,
+    FlexEnd,
+    Center,
+    Baseline,
+    Stretch,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct FlexItemOptions {
+    pub order: Option<Expr>,
+    pub grow: Option<Expr>,
+    pub shrink: Option<Expr>,
+    pub basis: Option<FlexBasisValue>,
+    pub align_self: Option<FlexItemAlignment>,
+    pub margin: FlexMarginOptions,
+}
+
+#[derive(Clone, Debug)]
+pub enum FlexBasisValue {
+    Auto,
+    Content,
+    Fixed(Expr),
+    Percent(Expr),
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct FlexMarginOptions {
+    pub all: Option<FlexMarginValue>,
+    pub x: Option<FlexMarginValue>,
+    pub y: Option<FlexMarginValue>,
+    pub top: Option<FlexMarginValue>,
+    pub right: Option<FlexMarginValue>,
+    pub bottom: Option<FlexMarginValue>,
+    pub left: Option<FlexMarginValue>,
+}
+
+#[derive(Clone, Debug)]
+pub enum FlexMarginValue {
+    Auto,
+    Fixed(Expr),
+    Percent(Expr),
 }
 
 #[derive(Clone, Debug)]

@@ -1,6 +1,6 @@
 use serde_json::{Value, json};
 
-pub const LANGUAGE_REVISION: &str = "1.58";
+pub const LANGUAGE_REVISION: &str = "1.59";
 pub const ICED_VERSION: &str = "0.14.0";
 pub const ICED_WIDGET_VERSION: &str = "0.14.2";
 pub const UI_LANG_RUNTIME_VERSION: &str = "0.1.0";
@@ -39,6 +39,7 @@ const COMPLETIONS: &[Completion] = &[
     Completion::new("on", "declaration", "on ${1:event}\n  $0"),
     Completion::new("view", "declaration", "view\n  $0"),
     Completion::new("if", "control", "if ${1:condition}\n  $0"),
+    Completion::new("match", "control", "match ${1:value}\n  ${2:case}\n    $0"),
     Completion::new("for", "control", "for ${1:item} in ${2:items}\n  $0"),
     Completion::new(
         "keyed",
@@ -52,9 +53,11 @@ const COMPLETIONS: &[Completion] = &[
     ),
     Completion::new("row", "layout", "row\n  $0"),
     Completion::new("col", "layout", "col\n  $0"),
+    Completion::new("flex", "layout", "flex width=fill\n  $0"),
     Completion::new("stack", "layout", "stack\n  $0"),
     Completion::new("scroll", "layout", "scroll\n  $0"),
     Completion::new("container", "layout", "container\n  $0"),
+    Completion::new("box", "layout", "box\n  $0"),
     Completion::new("text", "widget", "text ${1:\"Text\"}"),
     Completion::new("input", "widget", "input \"${1:Label}\" <-> ${2:state}"),
     Completion::new("button", "widget", "button \"${1:Label}\" -> ${2:handler}"),
@@ -135,6 +138,53 @@ fn flex_properties(column: bool) -> Vec<Value> {
     output
 }
 
+fn css_flex_properties() -> Vec<Value> {
+    let mut output = properties(&[
+        (
+            "direction",
+            "enum(row|row-reverse|column|column-reverse)",
+            false,
+        ),
+        (
+            "flex-direction",
+            "enum(row|row-reverse|column|column-reverse)",
+            false,
+        ),
+        ("flex-flow", "direction,nowrap|wrap|wrap-reverse", false),
+        ("flex-wrap", "enum(nowrap|wrap|wrap-reverse)", false),
+        (
+            "justify-content",
+            "enum(normal|start|end|left|right|flex-start|flex-end|center|stretch|space-between|space-around|space-evenly)",
+            false,
+        ),
+        (
+            "align-items",
+            "enum(normal|start|end|self-start|self-end|flex-start|flex-end|center|baseline|stretch)",
+            false,
+        ),
+        (
+            "align-content",
+            "enum(normal|start|end|flex-start|flex-end|center|stretch|space-between|space-around|space-evenly)",
+            false,
+        ),
+        ("gap", "number", false),
+        ("row-gap", "number", false),
+        ("column-gap", "number", false),
+        ("width", "length", false),
+        ("height", "length", false),
+        ("max-width", "number", false),
+        ("max-height", "number", false),
+        ("clip", "bool-expression", false),
+        ("spacing", "number", false),
+        ("align", "enum(start|center|end)", false),
+        ("wrap", "flag", false),
+        ("wrap-spacing", "number", false),
+        ("wrap-align", "enum(start|center|end)", false),
+    ]);
+    output.extend(padding_properties());
+    output
+}
+
 fn keyed_properties() -> Vec<Value> {
     let mut output = properties(&[
         ("width", "length", false),
@@ -156,6 +206,23 @@ fn container_properties() -> Vec<Value> {
         ("align-x", "enum(start|center|end)", false),
         ("align-y", "enum(start|center|end)", false),
         ("clip", "bool-expression", false),
+        ("order", "integer-expression", false),
+        ("flex-grow", "number", false),
+        ("flex-shrink", "number", false),
+        ("flex-basis", "auto|content|number|percent(number)", false),
+        ("flex", "none|auto|initial|grow[,shrink[,basis]]", false),
+        (
+            "align-self",
+            "enum(auto|normal|start|end|self-start|self-end|flex-start|flex-end|center|baseline|stretch)",
+            false,
+        ),
+        ("margin", "auto|number|percent(number)", false),
+        ("margin-x", "auto|number|percent(number)", false),
+        ("margin-y", "auto|number|percent(number)", false),
+        ("margin-top", "auto|number|percent(number)", false),
+        ("margin-right", "auto|number|percent(number)", false),
+        ("margin-bottom", "auto|number|percent(number)", false),
+        ("margin-left", "auto|number|percent(number)", false),
         ("style", "extern-call", false),
     ]);
     output.extend(padding_properties());
@@ -235,7 +302,7 @@ fn construct_schema(item: &Completion) -> Value {
             Vec::new(),
         ),
         "state" => details(
-            &["document"],
+            &["document", "component"],
             "state\n  <name>[:<type>] = <expression>",
             child_shape(0, None, "state-entry"),
             no_binding(),
@@ -245,7 +312,7 @@ fn construct_schema(item: &Completion) -> Value {
         "component" => details(
             &["document"],
             "component <Name>(<prop>:<type>, ...)",
-            child_shape(1, Some(1), "view-root"),
+            child_shape(1, None, "component-state|component-handler|view-root"),
             no_binding(),
             no_route(),
             Vec::new(),
@@ -259,7 +326,7 @@ fn construct_schema(item: &Completion) -> Value {
             Vec::new(),
         ),
         "on" => details(
-            &["document"],
+            &["document", "component"],
             "on <handler>[(<payload>, ...)]",
             child_shape(0, None, "statement"),
             no_binding(),
@@ -278,6 +345,14 @@ fn construct_schema(item: &Completion) -> Value {
             &["view"],
             "if <bool-expression>",
             child_shape(0, None, "view-node"),
+            no_binding(),
+            no_route(),
+            Vec::new(),
+        ),
+        "match" => details(
+            &["view"],
+            "match <expression>\n  <case-expression>|_\n    <view-node>...",
+            child_shape(1, None, "match-arm"),
             no_binding(),
             no_route(),
             Vec::new(),
@@ -322,6 +397,14 @@ fn construct_schema(item: &Completion) -> Value {
             no_route(),
             flex_properties(true),
         ),
+        "flex" => details(
+            &["view"],
+            "flex [#<id>] [<property>=<value> ...] [@<semantic-utility> ...]",
+            child_shape(0, None, "view-node"),
+            no_binding(),
+            no_route(),
+            css_flex_properties(),
+        ),
         "stack" => details(
             &["view"],
             "stack [#<id>] [<property>=<value> ...] [@<semantic-utility> ...]",
@@ -361,6 +444,14 @@ fn construct_schema(item: &Completion) -> Value {
         "container" => details(
             &["view"],
             "container [#<id>] [<property>=<value> ...] [@<semantic-utility> ...]",
+            child_shape(1, Some(1), "view-root"),
+            no_binding(),
+            no_route(),
+            container_properties(),
+        ),
+        "box" => details(
+            &["view"],
+            "box [#<id>] [<property>=<value> ...] [@<semantic-utility> ...]",
             child_shape(1, Some(1), "view-root"),
             no_binding(),
             no_route(),
@@ -568,6 +659,15 @@ fn construct_schema(item: &Completion) -> Value {
 fn style_compatibility() -> Value {
     json!({
         "utilitySyntax": "forms omit the leading `@` marker",
+        "statusCascade": {
+            "base": "active fields apply to every native interaction status",
+            "checked": "checked/selected statuses inherit their matching active checked/unchecked or selected/unselected fields",
+            "compound": {
+                "focused-hovered": ["active", "focused", "focused-hovered"],
+                "opened-hovered": ["active", "opened", "opened-hovered"],
+            },
+            "precedence": "later, more-specific fields override inherited fields",
+        },
         "patternNotation": {
             "N": "unsigned integer multiplied by four pixels",
             "TOKEN": "checked semantic theme token",
@@ -577,15 +677,15 @@ fn style_compatibility() -> Value {
             "condition": "only on the listed targets and only when no canonical property owns the same field",
             "mappings": [
                 {
-                    "targets": ["scroll", "container", "input"],
+                    "targets": ["scroll", "container", "box", "flex", "input"],
                     "forms": { "w-full": "width=fill" },
                 },
                 {
-                    "targets": ["scroll", "container"],
+                    "targets": ["scroll", "container", "box", "flex"],
                     "forms": { "h-full": "height=fill" },
                 },
                 {
-                    "targets": ["container"],
+                    "targets": ["container", "box", "flex"],
                     "forms": {
                         "max-w-sm": "max-width=384.0",
                         "max-w-md": "max-width=448.0",
@@ -595,12 +695,12 @@ fn style_compatibility() -> Value {
                     },
                 },
                 {
-                    "targets": ["row", "col", "grid"],
+                    "targets": ["row", "col", "flex", "grid"],
                     "pattern": "gap-N",
                     "canonical": "spacing=(N*4).0",
                 },
                 {
-                    "targets": ["container", "row", "col"],
+                    "targets": ["container", "box", "row", "col", "flex"],
                     "patterns": ["p-N", "px-N", "py-N"],
                     "canonicalProperties": ["padding", "padding-x", "padding-y", "padding-top", "padding-right", "padding-bottom", "padding-left"],
                     "resolution": "apply utilities in source order, then emit the shortest equivalent typed padding fields",
@@ -612,18 +712,18 @@ fn style_compatibility() -> Value {
                     "condition": "no px-N or py-N is present and the final effective padding is nonzero",
                 },
                 {
-                    "targets": ["row", "col"],
+                    "targets": ["row", "col", "flex"],
                     "forms": { "items-center": "align=center" },
                 },
                 {
-                    "targets": ["container", "pane", "title"],
+                    "targets": ["container", "box", "pane", "title"],
                     "forms": {
                         "border": "border-width=1.0",
                         "border-2": "border-width=2.0",
                     },
                 },
                 {
-                    "targets": ["container", "pane", "title"],
+                    "targets": ["container", "box", "pane", "title"],
                     "forms": {
                         "rounded-sm": "radius=2.0",
                         "rounded": "radius=6.0",
@@ -741,6 +841,7 @@ pub fn document() -> Value {
             "definition": {
                 "supported": true,
                 "symbols": ["component", "handler"],
+                "componentLocalHandlers": false,
                 "crossFile": true,
                 "source": "checked reference spans and imported source origins",
             },
@@ -748,6 +849,7 @@ pub fn document() -> Value {
                 "supported": true,
                 "prepare": true,
                 "symbols": ["component", "handler"],
+                "componentLocalHandlers": false,
                 "componentRule": "plain names and compound-family roots; a root rename cascades to dotted descendants",
                 "definitionOnly": ["dotted component descendants", "mount handler"],
                 "completeReferencesOnly": true,
@@ -851,6 +953,7 @@ mod tests {
             assert_eq!(completion["insertTextFormat"], 2);
         }
         assert_eq!(schema["lsp"]["definition"]["supported"], true);
+        assert_eq!(schema["lsp"]["definition"]["componentLocalHandlers"], false);
         assert_eq!(schema["lsp"]["rename"]["supported"], true);
         assert_eq!(schema["lsp"]["rename"]["completeReferencesOnly"], true);
         assert_eq!(
@@ -870,14 +973,17 @@ mod tests {
             "on",
             "view",
             "if",
+            "match",
             "for",
             "keyed",
             "lazy",
             "row",
             "col",
+            "flex",
             "stack",
             "scroll",
             "container",
+            "box",
             "text",
             "input",
             "button",
@@ -971,11 +1077,11 @@ mod tests {
             .unwrap();
 
         assert!(mappings.iter().any(|mapping| {
-            mapping["targets"] == serde_json::json!(["scroll", "container", "input"])
+            mapping["targets"] == serde_json::json!(["scroll", "container", "box", "flex", "input"])
                 && mapping["forms"]["w-full"] == "width=fill"
         }));
         assert!(mappings.iter().any(|mapping| {
-            mapping["targets"] == serde_json::json!(["container", "pane", "title"])
+            mapping["targets"] == serde_json::json!(["container", "box", "pane", "title"])
                 && mapping["forms"]["border"] == "border-width=1.0"
         }));
         assert_eq!(

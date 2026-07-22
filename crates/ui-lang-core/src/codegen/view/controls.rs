@@ -107,6 +107,8 @@ pub(in crate::codegen) fn render_controls(
             let label = expr_code(label, env, document, ValueMode::Owned)?;
             let checked = expr_code(checked, env, document, ValueMode::Owned)?;
             let message_code = route_code(route, "__value", env, document, message)?;
+            let callback =
+                route_callback_code(route, "__value", "__value", env, document, message)?;
             let accessibility_key =
                 accessibility_key_code(id.as_ref(), "checkbox", span, scope, env, document)?;
             let accessibility_label = options
@@ -135,7 +137,7 @@ pub(in crate::codegen) fn render_controls(
             append_bool_control_options(&mut code, options, env, document, false)?;
             write!(
                 code,
-                ".on_toggle_maybe(if __disabled {{ None }} else {{ Some(move |__value| {message_code}) }})"
+                ".on_toggle_maybe(if __disabled {{ None }} else {{ Some({callback}) }})"
             )
             .unwrap();
             code.push_str(&checkbox_style_code(style, env, document)?);
@@ -154,14 +156,19 @@ pub(in crate::codegen) fn render_controls(
         } => {
             let label = expr_code(label, env, document, ValueMode::Owned)?;
             let checked = expr_code(checked, env, document, ValueMode::Owned)?;
-            let message_code = route_code(route, "__value", env, document, message)?;
+            let callback =
+                route_callback_code(route, "__value", "__value", env, document, message)?;
             let mut code = format!("::iced::widget::toggler({checked}).label({label})");
             append_bool_control_options(&mut code, options, env, document, true)?;
             if let Some(disabled) = disabled {
                 let disabled = expr_code(disabled, env, document, ValueMode::Owned)?;
-                write!(code, ".on_toggle_maybe(if {disabled} {{ None }} else {{ Some(move |__value| {message_code}) }})").unwrap();
+                write!(
+                    code,
+                    ".on_toggle_maybe(if {disabled} {{ None }} else {{ Some({callback}) }})"
+                )
+                .unwrap();
             } else {
-                write!(code, ".on_toggle(move |__value| {message_code})").unwrap();
+                write!(code, ".on_toggle({callback})").unwrap();
             }
             code.push_str(&toggler_style_code(style, env, document)?);
             Ok(format!("{code}.into()"))
@@ -181,14 +188,15 @@ pub(in crate::codegen) fn render_controls(
             let min = expr_code(min, env, document, ValueMode::Borrowed)?;
             let max = expr_code(max, env, document, ValueMode::Borrowed)?;
             let step = expr_code(step, env, document, ValueMode::Borrowed)?;
-            let message_code = route_code(route, "__value", env, document, message)?;
+            let callback =
+                route_callback_code(route, "__value", "__value", env, document, message)?;
             let helper = if *vertical {
                 "vertical_slider"
             } else {
                 "slider"
             };
             let mut code = format!(
-                "::iced::widget::{helper}(({min})..=({max}), {value}, move |__value| {message_code}).step({step})"
+                "::iced::widget::{helper}(({min})..=({max}), {value}, {callback}).step({step})"
             );
             if let Some(default) = &options.default {
                 write!(
@@ -260,9 +268,9 @@ pub(in crate::codegen) fn render_controls(
             let label = expr_code(label, env, document, ValueMode::Owned)?;
             let value = expr_code(value, env, document, ValueMode::Owned)?;
             let selected = expr_code(selected, env, document, ValueMode::Owned)?;
-            let message_code = route_code(route, &value, env, document, message)?;
+            let callback = route_callback_code(route, "_", &value, env, document, message)?;
             let mut code = format!(
-                "::iced::widget::radio({label}, true, if {selected} {{ Some(true) }} else {{ None }}, move |_| {message_code})"
+                "::iced::widget::radio({label}, true, if {selected} {{ Some(true) }} else {{ None }}, {callback})"
             );
             append_bool_control_options(&mut code, options, env, document, false)?;
             code.push_str(&radio_style_code(style, env, document)?);
@@ -277,10 +285,9 @@ pub(in crate::codegen) fn render_controls(
         } => {
             let options = expr_code(options, env, document, ValueMode::Owned)?;
             let selected = expr_code(selected, env, document, ValueMode::Owned)?;
-            let message_code = route_code(route, "__value", env, document, message)?;
-            let mut code = format!(
-                "::iced::widget::pick_list({options}, {selected}, move |__value| {message_code})"
-            );
+            let callback =
+                route_callback_code(route, "__value", "__value", env, document, message)?;
+            let mut code = format!("::iced::widget::pick_list({options}, {selected}, {callback})");
             if let Some(placeholder) = &options_config.placeholder {
                 write!(
                     code,
@@ -374,9 +381,10 @@ pub(in crate::codegen) fn render_controls(
                 Error::new("E150", span, format!("unknown combo state `{state}`"))
             })?;
             let selected = expr_code(selected, env, document, ValueMode::Owned)?;
-            let message_code = route_code(route, "__value", env, document, message)?;
+            let callback =
+                route_callback_code(route, "__value", "__value", env, document, message)?;
             let mut code = format!(
-                "{{ let __combo_selection = {selected}; ::iced::widget::combo_box(&{}, {}, __combo_selection.as_ref(), move |__value| {message_code})",
+                "{{ let __combo_selection = {selected}; ::iced::widget::combo_box(&{}, {}, __combo_selection.as_ref(), {callback})",
                 state.code,
                 rust_string(placeholder)
             );
@@ -435,20 +443,14 @@ pub(in crate::codegen) fn render_controls(
                 .unwrap();
             }
             if let Some(route) = &options.input {
-                write!(
-                    code,
-                    ".on_input(move |__value| {})",
-                    route_code(route, "__value", env, document, message)?
-                )
-                .unwrap();
+                let callback =
+                    route_callback_code(route, "__value", "__value", env, document, message)?;
+                write!(code, ".on_input({callback})").unwrap();
             }
             if let Some(route) = &options.hover {
-                write!(
-                    code,
-                    ".on_option_hovered(move |__value| {})",
-                    route_code(route, "__value", env, document, message)?
-                )
-                .unwrap();
+                let callback =
+                    route_callback_code(route, "__value", "__value", env, document, message)?;
+                write!(code, ".on_option_hovered({callback})").unwrap();
             }
             if let Some(route) = &options.open {
                 write!(

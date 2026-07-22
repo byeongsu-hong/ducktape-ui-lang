@@ -61,6 +61,7 @@ pub(in crate::codegen) fn render_structure(
                         code: code.to_owned(),
                         ty: Type::F64,
                         local: true,
+                        state: None,
                     },
                 );
             }
@@ -102,20 +103,26 @@ pub(in crate::codegen) fn render_structure(
                 "{{ let __sensor_content: __IceElement<'_, {message}> = {content}; ::iced::widget::sensor(__sensor_content)"
             );
             if let Some(route) = &options.show {
-                write!(
-                    code,
-                    ".on_show(move |__size| {})",
-                    size_route_code(route, "__size", env, document, message)?
-                )
-                .unwrap();
+                let callback = ordered_route_callback_code(
+                    route,
+                    "__size",
+                    &["__size.width as f64", "__size.height as f64"],
+                    env,
+                    document,
+                    message,
+                )?;
+                write!(code, ".on_show({callback})").unwrap();
             }
             if let Some(route) = &options.resize {
-                write!(
-                    code,
-                    ".on_resize(move |__size| {})",
-                    size_route_code(route, "__size", env, document, message)?
-                )
-                .unwrap();
+                let callback = ordered_route_callback_code(
+                    route,
+                    "__size",
+                    &["__size.width as f64", "__size.height as f64"],
+                    env,
+                    document,
+                    message,
+                )?;
+                write!(code, ".on_resize({callback})").unwrap();
             }
             if let Some(route) = &options.hide {
                 write!(
@@ -182,6 +189,7 @@ pub(in crate::codegen) fn render_structure(
                             code: "(__size.width as f64)".into(),
                             ty: Type::F64,
                             local: true,
+                            state: None,
                         },
                     );
                     child_env.insert(
@@ -190,6 +198,7 @@ pub(in crate::codegen) fn render_structure(
                             code: "(__size.height as f64)".into(),
                             ty: Type::F64,
                             local: true,
+                            state: None,
                         },
                     );
                     let content = render_node(content, document, message, &child_env, scope, slot)?;
@@ -239,6 +248,7 @@ pub(in crate::codegen) fn render_structure(
                     code: binding.clone(),
                     ty: dependency_type.clone(),
                     local: false,
+                    state: None,
                 },
             );
             let child = render_node(

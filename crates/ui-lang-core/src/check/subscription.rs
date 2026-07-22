@@ -699,7 +699,11 @@ pub(in crate::check) fn infer_route(
             "`mount` is initialization-only and cannot receive events",
         ));
     }
-    let signature = signatures.get_mut(&route.handler).ok_or_else(|| {
+    let key = component_context(env)
+        .map(|component| component_handler_key(component, &route.handler))
+        .filter(|key| signatures.contains_key(key))
+        .unwrap_or_else(|| route.handler.clone());
+    let signature = signatures.get_mut(&key).ok_or_else(|| {
         Error::new(
             "E132",
             &route.span,
@@ -767,7 +771,11 @@ pub(in crate::check) fn infer_ordered_payload_route(
         ));
     }
     infer_route(route, Some(Type::Unknown), env, document, signatures)?;
-    let signature = signatures.get_mut(&route.handler).expect("route signature");
+    let key = component_context(env)
+        .map(|component| component_handler_key(component, &route.handler))
+        .filter(|key| signatures.contains_key(key))
+        .unwrap_or_else(|| route.handler.clone());
+    let signature = signatures.get_mut(&key).expect("route signature");
     for (slot, ty) in signature.iter_mut().zip(payloads) {
         if let Some(existing) = slot {
             if !compatible(existing, ty) {

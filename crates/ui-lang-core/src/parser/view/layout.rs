@@ -49,6 +49,35 @@ pub(in crate::parser) fn parse_container(
             options.padding.bottom = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else if let Some(value) = part.strip_prefix("padding-left=") {
             options.padding.left = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("order=") {
+            options.flex_item.order = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("flex-grow=") {
+            options.flex_item.grow = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("flex-shrink=") {
+            options.flex_item.shrink = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("flex-basis=") {
+            options.flex_item.basis = Some(parse_flex_basis(value, line)?);
+        } else if let Some(value) = part.strip_prefix("align-self=") {
+            options.flex_item.align_self = match value {
+                "auto" => None,
+                _ => Some(parse_flex_item_alignment(value, line)?),
+            };
+        } else if let Some(value) = part.strip_prefix("flex=") {
+            parse_flex_shorthand(value, &mut options.flex_item, line)?;
+        } else if let Some(value) = part.strip_prefix("margin=") {
+            options.flex_item.margin.all = Some(parse_flex_margin(value, line)?);
+        } else if let Some(value) = part.strip_prefix("margin-x=") {
+            options.flex_item.margin.x = Some(parse_flex_margin(value, line)?);
+        } else if let Some(value) = part.strip_prefix("margin-y=") {
+            options.flex_item.margin.y = Some(parse_flex_margin(value, line)?);
+        } else if let Some(value) = part.strip_prefix("margin-top=") {
+            options.flex_item.margin.top = Some(parse_flex_margin(value, line)?);
+        } else if let Some(value) = part.strip_prefix("margin-right=") {
+            options.flex_item.margin.right = Some(parse_flex_margin(value, line)?);
+        } else if let Some(value) = part.strip_prefix("margin-bottom=") {
+            options.flex_item.margin.bottom = Some(parse_flex_margin(value, line)?);
+        } else if let Some(value) = part.strip_prefix("margin-left=") {
+            options.flex_item.margin.left = Some(parse_flex_margin(value, line)?);
         } else if let Some(value) = part.strip_prefix("style=") {
             let (function, args) = parse_signature(value, line).map_err(|_| {
                 error(
@@ -77,6 +106,91 @@ pub(in crate::parser) fn parse_container(
         content: Box::new(parse_view(&line.children[0])?),
         span: Span::line(line.number),
     })
+}
+
+fn parse_flex_basis(source: &str, line: &Line) -> Result<FlexBasisValue, Error> {
+    match source {
+        "auto" => Ok(FlexBasisValue::Auto),
+        "content" => Ok(FlexBasisValue::Content),
+        _ => parse_flex_percentage(source, line)?.map_or_else(
+            || {
+                Ok(FlexBasisValue::Fixed(parse_expr(
+                    strip_wrapping_parens(source),
+                    line,
+                )?))
+            },
+            |value| Ok(FlexBasisValue::Percent(value)),
+        ),
+    }
+}
+
+fn parse_flex_margin(source: &str, line: &Line) -> Result<FlexMarginValue, Error> {
+    if source == "auto" {
+        return Ok(FlexMarginValue::Auto);
+    }
+    parse_flex_percentage(source, line)?.map_or_else(
+        || {
+            Ok(FlexMarginValue::Fixed(parse_expr(
+                strip_wrapping_parens(source),
+                line,
+            )?))
+        },
+        |value| Ok(FlexMarginValue::Percent(value)),
+    )
+}
+
+fn parse_flex_percentage(source: &str, line: &Line) -> Result<Option<Expr>, Error> {
+    source
+        .strip_prefix("percent(")
+        .and_then(|value| value.strip_suffix(')'))
+        .map(|value| parse_expr(strip_wrapping_parens(value), line))
+        .transpose()
+}
+
+fn parse_flex_shorthand(
+    source: &str,
+    options: &mut FlexItemOptions,
+    line: &Line,
+) -> Result<(), Error> {
+    match source {
+        "none" => {
+            options.grow = Some(Expr::F64(0.0));
+            options.shrink = Some(Expr::F64(0.0));
+            options.basis = Some(FlexBasisValue::Auto);
+        }
+        "auto" => {
+            options.grow = Some(Expr::F64(1.0));
+            options.shrink = Some(Expr::F64(1.0));
+            options.basis = Some(FlexBasisValue::Auto);
+        }
+        "initial" => {
+            options.grow = Some(Expr::F64(0.0));
+            options.shrink = Some(Expr::F64(1.0));
+            options.basis = Some(FlexBasisValue::Auto);
+        }
+        _ => {
+            let values = split_top(source, ',');
+            if values.is_empty() || values.len() > 3 {
+                return Err(error(
+                    "E184",
+                    line,
+                    "flex expects grow[,shrink[,basis]], auto, initial, or none",
+                ));
+            }
+            options.grow = Some(parse_expr(strip_wrapping_parens(values[0]), line)?);
+            options.shrink = Some(if values.len() > 1 {
+                parse_expr(strip_wrapping_parens(values[1]), line)?
+            } else {
+                Expr::F64(1.0)
+            });
+            options.basis = Some(if values.len() > 2 {
+                parse_flex_basis(values[2], line)?
+            } else {
+                FlexBasisValue::Fixed(Expr::F64(0.0))
+            });
+        }
+    }
+    Ok(())
 }
 
 pub(in crate::parser) fn parse_overlay(

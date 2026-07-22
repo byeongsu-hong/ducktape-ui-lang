@@ -511,13 +511,6 @@ pub(in crate::parser) fn parse_animation_duration(source: &str, line: &Line) -> 
 }
 
 pub(in crate::parser) fn parse_component(header: &str, line: &Line) -> Result<Component, Error> {
-    if line.children.len() != 1 {
-        return Err(error(
-            "E040",
-            line,
-            "component must have exactly one root node",
-        ));
-    }
     let (name, params_source) = parse_component_signature(header, line)?;
     line.record_symbol(SymbolKind::Component, &name, true, header);
     let mut params = Vec::new();
@@ -533,10 +526,59 @@ pub(in crate::parser) fn parse_component(header: &str, line: &Line) -> Result<Co
             params.push((identifier(name.trim(), line)?, parse_type(ty.trim(), line)?));
         }
     }
+    let mut states = Vec::new();
+    let mut handlers = Vec::new();
+    let mut roots = Vec::new();
+    let mut state_block = false;
+    for child in &line.children {
+        if child.text == "state" {
+            if state_block {
+                return Err(error("E040", child, "component has duplicate state blocks"));
+            }
+            if child.children.is_empty() {
+                return Err(error("E040", child, "component state cannot be empty"));
+            }
+            state_block = true;
+            states.extend(
+                child
+                    .children
+                    .iter()
+                    .map(parse_state)
+                    .collect::<Result<Vec<_>, _>>()?,
+            );
+        } else if let Some(header) = child.text.strip_prefix("on ") {
+            let mut local = child.clone();
+            local.track_symbols = false;
+            handlers.push(parse_handler(header, &local)?);
+        } else {
+            roots.push(child);
+        }
+    }
+    let [root] = roots.as_slice() else {
+        return Err(error(
+            "E040",
+            line,
+            "component must have exactly one root node",
+        ));
+    };
+    let symbol_start = line.symbols.borrow().len();
+    let root = parse_view(root)?;
+    let local_handler = |name: &str| handlers.iter().any(|handler| handler.name == name);
+    let mut symbols = line.symbols.borrow_mut();
+    let retained = symbols
+        .drain(symbol_start..)
+        .filter(|symbol| {
+            symbol.kind != SymbolKind::Handler || symbol.definition || !local_handler(&symbol.name)
+        })
+        .collect::<Vec<_>>();
+    symbols.extend(retained);
+    drop(symbols);
     Ok(Component {
         name,
         params,
-        root: parse_view(&line.children[0])?,
+        states,
+        handlers,
+        root,
         span: Span::line(line.number),
     })
 }

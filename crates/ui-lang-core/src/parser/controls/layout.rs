@@ -1,5 +1,155 @@
 use super::*;
 
+pub(in crate::parser) fn parse_flexbox_options(
+    parts: &[String],
+    line: &Line,
+) -> Result<LayoutOptions, Error> {
+    let mut flexbox = FlexboxOptions::default();
+    let mut native = Vec::new();
+    let mut direction_seen = false;
+    let mut wrap_seen = false;
+    let mut gap_seen = false;
+    let mut align_items_seen = false;
+    let mut align_content_seen = false;
+    let mut max_width = None;
+    let mut max_height = None;
+
+    for part in parts {
+        if let Some(value) = part
+            .strip_prefix("direction=")
+            .or_else(|| part.strip_prefix("flex-direction="))
+        {
+            if direction_seen {
+                return Err(error("E074", line, "flex direction may only be set once"));
+            }
+            direction_seen = true;
+            flexbox.direction = parse_flex_direction(value, line)?;
+        } else if let Some(value) = part.strip_prefix("flex-flow=") {
+            if direction_seen || wrap_seen {
+                return Err(error(
+                    "E074",
+                    line,
+                    "flex-flow cannot be combined with direction or flex-wrap",
+                ));
+            }
+            let values = split_top(value, ',');
+            if values.len() != 2 {
+                return Err(error("E074", line, "flex-flow expects direction,wrap"));
+            }
+            direction_seen = true;
+            wrap_seen = true;
+            flexbox.direction = parse_flex_direction(values[0], line)?;
+            flexbox.wrap = parse_flex_wrap(values[1], line)?;
+        } else if let Some(value) = part.strip_prefix("flex-wrap=") {
+            if wrap_seen {
+                return Err(error("E074", line, "flex wrap may only be set once"));
+            }
+            wrap_seen = true;
+            flexbox.wrap = parse_flex_wrap(value, line)?;
+        } else if part == "wrap" {
+            if wrap_seen {
+                return Err(error("E074", line, "flex wrap may only be set once"));
+            }
+            wrap_seen = true;
+            flexbox.wrap = FlexWrapValue::Wrap;
+            native.push(part.clone());
+        } else if let Some(value) = part.strip_prefix("justify-content=") {
+            if flexbox.justify_content.is_some() {
+                return Err(error("E074", line, "justify-content may only be set once"));
+            }
+            flexbox.justify_content = Some(parse_flex_content_alignment(value, line)?);
+        } else if let Some(value) = part.strip_prefix("align-items=") {
+            if align_items_seen {
+                return Err(error("E074", line, "align-items may only be set once"));
+            }
+            align_items_seen = true;
+            flexbox.align_items = Some(parse_flex_item_alignment(value, line)?);
+        } else if let Some(value) = part.strip_prefix("align-content=") {
+            if align_content_seen {
+                return Err(error("E074", line, "align-content may only be set once"));
+            }
+            align_content_seen = true;
+            flexbox.align_content = Some(if value == "normal" {
+                FlexContentAlignment::Stretch
+            } else {
+                parse_flex_content_alignment(value, line)?
+            });
+        } else if let Some(value) = part.strip_prefix("gap=") {
+            if gap_seen || parts.iter().any(|part| part.starts_with("spacing=")) {
+                return Err(error("E074", line, "flex accepts either gap= or spacing="));
+            }
+            gap_seen = true;
+            native.push(format!("spacing={value}"));
+        } else if let Some(value) = part.strip_prefix("row-gap=") {
+            if flexbox.row_gap.is_some() {
+                return Err(error("E074", line, "row-gap may only be set once"));
+            }
+            flexbox.row_gap = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("column-gap=") {
+            if flexbox.column_gap.is_some() {
+                return Err(error("E074", line, "column-gap may only be set once"));
+            }
+            flexbox.column_gap = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("max-width=") {
+            max_width = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if let Some(value) = part.strip_prefix("max-height=") {
+            max_height = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if part.starts_with("align=") {
+            if align_items_seen {
+                return Err(error(
+                    "E074",
+                    line,
+                    "flex accepts either align= or align-items=",
+                ));
+            }
+            align_items_seen = true;
+            native.push(part.clone());
+        } else if part.starts_with("wrap-align=") {
+            if align_content_seen {
+                return Err(error(
+                    "E074",
+                    line,
+                    "flex accepts either wrap-align= or align-content=",
+                ));
+            }
+            align_content_seen = true;
+            native.push(part.clone());
+        } else {
+            native.push(part.clone());
+        }
+    }
+
+    let native_kind = match flexbox.direction {
+        FlexDirectionValue::Row | FlexDirectionValue::RowReverse => "row",
+        FlexDirectionValue::Column | FlexDirectionValue::ColumnReverse => "col",
+    };
+    if flexbox.wrap != FlexWrapValue::NoWrap && !native.iter().any(|part| part == "wrap") {
+        native.push("wrap".to_owned());
+    }
+    let mut options = parse_layout_options(native_kind, &native, line)?;
+    options.max_width = max_width;
+    options.max_height = max_height;
+    if let Some(align) = options.align {
+        flexbox.align_items = Some(match align {
+            FlexAlignment::Start => FlexItemAlignment::Start,
+            FlexAlignment::Center => FlexItemAlignment::Center,
+            FlexAlignment::End => FlexItemAlignment::End,
+        });
+    }
+    if let Some(align) = options.wrap_align {
+        flexbox.align_content = Some(match align {
+            FlexAlignment::Start => FlexContentAlignment::Start,
+            FlexAlignment::Center => FlexContentAlignment::Center,
+            FlexAlignment::End => FlexContentAlignment::End,
+        });
+    }
+    if options.wrap && flexbox.wrap == FlexWrapValue::NoWrap {
+        flexbox.wrap = FlexWrapValue::Wrap;
+    }
+    options.flexbox = Some(flexbox);
+    Ok(options)
+}
+
 pub(in crate::parser) fn parse_layout_options(
     kind: &str,
     parts: &[String],
@@ -446,6 +596,81 @@ pub(in crate::parser) fn parse_flex_alignment(
             "E074",
             line,
             "layout alignment must be start, center, or end",
+        )),
+    }
+}
+
+pub(in crate::parser) fn parse_flex_direction(
+    source: &str,
+    line: &Line,
+) -> Result<FlexDirectionValue, Error> {
+    match source {
+        "row" => Ok(FlexDirectionValue::Row),
+        "row-reverse" => Ok(FlexDirectionValue::RowReverse),
+        "column" => Ok(FlexDirectionValue::Column),
+        "column-reverse" => Ok(FlexDirectionValue::ColumnReverse),
+        _ => Err(error(
+            "E074",
+            line,
+            "flex direction must be row, row-reverse, column, or column-reverse",
+        )),
+    }
+}
+
+pub(in crate::parser) fn parse_flex_wrap(
+    source: &str,
+    line: &Line,
+) -> Result<FlexWrapValue, Error> {
+    match source {
+        "nowrap" => Ok(FlexWrapValue::NoWrap),
+        "wrap" => Ok(FlexWrapValue::Wrap),
+        "wrap-reverse" => Ok(FlexWrapValue::WrapReverse),
+        _ => Err(error(
+            "E074",
+            line,
+            "flex-wrap must be nowrap, wrap, or wrap-reverse",
+        )),
+    }
+}
+
+pub(in crate::parser) fn parse_flex_content_alignment(
+    source: &str,
+    line: &Line,
+) -> Result<FlexContentAlignment, Error> {
+    match source {
+        "normal" | "flex-start" => Ok(FlexContentAlignment::FlexStart),
+        "flex-end" => Ok(FlexContentAlignment::FlexEnd),
+        "start" | "left" => Ok(FlexContentAlignment::Start),
+        "end" | "right" => Ok(FlexContentAlignment::End),
+        "center" => Ok(FlexContentAlignment::Center),
+        "stretch" => Ok(FlexContentAlignment::Stretch),
+        "space-between" => Ok(FlexContentAlignment::SpaceBetween),
+        "space-around" => Ok(FlexContentAlignment::SpaceAround),
+        "space-evenly" => Ok(FlexContentAlignment::SpaceEvenly),
+        _ => Err(error(
+            "E074",
+            line,
+            "flex content alignment must be start, end, flex-start, flex-end, center, stretch, space-between, space-around, or space-evenly",
+        )),
+    }
+}
+
+pub(in crate::parser) fn parse_flex_item_alignment(
+    source: &str,
+    line: &Line,
+) -> Result<FlexItemAlignment, Error> {
+    match source {
+        "normal" | "stretch" => Ok(FlexItemAlignment::Stretch),
+        "start" | "self-start" => Ok(FlexItemAlignment::Start),
+        "end" | "self-end" => Ok(FlexItemAlignment::End),
+        "flex-start" => Ok(FlexItemAlignment::FlexStart),
+        "flex-end" => Ok(FlexItemAlignment::FlexEnd),
+        "center" => Ok(FlexItemAlignment::Center),
+        "baseline" => Ok(FlexItemAlignment::Baseline),
+        _ => Err(error(
+            "E074",
+            line,
+            "flex item alignment must be start, end, flex-start, flex-end, center, baseline, or stretch",
         )),
     }
 }
