@@ -208,6 +208,14 @@ view
     )
     .unwrap();
     assert!(default_input.contains("text_input::default(__theme, __status)"));
+
+    let compact_input = compile(
+        &source.replace("input \"Secret\"", "input \"\" label=\"Secret\""),
+        "form.ice",
+    )
+    .unwrap();
+    assert!(!compact_input.contains("widget::column![::iced::widget::text(\"\")"));
+    assert!(compact_input.contains("; __input.into() }"));
 }
 
 #[test]
@@ -501,6 +509,15 @@ view
     assert!(generated.contains("Stretch::SemiExpanded"));
     assert!(generated.contains("Style::Italic"));
     assert!(generated.contains("weight: ::iced::font::Weight::Bold, ..::iced::Font"));
+
+    let inherited = compile(
+        &source.replace("text \"Brand\" font=brand", "text \"Brand\""),
+        "typography.ice",
+    )
+    .unwrap();
+    assert!(inherited.contains(
+        "weight: ::iced::font::Weight::Bold, ..::iced::Font { family: ::iced::font::Family::Name(\"Inter\")"
+    ));
 }
 
 #[test]
