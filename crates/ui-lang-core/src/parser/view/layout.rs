@@ -5,8 +5,13 @@ pub(in crate::parser) fn parse_container(
     styles: Vec<String>,
     line: &Line,
 ) -> Result<ViewNode, Error> {
+    let kind = parts.first().map_or("container", String::as_str);
     if line.children.len() != 1 {
-        return Err(error("E184", line, "container requires exactly one child"));
+        return Err(error(
+            "E184",
+            line,
+            format!("{kind} requires exactly one child"),
+        ));
     }
     let id = parts
         .get(1)
@@ -49,7 +54,7 @@ pub(in crate::parser) fn parse_container(
                 error(
                     "E184",
                     line,
-                    "container style must be a declared style call",
+                    format!("{kind} style must be a declared style call"),
                 )
             })?;
             options.custom_style = Some(ExternCall {
@@ -61,7 +66,7 @@ pub(in crate::parser) fn parse_container(
             return Err(error(
                 "E184",
                 line,
-                format!("unknown container property `{part}`"),
+                format!("unknown {kind} property `{part}`"),
             ));
         }
     }

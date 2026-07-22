@@ -60,6 +60,20 @@ The punctuation has one job each:
 - `->` routes a widget or async result to a handler;
 - `_` is the payload supplied by that route.
 
+`box` and `flex` are layout aliases for the existing checked primitives. A
+`box` has one child and the same sizing, padding, alignment, and surface
+properties as `container`; `flex` defaults to a row, accepts
+`direction=column`, and supports the same spacing, alignment, wrapping, and
+padding as `row`/`col`. Fill portions provide flex growth:
+
+```ice
+flex spacing=8.0
+  box width=fill(1) padding=12.0 @bg-surface
+    text "Sidebar"
+  box width=fill(2) padding=12.0 @bg-background
+    text "Content"
+```
+
 ## Accessibility
 
 Ice lowers a small Core surface into a deterministic AccessKit tree:

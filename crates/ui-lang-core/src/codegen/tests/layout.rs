@@ -1,6 +1,40 @@
 use super::*;
 
 #[test]
+fn lowers_box_and_flex_sugar_to_native_layouts() {
+    let source = r#"app Layouts
+theme
+  background #000000
+  foreground #ffffff
+  primary #333333
+  danger #ff0000
+state
+view
+  box width=fill padding=8.0 background=background
+    flex direction=column spacing=6.0
+      text "Header"
+      flex spacing=4.0
+        box width=fill(1)
+          text "Left"
+        box width=fill(2)
+          text "Right"
+"#;
+    let generated = compile(source, "layouts.ice").unwrap();
+    assert!(generated.contains("::iced::widget::container(__container_content)"));
+    assert!(generated.contains("::iced::widget::column(__children).spacing(6.0 as f32)"));
+    assert!(generated.contains("::iced::widget::row(__children).spacing(4.0 as f32)"));
+    assert!(generated.contains(".width(::iced::Length::FillPortion(2))"));
+
+    let error = compile(
+        &source.replace("direction=column", "direction=diagonal"),
+        "layouts.ice",
+    )
+    .unwrap_err();
+    assert_eq!(error.code, "E074");
+    assert!(error.message.contains("row or column"));
+}
+
+#[test]
 fn lowers_complete_flex_layouts_and_wrapping() {
     let source = r#"app Layouts
 theme
