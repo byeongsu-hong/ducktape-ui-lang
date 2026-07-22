@@ -225,10 +225,17 @@ pub(in crate::codegen) fn render_foundation(
                 "style",
                 "text_input",
             )?);
+            let view = if label.is_empty() {
+                "__input.into()".to_owned()
+            } else {
+                format!(
+                    "::iced::widget::column![::iced::widget::text({}), __input].spacing(6).into()",
+                    rust_string(label)
+                )
+            };
             Ok(format!(
-                "{{ let __a11y_key = {accessibility_key}; let __a11y_id = ::ui_lang_runtime::StableId::new(&__a11y_key); let __disabled = {disabled_value}; let __secure = {secure_value}; let __role = if __secure {{ ::ui_lang_runtime::Role::PasswordInput }} else {{ ::ui_lang_runtime::Role::TextInput }}; let __input = ::ui_lang_runtime::accessible({input}, __a11y_id, __role).focus_id(::iced::widget::Id::from(__a11y_key)).label({accessibility_label}).value_maybe((!__secure).then(|| ({}).clone())).disabled(__disabled){accessibility_description}; ::iced::widget::column![::iced::widget::text({}), __input].spacing(6).into() }}",
+                "{{ let __a11y_key = {accessibility_key}; let __a11y_id = ::ui_lang_runtime::StableId::new(&__a11y_key); let __disabled = {disabled_value}; let __secure = {secure_value}; let __role = if __secure {{ ::ui_lang_runtime::Role::PasswordInput }} else {{ ::ui_lang_runtime::Role::TextInput }}; let __input = ::ui_lang_runtime::accessible({input}, __a11y_id, __role).focus_id(::iced::widget::Id::from(__a11y_key)).label({accessibility_label}).value_maybe((!__secure).then(|| ({}).clone())).disabled(__disabled){accessibility_description}; {view} }}",
                 state.code,
-                rust_string(label)
             ))
         }
         _ => return Ok(None),
