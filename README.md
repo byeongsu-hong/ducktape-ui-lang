@@ -252,7 +252,7 @@ next to their parser, checker, or code generator module.
 
 ## Status
 
-Ice 1.60 is an executable language revision, not an attempt to replace iced.
+Ice 1.61 is an executable language revision, not an attempt to replace iced.
 Its stable authoring Core is app/state/component/handler/view structure,
 component-local state, `match`, common layout and widgets, checked event
 routing, and typed Rust effects. Existing
@@ -261,7 +261,7 @@ advanced syntax remains available as a compatibility surface, while typed
 native behavior without growing Core merely for API parity.
 
 Language revisions and Cargo package versions are intentionally separate. The
-specification is revision 1.60; the workspace packages currently use pre-1.0
+specification is revision 1.61; the workspace packages currently use pre-1.0
 SemVer `0.1.0`.
 
 [`SPEC.md`](SPEC.md) defines the Core and compatibility boundary.

@@ -190,6 +190,9 @@ pub(in crate::check) fn infer_content_group(
             if let Some(secure) = &options.secure {
                 require_type(&expr_type(secure, env, document, span)?, &Type::Bool, span)?;
             }
+            if let Some(route) = &options.change {
+                infer_route(route, Some(Type::Str), env, document, signatures)?;
+            }
             if let Some(route) = &options.submit {
                 infer_route(route, None, env, document, signatures)?;
             }

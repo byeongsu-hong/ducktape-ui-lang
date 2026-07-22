@@ -165,11 +165,13 @@ state
   value = ""
   disabled = false
   secure = true
+on changed(next)
+  value = next
 on submitted
 on pasted(next)
   value = next
 view
-  input "Secret" #secret <-> value hint="Paste token" disabled=disabled secure=secure submit=submitted paste=pasted width=240.0 padding=8.0 text-size=14.0 line-height=1.2 align=center font=mono style=dynamic_input(disabled)
+  input "Secret" #secret <-> value hint="Paste token" disabled=disabled secure=secure change=changed submit=submitted paste=pasted width=240.0 padding=8.0 text-size=14.0 line-height=1.2 align=center font=mono style=dynamic_input(disabled)
     active bg=bg border=fg border-w=1.0 r=4.0 icon=primary placeholder=danger value=fg selection=primary
     hovered bg=bg border=primary border-w=1.0 r=10.0 icon=fg placeholder=danger value=fg selection=primary
     focused bg=bg border=primary border-w=1.0 r=10.0
@@ -202,6 +204,7 @@ view
     assert!(generated.contains("__style.selection ="));
     assert!(generated.contains(".on_submit_maybe(if __disabled"));
     assert!(generated.contains(".on_paste_maybe(if __disabled"));
+    assert!(generated.contains("__FormMessage::Changed(__value)"));
     let default_input = compile(
         &source.replace(" style=dynamic_input(disabled)", ""),
         "form.ice",

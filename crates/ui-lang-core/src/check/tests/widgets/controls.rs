@@ -400,11 +400,13 @@ state
   value = ""
   disabled = false
   secure = true
+on changed(next)
+  value = next
 on submitted
 on pasted(next)
   value = next
 view
-  input "Secret" #secret <-> value hint="Paste token" disabled=disabled secure=secure submit=submitted paste=pasted width=240.0 padding=8.0 text-size=14.0 line-height=1.2 align=center font=mono style=dynamic_input(disabled)
+  input "Secret" #secret <-> value hint="Paste token" disabled=disabled secure=secure change=changed submit=submitted paste=pasted width=240.0 padding=8.0 text-size=14.0 line-height=1.2 align=center font=mono style=dynamic_input(disabled)
     active bg=bg border=fg border-w=1.0 r=4.0 icon=primary placeholder=danger value=fg selection=primary
     hovered bg=bg icon=fg placeholder=danger value=fg selection=primary
     focused bg=bg border=primary
@@ -413,7 +415,8 @@ view
     icon code="•" font=ui size=12.0 spacing=4.0 side=right
 "#;
     let document = analyze(source).unwrap();
-    assert_eq!(document.handlers[1].params[0].ty.display(), "str");
+    assert_eq!(document.handlers[0].params[0].ty.display(), "str");
+    assert_eq!(document.handlers[2].params[0].ty.display(), "str");
 
     let error =
         analyze(&source.replace("dynamic_input(disabled)", "missing(disabled)")).unwrap_err();
