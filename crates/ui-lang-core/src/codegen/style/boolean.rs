@@ -79,9 +79,12 @@ pub(in crate::codegen) fn append_text_options(
             write!(code, ".font({font})").unwrap();
         }
     } else if style.bold {
-        code.push_str(
-            ".font(::iced::Font { weight: ::iced::font::Weight::Bold, ..::iced::Font::DEFAULT })",
-        );
+        let font = app_default_font_code(document);
+        write!(
+            code,
+            ".font(::iced::Font {{ weight: ::iced::font::Weight::Bold, ..{font} }})"
+        )
+        .unwrap();
     }
     if let Some(style) = &options.custom_style {
         let function = document

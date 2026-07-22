@@ -74,6 +74,15 @@ pub(in crate::codegen) fn font_decl_code(font: &FontDecl) -> String {
     )
 }
 
+pub(in crate::codegen) fn app_default_font_code(document: &Document) -> String {
+    document
+        .fonts
+        .iter()
+        .find(|font| font.default)
+        .map(font_decl_code)
+        .unwrap_or_else(|| "::iced::Font::DEFAULT".into())
+}
+
 pub(in crate::codegen) fn text_alignment_code(alignment: TextAlignment) -> &'static str {
     match alignment {
         TextAlignment::Default => "Default",

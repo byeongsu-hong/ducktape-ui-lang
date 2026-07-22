@@ -509,6 +509,15 @@ view
     assert!(generated.contains("Stretch::SemiExpanded"));
     assert!(generated.contains("Style::Italic"));
     assert!(generated.contains("weight: ::iced::font::Weight::Bold, ..::iced::Font"));
+
+    let inherited = compile(
+        &source.replace("text \"Brand\" font=brand", "text \"Brand\""),
+        "typography.ice",
+    )
+    .unwrap();
+    assert!(inherited.contains(
+        "weight: ::iced::font::Weight::Bold, ..::iced::Font { family: ::iced::font::Family::Name(\"Inter\")"
+    ));
 }
 
 #[test]
