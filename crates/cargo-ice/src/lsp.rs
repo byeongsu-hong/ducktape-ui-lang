@@ -10,6 +10,11 @@ struct DiagnosticReport {
     diagnostic: Option<Value>,
 }
 
+enum Incoming {
+    Message(Value),
+    ParseError,
+}
+
 struct Navigation {
     symbol: ui_lang_core::CheckedSymbol,
     family: Vec<ui_lang_core::CheckedSymbol>,
@@ -70,11 +75,58 @@ fn serve(reader: &mut impl BufRead, writer: &mut impl Write) -> io::Result<()> {
     let mut documents = HashMap::<String, String>::new();
     let mut diagnostic_reports = HashMap::<String, DiagnosticReport>::new();
     let mut workspace_roots = Vec::<PathBuf>::new();
+    let mut initialized = false;
     let mut shutdown = false;
 
-    while let Some(message) = read_message(reader)? {
-        let method = message.get("method").and_then(Value::as_str).unwrap_or("");
+    while let Some(incoming) = read_message(reader)? {
+        let Incoming::Message(message) = incoming else {
+            request_error(writer, Value::Null, -32700, "parse error")?;
+            continue;
+        };
         let id = message.get("id").cloned();
+        let valid_id = id
+            .as_ref()
+            .is_none_or(|id| id.is_null() || id.is_number() || id.is_string());
+        if !message.is_object()
+            || message.get("jsonrpc").and_then(Value::as_str) != Some("2.0")
+            || !message.get("method").is_some_and(Value::is_string)
+            || !message
+                .get("params")
+                .is_none_or(|params| params.is_array() || params.is_object())
+            || !valid_id
+        {
+            let id = id
+                .filter(|id| id.is_null() || id.is_number() || id.is_string())
+                .unwrap_or(Value::Null);
+            request_error(writer, id, -32600, "invalid request")?;
+            continue;
+        }
+        let method = message["method"].as_str().expect("validated method");
+        if let Some(id) = &id
+            && matches!(
+                method,
+                "initialized"
+                    | "$/cancelRequest"
+                    | "exit"
+                    | "textDocument/didOpen"
+                    | "textDocument/didChange"
+                    | "textDocument/didClose"
+            )
+        {
+            request_error(
+                writer,
+                id.clone(),
+                -32600,
+                "notification method sent as request",
+            )?;
+            continue;
+        }
+        if !initialized && method != "initialize" && method != "exit" {
+            if let Some(id) = id {
+                request_error(writer, id, -32002, "server is not initialized")?;
+            }
+            continue;
+        }
         if shutdown && method != "exit" {
             if let Some(id) = id {
                 request_error(writer, id, -32600, "server is shutting down")?;
@@ -82,32 +134,43 @@ fn serve(reader: &mut impl BufRead, writer: &mut impl Write) -> io::Result<()> {
             continue;
         }
         match method {
-            "initialize" => {
-                workspace_roots = initialize_roots(&message["params"]);
+            "initialize" if initialized => {
                 if let Some(id) = id {
-                    respond(
-                        writer,
-                        id,
-                        json!({
-                            "capabilities": {
-                                "positionEncoding": "utf-16",
-                                "textDocumentSync": { "openClose": true, "change": 1 },
-                                "documentFormattingProvider": true,
-                                "completionProvider": { "resolveProvider": false },
-                                "definitionProvider": true,
-                                "renameProvider": { "prepareProvider": true },
-                            },
-                            "serverInfo": {
-                                "name": "ice-lsp",
-                                "version": env!("CARGO_PKG_VERSION"),
-                            },
-                        }),
-                    )?;
+                    request_error(writer, id, -32600, "initialize may only be sent once")?;
                 }
             }
+            "initialize" => {
+                let Some(id) = id else {
+                    continue;
+                };
+                let Some(params) = message.get("params").filter(|params| params.is_object()) else {
+                    invalid_params(writer, id, "initialize params must be an object")?;
+                    continue;
+                };
+                workspace_roots = initialize_roots(params);
+                respond(
+                    writer,
+                    id,
+                    json!({
+                        "capabilities": {
+                            "positionEncoding": "utf-16",
+                            "textDocumentSync": { "openClose": true, "change": 1 },
+                            "documentFormattingProvider": true,
+                            "completionProvider": { "resolveProvider": false },
+                            "definitionProvider": true,
+                            "renameProvider": { "prepareProvider": true },
+                        },
+                        "serverInfo": {
+                            "name": "ice-lsp",
+                            "version": env!("CARGO_PKG_VERSION"),
+                        },
+                    }),
+                )?;
+                initialized = true;
+            }
             "shutdown" => {
-                shutdown = true;
                 if let Some(id) = id {
+                    shutdown = true;
                     respond(writer, id, Value::Null)?;
                 }
             }
@@ -146,57 +209,78 @@ fn serve(reader: &mut impl BufRead, writer: &mut impl Write) -> io::Result<()> {
             }
             "textDocument/formatting" => {
                 if let Some(id) = id {
-                    let uri = message["params"]["textDocument"]["uri"].as_str();
-                    match uri.and_then(|uri| documents.get(uri)) {
-                        Some(source) => {
-                            let formatted = ui_lang_core::format_fragment(source);
-                            let edits = if formatted == *source {
-                                Vec::new()
-                            } else {
-                                vec![json!({
-                                    "range": whole_document_range(source),
-                                    "newText": formatted,
-                                })]
-                            };
-                            respond(writer, id, Value::Array(edits))?;
+                    if valid_document_formatting_params(&message["params"]) {
+                        let uri = message["params"]["textDocument"]["uri"].as_str();
+                        match uri.and_then(|uri| documents.get(uri)) {
+                            Some(source) => {
+                                let formatted = ui_lang_core::format_fragment(source);
+                                let edits = if formatted == *source {
+                                    Vec::new()
+                                } else {
+                                    vec![json!({
+                                        "range": whole_document_range(source),
+                                        "newText": formatted,
+                                    })]
+                                };
+                                respond(writer, id, Value::Array(edits))?;
+                            }
+                            None => invalid_params(writer, id, "document is not open")?,
                         }
-                        None => invalid_params(writer, id, "document is not open")?,
+                    } else {
+                        invalid_params(writer, id, "invalid document formatting params")?;
                     }
                 }
             }
             "textDocument/completion" => {
                 if let Some(id) = id {
-                    respond(writer, id, Value::Array(schema::completion_items()))?;
+                    if valid_text_document_position_params(&message["params"]) {
+                        respond(writer, id, Value::Array(schema::completion_items()))?;
+                    } else {
+                        invalid_params(writer, id, "invalid text document position")?;
+                    }
                 }
             }
             "textDocument/definition" => {
                 if let Some(id) = id {
-                    let result = navigation_at(&documents, &workspace_roots, &message["params"])
-                        .and_then(|navigation| {
-                            location(
-                                &documents,
-                                &navigation.symbol.definition,
-                                &navigation.root_uri,
-                            )
-                        });
-                    respond(writer, id, result.unwrap_or(Value::Null))?;
+                    if valid_text_document_position_params(&message["params"]) {
+                        let result =
+                            navigation_at(&documents, &workspace_roots, &message["params"])
+                                .and_then(|navigation| {
+                                    location(
+                                        &documents,
+                                        &navigation.symbol.definition,
+                                        &navigation.root_uri,
+                                    )
+                                });
+                        respond(writer, id, result.unwrap_or(Value::Null))?;
+                    } else {
+                        invalid_params(writer, id, "invalid text document position")?;
+                    }
                 }
             }
             "textDocument/prepareRename" => {
                 if let Some(id) = id {
-                    let result = navigation_at(&documents, &workspace_roots, &message["params"])
-                        .filter(Navigation::renameable)
-                        .and_then(|navigation| {
-                            source_range(
-                                &documents,
-                                &navigation.occurrence,
-                                &navigation.root_uri,
-                            )
-                            .map(|range| {
-                                json!({ "range": range, "placeholder": navigation.symbol.name })
-                            })
-                        });
-                    respond(writer, id, result.unwrap_or(Value::Null))?;
+                    if valid_text_document_position_params(&message["params"]) {
+                        let result =
+                            navigation_at(&documents, &workspace_roots, &message["params"])
+                                .filter(Navigation::renameable)
+                                .and_then(|navigation| {
+                                    let (_, source) = range_document(
+                                        &documents,
+                                        &navigation.occurrence,
+                                        &navigation.root_uri,
+                                    )?;
+                                    source_range(&source, &navigation.occurrence).map(|range| {
+                                        json!({
+                                            "range": range,
+                                            "placeholder": navigation.symbol.name,
+                                        })
+                                    })
+                                });
+                        respond(writer, id, result.unwrap_or(Value::Null))?;
+                    } else {
+                        invalid_params(writer, id, "invalid text document position")?;
+                    }
                 }
             }
             "textDocument/rename" => {
@@ -209,6 +293,9 @@ fn serve(reader: &mut impl BufRead, writer: &mut impl Write) -> io::Result<()> {
                         (Some(navigation), Some(new_name))
                             if navigation.renameable()
                                 && navigation.symbol.kind.accepts(new_name)
+                                && !(navigation.symbol.kind
+                                    == ui_lang_core::SymbolKind::Component
+                                    && new_name.contains('.'))
                                 && !navigation.collides(new_name) =>
                         {
                             match workspace_edit(&documents, &navigation, new_name) {
@@ -268,7 +355,7 @@ fn source_overlays(documents: &HashMap<String, String>) -> HashMap<PathBuf, Stri
         .iter()
         .filter_map(|(uri, source)| {
             file_uri_path(uri).map(|path| {
-                let path = path.canonicalize().unwrap_or(path);
+                let path = canonical_path(&path).unwrap_or(path);
                 (path, source.clone())
             })
         })
@@ -280,12 +367,10 @@ fn analyze_diagnostics(
     source: &str,
     overlays: &HashMap<PathBuf, String>,
 ) -> DiagnosticReport {
-    let analysis = file_uri_path(uri)
-        .filter(|path| path.is_file())
-        .map_or_else(
-            || ui_lang_core::analyze(source),
-            |path| ui_lang_core::analyze_file_with_overlays(path, overlays),
-        );
+    let analysis = file_uri_path(uri).map_or_else(
+        || ui_lang_core::analyze(source),
+        |path| ui_lang_core::analyze_file_with_overlays(path, overlays),
+    );
     match analysis {
         Ok(_) => DiagnosticReport {
             target: uri.to_owned(),
@@ -335,6 +420,29 @@ fn initialize_roots(params: &Value) -> Vec<PathBuf> {
     roots
 }
 
+fn valid_text_document_position_params(params: &Value) -> bool {
+    let position = &params["position"];
+    params.is_object()
+        && params["textDocument"]["uri"].is_string()
+        && position["line"]
+            .as_u64()
+            .is_some_and(|value| value <= i32::MAX as u64)
+        && position["character"]
+            .as_u64()
+            .is_some_and(|value| value <= i32::MAX as u64)
+}
+
+fn valid_document_formatting_params(params: &Value) -> bool {
+    let options = &params["options"];
+    params.is_object()
+        && params["textDocument"]["uri"].is_string()
+        && options.is_object()
+        && options["tabSize"]
+            .as_u64()
+            .is_some_and(|value| value <= i32::MAX as u64)
+        && options["insertSpaces"].is_boolean()
+}
+
 fn navigation_at(
     documents: &HashMap<String, String>,
     workspace_roots: &[PathBuf],
@@ -343,10 +451,10 @@ fn navigation_at(
     let uri = params["textDocument"]["uri"].as_str()?;
     let source = documents.get(uri)?;
     let overlays = source_overlays(documents);
-    let line = params["position"]["line"].as_u64()? as usize;
-    let character = params["position"]["character"].as_u64()? as usize;
-    let column = utf16_column(source.split('\n').nth(line)?, character)?;
-    let query_path = file_uri_path(uri).and_then(|path| path.canonicalize().ok());
+    let line = usize::try_from(params["position"]["line"].as_u64()?).ok()?;
+    let character = usize::try_from(params["position"]["character"].as_u64()?).ok()?;
+    let column = utf16_column(source_line(source, line)?, character)?;
+    let query_path = file_uri_path(uri).map(|path| canonical_path(&path).unwrap_or(path));
 
     let mut roots = Vec::<(String, String)>::new();
     let mut workspace_complete = !workspace_roots.is_empty();
@@ -397,7 +505,7 @@ fn navigation_at(
     let mut analyzed = Vec::new();
     let mut incomplete = false;
     for (root_uri, root_source) in &roots {
-        let checked = match file_uri_path(root_uri).filter(|path| path.is_file()) {
+        let checked = match file_uri_path(root_uri) {
             Some(path) => match ui_lang_core::analyze_file_with_overlays(path, &overlays) {
                 Ok(checked) => checked,
                 Err(_) => {
@@ -448,7 +556,7 @@ fn navigation_at(
     })?;
 
     let selected_root_in_workspace = file_uri_path(&navigation.root_uri)
-        .and_then(|root| root.canonicalize().ok())
+        .and_then(|root| canonical_path(&root))
         .is_some_and(|root| {
             workspace_roots.iter().any(|workspace| {
                 workspace
@@ -547,21 +655,28 @@ fn utf16_column(line: &str, target: usize) -> Option<usize> {
     (utf16 == target).then_some(column)
 }
 
-fn source_range(
-    documents: &HashMap<String, String>,
-    range: &ui_lang_core::SourceRange,
-    fallback_uri: &str,
-) -> Option<Value> {
-    let (_, source) = range_document(documents, range, fallback_uri)?;
-    let line = source.split('\n').nth(range.line.checked_sub(1)?)?;
+fn source_line(source: &str, line: usize) -> Option<&str> {
+    source
+        .split('\n')
+        .nth(line)
+        .map(|line| line.strip_suffix('\r').unwrap_or(line))
+}
+
+fn source_range(source: &str, range: &ui_lang_core::SourceRange) -> Option<Value> {
+    let line = source_line(source, range.line.checked_sub(1)?)?;
+    let start_column = range.start_column.checked_sub(1)?;
+    let end_column = range.end_column.checked_sub(1)?;
+    if start_column > end_column || end_column > line.chars().count() {
+        return None;
+    }
     let start = line
         .chars()
-        .take(range.start_column.checked_sub(1)?)
+        .take(start_column)
         .map(char::len_utf16)
         .sum::<usize>();
     let end = line
         .chars()
-        .take(range.end_column.checked_sub(1)?)
+        .take(end_column)
         .map(char::len_utf16)
         .sum::<usize>();
     Some(json!({
@@ -596,10 +711,10 @@ fn location(
     range: &ui_lang_core::SourceRange,
     fallback_uri: &str,
 ) -> Option<Value> {
-    let (uri, _) = range_document(documents, range, fallback_uri)?;
+    let (uri, source) = range_document(documents, range, fallback_uri)?;
     Some(json!({
         "uri": uri,
-        "range": source_range(documents, range, fallback_uri)?,
+        "range": source_range(&source, range)?,
     }))
 }
 
@@ -612,9 +727,20 @@ fn workspace_edit(
     for symbol in &navigation.family {
         let renamed = navigation.family_name(&symbol.name, new_name);
         for range in std::iter::once(&symbol.definition).chain(&symbol.references) {
-            let (uri, _) = range_document(documents, range, &navigation.root_uri)?;
+            let (uri, source) = range_document(documents, range, &navigation.root_uri)?;
+            let start = range.start_column.checked_sub(1)?;
+            let length = range.end_column.checked_sub(range.start_column)?;
+            let line = source_line(&source, range.line.checked_sub(1)?)?;
+            if !line
+                .chars()
+                .skip(start)
+                .take(length)
+                .eq(symbol.name.chars())
+            {
+                return None;
+            }
             changes.entry(uri).or_default().push(json!({
-                "range": source_range(documents, range, &navigation.root_uri)?,
+                "range": source_range(&source, range)?,
                 "newText": renamed,
             }));
         }
@@ -670,6 +796,13 @@ fn same_file(left: &Path, right: &Path) -> bool {
     }
 }
 
+fn canonical_path(path: &Path) -> Option<PathBuf> {
+    path.canonicalize().ok().or_else(|| {
+        let parent = path.parent()?.canonicalize().ok()?;
+        Some(parent.join(path.file_name()?))
+    })
+}
+
 fn file_uri_path(uri: &str) -> Option<PathBuf> {
     let path = uri.strip_prefix("file://")?;
     let local_path = if path.eq_ignore_ascii_case("localhost") {
@@ -706,13 +839,22 @@ fn file_uri_path(uri: &str) -> Option<PathBuf> {
             index += 1;
         }
     }
-    let decoded = String::from_utf8(decoded).ok()?;
-    #[cfg(windows)]
-    let decoded = decoded
-        .strip_prefix('/')
-        .filter(|path| path.as_bytes().get(1) == Some(&b':'))
-        .unwrap_or(&decoded);
-    Some(PathBuf::from(decoded))
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStringExt;
+
+        Some(PathBuf::from(std::ffi::OsString::from_vec(decoded)))
+    }
+    #[cfg(not(unix))]
+    {
+        let decoded = String::from_utf8(decoded).ok()?;
+        #[cfg(windows)]
+        let decoded = decoded
+            .strip_prefix('/')
+            .filter(|path| path.as_bytes().get(1) == Some(&b':'))
+            .unwrap_or(&decoded);
+        Some(PathBuf::from(decoded))
+    }
 }
 
 fn hex(byte: u8) -> Option<u8> {
@@ -739,8 +881,6 @@ fn file_path_uri(path: &Path) -> String {
             path
         }
     };
-    #[cfg(not(windows))]
-    let path = path.to_string_lossy();
     #[cfg(windows)]
     let mut uri = if path.starts_with("//") {
         String::from("file:")
@@ -751,7 +891,19 @@ fn file_path_uri(path: &Path) -> String {
     };
     #[cfg(not(windows))]
     let mut uri = String::from("file://");
-    for byte in path.bytes() {
+    #[cfg(windows)]
+    let bytes = path.as_bytes();
+    #[cfg(unix)]
+    let bytes = {
+        use std::os::unix::ffi::OsStrExt;
+
+        path.as_os_str().as_bytes()
+    };
+    #[cfg(all(not(windows), not(unix)))]
+    let path = path.to_string_lossy();
+    #[cfg(all(not(windows), not(unix)))]
+    let bytes = path.as_bytes();
+    for &byte in bytes {
         if byte.is_ascii_alphanumeric() || matches!(byte, b'/' | b':' | b'.' | b'-' | b'_' | b'~') {
             uri.push(char::from(byte));
         } else {
@@ -765,7 +917,7 @@ fn diagnostic_range(source: &str, one_based_line: usize, one_based_column: usize
     let line = one_based_line
         .saturating_sub(1)
         .min(source.split('\n').count().saturating_sub(1));
-    let text = source.split('\n').nth(line).unwrap_or("");
+    let text = source_line(source, line).unwrap_or("");
     let character = one_based_column.saturating_sub(1).min(text.chars().count());
     let start = text
         .chars()
@@ -819,7 +971,7 @@ fn request_error(writer: &mut impl Write, id: Value, code: i64, message: &str) -
     )
 }
 
-fn read_message(reader: &mut impl BufRead) -> io::Result<Option<Value>> {
+fn read_message(reader: &mut impl BufRead) -> io::Result<Option<Incoming>> {
     let mut length = None;
     let mut started = false;
     loop {
@@ -850,11 +1002,14 @@ fn read_message(reader: &mut impl BufRead) -> io::Result<Option<Value>> {
 
     let length = length
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "missing Content-Length"))?;
-    let mut body = vec![0; length];
+    let mut body = Vec::new();
+    body.try_reserve_exact(length)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "Content-Length is too large"))?;
+    body.resize(length, 0);
     reader.read_exact(&mut body)?;
-    serde_json::from_slice(&body)
-        .map(Some)
-        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
+    Ok(Some(
+        serde_json::from_slice(&body).map_or(Incoming::ParseError, Incoming::Message),
+    ))
 }
 
 fn write_message(writer: &mut impl Write, message: &Value) -> io::Result<()> {
@@ -868,8 +1023,8 @@ fn write_message(writer: &mut impl Write, message: &Value) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        diagnostic_range, file_path_uri, file_uri_path, navigation_at, read_message, serve,
-        whole_document_range,
+        Navigation, diagnostic_range, file_path_uri, file_uri_path, navigation_at, read_message,
+        serve, source_range, whole_document_range, workspace_edit,
     };
     use serde_json::{Value, json};
     use std::collections::HashMap;
@@ -878,7 +1033,7 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    const APP_WITH_PART: &str = "app Demo\nuse \"part.ice\"\ntheme\n  bg #000000\n  fg #ffffff\n  primary #333333\n  danger #ff0000\nview\n  Broken()\n";
+    const APP_WITH_PART: &str = "app Demo\nuse \"part.ice\"\ntheme\n  bg #000000\n  fg #ffffff\n  primary #333333\n  danger #ff0000\nview\n  Broken\n";
 
     struct Fixture(PathBuf);
 
@@ -926,8 +1081,11 @@ mod tests {
 
         let mut reader = BufReader::new(Cursor::new(output));
         let mut messages = Vec::new();
-        while let Some(message) = read_message(&mut reader)? {
-            messages.push(message);
+        while let Some(incoming) = read_message(&mut reader)? {
+            match incoming {
+                super::Incoming::Message(message) => messages.push(message),
+                super::Incoming::ParseError => unreachable!("server emitted invalid JSON"),
+            }
         }
         Ok(messages)
     }
@@ -954,6 +1112,204 @@ mod tests {
         assert_eq!(capabilities["definitionProvider"], true);
         assert_eq!(capabilities["renameProvider"]["prepareProvider"], true);
         assert_eq!(response(&messages, 2)["result"], Value::Null);
+    }
+
+    #[test]
+    fn enforces_the_initialize_boundary() {
+        let uri = "file:///tmp/early.ice";
+        let messages = run(&[
+            json!({ "jsonrpc": "2.0", "id": "early", "method": "textDocument/completion" }),
+            json!({
+                "jsonrpc": "2.0",
+                "method": "textDocument/didOpen",
+                "params": { "textDocument": { "uri": uri, "text": "app Early\nview\n  wat\n" } },
+            }),
+            json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {} }),
+            json!({ "jsonrpc": "2.0", "id": "again", "method": "initialize", "params": {} }),
+            json!({ "jsonrpc": "2.0", "method": "shutdown" }),
+            json!({
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "textDocument/formatting",
+                "params": {
+                    "textDocument": { "uri": uri },
+                    "options": { "tabSize": 2, "insertSpaces": true },
+                },
+            }),
+            json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown" }),
+            json!({ "jsonrpc": "2.0", "method": "exit" }),
+        ])
+        .unwrap();
+
+        assert_eq!(response(&messages, "early")["error"]["code"], -32002);
+        assert_eq!(response(&messages, "again")["error"]["code"], -32600);
+        assert_eq!(response(&messages, 2)["error"]["code"], -32602);
+        assert!(
+            !messages
+                .iter()
+                .any(|message| message["method"] == "textDocument/publishDiagnostics")
+        );
+    }
+
+    #[test]
+    fn reports_malformed_json_and_continues() {
+        let mut input = Vec::new();
+        frame(
+            &json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {} }),
+            &mut input,
+        );
+        input.extend_from_slice(b"Content-Length: 1\r\n\r\n{");
+        frame(
+            &json!({ "jsonrpc": "2.0", "id": 2, "method": "shutdown" }),
+            &mut input,
+        );
+        frame(&json!({ "jsonrpc": "2.0", "method": "exit" }), &mut input);
+
+        let mut output = Vec::new();
+        serve(&mut BufReader::new(Cursor::new(input)), &mut output).unwrap();
+
+        let mut reader = BufReader::new(Cursor::new(output));
+        let mut messages = Vec::new();
+        while let Some(incoming) = read_message(&mut reader).unwrap() {
+            match incoming {
+                super::Incoming::Message(message) => messages.push(message),
+                super::Incoming::ParseError => unreachable!("server emitted invalid JSON"),
+            }
+        }
+        assert_eq!(
+            response(&messages, 1)["result"]["serverInfo"]["name"],
+            "ice-lsp"
+        );
+        assert_eq!(response(&messages, 2)["result"], Value::Null);
+        assert!(
+            messages.iter().any(|message| {
+                message["id"] == Value::Null && message["error"]["code"] == -32700
+            })
+        );
+    }
+
+    #[test]
+    fn rejects_unallocatable_content_lengths() {
+        let input = format!("Content-Length: {}\r\n\r\n", usize::MAX);
+        let result = read_message(&mut BufReader::new(Cursor::new(input)));
+
+        let Err(error) = result else {
+            panic!("unallocatable content length must fail");
+        };
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn rejects_invalid_json_rpc_messages_and_continues() {
+        let messages = run(&[
+            json!({ "jsonrpc": "2.0", "id": "missing-method" }),
+            json!([]),
+            json!({ "jsonrpc": "1.0", "id": "wrong-version", "method": "initialize" }),
+            json!({ "jsonrpc": "2.0", "id": "missing-init-params", "method": "initialize" }),
+            json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {} }),
+            json!({
+                "jsonrpc": "2.0",
+                "id": "bad-params",
+                "method": "textDocument/completion",
+                "params": true,
+            }),
+            json!({ "jsonrpc": "2.0", "id": 2, "method": "shutdown" }),
+            json!({ "jsonrpc": "2.0", "method": "exit" }),
+        ])
+        .unwrap();
+
+        for id in ["missing-method", "wrong-version", "bad-params"] {
+            assert_eq!(response(&messages, id)["error"]["code"], -32600);
+        }
+        assert_eq!(
+            response(&messages, "missing-init-params")["error"]["code"],
+            -32602
+        );
+        assert!(
+            messages.iter().any(|message| {
+                message["id"] == Value::Null && message["error"]["code"] == -32600
+            })
+        );
+        assert_eq!(
+            response(&messages, 1)["result"]["serverInfo"]["name"],
+            "ice-lsp"
+        );
+        assert_eq!(response(&messages, 2)["result"], Value::Null);
+    }
+
+    #[test]
+    fn rejects_notification_methods_sent_as_requests() {
+        let uri = "file:///tmp/request.ice";
+        let messages = run(&[
+            json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {} }),
+            json!({
+                "jsonrpc": "2.0",
+                "id": "open-request",
+                "method": "textDocument/didOpen",
+                "params": { "textDocument": { "uri": uri, "text": "app Demo\nview\n  wat\n" } },
+            }),
+            json!({ "jsonrpc": "2.0", "id": 2, "method": "shutdown" }),
+            json!({ "jsonrpc": "2.0", "id": "exit-request", "method": "exit" }),
+            json!({ "jsonrpc": "2.0", "method": "exit" }),
+        ])
+        .unwrap();
+
+        for id in ["open-request", "exit-request"] {
+            assert_eq!(response(&messages, id)["error"]["code"], -32600);
+        }
+        assert!(
+            !messages
+                .iter()
+                .any(|message| message["method"] == "textDocument/publishDiagnostics")
+        );
+        assert_eq!(response(&messages, 2)["result"], Value::Null);
+    }
+
+    #[test]
+    fn rejects_invalid_text_document_position_params() {
+        let messages = run(&[
+            json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {} }),
+            json!({ "jsonrpc": "2.0", "id": 2, "method": "textDocument/completion", "params": {} }),
+            json!({
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "textDocument/definition",
+                "params": { "textDocument": { "uri": "file:///tmp/demo.ice" } },
+            }),
+            json!({ "jsonrpc": "2.0", "id": 4, "method": "shutdown" }),
+            json!({ "jsonrpc": "2.0", "method": "exit" }),
+        ])
+        .unwrap();
+
+        for id in [2, 3] {
+            assert_eq!(response(&messages, id)["error"]["code"], -32602);
+        }
+        assert_eq!(response(&messages, 4)["result"], Value::Null);
+    }
+
+    #[test]
+    fn rejects_invalid_document_formatting_params() {
+        let uri = "file:///tmp/demo.ice";
+        let messages = run(&[
+            json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {} }),
+            json!({
+                "jsonrpc": "2.0",
+                "method": "textDocument/didOpen",
+                "params": { "textDocument": { "uri": uri, "text": "app Demo\nview\n  text \"Hi\"\n" } },
+            }),
+            json!({
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "textDocument/formatting",
+                "params": { "textDocument": { "uri": uri } },
+            }),
+            json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown" }),
+            json!({ "jsonrpc": "2.0", "method": "exit" }),
+        ])
+        .unwrap();
+
+        assert_eq!(response(&messages, 2)["error"]["code"], -32602);
+        assert_eq!(response(&messages, 3)["result"], Value::Null);
     }
 
     #[test]
@@ -1014,7 +1370,7 @@ mod tests {
         fixture.write("part.ice", "component Broken()\n  wat\n");
         let root_uri = file_path_uri(&fixture.path("app.ice"));
         let part_uri = file_path_uri(&fixture.path("part.ice"));
-        let overlay = "app Overlay\nuse \"part.ice\"\nview\n  Broken()\n";
+        let overlay = "app Overlay\nuse \"part.ice\"\nview\n  Broken\n";
 
         let messages = run(&[
             json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {} }),
@@ -1041,6 +1397,38 @@ mod tests {
                 "end": { "line": 1, "character": 1 },
             })
         );
+    }
+
+    #[test]
+    fn analyzes_new_unsaved_root_and_import_files() {
+        let fixture = Fixture::new();
+        let root_uri = file_path_uri(&fixture.path("new.ice"));
+        let part_uri = file_path_uri(&fixture.path("part.ice"));
+        let messages = run(&[
+            json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {} }),
+            json!({
+                "jsonrpc": "2.0",
+                "method": "textDocument/didOpen",
+                "params": { "textDocument": { "uri": part_uri, "text": "component Broken()\n  wat\n" } },
+            }),
+            json!({
+                "jsonrpc": "2.0",
+                "method": "textDocument/didOpen",
+                "params": { "textDocument": { "uri": root_uri, "text": "app New\nuse \"part.ice\"\nview\n  Broken\n" } },
+            }),
+            json!({ "jsonrpc": "2.0", "id": 2, "method": "shutdown" }),
+            json!({ "jsonrpc": "2.0", "method": "exit" }),
+        ])
+        .unwrap();
+
+        let published = messages
+            .iter()
+            .find(|message| {
+                message["method"] == "textDocument/publishDiagnostics"
+                    && message["params"]["uri"] == part_uri
+            })
+            .unwrap();
+        assert_eq!(published["params"]["diagnostics"][0]["code"], "E064");
     }
 
     #[test]
@@ -1148,8 +1536,8 @@ mod tests {
         let one_uri = file_path_uri(&fixture.path("one.ice"));
         let two_uri = file_path_uri(&fixture.path("two.ice"));
         let part_uri = file_path_uri(&fixture.path("part.ice"));
-        let one = "app One\nuse \"part.ice\"\nview\n  Broken()\n";
-        let two = "app Two\nuse \"part.ice\"\nview\n  Broken()\n";
+        let one = "app One\nuse \"part.ice\"\nview\n  Broken\n";
+        let two = "app Two\nuse \"part.ice\"\nview\n  Broken\n";
         let fragment = "component Broken()\n  text \"Open buffer\"\n";
 
         let messages = run(&[
@@ -1225,7 +1613,10 @@ mod tests {
                 "jsonrpc": "2.0",
                 "id": 2,
                 "method": "textDocument/formatting",
-                "params": { "textDocument": { "uri": uri }, "options": {} },
+                "params": {
+                    "textDocument": { "uri": uri },
+                    "options": { "tabSize": 2, "insertSpaces": true },
+                },
             }),
             json!({
                 "jsonrpc": "2.0",
@@ -1264,8 +1655,8 @@ mod tests {
     #[test]
     fn defines_and_safely_renames_checked_symbols_across_imports() {
         let fixture = Fixture::new();
-        let root = "app Demo\nuse \"part.ice\"\ntheme\n  bg #000000\n  fg #ffffff\n  primary #333333\n  danger #ff0000\nview\n  Card()\n";
-        let other = "app Other\nuse \"part.ice\"\ntheme\n  bg #000000\n  fg #ffffff\n  primary #333333\n  danger #ff0000\nview\n  Card()\n";
+        let root = "app Demo\nuse \"part.ice\"\ntheme\n  bg #000000\n  fg #ffffff\n  primary #333333\n  danger #ff0000\nview\n  Card\n";
+        let other = "app Other\nuse \"part.ice\"\ntheme\n  bg #000000\n  fg #ffffff\n  primary #333333\n  danger #ff0000\nview\n  Card\n";
         let part = "component Card()\n  button \"😀\" -> clicked\ncomponent Panel()\n  text \"Other\"\non clicked\non mount\n";
         fixture.write("app.ice", root);
         fixture.write("other.ice", other);
@@ -1347,7 +1738,13 @@ mod tests {
                 "method": "textDocument/rename",
                 "params": { "textDocument": { "uri": part_uri }, "position": { "line": 5, "character": 4 }, "newName": "launched" },
             }),
-            json!({ "jsonrpc": "2.0", "id": 12, "method": "shutdown" }),
+            json!({
+                "jsonrpc": "2.0",
+                "id": 12,
+                "method": "textDocument/rename",
+                "params": { "textDocument": { "uri": root_uri }, "position": { "line": 8, "character": 3 }, "newName": "Tile.Header" },
+            }),
+            json!({ "jsonrpc": "2.0", "id": 13, "method": "shutdown" }),
             json!({ "jsonrpc": "2.0", "method": "exit" }),
         ])
         .unwrap();
@@ -1402,12 +1799,13 @@ mod tests {
         assert_eq!(response(&messages, 9)["error"]["code"], -32602);
         assert_eq!(response(&messages, 10)["result"], Value::Null);
         assert_eq!(response(&messages, 11)["error"]["code"], -32602);
+        assert_eq!(response(&messages, 12)["error"]["code"], -32602);
     }
 
     #[test]
     fn imported_rename_requires_an_initialized_workspace() {
         let fixture = Fixture::new();
-        let root = "app Demo\nuse \"part.ice\"\ntheme\n  bg #000000\n  fg #ffffff\n  primary #333333\n  danger #ff0000\nview\n  Card()\n";
+        let root = "app Demo\nuse \"part.ice\"\ntheme\n  bg #000000\n  fg #ffffff\n  primary #333333\n  danger #ff0000\nview\n  Card\n";
         let part = "component Card()\n  text \"Card\"\n";
         fixture.write("app.ice", root);
         fixture.write("part.ice", part);
@@ -1429,6 +1827,29 @@ mod tests {
     }
 
     #[test]
+    fn imported_rename_accepts_a_new_root_inside_the_workspace() {
+        let fixture = Fixture::new();
+        let root = "app Demo\nuse \"part.ice\"\ntheme\n  bg #000000\n  fg #ffffff\n  primary #333333\n  danger #ff0000\nview\n  Card\n";
+        let part = "component Card()\n  text \"Card\"\n";
+        fixture.write("part.ice", part);
+        let root_uri = file_path_uri(&fixture.path("new.ice"));
+        let part_uri = file_path_uri(&fixture.path("part.ice"));
+        let documents = HashMap::from([
+            (root_uri.clone(), root.to_owned()),
+            (part_uri, part.to_owned()),
+        ]);
+        let params = json!({
+            "textDocument": { "uri": root_uri },
+            "position": { "line": 8, "character": 3 },
+        });
+
+        let navigation =
+            navigation_at(&documents, std::slice::from_ref(&fixture.0), &params).unwrap();
+
+        assert!(navigation.renameable());
+    }
+
+    #[test]
     fn imported_rename_stays_inside_the_initialized_workspace() {
         let fixture = Fixture::new();
         let workspace = fixture.path("workspace");
@@ -1436,7 +1857,7 @@ mod tests {
         fs::create_dir_all(&workspace).unwrap();
         fs::create_dir_all(&outside).unwrap();
         let workspace_app = "app Workspace\ntheme\n  bg #000000\n  fg #ffffff\n  primary #333333\n  danger #ff0000\nview\n  text \"Workspace\"\n";
-        let outside_app = "app Outside\nuse \"part.ice\"\ntheme\n  bg #000000\n  fg #ffffff\n  primary #333333\n  danger #ff0000\nview\n  Card()\n";
+        let outside_app = "app Outside\nuse \"part.ice\"\ntheme\n  bg #000000\n  fg #ffffff\n  primary #333333\n  danger #ff0000\nview\n  Card\n";
         let part = "component Card()\n  text \"Card\"\n";
         fs::write(workspace.join("app.ice"), workspace_app).unwrap();
         fs::write(outside.join("app.ice"), outside_app).unwrap();
@@ -1461,7 +1882,7 @@ mod tests {
     #[test]
     fn open_fragment_new_facts_participate_in_rename_checks() {
         let fixture = Fixture::new();
-        let root = "app Demo\nuse \"part.ice\"\nuse \"extra.ice\"\ntheme\n  bg #000000\n  fg #ffffff\n  primary #333333\n  danger #ff0000\nview\n  Card()\n";
+        let root = "app Demo\nuse \"part.ice\"\nuse \"extra.ice\"\ntheme\n  bg #000000\n  fg #ffffff\n  primary #333333\n  danger #ff0000\nview\n  Card\n";
         let part = "component Card()\n  text \"Card\"\n";
         fixture.write("app.ice", root);
         fixture.write("part.ice", part);
@@ -1559,7 +1980,7 @@ mod tests {
     #[test]
     fn rename_waits_until_every_workspace_app_root_checks() {
         let fixture = Fixture::new();
-        let root = "app Demo\nuse \"part.ice\"\ntheme\n  bg #000000\n  fg #ffffff\n  primary #333333\n  danger #ff0000\nview\n  Card()\n";
+        let root = "app Demo\nuse \"part.ice\"\ntheme\n  bg #000000\n  fg #ffffff\n  primary #333333\n  danger #ff0000\nview\n  Card\n";
         let part = "component Card()\n  text \"Card\"\n";
         let broken = "app Broken\nview\n  wat\n";
         fixture.write("app.ice", root);
@@ -1612,7 +2033,7 @@ mod tests {
     #[test]
     fn uses_unsaved_import_ranges_for_navigation() {
         let fixture = Fixture::new();
-        let root = "app Demo\nuse \"part.ice\"\ntheme\n  bg #000000\n  fg #ffffff\n  primary #333333\n  danger #ff0000\nview\n  Card()\n";
+        let root = "app Demo\nuse \"part.ice\"\ntheme\n  bg #000000\n  fg #ffffff\n  primary #333333\n  danger #ff0000\nview\n  Card\n";
         let part = "component Card()\n  text \"Card\"\n";
         let dirty_part = format!("// unsaved line\n{part}");
         fixture.write("app.ice", root);
@@ -1683,7 +2104,10 @@ mod tests {
                 "jsonrpc": "2.0",
                 "id": 2,
                 "method": "textDocument/formatting",
-                "params": { "textDocument": { "uri": "file:///not-open.ice" }, "options": {} },
+                "params": {
+                    "textDocument": { "uri": "file:///not-open.ice" },
+                    "options": { "tabSize": 2, "insertSpaces": true },
+                },
             }),
             json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown" }),
             json!({ "jsonrpc": "2.0", "id": 4, "method": "textDocument/completion" }),
@@ -1724,6 +2148,13 @@ mod tests {
             })
         );
         assert_eq!(
+            diagnostic_range("abc\r\n", 1, 99),
+            json!({
+                "start": { "line": 0, "character": 3 },
+                "end": { "line": 0, "character": 3 },
+            })
+        );
+        assert_eq!(
             whole_document_range("first\n😀x"),
             json!({
                 "start": { "line": 0, "character": 0 },
@@ -1732,6 +2163,62 @@ mod tests {
         );
         let path = Path::new("/tmp/Ice Demo/😀.ice");
         assert_eq!(file_uri_path(&file_path_uri(path)).as_deref(), Some(path));
+
+        let stale = ui_lang_core::SourceRange {
+            path: None,
+            line: 1,
+            start_column: 2,
+            end_column: 99,
+        };
+        assert!(source_range("short", &stale).is_none());
+        assert!(source_range("abc\r\n", &stale).is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn file_uris_round_trip_non_utf8_paths() {
+        use std::ffi::OsString;
+        use std::os::unix::ffi::OsStringExt;
+
+        let path = PathBuf::from(OsString::from_vec(b"/tmp/Ice \xFF.ice".to_vec()));
+        let uri = file_path_uri(&path);
+
+        assert_eq!(uri, "file:///tmp/Ice%20%FF.ice");
+        assert_eq!(file_uri_path(&uri).as_deref(), Some(path.as_path()));
+    }
+
+    #[test]
+    fn rename_rejects_stale_same_length_text() {
+        let uri = "file:///tmp/app.ice".to_owned();
+        let definition = ui_lang_core::SourceRange {
+            path: None,
+            line: 1,
+            start_column: 1,
+            end_column: 5,
+        };
+        let symbol = ui_lang_core::CheckedSymbol {
+            kind: ui_lang_core::SymbolKind::Component,
+            name: "Card".to_owned(),
+            definition: definition.clone(),
+            references: Vec::new(),
+            renameable: true,
+        };
+        let navigation = Navigation {
+            symbol: symbol.clone(),
+            family: vec![symbol],
+            occurrence: definition,
+            declarations: Vec::new(),
+            root_uri: uri.clone(),
+        };
+
+        assert!(
+            workspace_edit(
+                &HashMap::from([(uri, "Tile\n".to_owned())]),
+                &navigation,
+                "Panel"
+            )
+            .is_none()
+        );
     }
 
     #[cfg(windows)]

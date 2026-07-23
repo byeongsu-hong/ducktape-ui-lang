@@ -75,9 +75,9 @@ pub(in crate::parser) fn parse_pin(
     let mut x = Expr::F64(0.0);
     let mut y = Expr::F64(0.0);
     for part in &parts[1..] {
-        if let Some(value) = part.strip_prefix("width=") {
+        if let Some(value) = part.strip_prefix("w=") {
             width = Some(parse_length(value, line)?);
-        } else if let Some(value) = part.strip_prefix("height=") {
+        } else if let Some(value) = part.strip_prefix("h=") {
             height = Some(parse_length(value, line)?);
         } else if let Some(value) = part.strip_prefix("x=") {
             x = parse_expr(strip_wrapping_parens(value), line)?;
@@ -198,14 +198,14 @@ pub(in crate::parser) fn parse_responsive(
                 ));
             }
             size = Some((width, height));
-        } else if let Some(value) = part.strip_prefix("width=") {
+        } else if let Some(value) = part.strip_prefix("w=") {
             if width.is_some() {
-                return Err(error("E092", line, "responsive repeats `width=`"));
+                return Err(error("E092", line, "responsive repeats `w=`"));
             }
             width = Some(parse_length(value, line)?);
-        } else if let Some(value) = part.strip_prefix("height=") {
+        } else if let Some(value) = part.strip_prefix("h=") {
             if height.is_some() {
-                return Err(error("E092", line, "responsive repeats `height=`"));
+                return Err(error("E092", line, "responsive repeats `h=`"));
             }
             height = Some(parse_length(value, line)?);
         } else {

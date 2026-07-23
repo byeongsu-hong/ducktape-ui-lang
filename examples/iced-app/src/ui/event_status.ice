@@ -32,7 +32,7 @@ on inspect
   values_equal = returned == captured
 
 view
-  col spacing=8.0 padding=16.0
+  col gap=8.0 p=16.0
     button "Inspect" -> inspect
     text kind
     text "Captured wins when statuses merge"

@@ -256,6 +256,25 @@ pub(in crate::check) fn check_unique(document: &Document) -> Result<(), Error> {
             }
         }
     }
+    for handler in document.handlers.iter().chain(
+        document
+            .components
+            .iter()
+            .flat_map(|component| &component.handlers),
+    ) {
+        let mut params = HashSet::new();
+        if let Some(param) = handler
+            .params
+            .iter()
+            .find(|param| !params.insert(&param.name))
+        {
+            return Err(Error::new(
+                "E100",
+                &handler.span,
+                format!("duplicate handler parameter `{}`", param.name),
+            ));
+        }
+    }
     Ok(())
 }
 

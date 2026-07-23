@@ -20,12 +20,12 @@ pub(in crate::check) fn infer_layout_group(
             if let Some(columns) = &options.columns {
                 require_type(&expr_type(columns, env, document, span)?, &Type::I64, span)?;
                 if matches!(columns, Expr::I64(value) if *value <= 0) {
-                    return Err(Error::new("E124", span, "grid columns must be positive"));
+                    return Err(Error::new("E124", span, "grid cols must be positive"));
                 }
             }
             if let Some(fluid) = &options.fluid {
                 require_type(&expr_type(fluid, env, document, span)?, &Type::F64, span)?;
-                require_literal_range(fluid, f64::EPSILON, None, "grid fluid width", span)?;
+                require_f32_literal_range(fluid, f64::EPSILON, None, "grid fluid width", span)?;
             }
             if let Some(height) = &options.grid_height {
                 match height {
@@ -38,7 +38,7 @@ pub(in crate::check) fn infer_layout_group(
                                 &Type::F64,
                                 span,
                             )?;
-                            require_literal_range(value, f64::EPSILON, None, label, span)?;
+                            require_f32_literal_range(value, f64::EPSILON, None, label, span)?;
                         }
                     }
                     GridSizing::EvenlyDistribute(length) => {
@@ -61,8 +61,7 @@ pub(in crate::check) fn infer_layout_group(
                     let LengthValue::Fixed(value) = width else {
                         unreachable!("parser keeps grid widths fixed")
                     };
-                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                    require_literal_range(value, 0.0, None, layout_metric, span)?;
+                    require_nonnegative_f64(value, env, document, layout_metric, span)?;
                 } else {
                     check_length_value(width, env, document, span, layout_metric)?;
                 }
@@ -86,16 +85,14 @@ pub(in crate::check) fn infer_layout_group(
             .into_iter()
             .flatten()
             {
-                require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                require_literal_range(value, 0.0, None, layout_metric, span)?;
+                require_nonnegative_f64(value, env, document, layout_metric, span)?;
             }
             if let Some(flexbox) = &options.flexbox {
                 for value in [&flexbox.row_gap, &flexbox.column_gap]
                     .into_iter()
                     .flatten()
                 {
-                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                    require_literal_range(value, 0.0, None, "flex gap", span)?;
+                    require_nonnegative_f64(value, env, document, "flex gap", span)?;
                 }
             }
             if let Some(scroll) = &options.scroll {
@@ -109,8 +106,7 @@ pub(in crate::check) fn infer_layout_group(
                     (&scroll.bar_spacing, "scroll bar spacing"),
                 ] {
                     if let Some(value) = value {
-                        require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                        require_literal_range(value, 0.0, None, label, span)?;
+                        require_nonnegative_f64(value, env, document, label, span)?;
                     }
                 }
                 if let Some(auto_scroll) = &scroll.auto_scroll {
@@ -161,7 +157,7 @@ pub(in crate::check) fn infer_layout_group(
         } => {
             check_id(id, env, document, ids, span)?;
             for length in [&options.width, &options.height].into_iter().flatten() {
-                check_length_value(length, env, document, span, "container size")?;
+                check_length_value(length, env, document, span, "box size")?;
             }
             for value in [
                 &options.padding.all,
@@ -177,8 +173,7 @@ pub(in crate::check) fn infer_layout_group(
             .into_iter()
             .flatten()
             {
-                require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                require_literal_range(value, 0.0, None, "container metric", span)?;
+                require_nonnegative_f64(value, env, document, "box metric", span)?;
             }
             if let Some(clip) = &options.clip {
                 require_type(&expr_type(clip, env, document, span)?, &Type::Bool, span)?;
@@ -187,12 +182,11 @@ pub(in crate::check) fn infer_layout_group(
                 require_type(&expr_type(order, env, document, span)?, &Type::I64, span)?;
             }
             for (value, label) in [
-                (&options.flex_item.grow, "flex-grow"),
-                (&options.flex_item.shrink, "flex-shrink"),
+                (&options.flex_item.grow, "grow"),
+                (&options.flex_item.shrink, "shrink"),
             ] {
                 if let Some(value) = value {
-                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                    require_literal_range(value, 0.0, None, label, span)?;
+                    require_nonnegative_f64(value, env, document, label, span)?;
                 }
             }
             if let Some(basis) = &options.flex_item.basis {
@@ -201,8 +195,7 @@ pub(in crate::check) fn infer_layout_group(
                     FlexBasisValue::Auto | FlexBasisValue::Content => None,
                 };
                 if let Some(value) = value {
-                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                    require_literal_range(value, 0.0, None, "flex-basis", span)?;
+                    require_nonnegative_f64(value, env, document, "basis", span)?;
                 }
             }
             for margin in [
@@ -222,7 +215,7 @@ pub(in crate::check) fn infer_layout_group(
                     FlexMarginValue::Auto => None,
                 };
                 if let Some(value) = value {
-                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+                    require_f32_value(value, env, document, "flex margin", span)?;
                 }
             }
             if let Some(style) = &options.custom_style {
@@ -245,19 +238,14 @@ pub(in crate::check) fn infer_layout_group(
                 &Type::Bool,
                 span,
             )?;
-            require_type(
-                &expr_type(&options.padding, env, document, span)?,
-                &Type::F64,
+            require_nonnegative_f64(&options.padding, env, document, "overlay padding", span)?;
+            require_theme_color(
+                &options.backdrop,
+                document,
                 span,
+                "E185",
+                "overlay backdrop",
             )?;
-            require_literal_range(&options.padding, 0.0, None, "overlay padding", span)?;
-            if !valid_theme_color(&options.backdrop, document) {
-                return Err(Error::new(
-                    "E185",
-                    span,
-                    format!("unknown overlay backdrop color `{}`", options.backdrop),
-                ));
-            }
             if let Some(dismiss) = &options.dismiss {
                 infer_route(dismiss, None, env, document, signatures)?;
             }
@@ -280,16 +268,15 @@ pub(in crate::check) fn infer_layout_group(
                 ));
             }
             for length in [&options.width, &options.height].into_iter().flatten() {
-                check_length_value(length, env, document, span, "pane-grid bounds")?;
+                check_length_value(length, env, document, span, "panes bounds")?;
             }
             for (value, label) in [
-                (&options.spacing, "pane-grid spacing"),
-                (&options.min_size, "pane-grid minimum size"),
-                (&options.resize_leeway, "pane-grid resize leeway"),
+                (&options.spacing, "panes spacing"),
+                (&options.min_size, "panes minimum size"),
+                (&options.resize_leeway, "panes resize leeway"),
             ] {
                 if let Some(value) = value {
-                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                    require_literal_range(value, 0.0, None, label, span)?;
+                    require_nonnegative_f64(value, env, document, label, span)?;
                 }
             }
             if let Some(style) = &options.custom_style {
@@ -304,7 +291,7 @@ pub(in crate::check) fn infer_layout_group(
                     document,
                     span,
                     "E187",
-                    "pane-grid background",
+                    "panes background",
                 )?;
             }
             for color in [
@@ -315,13 +302,7 @@ pub(in crate::check) fn infer_layout_group(
             .into_iter()
             .flatten()
             {
-                if !valid_theme_color(color, document) {
-                    return Err(Error::new(
-                        "E187",
-                        span,
-                        format!("unknown pane-grid style color `{color}`"),
-                    ));
-                }
+                require_theme_color(color, document, span, "E187", "panes style")?;
             }
             for value in [
                 &options.style.region_border_width,
@@ -336,8 +317,7 @@ pub(in crate::check) fn infer_layout_group(
             .into_iter()
             .flatten()
             {
-                require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                require_literal_range(value, 0.0, None, "pane-grid style metric", span)?;
+                require_nonnegative_f64(value, env, document, "panes style metric", span)?;
             }
             if let Some(click) = &options.click {
                 infer_route(click, Some(Type::Str), env, document, signatures)?;

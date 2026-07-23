@@ -47,7 +47,7 @@ view
     extern native_meter(amount) -> changed _
     extern borrowed_meter(label, values, seen) -> changed _
     extern passive()
-    shader native_shader(amount) width=fill height=64.0 -> shaded _
+    shader native_shader(amount) w=fill h=64.0 -> shaded _
     shader passive_shader()
     button "Focus" -> focus
     button "Save" -> save
@@ -84,7 +84,7 @@ fn lowers_native_keyboard_subscriptions() {
     assert!(generated.contains("key: ::iced::keyboard::Key"));
     assert!(generated.contains("physical_key: ::iced::keyboard::key::Physical"));
     assert!(generated.contains("modifiers: ::iced::keyboard::Modifiers"));
-    assert!(generated.contains("::iced::keyboard::listen().filter_map"));
+    assert!(generated.contains("::iced::event::listen_with"));
     assert!(generated.contains("::iced::keyboard::Event::KeyPressed"));
     assert!(generated.contains("::iced::keyboard::Event::KeyReleased"));
     assert!(generated.contains("::iced::keyboard::Event::ModifiersChanged"));
@@ -148,7 +148,6 @@ view
     let generated = compile(source, "events.ice").unwrap();
     assert!(generated.contains("fn __ui_lang_check_sync_event_name"));
     assert!(generated.contains("arg0: ::iced::Event"));
-    assert!(generated.contains("::iced::event::listen().map"));
     assert!(generated.contains("::iced::event::listen_with"));
     assert!(generated.contains("::iced::event::listen_raw"));
     assert!(generated.contains("::iced::event::Status::Ignored"));
@@ -171,7 +170,6 @@ fn lowers_a_condition_around_window_frames() {
     assert!(generated.contains("]) } else { ::iced::Subscription::none() }"));
     assert!(generated.contains("::iced::Event::Window(__event)"));
     assert!(generated.contains("::iced::event::Status::Captured"));
-    assert!(generated.contains("::iced::window::events().filter_map(|(__id, __event)|"));
     assert!(generated.contains("::iced::event::listen_with(|__event, __status, __id|"));
     assert!(generated.contains("(__id, __value.0, __value.1, __value.2, __value.3)"));
     assert!(generated.contains(".map(|_| __id)"));
@@ -180,13 +178,13 @@ fn lowers_a_condition_around_window_frames() {
         "__WindowEventsMessage::Opened(__value.0, __value.1, __value.2, __value.3, __value.4)"
     ));
 
-    let legacy = source
+    let defaults = source
         .replace("on focused(id)\n  last_window = some(id)", "on focused")
         .replace(
             "window focused with-id -> focused _",
             "window focused -> focused",
         );
-    let generated = compile(&legacy, "window_events.ice").unwrap();
+    let generated = compile(&defaults, "window_events.ice").unwrap();
     assert!(generated.contains("map(move |__value| __WindowEventsMessage::Focused)"));
 }
 
@@ -359,6 +357,58 @@ view
 }
 
 #[test]
+fn lowers_system_tasks_used_only_by_presets() {
+    let source = r#"app Diagnostics
+preset inspect
+  boot
+    task system info -> inspected _
+on inspected(info)
+theme
+  bg #000000
+  fg #ffffff
+  primary #333333
+  danger #ff0000
+view
+  text "Ready"
+"#;
+
+    let generated = compile(source, "diagnostics.ice").unwrap();
+
+    assert!(generated.contains("struct __IceSystemInfo"));
+}
+
+#[test]
+fn emits_widget_target_type_for_declared_state() {
+    let app_state = r#"app SelectorState
+theme
+  bg #000000
+  fg #ffffff
+  primary #333333
+  danger #ff0000
+state
+  found:widget-target? = none
+view
+  text "Ready"
+"#;
+    let canvas_state = r#"app SelectorCanvas
+theme
+  bg #000000
+  fg #ffffff
+  primary #333333
+  danger #ff0000
+view
+  canvas
+    state
+      found:widget-target? = none
+"#;
+
+    for source in [app_state, canvas_state] {
+        let generated = compile(source, "selector_state.ice").unwrap();
+        assert!(generated.contains("struct __IceWidgetTarget"));
+    }
+}
+
+#[test]
 fn lowers_native_clipboard_tasks() {
     let source = r#"app Clipboard
 theme
@@ -422,7 +472,7 @@ state
   value = ""
 on checked(value)
 on previous
-  task widget focus-previous
+  task widget focus-prev
 on next
   task widget focus-next
 on focus
@@ -473,7 +523,12 @@ view
     }
     assert!(generated.contains("Id::new(\"Operations/field\")"));
     assert!(generated.contains("Id::new(\"Operations/list\")"));
-    assert!(generated.contains("RelativeOffset { x: (0.0) as f32, y: (1.0) as f32 }"));
+    assert!(generated.contains("usize::try_from(2).unwrap_or(0)"));
+    assert!(generated.contains("usize::try_from(1).unwrap_or(0)"));
+    assert!(generated.contains("usize::try_from(3).unwrap_or(0)"));
+    assert!(generated.contains(
+        "RelativeOffset { x: ((0.0) as f32).max(0.0).min(1.0), y: ((1.0) as f32).max(0.0).min(1.0) }"
+    ));
     assert!(generated.contains("AbsoluteOffset"));
     assert!(generated.contains("(-4.0)"));
 }
@@ -569,7 +624,7 @@ fn lowers_scoped_widget_operations() {
         "format!(\"{}/field\", format!(\"{}/inner\", format!(\"{}/outer({})\", \"ScopedOperations\", self.selected)))",
         "format!(\"{}/field\", format!(\"{}/key({})\", \"ScopedOperations\", self.selected))",
         "format!(\"{}/filter\", format!(\"{}/header({})\", \"ScopedOperations\", self.column_index))",
-        "format!(\"{}/cell\", format!(\"{}/column({})\", format!(\"{}/row({})\", \"ScopedOperations\", self.row_index), self.column_index))",
+        "format!(\"{}/cell\", format!(\"{}/col({})\", format!(\"{}/row({})\", \"ScopedOperations\", self.row_index), self.column_index))",
     ] {
         assert!(generated.contains(path), "missing {path}");
     }
@@ -620,7 +675,7 @@ on scale_read(value)
 on mode_read(value)
 on raw_id_read(value)
 on text_read(value)
-on screenshot_read(pixels, width, height, scale)
+on screenshot_read(value)
 on opened(id)
   task window size target=id -> size_read _ _
 on selected(id)
@@ -651,7 +706,7 @@ on clear_min_size
 on max_size_window
   task window max-size 1920.0 1080.0
 on resize_increments_window
-  task window resize-increments 8.0 16.0
+  task window resize-step 8.0 16.0
 on read_size
   task window size -> size_read _ _
 on read_maximized
@@ -665,7 +720,7 @@ on minimize_window
 on read_position
   task window position -> optional_pair_read _ _
 on read_scale
-  task window scale-factor -> scale_read _
+  task window scale -> scale_read _
 on move_window
   task window move -10.0 20.0
 on read_mode
@@ -689,13 +744,13 @@ on system_menu_window
 on read_raw_id
   task window raw-id -> raw_id_read _
 on capture_window
-  task window screenshot -> screenshot_read _ _ _ _
+  task window screenshot -> screenshot_read _
 on passthrough_window
   task window mouse-passthrough false
 on read_monitor
   task window monitor-size -> optional_pair_read _ _
 on automatic_tabbing
-  task window automatic-tabbing false
+  task window auto-tabs false
 on change_icon
   task window icon bytes(ff 00 00 ff 00 ff 00 ff) 2 1
 on describe_window
@@ -749,10 +804,13 @@ view
     assert!(generated.contains("::iced::window::open(::std::default::Default::default())"));
     assert!(generated.contains("::iced::window::size(id).map"));
     assert!(generated.contains("::iced::window::close::<__WindowTasksMessage>(id)"));
+    assert!(generated.contains(
+        "Size::new(((800.0) as f32).max(f32::EPSILON).min(f32::MAX), ((600.0) as f32).max(f32::EPSILON).min(f32::MAX))"
+    ));
     assert!(generated.contains("value.to_string()"));
-    assert!(generated.contains("value.rgba.to_vec()"));
-    assert!(generated.contains("value.size.width as i64"));
-    assert!(generated.contains("value.scale_factor as f64"));
+    assert!(generated.contains(
+        "::iced::window::screenshot(__window).map(move |value| __WindowTasksMessage::ScreenshotRead(value))"
+    ));
     assert!(generated.contains("window::oldest().and_then"));
     assert!(generated.contains("crate::backend::describe_window(__window, \"main\".to_owned())"));
     assert!(generated.contains("fn __ui_lang_check_window_describe_window"));
@@ -803,13 +861,13 @@ view
 
     let error = compile(
         &source.replace(
-            "task window screenshot -> screenshot_read _ _ _ _",
-            "task window screenshot -> screenshot_read _ _ _",
+            "task window screenshot -> screenshot_read _",
+            "task window screenshot -> screenshot_read _ _",
         ),
         "window_tasks.ice",
     )
     .unwrap_err();
-    assert_eq!(error.code, "E129");
+    assert_eq!(error.code, "E133");
 
     let error = compile(
         &source.replace(

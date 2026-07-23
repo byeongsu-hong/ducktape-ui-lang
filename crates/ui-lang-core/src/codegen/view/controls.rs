@@ -23,23 +23,12 @@ pub(in crate::codegen) fn render_controls(
             let message_code = route_code(route, "", env, document, message)?;
             let accessibility_key =
                 accessibility_key_code(id.as_ref(), "button", span, scope, env, document)?;
-            let accessibility_label = options
-                .accessibility
-                .label
-                .as_ref()
-                .map(|value| expr_code(value, env, document, ValueMode::Owned))
-                .transpose()?
-                .unwrap_or_else(|| {
-                    rust_string(label.as_ref().expect("checked button accessibility label"))
-                });
-            let accessibility_description = options
-                .accessibility
-                .description
-                .as_ref()
-                .map(|value| expr_code(value, env, document, ValueMode::Owned))
-                .transpose()?
-                .map(|value| format!(".description({value})"))
-                .unwrap_or_default();
+            let (accessibility_label, accessibility_description) = accessibility_code(
+                &options.accessibility,
+                || rust_string(label.as_ref().expect("checked button accessibility label")),
+                env,
+                document,
+            )?;
             let disabled_value = disabled
                 .as_ref()
                 .map(|value| expr_code(value, env, document, ValueMode::Owned))
@@ -79,12 +68,7 @@ pub(in crate::codegen) fn render_controls(
             if let Some(padding) = style.padding_code() {
                 write!(code, ".padding({padding})").unwrap();
             }
-            if let Some(width) = &options.width {
-                write!(code, ".width({})", length_code(width, env, document)?).unwrap();
-            }
-            if let Some(height) = &options.height {
-                write!(code, ".height({})", length_code(height, env, document)?).unwrap();
-            }
+            append_dimensions(&mut code, [&options.width, &options.height], env, document)?;
             if let Some(padding) = &options.padding {
                 write!(
                     code,
@@ -127,21 +111,12 @@ pub(in crate::codegen) fn render_controls(
                 route_callback_code(route, "__value", "__value", env, document, message)?;
             let accessibility_key =
                 accessibility_key_code(id.as_ref(), "checkbox", span, scope, env, document)?;
-            let accessibility_label = options
-                .accessibility
-                .label
-                .as_ref()
-                .map(|value| expr_code(value, env, document, ValueMode::Owned))
-                .transpose()?
-                .unwrap_or_else(|| "__label.clone()".into());
-            let accessibility_description = options
-                .accessibility
-                .description
-                .as_ref()
-                .map(|value| expr_code(value, env, document, ValueMode::Owned))
-                .transpose()?
-                .map(|value| format!(".description({value})"))
-                .unwrap_or_default();
+            let (accessibility_label, accessibility_description) = accessibility_code(
+                &options.accessibility,
+                || "__label.clone()".into(),
+                env,
+                document,
+            )?;
             let disabled_value = disabled
                 .as_ref()
                 .map(|value| expr_code(value, env, document, ValueMode::Owned))
@@ -258,7 +233,7 @@ pub(in crate::codegen) fn render_controls(
             let min = expr_code(min, env, document, ValueMode::Owned)?;
             let max = expr_code(max, env, document, ValueMode::Owned)?;
             let mut code = format!(
-                "::iced::widget::progress_bar(({min} as f32)..=({max} as f32), {value} as f32)"
+                "{{ let (__progress_range, __progress_value) = ::ui_lang_runtime::progress_range({min}, {max}, {value}); ::iced::widget::progress_bar(__progress_range, __progress_value)"
             );
             if let Some(length) = &options.length {
                 write!(code, ".length({})", length_code(length, env, document)?).unwrap();
@@ -270,7 +245,7 @@ pub(in crate::codegen) fn render_controls(
                 code.push_str(".vertical()");
             }
             append_progress_options(&mut code, options, env, document)?;
-            Ok(format!("{code}.into()"))
+            Ok(format!("{code}.into() }}"))
         }
         ViewNode::Radio {
             label,
@@ -303,7 +278,9 @@ pub(in crate::codegen) fn render_controls(
             let selected = expr_code(selected, env, document, ValueMode::Owned)?;
             let callback =
                 route_callback_code(route, "__value", "__value", env, document, message)?;
-            let mut code = format!("::iced::widget::pick_list({options}, {selected}, {callback})");
+            let mut code = format!(
+                "{{ let __pick_options = {options}; let __pick_option_count = __pick_options.len(); ::iced::widget::pick_list(__pick_options, {selected}, {callback})"
+            );
             if let Some(placeholder) = &options_config.placeholder {
                 write!(
                     code,
@@ -326,7 +303,7 @@ pub(in crate::codegen) fn render_controls(
             if let Some(padding) = &options_config.padding {
                 write!(
                     code,
-                    ".padding({} as f32)",
+                    ".padding(::ui_lang_runtime::bounded_table_metric({}, __pick_option_count))",
                     expr_code(padding, env, document, ValueMode::Owned)?
                 )
                 .unwrap();
@@ -334,16 +311,16 @@ pub(in crate::codegen) fn render_controls(
             if let Some(size) = &options_config.text_size {
                 write!(
                     code,
-                    ".text_size({} as f32)",
-                    expr_code(size, env, document, ValueMode::Owned)?
+                    ".text_size({})",
+                    clamped_f32_code(size, "f32::EPSILON", "f32::MAX", env, document)?
                 )
                 .unwrap();
             }
             if let Some(height) = &options_config.line_height {
                 write!(
                     code,
-                    ".text_line_height(::iced::widget::text::LineHeight::Relative({} as f32))",
-                    expr_code(height, env, document, ValueMode::Owned)?
+                    ".text_line_height(::iced::widget::text::LineHeight::Relative({}))",
+                    clamped_f32_code(height, "f32::EPSILON", "f32::MAX", env, document)?
                 )
                 .unwrap();
             }
@@ -383,7 +360,7 @@ pub(in crate::codegen) fn render_controls(
                 .unwrap();
             }
             code.push_str(&pick_list_style_code(options_config, env, document)?);
-            Ok(format!("{code}.into()"))
+            Ok(format!("{code}.into() }}"))
         }
         ViewNode::ComboBox {
             state,
@@ -400,7 +377,8 @@ pub(in crate::codegen) fn render_controls(
             let callback =
                 route_callback_code(route, "__value", "__value", env, document, message)?;
             let mut code = format!(
-                "{{ let __combo_selection = {selected}; ::iced::widget::combo_box(&{}, {}, __combo_selection.as_ref(), {callback})",
+                "{{ let __combo_selection = {selected}; let __combo_option_count = {}.options().len(); ::iced::widget::combo_box(&{}, {}, __combo_selection.as_ref(), {callback})",
+                state.code,
                 state.code,
                 rust_string(placeholder)
             );
@@ -418,7 +396,7 @@ pub(in crate::codegen) fn render_controls(
             if let Some(padding) = &options.padding {
                 write!(
                     code,
-                    ".padding({} as f32)",
+                    ".padding(::ui_lang_runtime::bounded_table_metric({}, __combo_option_count))",
                     expr_code(padding, env, document, ValueMode::Owned)?
                 )
                 .unwrap();
@@ -426,16 +404,16 @@ pub(in crate::codegen) fn render_controls(
             if let Some(size) = &options.text_size {
                 write!(
                     code,
-                    ".size({} as f32)",
-                    expr_code(size, env, document, ValueMode::Owned)?
+                    ".size({})",
+                    clamped_f32_code(size, "f32::EPSILON", "f32::MAX", env, document)?
                 )
                 .unwrap();
             }
             if let Some(height) = &options.line_height {
                 write!(
                     code,
-                    ".line_height(::iced::widget::text::LineHeight::Relative({} as f32))",
-                    expr_code(height, env, document, ValueMode::Owned)?
+                    ".line_height(::iced::widget::text::LineHeight::Relative({}))",
+                    clamped_f32_code(height, "f32::EPSILON", "f32::MAX", env, document)?
                 )
                 .unwrap();
             }

@@ -33,10 +33,11 @@ pub(in crate::codegen) fn render_content(
             ..
         } => {
             let mut code = format!("::iced::widget::qr_code(&self.{data})");
+            // QR v40 has 177 cells plus four quiet-zone cells; spacing counts gaps.
             if let Some(value) = cell_size {
                 write!(
                     code,
-                    ".cell_size({} as f32)",
+                    ".cell_size(::ui_lang_runtime::bounded_spacing({}, 182))",
                     expr_code(value, env, document, ValueMode::Owned)?
                 )
                 .unwrap();
@@ -44,7 +45,7 @@ pub(in crate::codegen) fn render_content(
             if let Some(value) = total_size {
                 write!(
                     code,
-                    ".total_size({} as f32)",
+                    ".total_size(::ui_lang_runtime::bounded_spacing({}, 3))",
                     expr_code(value, env, document, ValueMode::Owned)?
                 )
                 .unwrap();
@@ -66,12 +67,7 @@ pub(in crate::codegen) fn render_content(
         }
         ViewNode::Space { width, height, .. } => {
             let mut code = String::from("::iced::widget::space()");
-            if let Some(width) = width {
-                write!(code, ".width({})", length_code(width, env, document)?).unwrap();
-            }
-            if let Some(height) = height {
-                write!(code, ".height({})", length_code(height, env, document)?).unwrap();
-            }
+            append_dimensions(&mut code, [width, height], env, document)?;
             Ok(format!("{code}.into()"))
         }
         ViewNode::Component {
@@ -88,14 +84,11 @@ pub(in crate::codegen) fn render_content(
                 .find(|item| item.name == *name)
                 .ok_or_else(|| Error::new("E122", span, format!("unknown component `{name}`")))?;
             let mut component_env = HashMap::new();
-            for (index, (param, ty)) in component.params.iter().enumerate() {
-                let arg = if args.iter().any(|arg| arg.name.is_some()) {
-                    args.iter()
-                        .find(|arg| arg.name.as_ref() == Some(param))
-                        .expect("checker requires every named component prop")
-                } else {
-                    &args[index]
-                };
+            for (param, ty) in &component.params {
+                let arg = args
+                    .iter()
+                    .find(|arg| &arg.name == param)
+                    .expect("checker requires every component prop");
                 let state = match &arg.value {
                     Expr::Path(path) if path.len() == 1 => {
                         env.get(&path[0]).and_then(|binding| binding.state.clone())
@@ -227,10 +220,7 @@ pub(in crate::codegen) fn render_content(
             route,
             span,
         } => {
-            let component = document
-                .functions
-                .iter()
-                .find(|item| item.name == *function && item.kind == ExternKind::Component)
+            let component = find_extern_function(document, function, ExternKind::Component)
                 .ok_or_else(|| {
                     Error::new(
                         "E130",
@@ -275,18 +265,11 @@ pub(in crate::codegen) fn render_content(
             route,
             span,
         } => {
-            let themer = document
-                .functions
-                .iter()
-                .find(|item| item.name == *function && item.kind == ExternKind::Themer)
-                .ok_or_else(|| {
+            let themer =
+                find_extern_function(document, function, ExternKind::Themer).ok_or_else(|| {
                     Error::new("E130", span, format!("unknown extern themer `{function}`"))
                 })?;
-            let args = args
-                .iter()
-                .map(|arg| expr_code(arg, env, document, ValueMode::Owned))
-                .collect::<Result<Vec<_>, _>>()?
-                .join(", ");
+            let args = expr_list_code(args, env, document)?;
             let mapped = if let Some(route) = route {
                 route_callback_code(route, "__value", "__value", env, document, message)?
             } else {
@@ -306,23 +289,11 @@ pub(in crate::codegen) fn render_content(
             route,
             span,
         } => {
-            let shader = document
-                .functions
-                .iter()
-                .find(|item| item.name == *function && item.kind == ExternKind::Shader)
+            let shader = find_extern_function(document, function, ExternKind::Shader)
                 .ok_or_else(|| Error::new("E191", span, format!("unknown shader `{function}`")))?;
-            let args = args
-                .iter()
-                .map(|arg| expr_code(arg, env, document, ValueMode::Owned))
-                .collect::<Result<Vec<_>, _>>()?
-                .join(", ");
+            let args = expr_list_code(args, env, document)?;
             let mut code = format!("::iced::widget::Shader::new({}({args}))", shader.rust_path);
-            if let Some(width) = width {
-                write!(code, ".width({})", length_code(width, env, document)?).unwrap();
-            }
-            if let Some(height) = height {
-                write!(code, ".height({})", length_code(height, env, document)?).unwrap();
-            }
+            append_dimensions(&mut code, [width, height], env, document)?;
             let output = shader.output.rust(&document.structs);
             let mapped = if let Some(route) = route {
                 route_callback_code(route, "__value", "__value", env, document, message)?

@@ -18,22 +18,22 @@ pub(in crate::codegen) fn render_documents(
             let mut settings = String::from(
                 "let mut __markdown_settings = ::iced::widget::markdown::Settings::from(self.__theme());",
             );
-            for (value, field) in [
-                (&options.text_size, "text_size"),
-                (&options.h1_size, "h1_size"),
-                (&options.h2_size, "h2_size"),
-                (&options.h3_size, "h3_size"),
-                (&options.h4_size, "h4_size"),
-                (&options.h5_size, "h5_size"),
-                (&options.h6_size, "h6_size"),
-                (&options.code_size, "code_size"),
-                (&options.spacing, "spacing"),
+            for (value, field, min) in [
+                (&options.text_size, "text_size", "f32::EPSILON"),
+                (&options.h1_size, "h1_size", "f32::EPSILON"),
+                (&options.h2_size, "h2_size", "f32::EPSILON"),
+                (&options.h3_size, "h3_size", "f32::EPSILON"),
+                (&options.h4_size, "h4_size", "f32::EPSILON"),
+                (&options.h5_size, "h5_size", "f32::EPSILON"),
+                (&options.h6_size, "h6_size", "f32::EPSILON"),
+                (&options.code_size, "code_size", "f32::EPSILON"),
+                (&options.spacing, "spacing", "0.0"),
             ] {
                 if let Some(value) = value {
                     write!(
                         settings,
-                        " __markdown_settings.{field} = ({} as f32).into();",
-                        expr_code(value, env, document, ValueMode::Owned)?
+                        " __markdown_settings.{field} = {}.into();",
+                        clamped_f32_code(value, min, "f32::MAX", env, document)?
                     )
                     .unwrap();
                 }
@@ -130,19 +130,10 @@ pub(in crate::codegen) fn render_documents(
             let callback =
                 route_callback_code(route, "__event", "__event", env, document, message)?;
             let view = if let Some(viewer) = &options.viewer {
-                let function = document
-                    .functions
-                    .iter()
-                    .find(|item| {
-                        item.name == viewer.function && item.kind == ExternKind::MarkdownViewer
-                    })
-                    .expect("checker validates markdown viewer");
-                let args = viewer
-                    .args
-                    .iter()
-                    .map(|arg| expr_code(arg, env, document, ValueMode::Owned))
-                    .collect::<Result<Vec<_>, _>>()?
-                    .join(", ");
+                let function =
+                    find_extern_function(document, &viewer.function, ExternKind::MarkdownViewer)
+                        .expect("checker validates markdown viewer");
+                let args = expr_list_code(&viewer.args, env, document)?;
                 format!(
                     "let __markdown_viewer = {}({args}); ::iced::widget::markdown::view_with(self.{content}.items(), __markdown_settings, &__markdown_viewer)",
                     function.rust_path
@@ -180,44 +171,32 @@ pub(in crate::codegen) fn render_documents(
             if let Some(width) = &options.width {
                 write!(
                     code,
-                    ".width({} as f32)",
-                    expr_code(width, env, document, ValueMode::Owned)?
+                    ".width({})",
+                    clamped_f32_code(width, "0.0", "f32::MAX", env, document)?
                 )
                 .unwrap();
             }
             if let Some(height) = &options.height {
                 write!(code, ".height({})", length_code(height, env, document)?).unwrap();
             }
-            for (value, method) in [
-                (&options.min_height, "min_height"),
-                (&options.max_height, "max_height"),
-                (&options.size, "size"),
-                (&options.padding, "padding"),
+            for (value, method, min) in [
+                (&options.min_height, "min_height", "0.0"),
+                (&options.max_height, "max_height", "0.0"),
+                (&options.size, "size", "f32::EPSILON"),
+                (&options.padding, "padding", "0.0"),
             ] {
                 if let Some(value) = value {
                     write!(
                         code,
-                        ".{method}({} as f32)",
-                        expr_code(value, env, document, ValueMode::Owned)?
+                        ".{method}({})",
+                        clamped_f32_code(value, min, "f32::MAX", env, document)?
                     )
                     .unwrap();
                 }
             }
             if let Some(line_height) = &options.line_height {
-                match line_height {
-                    TextLineHeight::Relative(value) => write!(
-                        code,
-                        ".line_height(::iced::widget::text::LineHeight::Relative({} as f32))",
-                        expr_code(value, env, document, ValueMode::Owned)?
-                    )
-                    .unwrap(),
-                    TextLineHeight::Absolute(value) => write!(
-                        code,
-                        ".line_height(::iced::widget::text::LineHeight::Absolute(({} as f32).into()))",
-                        expr_code(value, env, document, ValueMode::Owned)?
-                    )
-                    .unwrap(),
-                }
+                let line_height = text_line_height_code(line_height, env, document)?;
+                write!(code, ".line_height({line_height})").unwrap();
             }
             if let Some(wrapping) = options.wrapping {
                 write!(
@@ -249,13 +228,9 @@ pub(in crate::codegen) fn render_documents(
                 .unwrap();
             }
             if let Some(binding) = &options.key_binding {
-                let function = document
-                    .functions
-                    .iter()
-                    .find(|item| {
-                        item.name == binding.function && item.kind == ExternKind::EditorBinding
-                    })
-                    .expect("checker validates editor binding");
+                let function =
+                    find_extern_function(document, &binding.function, ExternKind::EditorBinding)
+                        .expect("checker validates editor binding");
                 let route = options
                     .key_binding_route
                     .as_ref()
@@ -266,18 +241,11 @@ pub(in crate::codegen) fn render_documents(
                     env,
                     document,
                     |callback_env| {
-                        let args = binding
-                            .args
-                            .iter()
-                            .map(|arg| expr_code(arg, callback_env, document, ValueMode::Owned))
-                            .collect::<Result<Vec<_>, _>>()?;
+                        let args = expr_args_suffix_code(&binding.args, callback_env, document)?;
                         let route = route_code(route, "__value", callback_env, document, message)?;
                         Ok(format!(
-                            "{}(__key_press{}).map(|__binding| __ice_map_editor_binding(__binding, &|__value| {route}))",
-                            function.rust_path,
-                            args.iter()
-                                .map(|arg| format!(", {arg}"))
-                                .collect::<String>()
+                            "{}(__key_press{args}).map(|__binding| __ice_map_editor_binding(__binding, &|__value| {route}))",
+                            function.rust_path
                         ))
                     },
                 )?;
@@ -294,26 +262,14 @@ pub(in crate::codegen) fn render_documents(
             )?);
             let finish = |editor: String| -> Result<String, Error> {
                 if let Some(highlighter) = &options.highlighter {
-                    let function = document
-                        .functions
-                        .iter()
-                        .find(|item| {
-                            item.name == highlighter.function
-                                && item.kind == ExternKind::EditorHighlighter
-                        })
-                        .expect("checker validates editor highlighter");
-                    let args = highlighter
-                        .args
-                        .iter()
-                        .map(|arg| expr_code(arg, env, document, ValueMode::Owned))
-                        .collect::<Result<Vec<_>, _>>()?;
-                    Ok(format!(
-                        "{}({editor}{})",
-                        function.rust_path,
-                        args.iter()
-                            .map(|arg| format!(", {arg}"))
-                            .collect::<String>()
-                    ))
+                    let function = find_extern_function(
+                        document,
+                        &highlighter.function,
+                        ExternKind::EditorHighlighter,
+                    )
+                    .expect("checker validates editor highlighter");
+                    let args = expr_args_suffix_code(&highlighter.args, env, document)?;
+                    Ok(format!("{}({editor}{args})", function.rust_path))
                 } else {
                     Ok(editor)
                 }

@@ -70,7 +70,7 @@ pub(in crate::check) fn check_lazy_subtree(
         ViewNode::PaneGrid { span, .. } => Err(Error::new(
             "E187",
             span,
-            "pane-grid cannot live in lazy because its layout state is persistent",
+            "panes cannot live in lazy because its layout state is persistent",
         )),
         ViewNode::Table { columns, .. } => {
             for column in columns {
@@ -133,6 +133,45 @@ pub(in crate::check) fn require_literal_range(
     Ok(())
 }
 
+pub(in crate::check) fn require_f32_literal_range(
+    expr: &Expr,
+    min: f64,
+    max: Option<f64>,
+    label: &str,
+    span: &Span,
+) -> Result<(), Error> {
+    let bound = f64::from(f32::MAX);
+    require_literal_range(
+        expr,
+        min.max(-bound),
+        Some(max.unwrap_or(bound).min(bound)),
+        label,
+        span,
+    )
+}
+
+pub(in crate::check) fn require_nonnegative_f64(
+    expr: &Expr,
+    env: &HashMap<String, Type>,
+    document: &Document,
+    label: &str,
+    span: &Span,
+) -> Result<(), Error> {
+    require_type(&expr_type(expr, env, document, span)?, &Type::F64, span)?;
+    require_f32_literal_range(expr, 0.0, None, label, span)
+}
+
+pub(in crate::check) fn require_f32_value(
+    expr: &Expr,
+    env: &HashMap<String, Type>,
+    document: &Document,
+    label: &str,
+    span: &Span,
+) -> Result<(), Error> {
+    require_type(&expr_type(expr, env, document, span)?, &Type::F64, span)?;
+    require_f32_literal_range(expr, f64::NEG_INFINITY, None, label, span)
+}
+
 pub(in crate::check) fn check_background_value(
     background: &BackgroundValue,
     env: &HashMap<String, Type>,
@@ -143,24 +182,12 @@ pub(in crate::check) fn check_background_value(
 ) -> Result<(), Error> {
     match background {
         BackgroundValue::Color(color) => {
-            if !valid_theme_color(color, document) {
-                return Err(Error::new(
-                    code,
-                    span,
-                    format!("unknown {label} color `{color}`"),
-                ));
-            }
+            require_theme_color(color, document, span, code, label)?;
         }
         BackgroundValue::Linear { angle, stops } => {
-            require_type(&expr_type(angle, env, document, span)?, &Type::F64, span)?;
+            require_f32_value(angle, env, document, "gradient angle", span)?;
             for stop in stops {
-                if !valid_theme_color(&stop.color, document) {
-                    return Err(Error::new(
-                        code,
-                        span,
-                        format!("unknown {label} color `{}`", stop.color),
-                    ));
-                }
+                require_theme_color(&stop.color, document, span, code, label)?;
                 require_type(
                     &expr_type(&stop.offset, env, document, span)?,
                     &Type::F64,
@@ -210,7 +237,7 @@ pub(in crate::check) fn infer_pane_view(
                 &Type::F64,
                 &title.span,
             )?;
-            require_literal_range(value, 0.0, None, "pane title padding", &title.span)?;
+            require_f32_literal_range(value, 0.0, None, "pane title padding", &title.span)?;
         }
         check_styles(
             &title.styles,
@@ -241,14 +268,8 @@ pub(in crate::check) fn check_container_style_options(
         (&style.border_color, "surface border"),
         (&style.shadow_color, "surface shadow"),
     ] {
-        if let Some(color) = color
-            && !valid_theme_color(color, document)
-        {
-            return Err(Error::new(
-                code,
-                span,
-                format!("unknown {label} color `{color}`"),
-            ));
+        if let Some(color) = color {
+            require_theme_color(color, document, span, code, label)?;
         }
     }
     for value in [
@@ -263,11 +284,10 @@ pub(in crate::check) fn check_container_style_options(
     .into_iter()
     .flatten()
     {
-        require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-        require_literal_range(value, 0.0, None, "surface style metric", span)?;
+        require_nonnegative_f64(value, env, document, "surface style metric", span)?;
     }
     for value in [&style.shadow_x, &style.shadow_y].into_iter().flatten() {
-        require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+        require_f32_value(value, env, document, "surface shadow offset", span)?;
     }
     if let Some(snap) = &style.pixel_snap {
         require_type(&expr_type(snap, env, document, span)?, &Type::Bool, span)?;
@@ -306,14 +326,8 @@ pub(in crate::check) fn check_markdown_style(
         ),
         (&style.link_color, "markdown link"),
     ] {
-        if let Some(color) = color
-            && !valid_theme_color(color, document)
-        {
-            return Err(Error::new(
-                "E139",
-                span,
-                format!("unknown {label} color `{color}`"),
-            ));
+        if let Some(color) = color {
+            require_theme_color(color, document, span, "E139", label)?;
         }
     }
     for value in [
@@ -334,8 +348,7 @@ pub(in crate::check) fn check_markdown_style(
     .into_iter()
     .flatten()
     {
-        require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-        require_literal_range(value, 0.0, None, "markdown style metric", span)?;
+        require_nonnegative_f64(value, env, document, "markdown style metric", span)?;
     }
     Ok(())
 }
@@ -346,14 +359,8 @@ pub(in crate::check) fn check_float_style_options(
     document: &Document,
     span: &Span,
 ) -> Result<(), Error> {
-    if let Some(color) = &style.shadow_color
-        && !valid_theme_color(color, document)
-    {
-        return Err(Error::new(
-            "E128",
-            span,
-            format!("unknown float shadow color `{color}`"),
-        ));
+    if let Some(color) = &style.shadow_color {
+        require_theme_color(color, document, span, "E128", "float shadow")?;
     }
     for value in [
         &style.shadow_blur,
@@ -366,11 +373,10 @@ pub(in crate::check) fn check_float_style_options(
     .into_iter()
     .flatten()
     {
-        require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-        require_literal_range(value, 0.0, None, "float style metric", span)?;
+        require_nonnegative_f64(value, env, document, "float style metric", span)?;
     }
     for value in [&style.shadow_x, &style.shadow_y].into_iter().flatten() {
-        require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+        require_f32_value(value, env, document, "float shadow offset", span)?;
     }
     Ok(())
 }
@@ -423,7 +429,7 @@ pub(in crate::check) fn check_bool_control_options(
     ] {
         if let Some(value) = value {
             require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-            require_literal_range(value, min, None, label, span)?;
+            require_f32_literal_range(value, min, None, label, span)?;
         }
     }
     if options.icon.is_none()
@@ -473,14 +479,8 @@ pub(in crate::check) fn check_checkbox_styles(
             (&style.text_color, "checkbox text"),
             (&style.border_color, "checkbox border"),
         ] {
-            if let Some(color) = color
-                && !valid_theme_color(color, document)
-            {
-                return Err(Error::new(
-                    "E129",
-                    span,
-                    format!("unknown {label} color `{color}`"),
-                ));
+            if let Some(color) = color {
+                require_theme_color(color, document, span, "E129", label)?;
             }
         }
         for value in [
@@ -494,8 +494,7 @@ pub(in crate::check) fn check_checkbox_styles(
         .into_iter()
         .flatten()
         {
-            require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-            require_literal_range(value, 0.0, None, "checkbox style metric", span)?;
+            require_nonnegative_f64(value, env, document, "checkbox style metric", span)?;
         }
     }
     Ok(())
@@ -532,14 +531,8 @@ pub(in crate::check) fn check_toggler_styles(
             (&style.foreground_border_color, "toggler foreground border"),
             (&style.text_color, "toggler text"),
         ] {
-            if let Some(color) = color
-                && !valid_theme_color(color, document)
-            {
-                return Err(Error::new(
-                    "E129",
-                    span,
-                    format!("unknown {label} color `{color}`"),
-                ));
+            if let Some(color) = color {
+                require_theme_color(color, document, span, "E129", label)?;
             }
         }
         for value in [
@@ -554,8 +547,7 @@ pub(in crate::check) fn check_toggler_styles(
         .into_iter()
         .flatten()
         {
-            require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-            require_literal_range(value, 0.0, None, "toggler style metric", span)?;
+            require_nonnegative_f64(value, env, document, "toggler style metric", span)?;
         }
         if let Some(ratio) = &style.padding_ratio {
             require_type(&expr_type(ratio, env, document, span)?, &Type::F64, span)?;
@@ -589,19 +581,12 @@ pub(in crate::check) fn check_radio_styles(
             (&style.border_color, "radio border"),
             (&style.text_color, "radio text"),
         ] {
-            if let Some(color) = color
-                && !valid_theme_color(color, document)
-            {
-                return Err(Error::new(
-                    "E129",
-                    span,
-                    format!("unknown {label} color `{color}`"),
-                ));
+            if let Some(color) = color {
+                require_theme_color(color, document, span, "E129", label)?;
             }
         }
         if let Some(width) = &style.border_width {
-            require_type(&expr_type(width, env, document, span)?, &Type::F64, span)?;
-            require_literal_range(width, 0.0, None, "radio border width", span)?;
+            require_nonnegative_f64(width, env, document, "radio border width", span)?;
         }
     }
     Ok(())
@@ -617,8 +602,7 @@ pub(in crate::check) fn check_pick_list_handle(
     let icons = match handle {
         PickListHandle::Arrow { size } => {
             if let Some(size) = size {
-                require_type(&expr_type(size, env, document, span)?, &Type::F64, span)?;
-                require_literal_range(size, 0.0, None, "pick handle size", span)?;
+                require_nonnegative_f64(size, env, document, "pick handle size", span)?;
             }
             return Ok(());
         }
@@ -638,7 +622,7 @@ pub(in crate::check) fn check_pick_list_handle(
                     &Type::F64,
                     &icon.span,
                 )?;
-                require_literal_range(value, 0.0, None, label, &icon.span)?;
+                require_f32_literal_range(value, 0.0, None, label, &icon.span)?;
             }
         }
     }
@@ -666,14 +650,8 @@ pub(in crate::check) fn check_pick_list_styles(
             (&style.placeholder_color, "pick placeholder"),
             (&style.handle_color, "pick handle"),
         ] {
-            if let Some(color) = color
-                && !valid_theme_color(color, document)
-            {
-                return Err(Error::new(
-                    "E129",
-                    style_span,
-                    format!("unknown {label} color `{color}`"),
-                ));
+            if let Some(color) = color {
+                require_theme_color(color, document, style_span, "E129", label)?;
             }
         }
     }
@@ -690,14 +668,8 @@ pub(in crate::check) fn check_menu_style(
     let Some(style) = style else { return Ok(()) };
     let style_span = style.span.as_ref().unwrap_or(span);
     check_container_style_options(&style.options, env, document, style_span, "E129")?;
-    if let Some(color) = &style.selected_text_color
-        && !valid_theme_color(color, document)
-    {
-        return Err(Error::new(
-            "E129",
-            style_span,
-            format!("unknown selected text color `{color}`"),
-        ));
+    if let Some(color) = &style.selected_text_color {
+        require_theme_color(color, document, style_span, "E129", "selected text")?;
     }
     if let Some(background) = &style.selected_background {
         check_background_value(
@@ -730,7 +702,7 @@ pub(in crate::check) fn check_text_input_icon(
                 &Type::F64,
                 &icon.span,
             )?;
-            require_literal_range(value, 0.0, None, &label, &icon.span)?;
+            require_f32_literal_range(value, 0.0, None, &label, &icon.span)?;
         }
     }
     Ok(())
@@ -761,14 +733,14 @@ pub(in crate::check) fn check_text_input_styles(
             (&style.value_color, "value"),
             (&style.selection_color, "selection"),
         ] {
-            if let Some(color) = color
-                && !valid_theme_color(color, document)
-            {
-                return Err(Error::new(
-                    "E129",
+            if let Some(color) = color {
+                require_theme_color(
+                    color,
+                    document,
                     style_span,
-                    format!("unknown {widget} {label} color `{color}`"),
-                ));
+                    "E129",
+                    &format!("{widget} {label}"),
+                )?;
             }
         }
     }
@@ -794,14 +766,8 @@ pub(in crate::check) fn check_scroll_styles(
         if let Some(gap) = &style.gap {
             check_background_value(gap, env, document, &style.span, "E129", "scroll gap")?;
         }
-        if let Some(color) = &style.auto_scroll_icon
-            && !valid_theme_color(color, document)
-        {
-            return Err(Error::new(
-                "E129",
-                &style.span,
-                format!("unknown scroll auto icon color `{color}`"),
-            ));
+        if let Some(color) = &style.auto_scroll_icon {
+            require_theme_color(color, document, &style.span, "E129", "scroll auto icon")?;
         }
     }
     Ok(())
@@ -831,13 +797,7 @@ pub(in crate::check) fn check_slider_styles(
             .into_iter()
             .flatten()
         {
-            if !valid_theme_color(color, document) {
-                return Err(Error::new(
-                    "E129",
-                    span,
-                    format!("unknown slider color `{color}`"),
-                ));
-            }
+            require_theme_color(color, document, span, "E129", "slider")?;
         }
         for (value, label) in [
             (&style.rail_width, "slider rail width"),
@@ -855,13 +815,11 @@ pub(in crate::check) fn check_slider_styles(
             (&style.handle_radius_bottom_left, "slider handle radius"),
         ] {
             if let Some(value) = value {
-                require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                require_literal_range(value, 0.0, None, label, span)?;
+                require_nonnegative_f64(value, env, document, label, span)?;
             }
         }
         if let Some(SliderHandleShape::Circle(radius)) = &style.handle_shape {
-            require_type(&expr_type(radius, env, document, span)?, &Type::F64, span)?;
-            require_literal_range(radius, 0.0, None, "slider handle radius", span)?;
+            require_nonnegative_f64(radius, env, document, "slider handle radius", span)?;
         }
         let has_handle_radius = style.handle_radius.is_some()
             || style.handle_radius_top_left.is_some()
@@ -909,7 +867,7 @@ pub(in crate::check) fn check_text_options(
     ] {
         if let Some(value) = value {
             require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-            require_literal_range(value, f64::EPSILON, None, label, span)?;
+            require_f32_literal_range(value, f64::EPSILON, None, label, span)?;
         }
     }
     Ok(())

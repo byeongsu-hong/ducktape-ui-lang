@@ -127,7 +127,7 @@ on inspect
   area = bounds.area
 
 view
-  col spacing=8.0 padding=16.0
+  col gap=8.0 p=16.0
     text point_display
     text point_distance
     text area

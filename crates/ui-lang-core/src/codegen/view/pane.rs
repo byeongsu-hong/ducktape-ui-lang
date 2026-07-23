@@ -83,7 +83,7 @@ pub(in crate::codegen) fn render_pane_grid(
         arms.push(format!(
             "{}::{}(__pane_key) => match {items}.iter().find(|{}| {key} == (*__pane_key).clone()) {{ ::std::option::Option::Some({}) => {content}, ::std::option::Option::None => ::iced::widget::pane_grid::Content::new(::iced::widget::text(::std::format!({}, __pane_key))), }}",
             pane_type.as_deref().expect("dynamic pane type"),
-            pascal(&template.item),
+            pane_template_variant(&template.item),
             template.item,
             template.item,
             rust_string(&format!("Missing pane `{}({{}})`", template.item)),
@@ -111,7 +111,7 @@ pub(in crate::codegen) fn render_pane_grid(
         if let Some(value) = value {
             write!(
                 code,
-                ".{method}({} as f32)",
+                ".{method}(::ui_lang_runtime::bounded_table_metric({}, self.{field}.len()))",
                 expr_code(value, env, document, ValueMode::Owned)?
             )
             .unwrap();
@@ -120,7 +120,7 @@ pub(in crate::codegen) fn render_pane_grid(
     if let Some(leeway) = &options.resize_leeway {
         write!(
             code,
-            ".on_resize({} as f32, {message}::{})",
+            ".on_resize(::ui_lang_runtime::bounded_table_metric({}, self.{field}.len()), {message}::{})",
             expr_code(leeway, env, document, ValueMode::Owned)?,
             pane_resize_variant(name)
         )
@@ -178,23 +178,7 @@ pub(in crate::codegen) fn append_pane_grid_style(
         || style.picked_split_width.is_some();
     let custom = custom
         .map(|style| {
-            let function = document
-                .functions
-                .iter()
-                .find(|item| item.name == style.function && item.kind == ExternKind::PaneGridStyle)
-                .expect("checker validates pane-grid style");
-            let args = style
-                .args
-                .iter()
-                .map(|arg| expr_code(arg, env, document, ValueMode::Owned))
-                .collect::<Result<Vec<_>, _>>()?;
-            Ok::<_, Error>(format!(
-                "{}(__theme{})",
-                function.rust_path,
-                args.iter()
-                    .map(|arg| format!(", {arg}"))
-                    .collect::<String>()
-            ))
+            custom_style_call_code(style, ExternKind::PaneGridStyle, "__theme", env, document)
         })
         .transpose()?;
     if !has_typed && custom.is_none() {
@@ -249,7 +233,7 @@ pub(in crate::codegen) fn append_pane_grid_style(
             env,
             document,
         )?
-        .expect("pane-grid region radius options were present");
+        .expect("panes region radius options were present");
         write!(code, " __style.hovered_region.border.radius = {radius};").unwrap();
     }
     for (color, width, field) in [
@@ -365,24 +349,15 @@ pub(in crate::codegen) fn render_rich_span(
     if let Some(size) = &item.options.size {
         write!(
             code,
-            ".size({} as f32)",
-            expr_code(size, env, document, ValueMode::Owned)?
+            ".size({})",
+            clamped_f32_code(size, "f32::EPSILON", "f32::MAX", env, document)?
         )
         .unwrap();
     } else if let Some(size) = style.text_size {
         write!(code, ".size({size})").unwrap();
     }
     if let Some(line_height) = &item.options.line_height {
-        let line_height = match line_height {
-            TextLineHeight::Relative(value) => format!(
-                "::iced::widget::text::LineHeight::Relative({} as f32)",
-                expr_code(value, env, document, ValueMode::Owned)?
-            ),
-            TextLineHeight::Absolute(value) => format!(
-                "::iced::widget::text::LineHeight::Absolute(({} as f32).into())",
-                expr_code(value, env, document, ValueMode::Owned)?
-            ),
-        };
+        let line_height = text_line_height_code(line_height, env, document)?;
         write!(code, ".line_height({line_height})").unwrap();
     }
     if let Some(font) = &item.options.font {

@@ -5,48 +5,20 @@ pub(in crate::parser) fn parse_component_call(
     line: &Line,
 ) -> Result<(String, Vec<ComponentArg>, Option<Id>), Error> {
     let head = &parts[0];
-    if head.contains('(') {
-        let (name, args) = parse_component_signature(head, line)?;
-        line.record_component_reference(&name);
-        let id = parts
-            .get(1)
-            .filter(|part| part.starts_with('#'))
-            .map(|part| parse_id(part, line))
-            .transpose()?;
-        if parts.len() > 1 + usize::from(id.is_some()) {
-            return Err(error(
-                "E040",
-                line,
-                "positional component calls only accept `Name(...)` and an optional ID",
-            ));
-        }
-        return Ok((
-            name,
-            parse_expr_list(&args, line)?
-                .into_iter()
-                .map(|value| ComponentArg { name: None, value })
-                .collect(),
-            id,
-        ));
-    }
-
     let name = component_identifier(head, line)?;
     line.record_component_reference(&name);
     let mut args = Vec::new();
     let mut id = None;
     for part in &parts[1..] {
         if part.starts_with('#') {
-            if id.is_some() {
-                return Err(error("E040", line, "component call has more than one ID"));
-            }
-            id = Some(parse_id(part, line)?);
+            parse_unique_id(part, &mut id, line, "E040", "component call")?;
             continue;
         }
         let Some((prop, value)) = split_top_once(part, '=') else {
             return Err(error("E040", line, "component props use `name=value`"));
         };
         args.push(ComponentArg {
-            name: Some(identifier(prop.trim(), line)?),
+            name: identifier(prop.trim(), line)?,
             value: parse_expr(strip_wrapping_parens(value.trim()), line)?,
         });
     }
@@ -70,40 +42,34 @@ pub(in crate::parser) fn parse_text_editor(
     while index < parts.len() {
         let part = &parts[index];
         if part.starts_with('#') {
-            id = Some(parse_id(part, line)?);
+            parse_unique_id(part, &mut id, line, "E099", "editor")?;
         } else if part == "<->" {
             index += 1;
-            binding = Some(identifier(
+            let value = identifier(
                 parts
                     .get(index)
                     .ok_or_else(|| error("E099", line, "missing editor binding"))?,
                 line,
-            )?);
-        } else if let Some(value) = part.strip_prefix("placeholder=") {
+            )?;
+            if binding.replace(value).is_some() {
+                return Err(error("E099", line, "editor has more than one binding"));
+            }
+        } else if let Some(value) = part.strip_prefix("hint=") {
             options.placeholder = Some(string_literal(value, line)?);
-        } else if let Some(value) = part.strip_prefix("width=") {
+        } else if let Some(value) = part.strip_prefix("w=") {
             options.width = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("height=") {
+        } else if let Some(value) = part.strip_prefix("h=") {
             options.height = Some(parse_length(value, line)?);
-        } else if let Some(value) = part.strip_prefix("min-height=") {
+        } else if let Some(value) = part.strip_prefix("min-h=") {
             options.min_height = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("max-height=") {
+        } else if let Some(value) = part.strip_prefix("max-h=") {
             options.max_height = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else if let Some(value) = part.strip_prefix("size=") {
             options.size = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("line-height=") {
-            options.line_height = Some(TextLineHeight::Relative(parse_expr(
-                strip_wrapping_parens(value),
-                line,
-            )?));
-        } else if let Some(value) = part.strip_prefix("line-height-px=") {
-            options.line_height = Some(TextLineHeight::Absolute(parse_expr(
-                strip_wrapping_parens(value),
-                line,
-            )?));
-        } else if let Some(value) = part.strip_prefix("padding=") {
+        } else if parse_line_height_option(part, &mut options.line_height, line)? {
+        } else if let Some(value) = part.strip_prefix("p=") {
             options.padding = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("wrapping=") {
+        } else if let Some(value) = part.strip_prefix("wrap=") {
             options.wrapping = Some(parse_text_wrapping(value, line, "E099")?);
         } else if let Some(value) = part.strip_prefix("font=") {
             options.font = Some(parse_font_preset(value, line)?);
@@ -131,12 +97,12 @@ pub(in crate::parser) fn parse_text_editor(
                 args: parse_expr_list(&args, line)?,
             });
         } else if let Some(value) = part.strip_prefix("style=") {
-            let (function, args) = parse_signature(value, line)
-                .map_err(|_| error("E099", line, "editor style must be a declared style call"))?;
-            options.custom_style = Some(ExternCall {
-                function,
-                args: parse_expr_list(&args, line)?,
-            });
+            options.custom_style = Some(parse_extern_call(
+                value,
+                line,
+                "E099",
+                "editor style must be a declared style call",
+            )?);
         } else if let Some(value) = part.strip_prefix("disabled=") {
             disabled = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else {
@@ -224,7 +190,7 @@ pub(in crate::parser) fn parse_table(
     }
     let mut options = TableOptions::default();
     for part in &parts[4..] {
-        if let Some(value) = part.strip_prefix("width=") {
+        if let Some(value) = part.strip_prefix("w=") {
             options.width = Some(parse_length(value, line)?);
         } else {
             let (name, value) = part
@@ -232,12 +198,12 @@ pub(in crate::parser) fn parse_table(
                 .ok_or_else(|| error("E098", line, format!("unknown table property `{part}`")))?;
             let value = parse_expr(strip_wrapping_parens(value), line)?;
             match name {
-                "padding" => options.padding = Some(value),
-                "padding-x" => options.padding_x = Some(value),
-                "padding-y" => options.padding_y = Some(value),
-                "separator" => options.separator = Some(value),
-                "separator-x" => options.separator_x = Some(value),
-                "separator-y" => options.separator_y = Some(value),
+                "p" => options.padding = Some(value),
+                "px" => options.padding_x = Some(value),
+                "py" => options.padding_y = Some(value),
+                "sep" => options.separator = Some(value),
+                "sep-x" => options.separator_x = Some(value),
+                "sep-y" => options.separator_y = Some(value),
                 _ => {
                     return Err(error(
                         "E098",
@@ -263,41 +229,31 @@ pub(in crate::parser) fn parse_table(
 
 pub(in crate::parser) fn parse_table_column(line: &Line) -> Result<TableColumn, Error> {
     let parts = split_words(&line.text);
-    if parts.first().map(String::as_str) != Some("column") {
-        return Err(error("E098", line, "table children must be columns"));
+    if parts.first().map(String::as_str) != Some("col") {
+        return Err(error("E098", line, "table children must be `col` nodes"));
     }
     let mut width = None;
     let mut align_x = None;
     let mut align_y = None;
     for part in &parts[1..] {
-        if let Some(value) = part.strip_prefix("width=") {
+        if let Some(value) = part.strip_prefix("w=") {
             width = Some(parse_length(value, line)?);
         } else if let Some(value) = part.strip_prefix("align-x=") {
-            align_x = Some(match value {
-                "left" => InputAlignment::Left,
-                "center" => InputAlignment::Center,
-                "right" => InputAlignment::Right,
-                _ => {
-                    return Err(error(
-                        "E098",
-                        line,
-                        "column align-x must be left, center, or right",
-                    ));
-                }
-            });
+            align_x = Some(value.parse().map_err(|()| {
+                error(
+                    "E098",
+                    line,
+                    "column align-x must be left, center, or right",
+                )
+            })?);
         } else if let Some(value) = part.strip_prefix("align-y=") {
-            align_y = Some(match value {
-                "top" => VerticalAlignment::Top,
-                "center" => VerticalAlignment::Center,
-                "bottom" => VerticalAlignment::Bottom,
-                _ => {
-                    return Err(error(
-                        "E098",
-                        line,
-                        "column align-y must be top, center, or bottom",
-                    ));
-                }
-            });
+            align_y = Some(value.parse().map_err(|()| {
+                error(
+                    "E098",
+                    line,
+                    "column align-y must be top, center, or bottom",
+                )
+            })?);
         } else {
             return Err(error(
                 "E098",
@@ -374,7 +330,7 @@ pub(in crate::parser) fn parse_markdown(
             "code-size" => {
                 options.code_size = Some(parse_expr(strip_wrapping_parens(value), line)?)
             }
-            "spacing" => options.spacing = Some(parse_expr(strip_wrapping_parens(value), line)?),
+            "gap" => options.spacing = Some(parse_expr(strip_wrapping_parens(value), line)?),
             "viewer" => {
                 let (function, args) = parse_signature(value, line)?;
                 options.viewer = Some(ExternCall {
@@ -601,12 +557,12 @@ pub(in crate::parser) fn parse_theme_preset(
     line: &Line,
 ) -> Result<ThemePreset, Error> {
     if value.contains('(') {
-        let (function, args) = parse_signature(value, line)
-            .map_err(|_| error("E094", line, "theme factory must be a declared call"))?;
-        return Ok(ThemePreset::Factory(ExternCall {
-            function,
-            args: parse_expr_list(&args, line)?,
-        }));
+        return Ok(ThemePreset::Factory(parse_extern_call(
+            value,
+            line,
+            "E094",
+            "theme factory must be a declared call",
+        )?));
     }
     match value {
         "default" => Ok(ThemePreset::Default),
@@ -635,7 +591,7 @@ pub(in crate::parser) fn parse_qr_code(
     for part in &parts[2..] {
         if let Some(value) = part.strip_prefix("cell-size=") {
             cell_size = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("total-size=") {
+        } else if let Some(value) = part.strip_prefix("size=") {
             total_size = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else if let Some(value) = part.strip_prefix("cell=") {
             cell = Some(value.to_owned());
@@ -649,7 +605,7 @@ pub(in crate::parser) fn parse_qr_code(
         return Err(error(
             "E093",
             line,
-            "qr accepts either cell-size or total-size, not both",
+            "qr accepts either cell-size or size, not both",
         ));
     }
     Ok(ViewNode::QrCode {

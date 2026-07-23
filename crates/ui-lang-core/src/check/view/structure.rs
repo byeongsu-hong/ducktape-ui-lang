@@ -21,14 +21,8 @@ pub(in crate::check) fn infer_structure_group(
                     extern_function(document, &factory.function, ExternKind::Theme, span)?;
                 check_call_args(function, &factory.args, env, document, span)?;
             }
-            if let Some(color) = text
-                && !valid_theme_color(color, document)
-            {
-                return Err(Error::new(
-                    "E137",
-                    span,
-                    format!("unknown nested theme text color `{color}`"),
-                ));
+            if let Some(color) = text {
+                require_theme_color(color, document, span, "E137", "nested theme text")?;
             }
             if let Some(background) = background {
                 check_background_value(
@@ -65,13 +59,9 @@ pub(in crate::check) fn infer_structure_group(
                 translate_env.insert(name.to_owned(), Type::F64);
             }
             for value in [x, y] {
-                require_type(
-                    &expr_type(value, &translate_env, document, span)?,
-                    &Type::F64,
-                    span,
-                )?;
+                require_f32_value(value, &translate_env, document, "float translation", span)?;
             }
-            require_literal_range(scale, f64::EPSILON, None, "float scale", span)?;
+            require_f32_literal_range(scale, f64::EPSILON, None, "float scale", span)?;
             check_float_style_options(style, env, document, span)?;
             infer_view(content, env, document, signatures, ids)?;
         }
@@ -84,7 +74,7 @@ pub(in crate::check) fn infer_structure_group(
             span,
         } => {
             for value in [x, y] {
-                require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+                require_f32_value(value, env, document, "pin position", span)?;
             }
             for length in [width, height].into_iter().flatten() {
                 check_length_value(length, env, document, span, "pin size")?;
@@ -131,8 +121,7 @@ pub(in crate::check) fn infer_structure_group(
                 }
             }
             if let Some(distance) = &options.anticipate {
-                require_type(&expr_type(distance, env, document, span)?, &Type::F64, span)?;
-                require_literal_range(distance, 0.0, None, "sensor anticipation", span)?;
+                require_nonnegative_f64(distance, env, document, "sensor anticipation", span)?;
             }
             if let Some(delay) = &options.delay_ms {
                 require_type(&expr_type(delay, env, document, span)?, &Type::I64, span)?;
@@ -162,7 +151,7 @@ pub(in crate::check) fn infer_structure_group(
                         &Type::F64,
                         span,
                     )?;
-                    require_literal_range(
+                    require_f32_literal_range(
                         breakpoint,
                         f64::EPSILON,
                         None,

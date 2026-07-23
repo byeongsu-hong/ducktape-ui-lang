@@ -63,33 +63,88 @@ pub(in crate::codegen) fn component_output(env: &HashMap<String, Binding>) -> Op
 }
 
 pub(in crate::codegen) fn component_state_field(component: &str) -> String {
-    format!(
-        "__ice_component_{}",
-        component
-            .chars()
-            .map(|value| if value.is_ascii_alphanumeric() {
-                value.to_ascii_lowercase()
-            } else {
-                '_'
-            })
-            .collect::<String>()
-    )
+    if canonical_component(component) {
+        format!("__ice_component_{}", component.to_ascii_lowercase())
+    } else {
+        format!("__ice_component_0{}", rust_identifier_hex(component))
+    }
 }
 
 pub(in crate::codegen) fn component_state_type(component: &str) -> String {
-    format!("__Ice{}State", pascal(component))
+    if simple_component(component)
+        && !component.starts_with("Pane")
+        && !component.starts_with("EventFilter")
+    {
+        format!("__Ice{component}State")
+    } else {
+        format!("__Ice0C{}State", rust_identifier_hex(component))
+    }
 }
 
 pub(in crate::codegen) fn component_scope_binding(component: &str, line: usize) -> String {
     format!("{}_scope_{line}", component_state_field(component))
 }
 
+pub(in crate::codegen) fn rust_identifier_hex(value: &str) -> String {
+    value.bytes().map(|byte| format!("{byte:02x}")).collect()
+}
+
+pub(in crate::codegen) fn canonical_snake(value: &str) -> bool {
+    value
+        .split('_')
+        .all(|part| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_lowercase()))
+}
+
+fn canonical_component(value: &str) -> bool {
+    value.as_bytes().split_first().is_some_and(|(first, rest)| {
+        first.is_ascii_uppercase()
+            && rest
+                .iter()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
+    })
+}
+
+fn simple_component(value: &str) -> bool {
+    value.bytes().all(|byte| byte.is_ascii_alphanumeric())
+}
+
+fn canonical_component_variant(value: &str) -> bool {
+    canonical_component(value)
+        && !["Bind", "Edit", "Pane"]
+            .iter()
+            .any(|prefix| value.starts_with(prefix))
+}
+
+pub(in crate::codegen) fn handler_variant(handler: &str) -> String {
+    if canonical_snake(handler) {
+        pascal(handler)
+    } else {
+        format!("__0H{}", rust_identifier_hex(handler))
+    }
+}
+
 pub(in crate::codegen) fn component_handler_variant(component: &str, handler: &str) -> String {
-    format!("__{}Handle{}", pascal(component), pascal(handler))
+    if canonical_component_variant(component) && canonical_snake(handler) {
+        format!("__{component}Handle{}", pascal(handler))
+    } else {
+        format!(
+            "__0C{}H{}",
+            rust_identifier_hex(component),
+            rust_identifier_hex(handler)
+        )
+    }
 }
 
 pub(in crate::codegen) fn component_binding_variant(component: &str, state: &str) -> String {
-    format!("__{}Bind{}", pascal(component), pascal(state))
+    if canonical_component_variant(component) && canonical_snake(state) {
+        format!("__{component}Bind{}", pascal(state))
+    } else {
+        format!(
+            "__0C{}B{}",
+            rust_identifier_hex(component),
+            rust_identifier_hex(state)
+        )
+    }
 }
 
 pub(in crate::codegen) fn component_latest_field(line: usize) -> String {
@@ -97,7 +152,14 @@ pub(in crate::codegen) fn component_latest_field(line: usize) -> String {
 }
 
 pub(in crate::codegen) fn component_latest_variant(component: &str, line: usize) -> String {
-    format!("__{}Latest{line}", pascal(component))
+    if simple_component(component)
+        && !component.starts_with("Bind")
+        && !component.starts_with("Edit")
+    {
+        format!("__{component}Latest{line}")
+    } else {
+        format!("__0C{}L{line}", rust_identifier_hex(component))
+    }
 }
 
 pub(in crate::codegen) fn state_env(document: &Document, name: &str) -> HashMap<String, Binding> {

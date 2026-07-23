@@ -34,7 +34,7 @@ on inspect
   values_equal = returned == pixels
 
 view
-  col spacing=8.0 padding=16.0
+  col gap=8.0 p=16.0
     button "Inspect" -> inspect
     text line_kind
     text pixel_kind

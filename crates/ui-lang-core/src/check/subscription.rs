@@ -1,5 +1,22 @@
 use super::*;
 
+fn require_single_payload_routes<'a>(
+    routes: impl IntoIterator<Item = &'a Route>,
+    span: &Span,
+    message: &'static str,
+) -> Result<(), Error> {
+    if routes.into_iter().any(|route| {
+        route.args.len() > 1
+            || route
+                .args
+                .iter()
+                .any(|arg| !matches!(arg, RouteArg::Payload))
+    }) {
+        return Err(Error::new("E127", span, message));
+    }
+    Ok(())
+}
+
 pub(in crate::check) fn native_subscription_payloads(
     source: &SubscriptionSource,
     window_id: bool,
@@ -372,44 +389,13 @@ pub(in crate::check) fn infer_runs(
                 WindowOperation::RawId => {
                     infer_route(route, Some(Type::Str), &unknown_env, document, signatures)?
                 }
-                WindowOperation::Screenshot
-                    if route
-                        .args
-                        .iter()
-                        .filter(|arg| matches!(arg, RouteArg::Payload))
-                        .count()
-                        == 1 =>
-                {
-                    infer_route(
-                        route,
-                        Some(Type::WindowScreenshot),
-                        &unknown_env,
-                        document,
-                        signatures,
-                    )?
-                }
-                WindowOperation::Screenshot => {
-                    if route.args.len() != 4
-                        || route
-                            .args
-                            .iter()
-                            .any(|arg| !matches!(arg, RouteArg::Payload))
-                    {
-                        return Err(Error::new(
-                            "E129",
-                            &route.span,
-                            "window screenshot route expects one native placeholder or four RGBA placeholders",
-                        ));
-                    }
-                    infer_ordered_payload_route(
-                        route,
-                        &[Type::Bytes, Type::I64, Type::I64, Type::F64],
-                        &unknown_env,
-                        document,
-                        signatures,
-                        "window screenshot",
-                    )?
-                }
+                WindowOperation::Screenshot => infer_route(
+                    route,
+                    Some(Type::WindowScreenshot),
+                    &unknown_env,
+                    document,
+                    signatures,
+                )?,
                 WindowOperation::Size => infer_ordered_payload_route(
                     route,
                     &[Type::F64, Type::F64],
@@ -470,20 +456,23 @@ pub(in crate::check) fn infer_runs(
             ..
         } = statement
         {
-            if *kind == EffectKind::Stream
-                && std::iter::once(success).chain(error.iter()).any(|route| {
-                    route.args.len() > 1
-                        || route
-                            .args
-                            .iter()
-                            .any(|arg| !matches!(arg, RouteArg::Payload))
-                })
+            if component_context(base_env).is_some()
+                && let Some(route) = std::iter::once(success)
+                    .chain(error.iter())
+                    .find(|route| route.handler == "emit")
             {
                 return Err(Error::new(
-                    "E127",
+                    "E135",
+                    &route.span,
+                    "component outputs can only be emitted from the component view",
+                ));
+            }
+            if *kind == EffectKind::Stream {
+                require_single_payload_routes(
+                    std::iter::once(success).chain(error.iter()),
                     span,
                     "stream routes accept at most one `_`; read other state in the handler",
-                ));
+                )?;
             }
             if let Some((output, builtin_error)) = builtin_task_type(*kind, function, args, span)? {
                 infer_route(success, Some(output), &unknown_env, document, signatures)?;
@@ -551,23 +540,13 @@ pub(in crate::check) fn infer_runs(
             ..
         } = statement
         {
-            if std::iter::once(progress)
-                .chain(std::iter::once(success))
-                .chain(error.iter())
-                .any(|route| {
-                    route.args.len() > 1
-                        || route
-                            .args
-                            .iter()
-                            .any(|arg| !matches!(arg, RouteArg::Payload))
-                })
-            {
-                return Err(Error::new(
-                    "E127",
-                    span,
-                    "sip routes accept at most one `_`; read other state in the handler",
-                ));
-            }
+            require_single_payload_routes(
+                std::iter::once(progress)
+                    .chain(std::iter::once(success))
+                    .chain(error.iter()),
+                span,
+                "sip routes accept at most one `_`; read other state in the handler",
+            )?;
             let action = extern_function(document, function, ExternKind::Sip, span)?;
             let progress_ty = action
                 .progress
@@ -621,24 +600,11 @@ pub(in crate::check) fn infer_runs(
             span,
         } = statement
         {
-            if success
-                .iter()
-                .chain(error.iter())
-                .chain(units.iter())
-                .any(|route| {
-                    route.args.len() > 1
-                        || route
-                            .args
-                            .iter()
-                            .any(|arg| !matches!(arg, RouteArg::Payload))
-                })
-            {
-                return Err(Error::new(
-                    "E127",
-                    span,
-                    "flow routes accept at most one `_`; read other state in the handler",
-                ));
-            }
+            require_single_payload_routes(
+                success.iter().chain(error.iter()).chain(units.iter()),
+                span,
+                "flow routes accept at most one `_`; read other state in the handler",
+            )?;
             let mut flow_env = document
                 .states
                 .iter()

@@ -53,17 +53,9 @@ on capture_native
 on native_captured(value)
   returned = value
 
-on capture_rgba
-  task window screenshot -> rgba_captured _ _ _ _
-
-on rgba_captured(pixels, width, height, scale)
-  rgba = pixels
-  scale_factor = scale
-
 view
-  col spacing=8.0 padding=16.0
+  col gap=8.0 p=16.0
     button "Inspect" -> inspect
     button "Capture native" -> capture_native
-    button "Capture RGBA" -> capture_rgba
     text debug_text
     text scale_factor

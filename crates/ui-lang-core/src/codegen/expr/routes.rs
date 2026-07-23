@@ -46,7 +46,7 @@ pub(in crate::codegen) fn route_code(
     }
     let local = local_route(route, env, document);
     let variant = local.map_or_else(
-        || pascal(&route.handler),
+        || handler_variant(&route.handler),
         |(component, _)| component_handler_variant(component, &route.handler),
     );
     if route.args.is_empty() && local.is_none() {
@@ -78,7 +78,7 @@ pub(in crate::codegen) fn ordered_route_code(
     }
     let local = local_route(route, env, document);
     let variant = local.map_or_else(
-        || pascal(&route.handler),
+        || handler_variant(&route.handler),
         |(component, _)| component_handler_variant(component, &route.handler),
     );
     if route.args.is_empty() && local.is_none() {

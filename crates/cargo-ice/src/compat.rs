@@ -187,12 +187,36 @@ fn direct_dependency<'a>(
 }
 
 fn quoted_field<'a>(source: &'a str, field: &str) -> Option<&'a str> {
-    let mut offset = 0;
-    while let Some(found) = source[offset..].find(field) {
-        let start = offset + found;
-        let boundary = start == 0
-            || !source.as_bytes()[start - 1].is_ascii_alphanumeric()
-                && source.as_bytes()[start - 1] != b'_';
+    let key_byte = |byte: u8| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.');
+    let mut string = false;
+    let mut escaped = false;
+    for (start, ch) in source.char_indices() {
+        if string {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                string = false;
+            }
+            continue;
+        }
+        if ch == '"' {
+            string = true;
+            continue;
+        }
+        if ch == '#' {
+            break;
+        }
+        if !source[start..].starts_with(field) {
+            continue;
+        }
+        let end = start + field.len();
+        let boundary = (start == 0 || !key_byte(source.as_bytes()[start - 1]))
+            && source
+                .as_bytes()
+                .get(end)
+                .is_none_or(|byte| !key_byte(*byte));
         let after = &source[start + field.len()..];
         if boundary
             && let Some(value) = after.trim_start().strip_prefix('=')
@@ -201,7 +225,6 @@ fn quoted_field<'a>(source: &'a str, field: &str) -> Option<&'a str> {
         {
             return Some(value);
         }
-        offset = start + field.len();
     }
     None
 }
@@ -363,6 +386,20 @@ accesskit_windows = "=0.32.0"
         );
         assert_eq!(dependency_version(unix), Some("=0.22.1"));
         assert_eq!(dependency_version(windows), Some("=0.32.0"));
+        assert_eq!(
+            quoted_field(
+                r#"{ package-version = "wrong", note = "version = wrong", version = "right" }"#,
+                "version"
+            ),
+            Some("right")
+        );
+        assert_eq!(
+            quoted_field(
+                r#"{ package-version = "wrong" } # version = "wrong""#,
+                "version"
+            ),
+            None
+        );
         assert!(direct_dependency(manifest, "accesskit_unix", DIRECT_DEPENDENCIES).is_none());
         assert!(
             direct_dependency(manifest, "accesskit_windows", LINUX_TARGET_DEPENDENCIES).is_none()

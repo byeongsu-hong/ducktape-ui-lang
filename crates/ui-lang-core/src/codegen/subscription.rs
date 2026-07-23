@@ -83,10 +83,7 @@ pub(in crate::codegen) fn generate_subscription(
             .filter
             .as_ref()
             .map(|filter| {
-                let function = document
-                    .functions
-                    .iter()
-                    .find(|item| item.name == *filter && item.kind == ExternKind::Sync)
+                let function = find_extern_function(document, filter, ExternKind::Sync)
                     .ok_or_else(|| {
                         Error::new(
                             "E130",
@@ -160,10 +157,7 @@ pub(in crate::codegen) fn generate_subscription(
                 function,
                 milliseconds,
             } => {
-                let source = document
-                    .functions
-                    .iter()
-                    .find(|item| item.name == *function && item.kind == ExternKind::Future)
+                let source = find_extern_function(document, function, ExternKind::Future)
                     .ok_or_else(|| {
                         Error::new(
                             "E130",
@@ -174,10 +168,7 @@ pub(in crate::codegen) fn generate_subscription(
                 writeln!(out, "::iced::time::repeat({}, ::std::time::Duration::from_millis({milliseconds})){transforms}.map(move |__value| {route}),", source.rust_path).unwrap();
             }
             SubscriptionSource::Run { function, args } => {
-                let source = document
-                    .functions
-                    .iter()
-                    .find(|item| item.name == *function && item.kind == ExternKind::Stream)
+                let source = find_extern_function(document, function, ExternKind::Stream)
                     .ok_or_else(|| {
                         Error::new(
                             "E130",
@@ -218,10 +209,7 @@ pub(in crate::codegen) fn generate_subscription(
                 }
             }
             SubscriptionSource::Recipe { function, args } => {
-                let source = document
-                    .functions
-                    .iter()
-                    .find(|item| item.name == *function && item.kind == ExternKind::Recipe)
+                let source = find_extern_function(document, function, ExternKind::Recipe)
                     .ok_or_else(|| {
                         Error::new(
                             "E130",
@@ -229,18 +217,11 @@ pub(in crate::codegen) fn generate_subscription(
                             format!("unknown subscription recipe `{function}`"),
                         )
                     })?;
-                let args = args
-                    .iter()
-                    .map(|arg| expr_code(arg, &env, document, ValueMode::Owned))
-                    .collect::<Result<Vec<_>, _>>()?
-                    .join(", ");
+                let args = expr_list_code(args, &env, document)?;
                 writeln!(out, "::iced::advanced::subscription::from_recipe({}({args})){transforms}.map(move |__value| {route}),", source.rust_path).unwrap();
             }
             SubscriptionSource::Events { id, filter } => {
-                let _source = document
-                    .functions
-                    .iter()
-                    .find(|item| item.name == *filter && item.kind == ExternKind::EventFilter)
+                let _source = find_extern_function(document, filter, ExternKind::EventFilter)
                     .ok_or_else(|| {
                         Error::new(
                             "E130",
@@ -249,37 +230,21 @@ pub(in crate::codegen) fn generate_subscription(
                         )
                     })?;
                 let id = expr_code(id, &env, document, ValueMode::Owned)?;
-                let recipe = format!("__IceEventFilter{}", pascal(filter));
+                let recipe = event_filter_type(filter);
                 writeln!(out, "::iced::advanced::subscription::from_recipe({recipe} {{ id: {id} }}){transforms}.map(move |__value| {route}),").unwrap();
             }
             SubscriptionSource::Event { raw } => {
-                if !*raw && subscription.status.is_none() && !subscription.window_id {
-                    writeln!(
-                        out,
-                        "::iced::event::listen(){transforms}.map(move |__value| {route}),"
-                    )
-                    .unwrap();
+                let value = if subscription.window_id {
+                    "::std::option::Option::Some((__id, __event))"
                 } else {
-                    let value = if subscription.window_id {
-                        "::std::option::Option::Some((__id, __event))"
-                    } else {
-                        "::std::option::Option::Some(__event)"
-                    };
-                    let status = if *raw || subscription.status.is_some() {
-                        subscription.status
-                    } else {
-                        Some(EventStatus::Ignored)
-                    };
-                    let (filter, status) = event_status_filter(value, status);
-                    let listen = if *raw { "listen_raw" } else { "listen_with" };
-                    writeln!(out, "::iced::event::{listen}(|__event, {status}, __id| {{ {filter} }}){transforms}.map(move |__value| {route}),").unwrap();
-                }
+                    "::std::option::Option::Some(__event)"
+                };
+                let (filter, status) = event_status_filter(value, subscription.status);
+                let listen = if *raw { "listen_raw" } else { "listen_with" };
+                writeln!(out, "::iced::event::{listen}(|__event, {status}, __id| {{ {filter} }}){transforms}.map(move |__value| {route}),").unwrap();
             }
             SubscriptionSource::Extern { function, args } => {
-                let source = document
-                    .functions
-                    .iter()
-                    .find(|item| item.name == *function && item.kind == ExternKind::Subscription)
+                let source = find_extern_function(document, function, ExternKind::Subscription)
                     .ok_or_else(|| {
                         Error::new(
                             "E130",
@@ -287,11 +252,7 @@ pub(in crate::codegen) fn generate_subscription(
                             format!("unknown extern subscription `{function}`"),
                         )
                     })?;
-                let args = args
-                    .iter()
-                    .map(|arg| expr_code(arg, &env, document, ValueMode::Owned))
-                    .collect::<Result<Vec<_>, _>>()?
-                    .join(", ");
+                let args = expr_list_code(args, &env, document)?;
                 writeln!(
                     out,
                     "{}({args}){transforms}.map(move |__value| {route}),",
@@ -329,15 +290,11 @@ pub(in crate::codegen) fn generate_subscription(
                         "match __event { ::iced::keyboard::Event::ModifiersChanged(modifiers) => ::std::option::Option::Some(modifiers), _ => ::std::option::Option::None }"
                     }
                 };
-                if subscription.status.is_some() {
-                    let filter = format!(
-                        "match __event {{ ::iced::Event::Keyboard(__event) => {{ {filter} }}, _ => ::std::option::Option::None }}"
-                    );
-                    let (filter, status) = event_status_filter(&filter, subscription.status);
-                    writeln!(out, "::iced::event::listen_with(|__event, {status}, _| {{ {filter} }}){transforms}.map(move |__value| {route}),").unwrap();
-                } else {
-                    writeln!(out, "::iced::keyboard::listen().filter_map(|__event| {{ {filter} }}){transforms}.map(move |__value| {route}),").unwrap();
-                }
+                let filter = format!(
+                    "match __event {{ ::iced::Event::Keyboard(__event) => {{ {filter} }}, _ => ::std::option::Option::None }}"
+                );
+                let (filter, status) = event_status_filter(&filter, subscription.status);
+                writeln!(out, "::iced::event::listen_with(|__event, {status}, _| {{ {filter} }}){transforms}.map(move |__value| {route}),").unwrap();
             }
             SubscriptionSource::Mouse(event) => {
                 let filter = match event {
@@ -435,15 +392,11 @@ pub(in crate::codegen) fn generate_subscription(
                 } else {
                     filter.to_owned()
                 };
-                if subscription.status.is_some() {
-                    let filter = format!(
-                        "match __event {{ ::iced::Event::Window(__event) => {{ {filter} }}, _ => ::std::option::Option::None }}"
-                    );
-                    let (filter, status) = event_status_filter(&filter, subscription.status);
-                    writeln!(out, "::iced::event::listen_with(|__event, {status}, __id| {{ {filter} }}){transforms}.map(move |__value| {route}),").unwrap();
-                } else {
-                    writeln!(out, "::iced::window::events().filter_map(|(__id, __event)| {{ {filter} }}){transforms}.map(move |__value| {route}),").unwrap();
-                }
+                let filter = format!(
+                    "match __event {{ ::iced::Event::Window(__event) => {{ {filter} }}, _ => ::std::option::Option::None }}"
+                );
+                let (filter, status) = event_status_filter(&filter, subscription.status);
+                writeln!(out, "::iced::event::listen_with(|__event, {status}, __id| {{ {filter} }}){transforms}.map(move |__value| {route}),").unwrap();
             }
         }
         if condition.is_some() {

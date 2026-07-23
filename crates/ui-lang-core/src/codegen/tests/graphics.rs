@@ -18,24 +18,24 @@ on scrolled(x, y, pixels)
 on entered
 on exited
 view
-  canvas width=fill height=240.0 cache=cached cache-group=drawings capture=true cursor=crosshair press=pressed release=released move=moved scroll=scrolled enter=entered exit=exited
-    rect x=0.0 y=0.0 width=canvas_width height=canvas_height fill=linear(1.57, bg@0.0, primary@1.0) stroke=fg
-    rect x=8.0 y=8.0 width=72.0 height=40.0 r=8.0 r-tl=4.0 stroke=fg stroke-w=2.0 dash=(4.0, 2.0) dash-offset=1 cap=round join=bevel
+  canvas w=fill h=240.0 cache=cached cache-group=drawings capture=true cursor=crosshair press=pressed release=released move=moved scroll=scrolled enter=entered exit=exited
+    rect x=0.0 y=0.0 w=canvas_width h=canvas_height fill=linear(1.57, bg@0.0, primary@1.0) stroke=fg
+    rect x=8.0 y=8.0 w=72.0 h=40.0 r=8.0 r-tl=4.0 stroke=fg stroke-w=2.0 dash=(4.0, 2.0) dash-offset=1 cap=round join=bevel
     circle x=120.0 y=60.0 r=24.0 fill=primary fill-rule=even-odd stroke=fg
     line x1=16.0 y1=120.0 x2=200.0 y2=120.0 stroke=fg stroke-w=3.0 cap=square
-    text "Canvas" x=16.0 y=150.0 max-width=180.0 color=fg size=18.0 line-height=1.2 font=default align-x=left align-y=top shaping=advanced
-    image picture x=8.0 y=160.0 width=32.0 height=24.0 filter=nearest rotation=0.2 opacity=0.8 snap=true r=4.0 r-tl=2.0
-    svg "<svg/>" memory x=48.0 y=160.0 width=24.0 height=24.0 color=fg rotation=0.1 opacity=0.9
+    text "Canvas" x=16.0 y=150.0 max-w=180.0 color=fg size=18.0 line-h=1.2 font=default align-x=left align-y=top shape=advanced
+    image picture x=8.0 y=160.0 w=32.0 h=24.0 filter=nearest rotate=0.2 opacity=0.8 snap=true r=4.0 r-tl=2.0
+    svg "<svg/>" memory x=48.0 y=160.0 w=24.0 h=24.0 color=fg rotate=0.1 opacity=0.9
     path fill=primary stroke=fg stroke-w=1.0
       move x=220.0 y=20.0
       line x=260.0 y=20.0
       arc x=260.0 y=40.0 r=20.0 start=0.0 end=3.14
       arc-to ax=280.0 ay=60.0 bx=300.0 by=40.0 r=8.0
-      ellipse x=320.0 y=40.0 r-x=20.0 r-y=10.0 rotation=0.2 start=0.0 end=6.28
+      ellipse x=320.0 y=40.0 r-x=20.0 r-y=10.0 rotate=0.2 start=0.0 end=6.28
       bezier ax=340.0 ay=10.0 bx=360.0 by=70.0 x=380.0 y=40.0
       quadratic cx=400.0 cy=10.0 x=420.0 y=40.0
-      rect x=220.0 y=80.0 width=30.0 height=20.0
-      rounded x=260.0 y=80.0 width=30.0 height=20.0 r=4.0
+      rect x=220.0 y=80.0 w=30.0 h=20.0
+      rounded x=260.0 y=80.0 w=30.0 h=20.0 r=4.0
       circle x=320.0 y=90.0 r=10.0
       close
     group x=10.0 y=10.0 rotate=0.1 scale=1.1 scale-x=1.0 scale-y=0.9 clip=(0.0, 0.0, 100.0, 100.0)
@@ -46,6 +46,7 @@ view
       circle x=value y=210.0 r=4.0 fill=fg
 "#;
     let generated = compile(source, "drawing.ice").unwrap();
+    assert!(generated.contains("offset: usize::try_from(1).unwrap_or(0)"));
     for expected in [
         "impl<State, Message, Draw, Update, Interaction> ::iced::widget::canvas::Program<Message>",
         "__state.cache.get_or_init",
@@ -53,20 +54,32 @@ view
         "__ICE_CANVAS_GROUP_DRAWINGS",
         "::std::hash::Hash::hash",
         "::iced::widget::canvas::Path::rounded_rectangle",
+        "::iced::Size::new(((72.0) as f32).max(0.0).min(f32::MAX), ((40.0) as f32).max(0.0).min(f32::MAX))",
         "__frame.fill_rectangle",
         "__frame.stroke_rectangle",
         "__frame.fill_text",
+        "max_width: ((180.0) as f32).max(0.0).min(f32::MAX)",
+        "size: ::iced::Pixels(((18.0) as f32).max(f32::EPSILON).min(f32::MAX))",
+        "LineHeight::Relative(((1.2) as f32).max(f32::EPSILON).min(f32::MAX))",
         "__frame.draw_image",
         "__frame.draw_svg",
+        "opacity: ((0.8) as f32).max(0.0).min(1.0)",
+        "opacity: ((0.9) as f32).max(0.0).min(1.0)",
         "::iced::advanced::svg::Svg",
         "__path.arc(",
+        "radius: ((20.0) as f32).max(0.0).min(f32::MAX)",
         "__path.arc_to(",
         "__path.ellipse(",
+        "radii: ::iced::Vector::new(((20.0) as f32).max(0.0).min(f32::MAX), ((10.0) as f32).max(0.0).min(f32::MAX))",
+        "width: ((2.0) as f32).max(0.0).min(f32::MAX)",
+        "segments: &[((4.0) as f32).max(0.0).min(f32::MAX), ((2.0) as f32).max(0.0).min(f32::MAX)]",
+        "Path::circle(::iced::Point::new(120.0 as f32, 60.0 as f32), ((24.0) as f32).max(0.0).min(f32::MAX))",
         "__path.bezier_curve_to(",
         "__path.quadratic_curve_to(",
         "__frame.with_save",
         "__frame.with_clip",
-        "__frame.scale_nonuniform",
+        "__frame.scale(((1.1) as f32).max(f32::EPSILON).min(f32::MAX))",
+        "__frame.scale_nonuniform(::iced::Vector::new(((1.0) as f32).max(f32::EPSILON).min(f32::MAX), ((0.9) as f32).max(f32::EPSILON).min(f32::MAX)))",
         "::iced::mouse::Interaction::Crosshair",
         "::iced::widget::canvas::Action::publish",
         ".and_capture()",
@@ -110,6 +123,7 @@ fn lowers_every_canvas_event_and_redraw_action() {
         "Action::request_redraw()",
         "Action::request_redraw_at",
         "Duration::from_millis(16)",
+        "__now.checked_add(::iced::time::Duration::from_millis(16))",
         ".and_capture()",
         "move_count: i64",
         "__state.move_count =",
@@ -126,7 +140,7 @@ fn lowers_media_tooltip_and_pointer_events() {
     let source = r#"app Media
 extern crate::backend
   svg-style dynamic_svg(active:bool)
-  container-style dynamic_tooltip(active:bool)
+  box-style dynamic_tooltip(active:bool)
 theme
   bg #000000
   fg #ffffff
@@ -143,26 +157,37 @@ on moved(x, y)
 on scrolled(x, y, pixels)
 view
   col
-    image "photo.ppm" width=fill height=64.0 fit=cover filter=nearest rotation=solid(0.5) opacity=0.8 scale=1.2 expand=true r=4.0 r-tl=1.0 r-br=2.0 crop=(1, 2, 30, 40)
+    image "photo.ppm" w=fill h=64.0 fit=cover filter=nearest rotate=rotation.solid(radians(0.5)) opacity=0.8 scale=1.2 expand=true r=4.0 r-tl=1.0 r-br=2.0 crop=(1, 2, 30, 40)
     image encoded_image
     image rgba_image
-    viewer encoded_image width=fill(2) height=120.0 fit=contain filter=linear padding=8.0 min-scale=0.5 max-scale=4.0 scale-step=0.25
-    viewer "photo.ppm" width=64.0 height=64.0
-    svg "icon.svg" width=48.0 height=shrink fit=scale-down rotation=0.1 opacity=0.9 color=fg hover=primary style=dynamic_svg(active)
-    svg "<svg/>" memory width=16.0 color=fg hover=none
-    svg bytes(3c 73 76 67 2f 3e) memory width=16.0
-    tooltip position=cursor gap=2.0 padding=5.0 delay=100 snap=false style=dynamic_tooltip(active) bg=linear(1.57, bg@0.0, primary/25@1.0) text=fg border=primary/75 border-w=1.0 r=5.0 r-tl=2.0 shadow=black/50 shadow-x=-1.0 shadow-y=2.0 shadow-blur=8.0 px-snap=true
+    viewer encoded_image w=fill(2) h=120.0 fit=contain filter=linear p=8.0 min-scale=0.5 max-scale=4.0 scale-step=0.25
+    viewer "photo.ppm" w=64.0 h=64.0
+    svg "icon.svg" w=48.0 h=shrink fit=scale-down rotate=rotation.floating(radians(0.1)) opacity=0.9 color=fg hover=primary style=dynamic_svg(active)
+    svg "<svg/>" memory w=16.0 color=fg hover=none
+    svg bytes(3c 73 76 67 2f 3e) memory w=16.0
+    tooltip position=cursor gap=2.0 p=5.0 delay=100 snap=false style=dynamic_tooltip(active) bg=linear(1.57, bg@0.0, primary/25@1.0) text=fg border=primary/75 border-w=1.0 r=5.0 r-tl=2.0 shadow=black/50 shadow-x=-1.0 shadow-y=2.0 shadow-blur=8.0 px-snap=true
       mouse enter=entered exit=exited press=pressed move=moved scroll=scrolled cursor=pointer
         text "Hover"
       text "Tip"
 "#;
     let generated = compile(source, "media.ice").unwrap();
     assert!(generated.contains("::iced::widget::image(\"photo.ppm\".to_owned())"));
-    assert!(generated.contains(".rotation(::iced::Rotation::Solid(::iced::Radians(0.5 as f32)))"));
-    assert!(generated.contains(".border_radius(::iced::border::Radius { top_left: 1.0 as f32, top_right: 4.0 as f32, bottom_right: 2.0 as f32, bottom_left: 4.0 as f32 })"));
+    assert!(
+        generated.contains(".rotation(::iced::Rotation::Solid(::iced::Radians((0.5) as f32)))")
+    );
+    assert!(generated.contains(".border_radius(::iced::border::Radius { top_left: ((1.0) as f32).max(0.0).min(f32::MAX), top_right: ((4.0) as f32).max(0.0).min(f32::MAX), bottom_right: ((2.0) as f32).max(0.0).min(f32::MAX), bottom_left: ((4.0) as f32).max(0.0).min(f32::MAX) })"));
     assert!(generated.contains("image::Handle::from_bytes(::std::vec![0x50u8, 0x36u8, 0x0au8])"));
     assert!(generated.contains("image::Handle::from_rgba((1).clamp(0, u32::MAX as i64) as u32, (1).clamp(0, u32::MAX as i64) as u32, ::std::vec![0xffu8, 0x00u8, 0x00u8, 0xffu8])"));
-    assert!(generated.contains("::iced::widget::image::viewer(self.encoded_image.clone()).width(::iced::Length::FillPortion(2)).height(120.0 as f32).content_fit(::iced::ContentFit::Contain).filter_method(::iced::widget::image::FilterMethod::Linear).padding(8.0 as f32).min_scale(0.5 as f32).max_scale(4.0 as f32).scale_step(0.25 as f32)"));
+    for expected in [
+        ".opacity(((0.8) as f32).max(0.0).min(1.0))",
+        ".scale(((1.2) as f32).max(f32::EPSILON).min(f32::MAX))",
+        ".padding(((8.0) as f32).max(0.0).min(f32::MAX))",
+        "::ui_lang_runtime::viewer_scale_bounds(0.5, 4.0)",
+        ".min_scale(__viewer_min_scale).max_scale(__viewer_max_scale)",
+        ".scale_step(((0.25) as f32).max(f32::EPSILON).min(f32::MAX))",
+    ] {
+        assert!(generated.contains(expected), "missing {expected}");
+    }
     assert!(generated.contains("::iced::widget::image::viewer(::iced::widget::image::Handle::from_path(\"photo.ppm\".to_owned()))"));
     assert!(generated.contains(".crop(::iced::Rectangle { x: (1).clamp(0, u32::MAX as i64) as u32, y: (2).clamp(0, u32::MAX as i64) as u32, width: (30).clamp(0, u32::MAX as i64) as u32, height: (40).clamp(0, u32::MAX as i64) as u32 })"));
     assert!(generated.contains(".filter_method(::iced::widget::image::FilterMethod::Nearest)"));
@@ -183,7 +208,14 @@ view
     .unwrap();
     assert!(default_svg.contains("let mut __style = ::iced::widget::svg::Style::default()"));
     assert!(generated.contains("tooltip::Position::FollowCursor"));
-    assert!(generated.contains(".delay(::std::time::Duration::from_millis(100 as u64))"));
+    assert!(generated.contains(
+        ".gap(::ui_lang_runtime::bounded_table_metric(2.0, 1)).padding(::ui_lang_runtime::bounded_table_metric(5.0, 1))"
+    ));
+    assert!(
+        generated.contains(
+            ".delay(::std::time::Duration::from_millis(u64::try_from(100).unwrap_or(0)))"
+        )
+    );
     assert!(generated.contains("crate::backend::dynamic_tooltip(__theme, self.active)"));
     let preset_tooltip = compile(
         &source.replace("style=dynamic_tooltip(active)", "style=success"),

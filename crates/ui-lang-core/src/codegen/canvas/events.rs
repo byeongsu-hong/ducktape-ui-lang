@@ -187,7 +187,7 @@ pub(in crate::codegen) fn canvas_update_code(
                     || "::iced::widget::canvas::Action::request_redraw()".into(),
                     |milliseconds| {
                         format!(
-                            "::iced::widget::canvas::Action::request_redraw_at(::iced::time::Instant::now() + ::iced::time::Duration::from_millis({milliseconds}))"
+                            "{{ let __now = ::iced::time::Instant::now(); match __now.checked_add(::iced::time::Duration::from_millis({milliseconds})) {{ ::std::option::Option::Some(__at) => ::iced::widget::canvas::Action::request_redraw_at(__at), ::std::option::Option::None => ::iced::widget::canvas::Action::request_redraw(), }} }}"
                         )
                     },
                 );

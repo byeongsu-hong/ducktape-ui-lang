@@ -179,23 +179,13 @@ pub(in crate::codegen) fn button_style_code(
         .custom
         .as_ref()
         .map(|style| {
-            let function = document
-                .functions
-                .iter()
-                .find(|item| item.name == style.function && item.kind == ExternKind::ButtonStyle)
-                .expect("checker validates button style");
-            let args = style
-                .args
-                .iter()
-                .map(|arg| expr_code(arg, env, document, ValueMode::Owned))
-                .collect::<Result<Vec<_>, _>>()?;
-            Ok::<_, Error>(format!(
-                "{}(__theme, __status{})",
-                function.rust_path,
-                args.iter()
-                    .map(|arg| format!(", {arg}"))
-                    .collect::<String>()
-            ))
+            custom_style_call_code(
+                style,
+                ExternKind::ButtonStyle,
+                "__theme, __status",
+                env,
+                document,
+            )
         })
         .transpose()?;
     let preset = match typed.preset {
@@ -354,16 +344,9 @@ pub(in crate::codegen) fn theme_factory_code(
     env: &HashMap<String, Binding>,
     document: &Document,
 ) -> Result<String, Error> {
-    let function = document
-        .functions
-        .iter()
-        .find(|function| function.name == name && function.kind == ExternKind::Theme)
+    let function = find_extern_function(document, name, ExternKind::Theme)
         .expect("checker validates theme factories");
-    let args = args
-        .iter()
-        .map(|arg| expr_code(arg, env, document, ValueMode::Owned))
-        .collect::<Result<Vec<_>, _>>()?
-        .join(", ");
+    let args = expr_list_code(args, env, document)?;
     Ok(format!("{}({args})", function.rust_path))
 }
 

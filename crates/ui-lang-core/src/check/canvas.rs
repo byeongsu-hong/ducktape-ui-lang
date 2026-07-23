@@ -456,8 +456,5 @@ pub(in crate::check) fn check_canvas_number(
     min: Option<f64>,
 ) -> Result<(), Error> {
     require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-    if let Some(min) = min {
-        require_literal_range(value, min, None, label, span)?;
-    }
-    Ok(())
+    require_f32_literal_range(value, min.unwrap_or(f64::NEG_INFINITY), None, label, span)
 }

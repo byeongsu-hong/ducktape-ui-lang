@@ -68,7 +68,8 @@ fn constructs_window_capture_queries() {
     assert_eq!(app.__update(__TasksMessage::InspectWindowHandle).units(), 2);
 
     let pixels = vec![255, 0, 0, 255, 0, 255, 0, 255];
-    let _ = app.__update(__TasksMessage::WindowCaptured(pixels, 2, 1, 1.5));
+    let screenshot = iced::window::Screenshot::new(pixels, iced::Size::new(2, 1), 1.5);
+    let _ = app.__update(__TasksMessage::WindowCaptured(screenshot));
     let _ = app.__update(__TasksMessage::RawWindowIdRead("42".into()));
     assert!(app.snapshot_ready);
     assert_eq!((app.snapshot_width, app.snapshot_height), (2, 1));

@@ -1,5 +1,37 @@
 use super::*;
 
+pub(in crate::codegen) fn custom_style_call_code(
+    style: &ExternCall,
+    kind: ExternKind,
+    leading_args: &str,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<String, Error> {
+    let function = find_extern_function(document, &style.function, kind)
+        .expect("checker validates custom style");
+    let args = expr_args_suffix_code(&style.args, env, document)?;
+    Ok(format!("{}({leading_args}{args})", function.rust_path))
+}
+
+pub(in crate::codegen) fn append_f32_fields<'a>(
+    code: &mut String,
+    fields: impl IntoIterator<Item = (&'a Option<Expr>, &'a str)>,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<(), Error> {
+    for (value, field) in fields {
+        if let Some(value) = value {
+            write!(
+                code,
+                " {field} = {} as f32;",
+                expr_code(value, env, document, ValueMode::Owned)?
+            )
+            .unwrap();
+        }
+    }
+    Ok(())
+}
+
 pub(in crate::codegen) fn text_shaping_code(shaping: TextShaping) -> &'static str {
     match shaping {
         TextShaping::Auto => "Auto",
@@ -14,6 +46,23 @@ pub(in crate::codegen) fn text_wrapping_code(wrapping: TextWrapping) -> &'static
         TextWrapping::Word => "Word",
         TextWrapping::Glyph => "Glyph",
         TextWrapping::WordOrGlyph => "WordOrGlyph",
+    }
+}
+
+pub(in crate::codegen) fn text_line_height_code(
+    line_height: &TextLineHeight,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<String, Error> {
+    match line_height {
+        TextLineHeight::Relative(value) => Ok(format!(
+            "::iced::widget::text::LineHeight::Relative({})",
+            clamped_f32_code(value, "f32::EPSILON", "f32::MAX", env, document)?
+        )),
+        TextLineHeight::Absolute(value) => Ok(format!(
+            "::iced::widget::text::LineHeight::Absolute({}.into())",
+            clamped_f32_code(value, "f32::EPSILON", "f32::MAX", env, document)?
+        )),
     }
 }
 
@@ -141,11 +190,19 @@ pub(in crate::codegen) fn first_class_mouse_interaction_code(name: &str) -> Stri
 }
 
 pub(in crate::codegen) fn binding_variant(binding: &str) -> String {
-    format!("__Bind{}", pascal(binding))
+    if canonical_snake(binding) {
+        format!("__Bind{}", pascal(binding))
+    } else {
+        format!("__0B{}", rust_identifier_hex(binding))
+    }
 }
 
 pub(in crate::codegen) fn editor_variant(binding: &str) -> String {
-    format!("__Edit{}", pascal(binding))
+    if canonical_snake(binding) {
+        format!("__Edit{}", pascal(binding))
+    } else {
+        format!("__0E{}", rust_identifier_hex(binding))
+    }
 }
 
 pub(in crate::codegen) fn controlled_state_name(
@@ -199,6 +256,28 @@ pub(in crate::codegen) fn accessibility_key_code(
         || Ok(format!("format!(\"{{}}/@{kind}:{}\", {scope})", span.line)),
         |id| id_code(id, scope, env, document),
     )
+}
+
+pub(in crate::codegen) fn accessibility_code(
+    options: &AccessibilityOptions,
+    default_label: impl FnOnce() -> String,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<(String, String), Error> {
+    let label = options
+        .label
+        .as_ref()
+        .map(|value| expr_code(value, env, document, ValueMode::Owned))
+        .transpose()?
+        .unwrap_or_else(default_label);
+    let description = options
+        .description
+        .as_ref()
+        .map(|value| expr_code(value, env, document, ValueMode::Owned))
+        .transpose()?
+        .map(|value| format!(".description({value})"))
+        .unwrap_or_default();
+    Ok((label, description))
 }
 
 pub(in crate::codegen) fn widget_target_code(
@@ -265,19 +344,13 @@ pub(in crate::codegen) fn widget_selector_code(
             Some("__ice_widget_target_from_target"),
         )),
         WidgetSelector::Extern { function, args } => {
-            let function = document
-                .functions
-                .iter()
-                .find(|item| item.name == *function && item.kind == ExternKind::Selector)
+            let function = find_extern_function(document, function, ExternKind::Selector)
                 .expect("checker validates selectors");
             Ok((
                 format!(
                     "{}({})",
                     function.rust_path,
-                    args.iter()
-                        .map(|arg| expr_code(arg, env, document, ValueMode::Owned))
-                        .collect::<Result<Vec<_>, _>>()?
-                        .join(", ")
+                    expr_list_code(args, env, document)?
                 ),
                 None,
             ))

@@ -34,7 +34,7 @@ on file_dropped(path)
 on files_left
 
 view
-  canvas width=fill height=120.0 capture=true cursor=(cursor_state) cursor-outside=true
+  canvas w=fill h=120.0 capture=true cursor=(cursor_state) cursor-outside=true
     state
       cursor_state = "crosshair"
       move_count = 0
@@ -75,5 +75,5 @@ view
     event window file-hovered -> file_hovered _
     event window file-dropped -> file_dropped _
     event window files-hovered-left -> files_left
-    rect x=0.0 y=0.0 width=canvas_width height=canvas_height fill=bg
+    rect x=0.0 y=0.0 w=canvas_width h=canvas_height fill=bg
     text move_count x=8.0 y=20.0 color=fg size=14.0

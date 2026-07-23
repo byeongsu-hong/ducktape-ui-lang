@@ -109,7 +109,7 @@ on inspect
   radii_equal = built_radius == returned_radius
 
 view
-  col spacing=8.0 padding=16.0
+  col gap=8.0 p=16.0
     button "Inspect" -> inspect
     text border_width
     text top_left_value

@@ -138,16 +138,12 @@ pub(crate) fn controlled_state_bindings(
                     .iter()
                     .find(|item| item.name == *name)
                     .expect("checker validates component names");
-                let named = args.iter().any(|arg| arg.name.is_some());
                 let mut component_env = HashMap::new();
-                for (index, (param, _)) in component.params.iter().enumerate() {
-                    let arg = if named {
-                        args.iter()
-                            .find(|arg| arg.name.as_ref() == Some(param))
-                            .expect("checker validates named component arguments")
-                    } else {
-                        &args[index]
-                    };
+                for (param, _) in &component.params {
+                    let arg = args
+                        .iter()
+                        .find(|arg| &arg.name == param)
+                        .expect("checker validates named component arguments");
                     if let Expr::Path(path) = &arg.value
                         && path.len() == 1
                         && let Some(state) = env.get(&path[0])
@@ -306,6 +302,39 @@ pub(in crate::check) fn check_qr_data(document: &Document) -> Result<(), Error> 
                 "E136",
                 &qr.span,
                 "qr version must be normal(1..40) or micro(1..4)",
+            ));
+        }
+        let data = match &qr.data {
+            QrPayload::Text(value) => value.as_bytes(),
+            QrPayload::Bytes(value) => value.as_slice(),
+        };
+        let correction = match qr.correction.unwrap_or(QrCorrection::Medium) {
+            QrCorrection::Low => qrcode::EcLevel::L,
+            QrCorrection::Medium => qrcode::EcLevel::M,
+            QrCorrection::Quartile => qrcode::EcLevel::Q,
+            QrCorrection::High => qrcode::EcLevel::H,
+        };
+        let encoded = match qr.version {
+            Some(QrVersion::Normal(version)) => qrcode::QrCode::with_version(
+                data,
+                qrcode::Version::Normal(i16::from(version)),
+                correction,
+            ),
+            Some(QrVersion::Micro(version)) => qrcode::QrCode::with_version(
+                data,
+                qrcode::Version::Micro(i16::from(version)),
+                correction,
+            ),
+            None if qr.correction.is_some() => {
+                qrcode::QrCode::with_error_correction_level(data, correction)
+            }
+            None => qrcode::QrCode::new(data),
+        };
+        if let Err(error) = encoded {
+            return Err(Error::new(
+                "E136",
+                &qr.span,
+                format!("cannot encode qr data `{}`: {error}", qr.name),
             ));
         }
     }

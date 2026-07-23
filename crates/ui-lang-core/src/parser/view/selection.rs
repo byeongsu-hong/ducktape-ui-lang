@@ -23,55 +23,42 @@ pub(in crate::parser) fn parse_combo_box(
     let route = route_source.ok_or_else(|| error("E088", line, "combo requires `-> handler _`"))?;
     let mut options = ComboBoxOptions::default();
     for part in &parts[4..] {
-        if let Some(value) = part.strip_prefix("width=") {
+        if let Some(value) = part.strip_prefix("w=") {
             options.width = Some(parse_length(value, line)?);
-        } else if let Some(value) = part.strip_prefix("menu-height=") {
+        } else if let Some(value) = part.strip_prefix("menu-h=") {
             options.menu_height = Some(parse_length(value, line)?);
-        } else if let Some(value) = part.strip_prefix("padding=") {
+        } else if let Some(value) = part.strip_prefix("p=") {
             options.padding = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else if let Some(value) = part.strip_prefix("text-size=") {
             options.text_size = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("line-height=") {
+        } else if let Some(value) = part.strip_prefix("line-h=") {
             options.line_height = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("shaping=") {
+        } else if let Some(value) = part.strip_prefix("shape=") {
             options.shaping = Some(parse_text_shaping(value, line, "E088")?);
         } else if let Some(value) = part.strip_prefix("font=") {
             options.font = Some(parse_font_preset(value, line)?);
         } else if let Some(value) = part.strip_prefix("input=") {
-            let mut route = parse_route(value, line)?;
-            if route.args.is_empty() {
-                route.args.push(RouteArg::Payload);
-            }
-            options.input = Some(route);
+            options.input = Some(parse_payload_route(value, line, 1)?);
         } else if let Some(value) = part.strip_prefix("hover=") {
-            let mut route = parse_route(value, line)?;
-            if route.args.is_empty() {
-                route.args.push(RouteArg::Payload);
-            }
-            options.hover = Some(route);
+            options.hover = Some(parse_payload_route(value, line, 1)?);
         } else if let Some(value) = part.strip_prefix("open=") {
             options.open = Some(parse_route(value, line)?);
         } else if let Some(value) = part.strip_prefix("close=") {
             options.close = Some(parse_route(value, line)?);
         } else if let Some(value) = part.strip_prefix("style=") {
-            let (function, args) = parse_signature(value, line)
-                .map_err(|_| error("E088", line, "combo style must be a declared style call"))?;
-            options.custom_style = Some(ExternCall {
-                function,
-                args: parse_expr_list(&args, line)?,
-            });
+            options.custom_style = Some(parse_extern_call(
+                value,
+                line,
+                "E088",
+                "combo style must be a declared style call",
+            )?);
         } else if let Some(value) = part.strip_prefix("menu-style=") {
-            let (function, args) = parse_signature(value, line).map_err(|_| {
-                error(
-                    "E088",
-                    line,
-                    "combo menu style must be a declared style call",
-                )
-            })?;
-            options.custom_menu_style = Some(ExternCall {
-                function,
-                args: parse_expr_list(&args, line)?,
-            });
+            options.custom_menu_style = Some(parse_extern_call(
+                value,
+                line,
+                "E088",
+                "combo menu style must be a declared style call",
+            )?);
         } else {
             return Err(error(
                 "E088",
@@ -203,21 +190,17 @@ pub(in crate::parser) fn parse_text_input_icon(
     let mut side = IconSide::Left;
     for part in parts {
         if let Some(value) = part.strip_prefix("code=") {
-            let value = string_literal(value, line)?;
-            let mut chars = value.chars();
-            code_point = chars.next();
-            if code_point.is_none() || chars.next().is_some() {
-                return Err(error(
-                    code,
-                    line,
-                    format!("{widget} icon code must contain one character"),
-                ));
-            }
+            code_point = Some(parse_char_literal(
+                value,
+                line,
+                code,
+                format!("{widget} icon code must contain one character"),
+            )?);
         } else if let Some(value) = part.strip_prefix("font=") {
             font = Some(parse_font_preset(value, line)?);
         } else if let Some(value) = part.strip_prefix("size=") {
             size = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("spacing=") {
+        } else if let Some(value) = part.strip_prefix("gap=") {
             spacing = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else if let Some(value) = part.strip_prefix("side=") {
             side = match value {
@@ -273,19 +256,19 @@ pub(in crate::parser) fn parse_pick_list(
     let route = route_source.ok_or_else(|| error("E087", line, "pick requires `-> handler _`"))?;
     let mut config = PickListOptions::default();
     for part in &parts[3..] {
-        if let Some(value) = part.strip_prefix("placeholder=") {
+        if let Some(value) = part.strip_prefix("hint=") {
             config.placeholder = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("width=") {
+        } else if let Some(value) = part.strip_prefix("w=") {
             config.width = Some(parse_length(value, line)?);
-        } else if let Some(value) = part.strip_prefix("menu-height=") {
+        } else if let Some(value) = part.strip_prefix("menu-h=") {
             config.menu_height = Some(parse_length(value, line)?);
-        } else if let Some(value) = part.strip_prefix("padding=") {
+        } else if let Some(value) = part.strip_prefix("p=") {
             config.padding = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else if let Some(value) = part.strip_prefix("text-size=") {
             config.text_size = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("line-height=") {
+        } else if let Some(value) = part.strip_prefix("line-h=") {
             config.line_height = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("shaping=") {
+        } else if let Some(value) = part.strip_prefix("shape=") {
             config.shaping = Some(parse_text_shaping(value, line, "E087")?);
         } else if let Some(value) = part.strip_prefix("font=") {
             config.font = Some(parse_font_preset(value, line)?);
@@ -294,24 +277,19 @@ pub(in crate::parser) fn parse_pick_list(
         } else if let Some(value) = part.strip_prefix("close=") {
             config.close = Some(parse_route(value, line)?);
         } else if let Some(value) = part.strip_prefix("style=") {
-            let (function, args) = parse_signature(value, line)
-                .map_err(|_| error("E087", line, "pick style must be a declared style call"))?;
-            config.custom_style = Some(ExternCall {
-                function,
-                args: parse_expr_list(&args, line)?,
-            });
+            config.custom_style = Some(parse_extern_call(
+                value,
+                line,
+                "E087",
+                "pick style must be a declared style call",
+            )?);
         } else if let Some(value) = part.strip_prefix("menu-style=") {
-            let (function, args) = parse_signature(value, line).map_err(|_| {
-                error(
-                    "E087",
-                    line,
-                    "pick menu style must be a declared style call",
-                )
-            })?;
-            config.custom_menu_style = Some(ExternCall {
-                function,
-                args: parse_expr_list(&args, line)?,
-            });
+            config.custom_menu_style = Some(parse_extern_call(
+                value,
+                line,
+                "E087",
+                "pick menu style must be a declared style call",
+            )?);
         } else {
             return Err(error(
                 "E087",
@@ -535,23 +513,19 @@ pub(in crate::parser) fn parse_pick_list_icon(
     let mut shaping = None;
     for part in parts {
         if let Some(value) = part.strip_prefix("code=") {
-            let value = string_literal(value, line)?;
-            let mut chars = value.chars();
-            code_point = chars.next();
-            if code_point.is_none() || chars.next().is_some() {
-                return Err(error(
-                    "E087",
-                    line,
-                    "pick handle code must contain one character",
-                ));
-            }
+            code_point = Some(parse_char_literal(
+                value,
+                line,
+                "E087",
+                "pick handle code must contain one character",
+            )?);
         } else if let Some(value) = part.strip_prefix("font=") {
             font = Some(parse_font_preset(value, line)?);
         } else if let Some(value) = part.strip_prefix("size=") {
             size = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("line-height=") {
+        } else if let Some(value) = part.strip_prefix("line-h=") {
             line_height = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("shaping=") {
+        } else if let Some(value) = part.strip_prefix("shape=") {
             shaping = Some(parse_text_shaping(value, line, "E087")?);
         } else {
             return Err(error(

@@ -29,46 +29,20 @@ pub(in crate::check) fn check_id(
     Ok(())
 }
 
-// Style ownership vocabulary (availability and precedence are target-specific):
-//
-// | Property key             | Canonical owner          | Compatibility owner       |
-// |--------------------------|--------------------------|---------------------------|
-// | layout.width             | width=                   | @w-full                   |
-// | layout.height            | height=                  | @h-full                   |
-// | layout.max_width         | max-width=               | @max-w-*                  |
-// | layout.spacing           | spacing=                 | @gap-*                    |
-// | layout.padding.*         | padding[-side]=          | @p-*/px-*/py-*            |
-// | layout.cross_alignment   | align=                   | @items-center             |
-// | layout.self_alignment    | (no typed form yet)      | @self-center              |
-// | text.size                | size=/text-size=         | @text-xs/.../text-2xl     |
-// | text.weight              | @font-bold               | font= descriptor          |
-// | surface.background       | @bg-TOKEN                | property/status/callback  |
-// | surface.text_color       | @text-TOKEN              | property/status/callback  |
-// | surface.border_width     | border-w=                | @border/@border-2         |
-// | surface.border_color     | @border-TOKEN            | property/status/callback  |
-// | surface.radius.*         | r[-corner]=              | @rounded-*                |
-// | button state background  | @hover:bg-/pressed:bg-   | button status background  |
-// | input focused border     | @focus:border-*          | input focused border      |
-// | button disabled opacity  | @disabled:opacity-*      | (no typed form)           |
-//
-// Current lowering order is container callback -> utilities -> typed fields; input callback ->
+// Current lowering order is box callback -> utilities -> typed fields; input callback ->
 // utilities -> typed builder/status fields; and button preset/callback -> utilities -> typed
-// builder/status fields. Explicit text size wins over @text-*; font= and @font-bold compose, with
-// the utility selecting bold weight. Layout utilities may style an outer wrapper, sometimes in
-// addition to the inner widget (stack sizing), so they have no global precedence. Utility
-// collisions resolve in source order. A top-level `preset` is boot/state data, not a reusable
-// visual style.
+// builder/status fields. font= and @font-bold compose, with the utility selecting bold weight.
+// Layout utilities may style an outer wrapper, sometimes in addition to the inner widget (stack
+// sizing), so they have no global precedence. A top-level `preset` is boot/state data, not a
+// reusable visual style.
 #[derive(Clone, Copy)]
 pub(in crate::check) enum StyleTarget<'a> {
     Layout(Layout, &'a LayoutOptions),
     Container(&'a ContainerOptions),
     PaneContent(&'a ContainerStyleOptions),
     PaneTitle(&'a ContainerStyleOptions),
-    Text(&'a TextOptions),
-    RichText {
-        options: &'a TextOptions,
-        typed_color: bool,
-    },
+    Text,
+    RichText { typed_color: bool },
     RichSpan(&'a RichSpanOptions),
     Input(&'a InputOptions),
     Button(&'a ButtonOptions),
@@ -89,6 +63,24 @@ pub(in crate::check) fn valid_theme_color(value: &str, document: &Document) -> b
         && opacity.is_none_or(|opacity| opacity.parse::<u8>().is_ok_and(|opacity| opacity <= 100))
 }
 
+pub(in crate::check) fn require_theme_color(
+    value: &str,
+    document: &Document,
+    span: &Span,
+    code: &'static str,
+    label: &str,
+) -> Result<(), Error> {
+    if valid_theme_color(value, document) {
+        Ok(())
+    } else {
+        Err(Error::new(
+            code,
+            span,
+            format!("unknown {label} color `{value}`"),
+        ))
+    }
+}
+
 pub(in crate::check) fn check_styles(
     styles: &[String],
     document: &Document,
@@ -98,14 +90,18 @@ pub(in crate::check) fn check_styles(
     let spacing = [
         "0", "1", "2", "3", "4", "5", "6", "8", "10", "12", "16", "20", "24",
     ];
-    let is_linear = matches!(target, StyleTarget::Layout(Layout::Column | Layout::Row, _));
-    let is_box = matches!(
+    let is_css_flex = matches!(
+        target,
+        StyleTarget::Layout(_, options) if options.flexbox.is_some()
+    );
+    let is_layout_box = matches!(
         target,
         StyleTarget::Layout(
             Layout::Column | Layout::Row | Layout::Grid | Layout::Stack,
             _
-        ) | StyleTarget::Container(_)
+        )
     );
+    let is_box = is_layout_box || matches!(target, StyleTarget::Container(_));
     let is_visual_box = is_box
         || matches!(
             target,
@@ -117,10 +113,10 @@ pub(in crate::check) fn check_styles(
         StyleTarget::Layout(Layout::Scroll, _) => "scroll",
         StyleTarget::Layout(Layout::Grid, _) => "grid",
         StyleTarget::Layout(Layout::Stack, _) => "stack",
-        StyleTarget::Container(_) => "container",
+        StyleTarget::Container(_) => "box",
         StyleTarget::PaneContent(_) => "pane",
         StyleTarget::PaneTitle(_) => "pane title",
-        StyleTarget::Text(_) | StyleTarget::RichText { .. } | StyleTarget::RichSpan(_) => "text",
+        StyleTarget::Text | StyleTarget::RichText { .. } | StyleTarget::RichSpan(_) => "text",
         StyleTarget::Input(_) => "input",
         StyleTarget::Button(_) => "button",
         StyleTarget::Checkbox => "checkbox",
@@ -156,14 +152,7 @@ pub(in crate::check) fn check_styles(
                 | "max-w-lg"
                 | "max-w-xl"
                 | "max-w-2xl"
-                | "items-center"
                 | "self-center"
-                | "text-xs"
-                | "text-sm"
-                | "text-base"
-                | "text-lg"
-                | "text-xl"
-                | "text-2xl"
                 | "font-bold"
                 | "border"
                 | "border-2"
@@ -198,39 +187,38 @@ pub(in crate::check) fn check_styles(
             }
             Some(_) => false,
             None => match utility {
-                "w-full" => matches!(
-                    target,
-                    StyleTarget::Layout(_, _) | StyleTarget::Container(_) | StyleTarget::Input(_)
-                ),
-                "h-full" => {
+                "w-full" | "h-full" => {
                     matches!(
                         target,
-                        StyleTarget::Layout(_, _) | StyleTarget::Container(_)
-                    )
+                        StyleTarget::Layout(
+                            Layout::Column | Layout::Row | Layout::Grid | Layout::Stack,
+                            _
+                        )
+                    ) && !is_css_flex
                 }
-                "max-w-sm" | "max-w-md" | "max-w-lg" | "max-w-xl" | "max-w-2xl" | "self-center" => {
-                    is_box
+                "max-w-sm" | "max-w-md" | "max-w-lg" | "max-w-xl" | "max-w-2xl" => {
+                    is_layout_box && !is_css_flex
                 }
-                "items-center" => is_linear,
-                "text-xs" | "text-sm" | "text-base" | "text-lg" | "text-xl" | "text-2xl"
-                | "font-bold" => matches!(
+                "self-center" => is_layout_box && !is_css_flex,
+                "font-bold" => matches!(
                     target,
-                    StyleTarget::Text(_) | StyleTarget::RichText { .. } | StyleTarget::RichSpan(_)
+                    StyleTarget::Text | StyleTarget::RichText { .. } | StyleTarget::RichSpan(_)
                 ),
-                "border" | "border-2" => is_visual_box || matches!(target, StyleTarget::Input(_)),
+                "border" | "border-2" => is_layout_box || matches!(target, StyleTarget::Input(_)),
                 "rounded-sm" | "rounded" | "rounded-md" | "rounded-lg" | "rounded-full" => {
-                    is_visual_box
+                    is_layout_box
                         || matches!(target, StyleTarget::Input(_) | StyleTarget::Button(_))
                 }
-                _ if utility.starts_with("gap-") => {
-                    is_linear || matches!(target, StyleTarget::Layout(Layout::Grid, _))
+                _ if utility.starts_with("gap-") => false,
+                _ if utility.starts_with("p-") => {
+                    matches!(target, StyleTarget::Layout(Layout::Grid | Layout::Stack, _))
                 }
-                _ if utility.starts_with("p-")
-                    || utility.starts_with("px-")
-                    || utility.starts_with("py-") =>
-                {
-                    is_box || matches!(target, StyleTarget::Input(_) | StyleTarget::Button(_))
-                }
+                _ if utility.starts_with("px-") || utility.starts_with("py-") => matches!(
+                    target,
+                    StyleTarget::Layout(Layout::Grid | Layout::Stack, _)
+                        | StyleTarget::Input(_)
+                        | StyleTarget::Button(_)
+                ),
                 _ if utility.starts_with("bg-") => {
                     is_visual_box
                         || matches!(target, StyleTarget::Input(_) | StyleTarget::Button(_))
@@ -239,7 +227,7 @@ pub(in crate::check) fn check_styles(
                     is_visual_box
                         || matches!(
                             target,
-                            StyleTarget::Text(_)
+                            StyleTarget::Text
                                 | StyleTarget::RichText { .. }
                                 | StyleTarget::RichSpan(_)
                                 | StyleTarget::Button(_)
@@ -283,7 +271,7 @@ pub(in crate::check) fn check_styles(
         return Err(Error::new(
             "E044",
             span,
-            "border colors require `border-w=` (or deprecated `@border`/`@border-2`) on the same node",
+            "border colors require `border-w=` on the same node",
         ));
     }
     let has_radius = styles
@@ -312,158 +300,58 @@ fn check_style_ownership(
 ) -> Result<(), Error> {
     match target {
         StyleTarget::Layout(kind, options) => match kind {
-            Layout::Scroll => {
-                let scroll = options.scroll.as_ref().expect("scroll options");
-                reject_duplicate_style_property(
-                    span,
-                    scroll.width.is_some(),
-                    "width",
-                    "width=",
-                    true,
-                    last_utility(styles, None, |utility| utility == "w-full"),
-                )?;
-                reject_duplicate_style_property(
-                    span,
-                    scroll.height.is_some(),
-                    "height",
-                    "height=",
-                    true,
-                    last_utility(styles, None, |utility| utility == "h-full"),
-                )?;
-            }
-            Layout::Column | Layout::Row => {
-                reject_duplicate_style_property(
-                    span,
-                    options.spacing.is_some(),
-                    "spacing",
-                    "spacing=",
-                    true,
-                    last_utility(styles, None, |utility| utility.starts_with("gap-")),
-                )?;
-                reject_duplicate_style_property(
-                    span,
-                    has_padding(&options.padding),
-                    "padding",
-                    "padding=",
-                    true,
-                    last_utility(styles, None, is_padding_utility),
-                )?;
-                reject_duplicate_style_property(
-                    span,
-                    options.align.is_some()
-                        || options
-                            .flexbox
-                            .as_ref()
-                            .is_some_and(|flexbox| flexbox.align_items.is_some()),
-                    "alignment",
-                    "align=",
-                    true,
-                    last_utility(styles, None, |utility| utility == "items-center"),
-                )?;
-            }
-            Layout::Grid => reject_duplicate_style_property(
-                span,
-                options.spacing.is_some(),
-                "spacing",
-                "spacing=",
-                true,
-                last_utility(styles, None, |utility| utility.starts_with("gap-")),
-            )?,
+            Layout::Scroll | Layout::Column | Layout::Row | Layout::Grid => {}
             Layout::Stack => {
                 reject_stack_size_overlap(
                     span,
                     options.width.is_some(),
                     "width",
-                    "width=",
+                    "w=",
                     last_utility(styles, None, |utility| utility == "w-full"),
                 )?;
                 reject_stack_size_overlap(
                     span,
                     options.height.is_some(),
                     "height",
-                    "height=",
+                    "h=",
                     last_utility(styles, None, |utility| utility == "h-full"),
                 )?;
             }
         },
         StyleTarget::Container(options) => {
-            for (typed, property, owner, utility) in [
-                (
-                    options.width.is_some(),
-                    "width",
-                    "width=",
-                    last_utility(styles, None, |utility| utility == "w-full"),
-                ),
-                (
-                    options.height.is_some(),
-                    "height",
-                    "height=",
-                    last_utility(styles, None, |utility| utility == "h-full"),
-                ),
-                (
-                    options.max_width.is_some(),
-                    "max-width",
-                    "max-width=",
-                    last_utility(styles, None, |utility| utility.starts_with("max-w-")),
-                ),
-                (
-                    has_padding(&options.padding),
-                    "padding",
-                    "padding=",
-                    last_utility(styles, None, is_padding_utility),
-                ),
-            ] {
-                reject_duplicate_style_property(span, typed, property, owner, true, utility)?;
-            }
             check_direct_surface_ownership(styles, span, &options.style)?;
         }
         StyleTarget::PaneContent(style) | StyleTarget::PaneTitle(style) => {
             check_direct_surface_ownership(styles, span, style)?;
         }
-        StyleTarget::Text(options) => {
-            check_text_size_ownership(styles, span, options.size.is_some())?;
-        }
-        StyleTarget::RichText {
-            options,
-            typed_color,
-        } => {
-            check_text_size_ownership(styles, span, options.size.is_some())?;
+        StyleTarget::Text => {}
+        StyleTarget::RichText { typed_color, .. } => {
             reject_duplicate_style_property(
                 span,
                 typed_color,
                 "text color",
                 "color=",
-                false,
                 last_utility(styles, None, is_text_color_utility),
             )?;
         }
         StyleTarget::RichSpan(options) => {
-            check_text_size_ownership(styles, span, options.size.is_some())?;
             reject_duplicate_style_property(
                 span,
                 options.color.is_some(),
                 "text color",
                 "color=",
-                false,
                 last_utility(styles, None, is_text_color_utility),
             )?;
         }
         StyleTarget::Input(options) => {
             reject_duplicate_style_property(
                 span,
-                options.width.is_some(),
-                "width",
-                "width=",
-                true,
-                last_utility(styles, None, |utility| utility == "w-full"),
-            )?;
-            reject_duplicate_style_property(
-                span,
                 options.padding.is_some(),
                 "padding",
-                "padding=",
-                true,
-                last_utility(styles, None, is_padding_utility),
+                "p=",
+                last_utility(styles, None, |utility| {
+                    utility.starts_with("px-") || utility.starts_with("py-")
+                }),
             )?;
             for (name, status, focused) in [
                 ("active", &options.style.active, false),
@@ -482,9 +370,10 @@ fn check_style_ownership(
                 span,
                 options.padding.is_some(),
                 "padding",
-                "padding=",
-                true,
-                last_utility(styles, None, is_padding_utility),
+                "p=",
+                last_utility(styles, None, |utility| {
+                    utility.starts_with("px-") || utility.starts_with("py-")
+                }),
             )?;
             for (name, status) in [
                 ("active", &options.style.active),
@@ -508,17 +397,6 @@ fn check_style_ownership(
     Ok(())
 }
 
-fn check_text_size_ownership(styles: &[String], span: &Span, typed: bool) -> Result<(), Error> {
-    reject_duplicate_style_property(
-        span,
-        typed,
-        "text size",
-        "size=",
-        true,
-        last_utility(styles, None, is_text_size_utility),
-    )
-}
-
 fn check_direct_surface_ownership(
     styles: &[String],
     span: &Span,
@@ -538,27 +416,13 @@ fn check_direct_surface_ownership(
             last_utility(styles, None, is_text_color_utility),
         ),
         (
-            style.border_width.is_some(),
-            "border width",
-            "border-w=",
-            last_utility(styles, None, |utility| {
-                matches!(utility, "border" | "border-2")
-            }),
-        ),
-        (
             style.border_color.is_some(),
             "border color",
             "border=",
             last_utility(styles, None, is_border_color_utility),
         ),
-        (
-            has_radius(style),
-            "radius",
-            "r=",
-            last_utility(styles, None, |utility| utility.starts_with("rounded")),
-        ),
     ] {
-        reject_duplicate_style_property(span, typed, property, owner, false, utility)?;
+        reject_duplicate_style_property(span, typed, property, owner, utility)?;
     }
     Ok(())
 }
@@ -610,7 +474,7 @@ fn check_input_status_ownership(
     for (typed, property, owner, utility) in owners {
         let property = format!("{status} {property}");
         let owner = format!("{status} {owner}");
-        reject_duplicate_style_property(span, typed, &property, &owner, false, utility)?;
+        reject_duplicate_style_property(span, typed, &property, &owner, utility)?;
     }
     Ok(())
 }
@@ -653,7 +517,7 @@ fn check_button_status_ownership(
     ] {
         let property = format!("{status} {property}");
         let owner = format!("{status} {owner}");
-        reject_duplicate_style_property(span, typed, &property, &owner, false, utility)?;
+        reject_duplicate_style_property(span, typed, &property, &owner, utility)?;
     }
     Ok(())
 }
@@ -663,23 +527,19 @@ fn reject_duplicate_style_property(
     typed: bool,
     property: &str,
     typed_owner: &str,
-    typed_is_canonical: bool,
     utility: Option<&str>,
 ) -> Result<(), Error> {
     let Some(utility) = utility.filter(|_| typed) else {
         return Ok(());
-    };
-    let hint = if typed_is_canonical {
-        format!("remove `@{utility}`; `{typed_owner}` is the canonical spelling")
-    } else {
-        format!("choose one owner; `{typed_owner}` currently overrides `@{utility}` on this node")
     };
     Err(Error::new(
         "E045",
         span,
         format!("style property `{property}` is set by both `{typed_owner}` and `@{utility}`"),
     )
-    .hint(hint))
+    .hint(format!(
+        "choose one owner; `{typed_owner}` currently overrides `@{utility}` on this node"
+    )))
 }
 
 fn reject_stack_size_overlap(
@@ -717,43 +577,20 @@ fn last_utility<'a>(
     })
 }
 
-fn has_padding(padding: &PaddingOptions) -> bool {
-    padding.all.is_some()
-        || padding.x.is_some()
-        || padding.y.is_some()
-        || padding.top.is_some()
-        || padding.right.is_some()
-        || padding.bottom.is_some()
-        || padding.left.is_some()
-}
-
-fn has_radius(style: &ContainerStyleOptions) -> bool {
-    style.radius.is_some()
-        || style.radius_top_left.is_some()
-        || style.radius_top_right.is_some()
-        || style.radius_bottom_right.is_some()
-        || style.radius_bottom_left.is_some()
-}
-
-fn is_padding_utility(utility: &str) -> bool {
-    ["p-", "px-", "py-"]
-        .iter()
-        .any(|prefix| utility.starts_with(prefix))
-}
-
-fn is_text_size_utility(utility: &str) -> bool {
-    matches!(
-        utility,
-        "text-xs" | "text-sm" | "text-base" | "text-lg" | "text-xl" | "text-2xl"
-    )
-}
-
 fn is_text_color_utility(utility: &str) -> bool {
-    utility.starts_with("text-") && !is_text_size_utility(utility)
+    utility.starts_with("text-")
 }
 
 fn is_border_color_utility(utility: &str) -> bool {
     utility.starts_with("border-") && utility != "border-2"
+}
+
+fn has_radius(options: &ContainerStyleOptions) -> bool {
+    options.radius.is_some()
+        || options.radius_top_left.is_some()
+        || options.radius_top_right.is_some()
+        || options.radius_bottom_right.is_some()
+        || options.radius_bottom_left.is_some()
 }
 
 pub(in crate::check) fn base_utility(style: &str) -> &str {

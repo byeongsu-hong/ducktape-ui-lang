@@ -109,6 +109,7 @@ pub(in crate::parser) fn parse_app_settings(line: &Line) -> Result<AppSettings, 
                 let path = string_literal(value, item)?;
                 if path.is_empty()
                     || path.contains('\\')
+                    || crate::has_windows_drive_prefix(&path)
                     || std::path::Path::new(&path).is_absolute()
                 {
                     return Err(error(
@@ -125,10 +126,10 @@ pub(in crate::parser) fn parse_app_settings(line: &Line) -> Result<AppSettings, 
                     span: Span::line(item.number),
                 });
             }
-            "default-text-size" => set!(default_text_size, config_positive_number(value, item)?),
+            "text-size" => set!(default_text_size, config_positive_number(value, item)?),
             "antialiasing" => set!(antialiasing, config_bool(value, item)?),
             "vsync" => set!(vsync, config_bool(value, item)?),
-            "scale-factor" => set!(scale_factor, app_number_expression(value, item)?),
+            "scale" => set!(scale_factor, app_number_expression(value, item)?),
             _ => {
                 return Err(error("E014", item, format!("unknown app setting `{name}`")));
             }
@@ -236,7 +237,7 @@ pub(in crate::parser) fn parse_window_settings(line: &Line) -> Result<WindowSett
                 }
             ),
             "icon-rgba" => set!(icon, config_window_icon(value, item)?),
-            "exit-on-close-request" => {
+            "exit-on-close" => {
                 set!(exit_on_close_request, config_bool(value, item)?)
             }
             _ => {
@@ -272,7 +273,7 @@ pub(in crate::parser) fn parse_linux_window_settings(
         };
         let value = value.trim();
         match name {
-            "application-id" => set_setting(
+            "app-id" => set_setting(
                 &mut settings.application_id,
                 string_literal(value, item)?,
                 name,
@@ -432,7 +433,11 @@ pub(in crate::parser) fn config_window_icon(
         ));
     }
     let path = string_literal(&parts[0], line)?;
-    if path.is_empty() || path.contains('\\') || std::path::Path::new(&path).is_absolute() {
+    if path.is_empty()
+        || path.contains('\\')
+        || crate::has_windows_drive_prefix(&path)
+        || std::path::Path::new(&path).is_absolute()
+    {
         return Err(error(
             "E015",
             line,
@@ -454,13 +459,9 @@ pub(in crate::parser) fn config_window_icon(
     };
     let width = dimension(&parts[1])?;
     let height = dimension(&parts[2])?;
-    let byte_len = usize::try_from(width)
-        .ok()
-        .and_then(|width| {
-            usize::try_from(height)
-                .ok()
-                .and_then(|height| width.checked_mul(height))
-        })
+    let byte_len = width
+        .checked_mul(height)
+        .and_then(|pixels| usize::try_from(pixels).ok())
         .and_then(|pixels| pixels.checked_mul(4))
         .ok_or_else(|| error("E015", line, "window icon dimensions are too large"))?;
     Ok(WindowIcon {
@@ -497,8 +498,14 @@ pub(in crate::parser) fn config_number(source: &str, line: &Line) -> Result<f64,
     source
         .parse::<f64>()
         .ok()
-        .filter(|value| value.is_finite())
-        .ok_or_else(|| error("E015", line, "setting expects a finite number"))
+        .filter(|value| value.is_finite() && (*value as f32).is_finite())
+        .ok_or_else(|| {
+            error(
+                "E015",
+                line,
+                "setting expects a finite number within the f32 range",
+            )
+        })
 }
 
 pub(in crate::parser) fn config_positive_number(source: &str, line: &Line) -> Result<f64, Error> {
@@ -563,6 +570,13 @@ pub(in crate::parser) fn parse_font(source: &str, line: &Line) -> Result<FontDec
             .ok_or_else(|| error("E013", line, "font requires a name"))?,
         line,
     )?;
+    if matches!(name.as_str(), "default" | "mono") {
+        return Err(error(
+            "E013",
+            line,
+            format!("font name `{name}` is built in and cannot be redeclared"),
+        ));
+    }
     let mut family = FontFamily::Named(name.clone());
     let mut weight = FontWeight::Normal;
     let mut stretch = FontStretch::Normal;

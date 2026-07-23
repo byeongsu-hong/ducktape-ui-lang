@@ -54,10 +54,10 @@ pub(in crate::codegen) fn canvas_commands_code(
                 ..
             } => {
                 let point = canvas_point_code(x, y, env, document)?;
-                let radius = canvas_expr_code(radius, env, document)?;
+                let radius = clamped_f32_code(radius, "0.0", "f32::MAX", env, document)?;
                 write!(
                     code,
-                    " {{ let __path = ::iced::widget::canvas::Path::circle({point}, {radius} as f32); {} }}",
+                    " {{ let __path = ::iced::widget::canvas::Path::circle({point}, {radius}); {} }}",
                     canvas_paint_code(paint, "&__path", env, document)?
                 )
                 .unwrap();
@@ -93,14 +93,7 @@ pub(in crate::codegen) fn canvas_commands_code(
                 shaping,
                 span,
             } => {
-                let ty = expr_type(
-                    value,
-                    &env.iter()
-                        .map(|(name, binding)| (name.clone(), binding.ty.clone()))
-                        .collect(),
-                    document,
-                    span,
-                )?;
+                let ty = expr_type(value, &env_types(env), document, span)?;
                 let value = expr_code(value, env, document, ValueMode::Owned)?;
                 let content = if ty == Type::Str {
                     value
@@ -110,26 +103,26 @@ pub(in crate::codegen) fn canvas_commands_code(
                 let position = canvas_point_code(x, y, env, document)?;
                 let max_width = max_width
                     .as_ref()
-                    .map(|value| canvas_expr_code(value, env, document))
+                    .map(|value| clamped_f32_code(value, "0.0", "f32::MAX", env, document))
                     .transpose()?
-                    .map_or_else(|| "f32::INFINITY".into(), |value| format!("{value} as f32"));
+                    .unwrap_or_else(|| "f32::INFINITY".into());
                 let color = color.as_ref().map_or_else(
                     || theme_color(document, "fg"),
                     |color| theme_color(document, color),
                 );
                 let size = size
                     .as_ref()
-                    .map(|value| canvas_expr_code(value, env, document))
+                    .map(|value| clamped_f32_code(value, "f32::EPSILON", "f32::MAX", env, document))
                     .transpose()?
                     .unwrap_or_else(|| "16.0".into());
                 let line_height = match line_height {
                     Some(TextLineHeight::Relative(value)) => format!(
-                        "::iced::widget::text::LineHeight::Relative({} as f32)",
-                        canvas_expr_code(value, env, document)?
+                        "::iced::widget::text::LineHeight::Relative({})",
+                        clamped_f32_code(value, "f32::EPSILON", "f32::MAX", env, document)?
                     ),
                     Some(TextLineHeight::Absolute(value)) => format!(
-                        "::iced::widget::text::LineHeight::Absolute(::iced::Pixels({} as f32))",
-                        canvas_expr_code(value, env, document)?
+                        "::iced::widget::text::LineHeight::Absolute(::iced::Pixels({}))",
+                        clamped_f32_code(value, "f32::EPSILON", "f32::MAX", env, document)?
                     ),
                     None => "::iced::widget::text::LineHeight::default()".into(),
                 };
@@ -147,7 +140,7 @@ pub(in crate::codegen) fn canvas_commands_code(
                 let shaping = shaping.map_or("Auto", text_shaping_code);
                 write!(
                     code,
-                    " __frame.fill_text(::iced::widget::canvas::Text {{ content: {content}, position: {position}, max_width: {max_width}, color: {color}, size: ::iced::Pixels({size} as f32), line_height: {line_height}, font: {font}, align_x: ::iced::widget::text::Alignment::{align_x}, align_y: ::iced::alignment::Vertical::{align_y}, shaping: ::iced::widget::text::Shaping::{shaping} }});"
+                    " __frame.fill_text(::iced::widget::canvas::Text {{ content: {content}, position: {position}, max_width: {max_width}, color: {color}, size: ::iced::Pixels({size}), line_height: {line_height}, font: {font}, align_x: ::iced::widget::text::Alignment::{align_x}, align_y: ::iced::alignment::Vertical::{align_y}, shaping: ::iced::widget::text::Shaping::{shaping} }});"
                 )
                 .unwrap();
             }
@@ -164,14 +157,7 @@ pub(in crate::codegen) fn canvas_commands_code(
                 radius,
                 span,
             } => {
-                let source_ty = expr_type(
-                    source,
-                    &env.iter()
-                        .map(|(name, binding)| (name.clone(), binding.ty.clone()))
-                        .collect(),
-                    document,
-                    span,
-                )?;
+                let source_ty = expr_type(source, &env_types(env), document, span)?;
                 let source = expr_code(source, env, document, ValueMode::Owned)?;
                 let handle = if source_ty == Type::Str {
                     format!("::iced::widget::image::Handle::from_path({source})")
@@ -184,12 +170,12 @@ pub(in crate::codegen) fn canvas_commands_code(
                 };
                 write!(
                     code,
-                    " __frame.draw_image(::iced::Rectangle::new({}, {}), ::iced::widget::canvas::Image {{ handle: {handle}, filter_method: ::iced::widget::image::FilterMethod::{filter}, rotation: ::iced::Radians({} as f32), border_radius: {}, opacity: {} as f32, snap: {} }});",
+                    " __frame.draw_image(::iced::Rectangle::new({}, {}), ::iced::widget::canvas::Image {{ handle: {handle}, filter_method: ::iced::widget::image::FilterMethod::{filter}, rotation: ::iced::Radians({} as f32), border_radius: {}, opacity: {}, snap: {} }});",
                     canvas_point_code(x, y, env, document)?,
                     canvas_size_code(width, height, env, document)?,
                     canvas_expr_code(rotation, env, document)?,
                     canvas_radius_code(radius, env, document)?,
-                    canvas_expr_code(opacity, env, document)?,
+                    clamped_f32_code(opacity, "0.0", "1.0", env, document)?,
                     canvas_expr_code(snap, env, document)?
                 )
                 .unwrap();
@@ -206,14 +192,7 @@ pub(in crate::codegen) fn canvas_commands_code(
                 opacity,
                 span,
             } => {
-                let source_ty = expr_type(
-                    source,
-                    &env.iter()
-                        .map(|(name, binding)| (name.clone(), binding.ty.clone()))
-                        .collect(),
-                    document,
-                    span,
-                )?;
+                let source_ty = expr_type(source, &env_types(env), document, span)?;
                 let source = expr_code(source, env, document, ValueMode::Owned)?;
                 let handle = if *memory && source_ty == Type::Bytes {
                     format!("::iced::advanced::svg::Handle::from_memory({source})")
@@ -233,11 +212,11 @@ pub(in crate::codegen) fn canvas_commands_code(
                 );
                 write!(
                     code,
-                    " __frame.draw_svg(::iced::Rectangle::new({}, {}), ::iced::advanced::svg::Svg {{ handle: {handle}, color: {color}, rotation: ::iced::Radians({} as f32), opacity: {} as f32 }});",
+                    " __frame.draw_svg(::iced::Rectangle::new({}, {}), ::iced::advanced::svg::Svg {{ handle: {handle}, color: {color}, rotation: ::iced::Radians({} as f32), opacity: {} }});",
                     canvas_point_code(x, y, env, document)?,
                     canvas_size_code(width, height, env, document)?,
                     canvas_expr_code(rotation, env, document)?,
-                    canvas_expr_code(opacity, env, document)?
+                    clamped_f32_code(opacity, "0.0", "1.0", env, document)?
                 )
                 .unwrap();
             }
@@ -289,8 +268,8 @@ pub(in crate::codegen) fn canvas_commands_code(
                 if let Some(value) = &transform.scale {
                     write!(
                         body,
-                        " __frame.scale({} as f32);",
-                        canvas_expr_code(value, env, document)?
+                        " __frame.scale({});",
+                        clamped_f32_code(value, "f32::EPSILON", "f32::MAX", env, document)?
                     )
                     .unwrap();
                 }
@@ -298,18 +277,22 @@ pub(in crate::codegen) fn canvas_commands_code(
                     let x = transform
                         .scale_x
                         .as_ref()
-                        .map(|value| canvas_expr_code(value, env, document))
+                        .map(|value| {
+                            clamped_f32_code(value, "f32::EPSILON", "f32::MAX", env, document)
+                        })
                         .transpose()?
                         .unwrap_or_else(|| "1.0".into());
                     let y = transform
                         .scale_y
                         .as_ref()
-                        .map(|value| canvas_expr_code(value, env, document))
+                        .map(|value| {
+                            clamped_f32_code(value, "f32::EPSILON", "f32::MAX", env, document)
+                        })
                         .transpose()?
                         .unwrap_or_else(|| "1.0".into());
                     write!(
                         body,
-                        " __frame.scale_nonuniform(::iced::Vector::new({x} as f32, {y} as f32));"
+                        " __frame.scale_nonuniform(::iced::Vector::new({x}, {y}));"
                     )
                     .unwrap();
                 }
@@ -345,15 +328,7 @@ pub(in crate::codegen) fn canvas_commands_code(
                 commands,
                 span,
             } => {
-                let Type::List(inner) = expr_type(
-                    items,
-                    &env.iter()
-                        .map(|(name, binding)| (name.clone(), binding.ty.clone()))
-                        .collect(),
-                    document,
-                    span,
-                )?
-                else {
+                let Type::List(inner) = expr_type(items, &env_types(env), document, span)? else {
                     return Err(Error::new("E190", span, "canvas for expects a list"));
                 };
                 let items = expr_code(items, env, document, ValueMode::Borrowed)?;

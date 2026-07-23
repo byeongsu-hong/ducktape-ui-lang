@@ -5,17 +5,17 @@ app Tasks
   fg app_text
   id "dev.ducktape.ice.tasks"
   executor iced::executor::Default
-  default-text-size 16
+  text-size 16
   antialiasing true
   vsync true
-  scale-factor ui_scale
+  scale ui_scale
   window
     icon-rgba "../../assets/app.rgba" 2 1
     size 960 720
     min-size 480 360
     position centered
     platform linux
-      application-id "dev.ducktape.ice.tasks"
+      app-id "dev.ducktape.ice.tasks"
       override-redirect false
     platform windows
       drag-and-drop true
@@ -50,13 +50,13 @@ preset seeded
     run list_tasks() -> loaded _ | failed _
 
 view
-  overlay when=about_open dismiss=close_about backdrop=black/60 padding=24.0 align-x=center align-y=center
+  overlay when=about_open dismiss=close_about backdrop=black/60 p=24.0 align-x=center align-y=center
     content
-      col spacing=24.0 padding=24.0 @w-full h-full bg-bg
-        flex gap=12.0 justify-content=space-between align-items=center @w-full
+      col gap=24.0 p=24.0 @w-full h-full bg-bg
+        flex w=fill gap=12.0 justify=space-between items=center
           text "Tasks" size=24.0 @font-bold text-fg
           text len(tasks) size=14.0 @text-muted
-          toggler "About" checked=about_open disabled=loading size=18.0 spacing=8.0 -> about_toggled _
+          toggler "About" checked=about_open disabled=loading size=18.0 gap=8.0 -> about_toggled _
             active checked bg=linear(1.57, primary@0.0, surface@1.0) bg-border=primary bg-border-w=1.0 fg=linear(0.0, fg@0.0, primary@1.0) fg-border=fg fg-border-w=1.0 text=fg r=7.0 r-tl=6.0 r-tr=7.0 r-br=8.0 r-bl=9.0 p-ratio=0.125
             active unchecked bg=surface fg=fg text=muted
             hovered checked bg=primary fg=fg text=fg
@@ -70,21 +70,21 @@ view
           text "×" size=14.0 @text-muted
           text child_height size=14.0 @text-muted
 
-        row spacing=12.0 align=center @w-full
+        row gap=12.0 align=center @w-full
           button "Capture window" style=secondary -> capture_window
           button "Change icon" style=subtle -> set_window_icon
           button "Inspect handle" style=subtle -> inspect_window_handle
           button "Read raw ID" style=subtle -> read_raw_window_id
           text raw_window_id size=14.0 @text-muted
           if snapshot_ready
-            image window_snapshot width=160.0 height=90.0 fit=contain
+            image window_snapshot w=160.0 h=90.0 fit=contain
             text snapshot_width size=14.0 @text-muted
             text "×" size=14.0 @text-muted
             text snapshot_height size=14.0 @text-muted
             text snapshot_scale size=14.0 @text-muted
 
-        row spacing=12.0 align=center @w-full
-          input "New task" <-> draft hint="What needs doing?" disabled=loading submit=submit width=fill @px-4 py-3 bg-surface border border-border rounded-lg
+        row gap=12.0 align=center @w-full
+          input "New task" <-> draft hint="What needs doing?" disabled=loading submit=submit w=fill @px-4 py-3 bg-surface border border-border rounded-lg
           button "Add" disabled=(loading || empty(trim(draft))) style=success @px-4 py-3 disabled:opacity-50 -> submit
             active bg=linear(1.57, primary@0.0, surface@1.0) text=white border=primary border-w=1.0 r=8.0 shadow=black/25 shadow-y=2.0 shadow-blur=4.0 px-snap=true
             hovered bg=linear(1.57, surface@0.0, primary@1.0) text=white r=10.0
@@ -92,7 +92,7 @@ view
             disabled bg=surface text=muted r=10.0
 
         if error != ""
-          row spacing=16.0 padding=16.0 align=center @w-full bg-danger rounded-lg
+          row gap=16.0 p=16.0 align=center @w-full bg-danger rounded-lg
             text error size=14.0 @text-white
             button "Retry" disabled=loading style=danger @px-4 py-2 bg-white text-danger rounded-md -> retry
 
@@ -104,34 +104,33 @@ view
         if empty(tasks) && !loading
           text "No tasks yet." size=14.0 @text-muted
 
-        pane-grid #workspace split=vertical ratio=0.7 width=fill height=fill spacing=8.0 min-size=120.0 resize=8.0 drag click=pane_clicked(_)
+        panes #workspace w=fill h=fill gap=8.0 min-size=120.0 resize=8.0 drag click=pane_clicked(_)
           style
             hovered-region bg=linear(0.785, primary/10@0.0, primary/40@1.0) border=primary border-w=2.0 r=8.0
             hovered-split color=primary w=3.0
             picked-split color=fg w=3.0
-          pane tasks bg=linear(1.57, surface@0.0, bg@1.0) shadow=black/50 shadow-y=2.0 shadow-blur=8.0 px-snap=true border-w=1.0 r=10.0 @border-border
-            title padding=12.0 always-controls bg=linear(1.57, bg@0.0, surface@1.0) border=border border-w=1.0 r-tl=8.0 r-tr=8.0 shadow=black/25 shadow-y=1.0 shadow-blur=3.0 px-snap=true
-              text "Task list" size=18.0 @font-bold text-fg
-            controls
-              button "Inspect" style=secondary -> inspect_adjacent
-            compact-controls
-              button "?" style=subtle -> inspect_adjacent
-            content
-              scroll #task-list direction=vertical width=fill height=fill
-                keyed task in tasks by=task.id width=fill spacing=8.0
+          split vertical ratio=0.7
+            pane tasks bg=linear(1.57, surface@0.0, bg@1.0) shadow=black/50 shadow-y=2.0 shadow-blur=8.0 px-snap=true border-w=1.0 r=10.0 @border-border
+              title p=12.0 always-controls bg=linear(1.57, bg@0.0, surface@1.0) border=border border-w=1.0 r-tl=8.0 r-tr=8.0 shadow=black/25 shadow-y=1.0 shadow-blur=3.0 px-snap=true
+                text "Task list" size=18.0 @font-bold text-fg
+              controls
+                button "Inspect" style=secondary -> inspect_adjacent
+              compact
+                button "?" style=subtle -> inspect_adjacent
+              scroll #task-list dir=vertical w=fill h=fill
+                keyed task in tasks by=task.id w=fill gap=8.0
                   TaskRow task=task loading=loading
-          pane details border-w=1.0 r=10.0 @bg-surface border-border
-            title padding=12.0 always-controls border-w=1.0 @bg-bg border-border
-              text "Details" size=18.0 @font-bold text-fg
-            controls
-              button "Maximize" style=bg -> maximize_details
-            compact-controls
-              button "↗" style=warning -> maximize_details
-            content
-              container width=fill height=fill padding=16.0
-                col spacing=12.0
+            pane details border-w=1.0 r=10.0 @bg-surface border-border
+              title p=12.0 always-controls border-w=1.0 @bg-bg border-border
+                text "Details" size=18.0 @font-bold text-fg
+              controls
+                button "Maximize" style=bg -> maximize_details
+              compact
+                button "↗" style=warning -> maximize_details
+              box w=fill h=fill p=16.0
+                col gap=12.0
                   text "Drag, resize, or arrange this pane." size=14.0 @text-muted
-                  canvas width=fill height=160.0 cache=detail_mode cache-group=details capture=true cursor=(cursor_state) cursor-outside=true
+                  canvas w=fill h=160.0 cache=detail_mode cache-group=details capture=true cursor=(cursor_state) cursor-outside=true
                     state
                       cursor_state = "crosshair"
                       hits = 0
@@ -147,7 +146,7 @@ view
                     event keyboard press -> canvas_key _
                     redraw window frame after=1s
                     capture touch lost
-                    rect x=0.0 y=0.0 width=canvas_width height=canvas_height fill=linear(1.57, bg@0.0, surface@1.0) stroke=border
+                    rect x=0.0 y=0.0 w=canvas_width h=canvas_height fill=linear(1.57, bg@0.0, surface@1.0) stroke=border
                     circle x=48.0 y=48.0 r=28.0 fill=primary stroke=fg stroke-w=2.0
                     path fill=primary/25 stroke=primary stroke-w=2.0 cap=round join=round
                       move x=96.0 y=112.0
@@ -156,11 +155,11 @@ view
                       close
                     text detail_mode x=16.0 y=136.0 color=fg size=14.0 font=default
                     text hits x=112.0 y=136.0 color=primary size=14.0 font=default
-                    image "examples/iced-app/assets/checker.ppm" x=256.0 y=16.0 width=48.0 height=48.0 filter=nearest opacity=0.9 snap=true r=6.0
-                    svg "examples/iced-app/assets/ice.svg" x=312.0 y=16.0 width=48.0 height=48.0 color=primary opacity=0.9
-                  shader status_shader(1.0) width=fill height=32.0 -> shader_hovered _
-                  row wrap spacing=8.0
-                    radio "Summary" value="summary" selected=(detail_mode == "summary") size=16.0 spacing=6.0 text-size=14.0 line-height=1.2 shaping=advanced wrapping=word font=default -> detail_mode_changed _
+                    image "examples/iced-app/assets/checker.ppm" x=256.0 y=16.0 w=48.0 h=48.0 filter=nearest opacity=0.9 snap=true r=6.0
+                    svg "examples/iced-app/assets/ice.svg" x=312.0 y=16.0 w=48.0 h=48.0 color=primary opacity=0.9
+                  shader status_shader(1.0) w=fill h=32.0 -> shader_hovered _
+                  row wrap gap=8.0
+                    radio "Summary" value="summary" selected=(detail_mode == "summary") size=16.0 gap=6.0 text-size=14.0 line-h=1.2 shape=advanced wrap=word font=default -> detail_mode_changed _
                       active selected bg=linear(1.57, primary@0.0, surface@1.0) dot=fg border=primary border-w=2.0 text=fg
                       active unselected bg=surface dot=primary border=border text=muted
                       hovered selected bg=primary dot=fg border=fg text=fg
@@ -171,21 +170,20 @@ view
                     button "Move left" -> move_details_left
                     button "Open preview" -> open_preview
           pane preview closed border-w=1.0 r=10.0 @bg-surface border-border
-            title padding=12.0 always-controls border-w=1.0 @bg-bg border-border
+            title p=12.0 always-controls border-w=1.0 @bg-bg border-border
               text "Preview" size=18.0 @font-bold text-fg
             controls
               button "Close" -> close_preview
-            compact-controls
+            compact
               button "×" -> close_preview
-            content
-              container width=fill height=fill padding=16.0
-                text "This pane was opened dynamically." size=14.0 @text-muted
+            box w=fill h=fill p=16.0
+              text "This pane was opened dynamically." size=14.0 @text-muted
     layer
       Dialog
         Dialog.Header
           text "About Ice Tasks" size=20.0 @font-bold text-fg
         Dialog.Body
-          rich-text width=fill wrapping=word size=14.0 @text-muted -> about_link _
+          rich-text w=fill wrap=word size=14.0 @text-muted -> about_link _
             span "This dialog is a structured overlay written entirely in "
             span ".ice" link="https://github.com/byeongsu-hong/ducktape-ui-lang" bg=linear(1.57, primary/20@0.0, surface@1.0) p=2.0 r=2.0 underline @font-bold text-primary
             span "."

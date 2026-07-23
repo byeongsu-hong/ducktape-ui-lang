@@ -68,7 +68,7 @@ state
 on shaded(active)
 view
   col
-    shader native_shader(amount) width=fill height=64.0 -> shaded _
+    shader native_shader(amount) w=fill h=64.0 -> shaded _
     shader passive_shader()
 "#;
     analyze(source).unwrap();
@@ -77,7 +77,7 @@ view
     assert_eq!(error.code, "E191");
     assert!(error.message.contains("requires a route"));
 
-    let error = analyze(&source.replace("height=64.0", "height=-1.0")).unwrap_err();
+    let error = analyze(&source.replace("h=64.0", "h=-1.0")).unwrap_err();
     assert_eq!(error.code, "E128");
     assert!(error.message.contains("shader size"));
 
@@ -85,7 +85,7 @@ view
         analyze(&source.replace("native_shader(amount)", "native_shader(true)")).unwrap_err();
     assert!(error.message.contains("expected `f64`"));
 
-    let error = analyze(&source.replace("height=64.0", "depth=64.0")).unwrap_err();
+    let error = analyze(&source.replace("h=64.0", "depth=64.0")).unwrap_err();
     assert_eq!(error.code, "E191");
     assert!(error.message.contains("unknown shader property"));
 

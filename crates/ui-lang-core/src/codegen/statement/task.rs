@@ -46,22 +46,15 @@ pub(in crate::codegen) fn task_source_code(
                     _ => {}
                 }
             }
-            let action = document
-                .functions
-                .iter()
-                .find(|item| item.name == *function && item.kind == (*kind).into())
-                .ok_or_else(|| {
+            let action =
+                find_extern_function(document, function, (*kind).into()).ok_or_else(|| {
                     Error::new(
                         "E130",
                         span,
                         format!("unknown extern task source `{function}`"),
                     )
                 })?;
-            let args = args
-                .iter()
-                .map(|arg| expr_code(arg, env, document, ValueMode::Owned))
-                .collect::<Result<Vec<_>, _>>()?
-                .join(", ");
+            let args = expr_list_code(args, env, document)?;
             Ok(match kind {
                 EffectKind::Future => format!(
                     "::iced::Task::perform({}({args}), |value| value)",
@@ -123,7 +116,7 @@ pub(in crate::codegen) fn task_flow_code(
                 let binding_ty =
                     if matches!(transform, TaskTransform::AndThen { .. }) && error.is_none() {
                         let Type::Option(inner) = output else {
-                            unreachable!("checked optional and-then")
+                            unreachable!("checked optional try")
                         };
                         *inner
                     } else {
@@ -149,7 +142,7 @@ pub(in crate::codegen) fn task_flow_code(
             TaskTransform::MapError { binding, value, .. } => {
                 let (_, error) =
                     crate::check::task_flow_type(root, &transforms[..index], document, &type_env)?;
-                let error = error.expect("checked map-error input");
+                let error = error.expect("checked map-err input");
                 let map_env = HashMap::from([(
                     binding.clone(),
                     Binding {

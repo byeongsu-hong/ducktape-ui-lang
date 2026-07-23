@@ -193,9 +193,9 @@ pub(in crate::parser) fn parse_view(line: &Line) -> Result<ViewNode, Error> {
         }
         "text" => parse_text(&parts, styles, line),
         "rich-text" => parse_rich_text(&parts, styles, route_source, line),
-        "container" | "box" => parse_container(&parts, styles, line),
+        "box" => parse_container(&parts, styles, line),
         "overlay" => parse_overlay(&parts, styles, line),
-        "pane-grid" => parse_pane_grid(&parts, styles, line),
+        "panes" => parse_pane_grid(&parts, styles, line),
         "input" => parse_input(&parts, styles, line),
         "button" => parse_button(&parts, styles, route_source, line),
         "checkbox" => parse_checkbox(&parts, styles, route_source, line),

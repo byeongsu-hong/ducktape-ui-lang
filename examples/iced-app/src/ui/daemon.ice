@@ -1,7 +1,7 @@
 daemon BackgroundAgent
   title daemon_title(window)
   theme daemon_theme(window)
-  scale-factor daemon_scale(window)
+  scale daemon_scale(window)
   renderer crate::backend::AppRenderer
   window dashboard
     size 800 600
@@ -31,7 +31,7 @@ on quit
   exit
 
 component AgentWindow(id:window-id)
-  col spacing=16.0 padding=24.0
+  col gap=16.0 p=24.0
     text daemon_title(id) size=20.0 @font-bold
     button "Quit" style=danger -> quit
 

@@ -53,10 +53,9 @@ const COMPLETIONS: &[Completion] = &[
     ),
     Completion::new("row", "layout", "row\n  $0"),
     Completion::new("col", "layout", "col\n  $0"),
-    Completion::new("flex", "layout", "flex width=fill\n  $0"),
+    Completion::new("flex", "layout", "flex w=fill\n  $0"),
     Completion::new("stack", "layout", "stack\n  $0"),
     Completion::new("scroll", "layout", "scroll\n  $0"),
-    Completion::new("container", "layout", "container\n  $0"),
     Completion::new("box", "layout", "box\n  $0"),
     Completion::new("text", "widget", "text ${1:\"Text\"}"),
     Completion::new("input", "widget", "input \"${1:Label}\" <-> ${2:state}"),
@@ -91,13 +90,13 @@ fn properties(items: &[(&str, &str, bool)]) -> Vec<Value> {
 
 fn padding_properties() -> Vec<Value> {
     properties(&[
-        ("padding", "number", false),
-        ("padding-x", "number", false),
-        ("padding-y", "number", false),
-        ("padding-top", "number", false),
-        ("padding-right", "number", false),
-        ("padding-bottom", "number", false),
-        ("padding-left", "number", false),
+        ("p", "number", false),
+        ("px", "number", false),
+        ("py", "number", false),
+        ("pt", "number", false),
+        ("pr", "number", false),
+        ("pb", "number", false),
+        ("pl", "number", false),
     ])
 }
 
@@ -122,64 +121,50 @@ fn surface_properties() -> Vec<Value> {
 
 fn flex_properties(column: bool) -> Vec<Value> {
     let mut output = properties(&[
-        ("width", "length", false),
-        ("height", "length", false),
+        ("w", "length", false),
+        ("h", "length", false),
         ("clip", "bool-expression", false),
-        ("spacing", "number", false),
+        ("gap", "number", false),
         ("align", "enum(start|center|end)", false),
         ("wrap", "flag", false),
-        ("wrap-spacing", "number", false),
+        ("wrap-gap", "number", false),
         ("wrap-align", "enum(start|center|end)", false),
     ]);
     output.extend(padding_properties());
     if column {
-        output.push(property("max-width", "number", false));
+        output.push(property("max-w", "number", false));
     }
     output
 }
 
 fn css_flex_properties() -> Vec<Value> {
     let mut output = properties(&[
+        ("dir", "enum(row|row-reverse|column|column-reverse)", false),
+        ("flow", "dir,nowrap|wrap|wrap-reverse", false),
+        ("wrap", "enum(nowrap|wrap|wrap-reverse)", false),
         (
-            "direction",
-            "enum(row|row-reverse|column|column-reverse)",
+            "justify",
+            "enum(start|end|flex-start|flex-end|center|stretch|space-between|space-around|space-evenly)",
             false,
         ),
         (
-            "flex-direction",
-            "enum(row|row-reverse|column|column-reverse)",
-            false,
-        ),
-        ("flex-flow", "direction,nowrap|wrap|wrap-reverse", false),
-        ("flex-wrap", "enum(nowrap|wrap|wrap-reverse)", false),
-        (
-            "justify-content",
-            "enum(normal|start|end|left|right|flex-start|flex-end|center|stretch|space-between|space-around|space-evenly)",
+            "items",
+            "enum(start|end|flex-start|flex-end|center|baseline|stretch)",
             false,
         ),
         (
-            "align-items",
-            "enum(normal|start|end|self-start|self-end|flex-start|flex-end|center|baseline|stretch)",
-            false,
-        ),
-        (
-            "align-content",
-            "enum(normal|start|end|flex-start|flex-end|center|stretch|space-between|space-around|space-evenly)",
+            "content",
+            "enum(start|end|flex-start|flex-end|center|stretch|space-between|space-around|space-evenly)",
             false,
         ),
         ("gap", "number", false),
-        ("row-gap", "number", false),
-        ("column-gap", "number", false),
-        ("width", "length", false),
-        ("height", "length", false),
-        ("max-width", "number", false),
-        ("max-height", "number", false),
+        ("gap-y", "number", false),
+        ("gap-x", "number", false),
+        ("w", "length", false),
+        ("h", "length", false),
+        ("max-w", "number", false),
+        ("max-h", "number", false),
         ("clip", "bool-expression", false),
-        ("spacing", "number", false),
-        ("align", "enum(start|center|end)", false),
-        ("wrap", "flag", false),
-        ("wrap-spacing", "number", false),
-        ("wrap-align", "enum(start|center|end)", false),
     ]);
     output.extend(padding_properties());
     output
@@ -187,10 +172,10 @@ fn css_flex_properties() -> Vec<Value> {
 
 fn keyed_properties() -> Vec<Value> {
     let mut output = properties(&[
-        ("width", "length", false),
-        ("height", "length", false),
-        ("spacing", "number", false),
-        ("max-width", "number", false),
+        ("w", "length", false),
+        ("h", "length", false),
+        ("gap", "number", false),
+        ("max-w", "number", false),
         ("align", "enum(start|center|end)", false),
     ]);
     output.extend(padding_properties());
@@ -199,30 +184,30 @@ fn keyed_properties() -> Vec<Value> {
 
 fn container_properties() -> Vec<Value> {
     let mut output = properties(&[
-        ("width", "length", false),
-        ("height", "length", false),
-        ("max-width", "number", false),
-        ("max-height", "number", false),
+        ("w", "length", false),
+        ("h", "length", false),
+        ("max-w", "number", false),
+        ("max-h", "number", false),
         ("align-x", "enum(start|center|end)", false),
         ("align-y", "enum(start|center|end)", false),
         ("clip", "bool-expression", false),
         ("order", "integer-expression", false),
-        ("flex-grow", "number", false),
-        ("flex-shrink", "number", false),
-        ("flex-basis", "auto|content|number|percent(number)", false),
+        ("grow", "number", false),
+        ("shrink", "number", false),
+        ("basis", "auto|content|number|percent(number)", false),
         ("flex", "none|auto|initial|grow[,shrink[,basis]]", false),
         (
-            "align-self",
-            "enum(auto|normal|start|end|self-start|self-end|flex-start|flex-end|center|baseline|stretch)",
+            "self",
+            "enum(auto|start|end|flex-start|flex-end|center|baseline|stretch)",
             false,
         ),
-        ("margin", "auto|number|percent(number)", false),
-        ("margin-x", "auto|number|percent(number)", false),
-        ("margin-y", "auto|number|percent(number)", false),
-        ("margin-top", "auto|number|percent(number)", false),
-        ("margin-right", "auto|number|percent(number)", false),
-        ("margin-bottom", "auto|number|percent(number)", false),
-        ("margin-left", "auto|number|percent(number)", false),
+        ("m", "auto|number|percent(number)", false),
+        ("mx", "auto|number|percent(number)", false),
+        ("my", "auto|number|percent(number)", false),
+        ("mt", "auto|number|percent(number)", false),
+        ("mr", "auto|number|percent(number)", false),
+        ("mb", "auto|number|percent(number)", false),
+        ("ml", "auto|number|percent(number)", false),
         ("style", "extern-call", false),
     ]);
     output.extend(padding_properties());
@@ -232,11 +217,11 @@ fn container_properties() -> Vec<Value> {
 
 fn text_properties() -> Vec<Value> {
     properties(&[
-        ("width", "length", false),
-        ("height", "length", false),
+        ("w", "length", false),
+        ("h", "length", false),
         ("size", "number", false),
-        ("line-height", "number", false),
-        ("line-height-px", "number", false),
+        ("line-h", "number", false),
+        ("line-h-px", "number", false),
         ("font", "font", false),
         (
             "align-x",
@@ -244,8 +229,8 @@ fn text_properties() -> Vec<Value> {
             false,
         ),
         ("align-y", "enum(top|center|bottom)", false),
-        ("shaping", "enum(auto|basic|advanced)", false),
-        ("wrapping", "enum(none|word|glyph|word-or-glyph)", false),
+        ("shape", "enum(auto|basic|advanced)", false),
+        ("wrap", "enum(none|word|glyph|word-or-glyph)", false),
         ("style", "extern-call", false),
     ])
 }
@@ -412,8 +397,8 @@ fn construct_schema(item: &Completion) -> Value {
             no_binding(),
             no_route(),
             properties(&[
-                ("width", "length", false),
-                ("height", "length", false),
+                ("w", "length", false),
+                ("h", "length", false),
                 ("clip", "bool-expression", false),
                 ("under", "u16", false),
             ]),
@@ -425,14 +410,14 @@ fn construct_schema(item: &Completion) -> Value {
             no_binding(),
             no_route(),
             properties(&[
-                ("direction", "enum(vertical|horizontal|both)", false),
-                ("width", "length", false),
-                ("height", "length", false),
+                ("dir", "enum(vertical|horizontal|both)", false),
+                ("w", "length", false),
+                ("h", "length", false),
                 ("bar", "enum(visible|hidden)", false),
                 ("bar-w", "number", false),
-                ("bar-margin", "number", false),
+                ("bar-m", "number", false),
                 ("scroller-w", "number", false),
-                ("bar-spacing", "number", false),
+                ("bar-gap", "number", false),
                 ("anchor-x", "enum(start|end)", false),
                 ("anchor-y", "enum(start|end)", false),
                 ("auto", "bool-expression", false),
@@ -440,14 +425,6 @@ fn construct_schema(item: &Completion) -> Value {
                 ("viewport", "payload-route(bounds...)", false),
                 ("style", "extern-call", false),
             ]),
-        ),
-        "container" => details(
-            &["view"],
-            "container [#<id>] [<property>=<value> ...] [@<semantic-utility> ...]",
-            child_shape(1, Some(1), "view-root"),
-            no_binding(),
-            no_route(),
-            container_properties(),
         ),
         "box" => details(
             &["view"],
@@ -480,27 +457,22 @@ fn construct_schema(item: &Completion) -> Value {
                 ("change", "payload-route(text)", false),
                 ("submit", "route", false),
                 ("paste", "payload-route(text)", false),
-                ("width", "length", false),
-                ("padding", "number", false),
+                ("w", "length", false),
+                ("p", "number", false),
                 ("text-size", "number", false),
-                ("line-height", "number", false),
+                ("line-h", "number", false),
                 ("align", "enum(left|center|right)", false),
                 ("font", "font", false),
                 ("style", "extern-call", false),
-                ("icon", "one-character-string", false),
-                ("icon-font", "font", false),
-                ("icon-side", "enum(left|right)", false),
-                ("icon-size", "number", false),
-                ("icon-spacing", "number", false),
             ]),
         ),
         "button" => {
             let mut button = properties(&[
                 ("description", "str-expression", false),
                 ("disabled", "bool-expression", false),
-                ("width", "length", false),
-                ("height", "length", false),
-                ("padding", "number", false),
+                ("w", "length", false),
+                ("h", "length", false),
+                ("p", "number", false),
                 ("clip", "bool-expression", false),
                 ("style", "button-preset|extern-call", false),
             ]);
@@ -534,35 +506,35 @@ fn construct_schema(item: &Completion) -> Value {
                 ("checked", "bool-expression", true),
                 ("disabled", "bool-expression", false),
                 ("size", "number", false),
-                ("width", "length", false),
-                ("spacing", "number", false),
+                ("w", "length", false),
+                ("gap", "number", false),
                 ("text-size", "number", false),
-                ("line-height", "number", false),
-                ("shaping", "enum(auto|basic|advanced)", false),
-                ("wrapping", "enum(none|word|glyph|word-or-glyph)", false),
+                ("line-h", "number", false),
+                ("shape", "enum(auto|basic|advanced)", false),
+                ("wrap", "enum(none|word|glyph|word-or-glyph)", false),
                 ("font", "font", false),
                 ("icon", "one-character-string", false),
                 ("icon-size", "number", false),
-                ("icon-line-height", "number", false),
-                ("icon-shaping", "enum(auto|basic|advanced)", false),
+                ("icon-line-h", "number", false),
+                ("icon-shape", "enum(auto|basic|advanced)", false),
                 ("style", "checkbox-preset|extern-call", false),
             ]),
         ),
         "image" => {
             let mut image = properties(&[
                 ("label", "str-expression", false),
-                ("width", "length", false),
-                ("height", "length", false),
+                ("w", "length", false),
+                ("h", "length", false),
                 (
                     "fit",
                     "enum(contain|cover|fill|none|scale-down)|expression",
                     false,
                 ),
-                ("rotation", "number", false),
+                ("rotate", "rotation", false),
                 ("opacity", "number", false),
                 ("filter", "enum(linear|nearest)", false),
                 ("scale", "number", false),
-                ("expand", "number", false),
+                ("expand", "bool-expression", false),
                 ("r", "number", false),
                 ("r-tl", "number", false),
                 ("r-tr", "number", false),
@@ -657,7 +629,7 @@ fn construct_schema(item: &Completion) -> Value {
     object
 }
 
-fn style_compatibility() -> Value {
+fn style_contract() -> Value {
     json!({
         "utilitySyntax": "forms omit the leading `@` marker",
         "statusCascade": {
@@ -673,81 +645,7 @@ fn style_compatibility() -> Value {
             "N": "unsigned integer multiplied by four pixels",
             "TOKEN": "checked semantic theme token",
         },
-        "deprecatedDirectBuilderForms": {
-            "status": "accepted but canonicalized by cargo ice fmt",
-            "condition": "only on the listed targets and only when no canonical property owns the same field",
-            "mappings": [
-                {
-                    "targets": ["scroll", "container", "box", "flex", "input"],
-                    "forms": { "w-full": "width=fill" },
-                },
-                {
-                    "targets": ["scroll", "container", "box", "flex"],
-                    "forms": { "h-full": "height=fill" },
-                },
-                {
-                    "targets": ["container", "box", "flex"],
-                    "forms": {
-                        "max-w-sm": "max-width=384.0",
-                        "max-w-md": "max-width=448.0",
-                        "max-w-lg": "max-width=512.0",
-                        "max-w-xl": "max-width=576.0",
-                        "max-w-2xl": "max-width=672.0",
-                    },
-                },
-                {
-                    "targets": ["row", "col", "flex", "grid"],
-                    "pattern": "gap-N",
-                    "canonical": "spacing=(N*4).0",
-                },
-                {
-                    "targets": ["container", "box", "row", "col", "flex"],
-                    "patterns": ["p-N", "px-N", "py-N"],
-                    "canonicalProperties": ["padding", "padding-x", "padding-y", "padding-top", "padding-right", "padding-bottom", "padding-left"],
-                    "resolution": "apply utilities in source order, then emit the shortest equivalent typed padding fields",
-                },
-                {
-                    "targets": ["input", "button"],
-                    "pattern": "p-N",
-                    "canonical": "padding=(N*4).0",
-                    "condition": "no px-N or py-N is present and the final effective padding is nonzero",
-                },
-                {
-                    "targets": ["row", "col", "flex"],
-                    "forms": { "items-center": "align=center" },
-                },
-                {
-                    "targets": ["container", "box", "pane", "title"],
-                    "forms": {
-                        "border": "border-w=1.0",
-                        "border-2": "border-w=2.0",
-                    },
-                },
-                {
-                    "targets": ["container", "box", "pane", "title"],
-                    "forms": {
-                        "rounded-sm": "r=2.0",
-                        "rounded": "r=6.0",
-                        "rounded-md": "r=6.0",
-                        "rounded-lg": "r=10.0",
-                        "rounded-full": "r=999.0",
-                    },
-                    "condition": "the original utility sequence satisfies E044 by also providing a utility background or border",
-                },
-                {
-                    "targets": ["text", "rich-text", "span"],
-                    "forms": {
-                        "text-xs": "size=12.0",
-                        "text-sm": "size=14.0",
-                        "text-base": "size=16.0",
-                        "text-lg": "size=18.0",
-                        "text-xl": "size=20.0",
-                        "text-2xl": "size=24.0",
-                    },
-                },
-            ],
-        },
-        "intentionalUtilities": {
+        "utilities": {
             "wrapperOwnedGeometry": [
                 {
                     "targets": ["row", "col", "grid"],
@@ -781,7 +679,7 @@ fn style_compatibility() -> Value {
                 },
             ],
             "semantic": ["bg-TOKEN", "text-TOKEN", "border-TOKEN", "state variants", "font-bold"],
-            "rule": "geometry forms not listed as deprecated remain target-specific utilities; never deprecate a utility globally",
+            "rule": "utilities are target-specific; typed properties own direct builder fields",
         },
     })
 }
@@ -892,7 +790,7 @@ pub fn document() -> Value {
                 "font": ["default", "mono", "<declared-font>"],
             },
             "constructs": constructs,
-            "styleCompatibility": style_compatibility(),
+            "style": style_contract(),
         },
     })
 }
@@ -983,7 +881,6 @@ mod tests {
             "flex",
             "stack",
             "scroll",
-            "container",
             "box",
             "text",
             "input",
@@ -1024,16 +921,7 @@ mod tests {
                 .unwrap()
         };
         for label in [
-            "row",
-            "col",
-            "stack",
-            "scroll",
-            "container",
-            "text",
-            "input",
-            "button",
-            "checkbox",
-            "image",
+            "row", "col", "stack", "scroll", "box", "text", "input", "button", "checkbox", "image",
         ] {
             assert!(!find(label)["properties"].as_array().unwrap().is_empty());
         }
@@ -1070,30 +958,18 @@ mod tests {
     }
 
     #[test]
-    fn style_compatibility_is_target_scoped() {
+    fn style_utilities_are_target_scoped() {
         let schema = document();
-        let styles = &schema["core"]["styleCompatibility"];
-        let mappings = styles["deprecatedDirectBuilderForms"]["mappings"]
-            .as_array()
-            .unwrap();
-
-        assert!(mappings.iter().any(|mapping| {
-            mapping["targets"] == serde_json::json!(["scroll", "container", "box", "flex", "input"])
-                && mapping["forms"]["w-full"] == "width=fill"
-        }));
-        assert!(mappings.iter().any(|mapping| {
-            mapping["targets"] == serde_json::json!(["container", "box", "pane", "title"])
-                && mapping["forms"]["border"] == "border-w=1.0"
-        }));
+        let styles = &schema["core"]["style"];
         assert_eq!(
-            styles["intentionalUtilities"]["dualOwnerGeometry"][0]["targets"],
+            styles["utilities"]["dualOwnerGeometry"][0]["targets"],
             serde_json::json!(["stack"])
         );
         assert!(
-            styles["intentionalUtilities"]["rule"]
+            styles["utilities"]["rule"]
                 .as_str()
                 .unwrap()
-                .contains("never deprecate")
+                .contains("target-specific")
         );
     }
 

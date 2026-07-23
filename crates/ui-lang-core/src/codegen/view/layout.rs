@@ -138,12 +138,7 @@ pub(in crate::codegen) fn render_layout(
             document,
         )?);
         append_size(&mut code, &style);
-        if let Some(width) = &scroll.width {
-            write!(code, ".width({})", length_code(width, env, document)?).unwrap();
-        }
-        if let Some(height) = &scroll.height {
-            write!(code, ".height({})", length_code(height, env, document)?).unwrap();
-        }
+        append_dimensions(&mut code, [&scroll.width, &scroll.height], env, document)?;
         return Ok(format!(
             "{{ let __a11y_key = {accessibility_key}; let __scroll_content: __IceElement<'_, {message}> = {child}; let __layout = {code}; ::ui_lang_runtime::accessible(__layout, ::ui_lang_runtime::StableId::new(&__a11y_key), ::ui_lang_runtime::Role::GenericContainer).into() }}"
         ));
@@ -170,6 +165,30 @@ pub(in crate::codegen) fn render_layout(
         &child_scope,
         slot,
     )?;
+    let needs_child_count = matches!(kind, Layout::Column | Layout::Row)
+        && (!options.wrap || options.spacing.is_some() || options.wrap_spacing.is_some())
+        || kind == Layout::Grid && options.spacing.is_some();
+    if needs_child_count {
+        body.push_str(" let __child_count = __children.len();");
+    }
+    if kind == Layout::Grid
+        && let Some(columns) = &options.columns
+    {
+        write!(
+            body,
+            " let __grid_columns = usize::try_from({}).unwrap_or(0).max(1);",
+            expr_code(columns, env, document, ValueMode::Owned)?
+        )
+        .unwrap();
+    }
+    if matches!(kind, Layout::Column | Layout::Row) && !options.wrap {
+        let horizontal = kind == Layout::Row;
+        write!(
+            body,
+            " let __children = __children.into_iter().map(|__child| ::ui_lang_runtime::bounded_fill_element(__child, __child_count, {horizontal})).collect::<::std::vec::Vec<_>>();"
+        )
+        .unwrap();
+    }
     let constructor = match kind {
         Layout::Column => "column",
         Layout::Row => "row",
@@ -208,10 +227,15 @@ pub(in crate::codegen) fn render_layout(
     }
     if kind == Layout::Grid {
         if let Some(spacing) = &options.spacing {
+            let entries = if options.columns.is_some() {
+                "__child_count.max(__grid_columns)"
+            } else {
+                "__child_count"
+            };
             write!(
                 body,
-                ".spacing({} as f32)",
-                expr_code(spacing, env, document, ValueMode::Owned)?
+                ".spacing(::ui_lang_runtime::bounded_spacing({}, {entries}))",
+                expr_code(spacing, env, document, ValueMode::Owned)?,
             )
             .unwrap();
         }
@@ -221,20 +245,22 @@ pub(in crate::codegen) fn render_layout(
             };
             write!(
                 body,
-                ".width({} as f32)",
-                expr_code(width, env, document, ValueMode::Owned)?
+                ".width({})",
+                clamped_f32_code(width, "0.0", "f32::MAX", env, document)?
             )
             .unwrap();
         }
         if let Some(height) = &options.grid_height {
             match height {
-                GridSizing::AspectRatio { width, height } => write!(
-                    body,
-                    ".height(::iced::widget::grid::aspect_ratio({} as f32, {} as f32))",
-                    expr_code(width, env, document, ValueMode::Owned)?,
-                    expr_code(height, env, document, ValueMode::Owned)?
-                )
-                .unwrap(),
+                GridSizing::AspectRatio { width, height } => {
+                    let width = expr_code(width, env, document, ValueMode::Owned)?;
+                    let height = expr_code(height, env, document, ValueMode::Owned)?;
+                    write!(
+                        body,
+                        ".height(::iced::widget::grid::Sizing::AspectRatio(((({width}) / ({height})) as f32).max(f32::EPSILON).min(f32::MAX)))"
+                    )
+                    .unwrap();
+                }
                 GridSizing::EvenlyDistribute(length) => {
                     write!(body, ".height({})", length_code(length, env, document)?).unwrap();
                 }
@@ -243,24 +269,19 @@ pub(in crate::codegen) fn render_layout(
         if let Some(fluid) = &options.fluid {
             write!(
                 body,
-                ".fluid({} as f32)",
-                expr_code(fluid, env, document, ValueMode::Owned)?
+                ".fluid({})",
+                clamped_f32_code(fluid, "f32::EPSILON", "f32::MAX", env, document)?
             )
             .unwrap();
-        } else if let Some(columns) = &options.columns {
-            write!(
-                body,
-                ".columns({} as usize)",
-                expr_code(columns, env, document, ValueMode::Owned)?
-            )
-            .unwrap();
+        } else if options.columns.is_some() {
+            body.push_str(".columns(__grid_columns)");
         }
     }
     if matches!(kind, Layout::Column | Layout::Row) {
         if let Some(spacing) = &options.spacing {
             write!(
                 body,
-                ".spacing({} as f32)",
+                ".spacing(::ui_lang_runtime::bounded_spacing({}, __child_count))",
                 expr_code(spacing, env, document, ValueMode::Owned)?
             )
             .unwrap();
@@ -268,12 +289,7 @@ pub(in crate::codegen) fn render_layout(
         if let Some(padding) = typed_padding_code(&options.padding, env, document)? {
             write!(body, ".padding({padding})").unwrap();
         }
-        if let Some(width) = &options.width {
-            write!(body, ".width({})", length_code(width, env, document)?).unwrap();
-        }
-        if let Some(height) = &options.height {
-            write!(body, ".height({})", length_code(height, env, document)?).unwrap();
-        }
+        append_dimensions(&mut body, [&options.width, &options.height], env, document)?;
         if let Some(max_width) = &options.max_width {
             write!(
                 body,
@@ -317,7 +333,7 @@ pub(in crate::codegen) fn render_layout(
                 };
                 write!(
                     body,
-                    ".{method}({} as f32)",
+                    ".{method}(::ui_lang_runtime::bounded_spacing({}, __child_count))",
                     expr_code(spacing, env, document, ValueMode::Owned)?
                 )
                 .unwrap();
@@ -347,12 +363,7 @@ pub(in crate::codegen) fn render_layout(
             )
             .unwrap();
         }
-        if let Some(width) = &options.width {
-            write!(body, ".width({})", length_code(width, env, document)?).unwrap();
-        }
-        if let Some(height) = &options.height {
-            write!(body, ".height({})", length_code(height, env, document)?).unwrap();
-        }
+        append_dimensions(&mut body, [&options.width, &options.height], env, document)?;
         append_size(&mut body, &style);
     }
     body.push(';');
@@ -504,12 +515,7 @@ fn render_flexbox(
     if style.height_fill {
         body.push_str(".height(::iced::Fill)");
     }
-    if let Some(width) = &options.width {
-        write!(body, ".width({})", length_code(width, env, document)?).unwrap();
-    }
-    if let Some(height) = &options.height {
-        write!(body, ".height({})", length_code(height, env, document)?).unwrap();
-    }
+    append_dimensions(&mut body, [&options.width, &options.height], env, document)?;
     if let Some(max_width) = &options.max_width {
         write!(
             body,
@@ -577,15 +583,7 @@ fn render_flex_children(
                 children,
                 span,
             } => {
-                let Type::List(inner) = expr_type(
-                    items,
-                    &env.iter()
-                        .map(|(name, binding)| (name.clone(), binding.ty.clone()))
-                        .collect(),
-                    document,
-                    span,
-                )?
-                else {
+                let Type::List(inner) = expr_type(items, &env_types(env), document, span)? else {
                     return Err(Error::new("E121", span, "for expects a list"));
                 };
                 let items = expr_code(items, env, document, ValueMode::Borrowed)?;
@@ -807,7 +805,7 @@ pub(in crate::codegen) fn scroll_bar_code(
         if let Some(value) = value {
             write!(
                 code,
-                ".{method}({} as f32)",
+                ".{method}(::ui_lang_runtime::bounded_table_metric({}, 2))",
                 expr_code(value, env, document, ValueMode::Owned)?
             )
             .unwrap();
@@ -824,23 +822,13 @@ pub(in crate::codegen) fn scroll_style_code(
 ) -> Result<String, Error> {
     let custom = custom
         .map(|style| {
-            let function = document
-                .functions
-                .iter()
-                .find(|item| item.name == style.function && item.kind == ExternKind::ScrollStyle)
-                .expect("checker validates scroll style");
-            let args = style
-                .args
-                .iter()
-                .map(|arg| expr_code(arg, env, document, ValueMode::Owned))
-                .collect::<Result<Vec<_>, _>>()?;
-            Ok::<_, Error>(format!(
-                "{}(__theme, __status{})",
-                function.rust_path,
-                args.iter()
-                    .map(|arg| format!(", {arg}"))
-                    .collect::<String>()
-            ))
+            custom_style_call_code(
+                style,
+                ExternKind::ScrollStyle,
+                "__theme, __status",
+                env,
+                document,
+            )
         })
         .transpose()?;
     if styles.is_empty() {

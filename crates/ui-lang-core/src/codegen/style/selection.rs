@@ -11,8 +11,8 @@ pub(in crate::codegen) fn pick_list_handle_code(
                 || Ok("::std::option::Option::None".to_owned()),
                 |value| {
                     Ok::<_, Error>(format!(
-                        "::std::option::Option::Some(({} as f32).into())",
-                        expr_code(value, env, document, ValueMode::Owned)?
+                        "::std::option::Option::Some({}.into())",
+                        clamped_f32_code(value, "f32::EPSILON", "f32::MAX", env, document)?
                     ))
                 },
             )?;
@@ -44,8 +44,8 @@ pub(in crate::codegen) fn pick_list_icon_code(
         || Ok("::std::option::Option::None".to_owned()),
         |value| {
             Ok::<_, Error>(format!(
-                "::std::option::Option::Some(({} as f32).into())",
-                expr_code(value, env, document, ValueMode::Owned)?
+                "::std::option::Option::Some({}.into())",
+                clamped_f32_code(value, "f32::EPSILON", "f32::MAX", env, document)?
             ))
         },
     )?;
@@ -53,8 +53,8 @@ pub(in crate::codegen) fn pick_list_icon_code(
         || Ok("::iced::widget::text::LineHeight::default()".to_owned()),
         |value| {
             Ok::<_, Error>(format!(
-                "::iced::widget::text::LineHeight::Relative({} as f32)",
-                expr_code(value, env, document, ValueMode::Owned)?
+                "::iced::widget::text::LineHeight::Relative({})",
+                clamped_f32_code(value, "f32::EPSILON", "f32::MAX", env, document)?
             ))
         },
     )?;
@@ -82,23 +82,13 @@ pub(in crate::codegen) fn pick_list_style_code(
         .custom_style
         .as_ref()
         .map(|style| {
-            let function = document
-                .functions
-                .iter()
-                .find(|item| item.name == style.function && item.kind == ExternKind::PickListStyle)
-                .expect("checker validates pick-list style");
-            let args = style
-                .args
-                .iter()
-                .map(|arg| expr_code(arg, env, document, ValueMode::Owned))
-                .collect::<Result<Vec<_>, _>>()?;
-            Ok::<_, Error>(format!(
-                "{}(__theme, __status{})",
-                function.rust_path,
-                args.iter()
-                    .map(|arg| format!(", {arg}"))
-                    .collect::<String>()
-            ))
+            custom_style_call_code(
+                style,
+                ExternKind::PickListStyle,
+                "__theme, __status",
+                env,
+                document,
+            )
         })
         .transpose()?;
     let overrides = [
@@ -198,25 +188,7 @@ pub(in crate::codegen) fn menu_style_code(
     document: &Document,
 ) -> Result<String, Error> {
     let custom = custom
-        .map(|style| {
-            let function = document
-                .functions
-                .iter()
-                .find(|item| item.name == style.function && item.kind == ExternKind::MenuStyle)
-                .expect("checker validates menu style");
-            let args = style
-                .args
-                .iter()
-                .map(|arg| expr_code(arg, env, document, ValueMode::Owned))
-                .collect::<Result<Vec<_>, _>>()?;
-            Ok::<_, Error>(format!(
-                "{}(__theme{})",
-                function.rust_path,
-                args.iter()
-                    .map(|arg| format!(", {arg}"))
-                    .collect::<String>()
-            ))
-        })
+        .map(|style| custom_style_call_code(style, ExternKind::MenuStyle, "__theme", env, document))
         .transpose()?;
     let Some(style) = style else {
         return Ok(custom
@@ -312,20 +284,16 @@ pub(in crate::codegen) fn append_select_surface_overrides(
             )
             .unwrap();
         }
-        for (value, field) in [
-            (&options.shadow_x, "__style.shadow.offset.x"),
-            (&options.shadow_y, "__style.shadow.offset.y"),
-            (&options.shadow_blur, "__style.shadow.blur_radius"),
-        ] {
-            if let Some(value) = value {
-                write!(
-                    code,
-                    " {field} = {} as f32;",
-                    expr_code(value, env, document, ValueMode::Owned)?
-                )
-                .unwrap();
-            }
-        }
+        append_f32_fields(
+            code,
+            [
+                (&options.shadow_x, "__style.shadow.offset.x"),
+                (&options.shadow_y, "__style.shadow.offset.y"),
+                (&options.shadow_blur, "__style.shadow.blur_radius"),
+            ],
+            env,
+            document,
+        )?;
     }
     Ok(())
 }
@@ -343,8 +311,8 @@ pub(in crate::codegen) fn text_input_icon_code(
         || Ok("::std::option::Option::None".to_owned()),
         |value| {
             Ok::<_, Error>(format!(
-                "::std::option::Option::Some(({} as f32).into())",
-                expr_code(value, env, document, ValueMode::Owned)?
+                "::std::option::Option::Some({}.into())",
+                clamped_f32_code(value, "f32::EPSILON", "f32::MAX", env, document)?
             ))
         },
     )?;
@@ -377,25 +345,7 @@ pub(in crate::codegen) fn text_input_style_code(
         ExternKind::InputStyle
     };
     let custom = custom
-        .map(|style| {
-            let function = document
-                .functions
-                .iter()
-                .find(|item| item.name == style.function && item.kind == custom_kind)
-                .expect("checker validates input style");
-            let args = style
-                .args
-                .iter()
-                .map(|arg| expr_code(arg, env, document, ValueMode::Owned))
-                .collect::<Result<Vec<_>, _>>()?;
-            Ok::<_, Error>(format!(
-                "{}(__theme, __status{})",
-                function.rust_path,
-                args.iter()
-                    .map(|arg| format!(", {arg}"))
-                    .collect::<String>()
-            ))
-        })
+        .map(|style| custom_style_call_code(style, custom_kind, "__theme, __status", env, document))
         .transpose()?;
     let has_utilities = utilities.is_some_and(|style| {
         style.background.is_some()

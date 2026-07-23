@@ -15,6 +15,11 @@ view
     assert_eq!(error.code, "E128");
     assert!(error.message.contains("rule percent"));
 
+    let too_large = source.replace("fill=percent(101.0)", "thickness=3.5e38 fill=full");
+    let error = analyze(&too_large).unwrap_err();
+    assert_eq!(error.code, "E128");
+    assert!(error.message.contains("rule thickness"));
+
     let unknown_color = source.replace("fill=percent(101.0)", "color=missing");
     let error = analyze(&unknown_color).unwrap_err();
     assert_eq!(error.code, "E129");
@@ -43,11 +48,11 @@ on precise_changed(next)
   precise = next
 view
   col
-    slider amount min=0.0 max=100.0 step=5.0 default=50.0 shift-step=1.0 width=fill(2) height=20.0 style=dynamic_slider(active) -> changed _
+    slider amount min=0.0 max=100.0 step=5.0 default=50.0 shift-step=1.0 w=fill(2) h=20.0 style=dynamic_slider(active) -> changed _
       active rail-start=linear(0.0, primary@0.0, danger@1.0) rail-end=linear(1.57, bg@0.0, primary/25@1.0) rail-w=4.0 rail-border=transparent rail-border-w=1.0 rail-r=2.0 rail-r-tl=1.0 handle=circle(7.0) handle-color=linear(0.785, primary@0.0, fg@1.0) handle-border=fg handle-border-w=1.0
       hovered rail-start=fg rail-end=bg rail-r-tr=3.0 rail-r-br=3.0 rail-r-bl=2.0 handle=rect(12) handle-color=fg handle-r=3.0 handle-r-tl=1.0 handle-r-tr=2.0 handle-r-br=3.0 handle-r-bl=4.0
       dragged rail-start=danger handle=circle(8.0) handle-color=danger
-    slider amount min=0.0 max=100.0 step=5.0 default=50.0 shift-step=1.0 vertical width=20.0 height=fill -> changed _
+    slider amount min=0.0 max=100.0 step=5.0 default=50.0 shift-step=1.0 vertical w=20.0 h=fill -> changed _
     slider precise min=slider_number(0.0) max=slider_number(100.0) step=slider_number(5.0) default=slider_number(50.0) shift-step=slider_number(1.0) -> precise_changed _
 "#;
     let document = analyze(source).unwrap();
@@ -58,7 +63,7 @@ view
     assert_eq!(error.code, "E128");
     assert!(error.message.contains("slider step"));
 
-    let bad_axis = source.replace("vertical width=20.0", "vertical width=fill");
+    let bad_axis = source.replace("vertical w=20.0", "vertical w=fill");
     let error = analyze(&bad_axis).unwrap_err();
     assert_eq!(error.code, "E129");
     assert!(error.message.contains("slider width must be fixed"));
@@ -157,7 +162,7 @@ view
 fn checks_tooltip_style_and_rejects_invalid_values() {
     let source = r#"app Hints
 extern crate::backend
-  container-style tooltip_surface(active:bool)
+  box-style tooltip_surface(active:bool)
 theme
   bg #000000
   fg #ffffff
@@ -192,7 +197,7 @@ view
     let unknown = source.replace("tooltip_surface(active)", "missing(active)");
     let error = analyze(&unknown).unwrap_err();
     assert_eq!(error.code, "E130");
-    assert!(error.message.contains("container style"));
+    assert!(error.message.contains("box style"));
 
     let wrong_arg = source.replace("tooltip_surface(active)", "tooltip_surface(1)");
     let error = analyze(&wrong_arg).unwrap_err();
@@ -201,7 +206,7 @@ view
     let bad_style = source.replace("style=tooltip_surface(active)", "style=unknown");
     let error = analyze(&bad_style).unwrap_err();
     assert_eq!(error.code, "E086");
-    assert!(error.message.contains("declared container style call"));
+    assert!(error.message.contains("declared box style call"));
 }
 
 #[test]
@@ -213,13 +218,13 @@ theme
   primary #333333
   danger #ff0000
 view
-  space width=-1.0
+  space w=-1.0
 "#;
     let error = analyze(source).unwrap_err();
     assert_eq!(error.code, "E128");
     assert!(error.message.contains("space length"));
 
-    let invalid_portion = source.replace("width=-1.0", "width=fill(65536)");
+    let invalid_portion = source.replace("w=-1.0", "w=fill(65536)");
     let error = analyze(&invalid_portion).unwrap_err();
     assert_eq!(error.code, "E074");
     assert!(error.message.contains("fill portion"));
@@ -315,13 +320,13 @@ on scrolled(ax, ay, rx, ry)
 on viewport(ax, ay, reversed_x, reversed_y, rx, ry, bx, by, bw, bh, cx, cy, cw, ch)
 view
   col
-    scroll #feed direction=both width=fill height=200.0 bar=hidden bar-w=8.0 bar-margin=2.0 scroller-w=6.0 bar-spacing=4.0 anchor-x=end anchor-y=start auto=true scroll=scrolled style=dynamic_scroll(busy)
-      text "Legacy offsets"
-    scroll direction=both width=fill height=200.0 viewport=viewport style=dynamic_scroll(busy)
+    scroll #feed dir=both w=fill h=200.0 bar=hidden bar-w=8.0 bar-m=2.0 scroller-w=6.0 bar-gap=4.0 anchor-x=end anchor-y=start auto=true scroll=scrolled style=dynamic_scroll(busy)
+      text "Absolute offsets"
+    scroll dir=both w=fill h=200.0 viewport=viewport style=dynamic_scroll(busy)
       col
         text "Complete viewport"
       active x-disabled=false y-disabled=false
-        container bg=bg text=fg border=primary border-w=1.0 r=4.0 r-tl=1.0 r-tr=2.0 r-br=3.0 r-bl=4.0 shadow=danger shadow-x=1.0 shadow-y=2.0 shadow-blur=4.0 px-snap=true
+        box bg=bg text=fg border=primary border-w=1.0 r=4.0 r-tl=1.0 r-tr=2.0 r-br=3.0 r-bl=4.0 shadow=danger shadow-x=1.0 shadow-y=2.0 shadow-blur=4.0 px-snap=true
         x-rail bg=bg border=primary border-w=1.0 r=2.0
         x-scroller bg=primary border=fg border-w=1.0 r=2.0
         y-rail bg=bg border=primary border-w=1.0 r=2.0
@@ -406,13 +411,13 @@ on submitted
 on pasted(next)
   value = next
 view
-  input "Secret" #secret <-> value hint="Paste token" disabled=disabled secure=secure change=changed submit=submitted paste=pasted width=240.0 padding=8.0 text-size=14.0 line-height=1.2 align=center font=mono style=dynamic_input(disabled)
+  input "Secret" #secret <-> value hint="Paste token" disabled=disabled secure=secure change=changed submit=submitted paste=pasted w=240.0 p=8.0 text-size=14.0 line-h=1.2 align=center font=mono style=dynamic_input(disabled)
     active bg=bg border=fg border-w=1.0 r=4.0 icon=primary placeholder=danger value=fg selection=primary
     hovered bg=bg icon=fg placeholder=danger value=fg selection=primary
     focused bg=bg border=primary
     focused-hovered bg=bg border=fg
     disabled bg=bg value=danger
-    icon code="•" font=ui size=12.0 spacing=4.0 side=right
+    icon code="•" font=ui size=12.0 gap=4.0 side=right
 "#;
     let document = analyze(source).unwrap();
     assert_eq!(document.handlers[0].params[0].ty.display(), "str");
@@ -434,7 +439,7 @@ view
 }
 
 #[test]
-fn rejects_input_icon_options_without_an_icon() {
+fn rejects_inline_input_icon_properties() {
     let source = r#"app Form
 theme
   bg #000000
@@ -447,8 +452,12 @@ view
   input "Value" <-> value icon-size=12.0
 "#;
     let error = analyze(source).unwrap_err();
-    assert_eq!(error.code, "E129");
-    assert!(error.message.contains("require `icon="));
+    assert_eq!(error.code, "E065");
+    assert!(
+        error
+            .message
+            .contains("unknown input property `icon-size=12.0`")
+    );
 }
 
 #[test]
@@ -463,7 +472,7 @@ state
   value = ""
 view
   input "Value" <-> value
-    icon code="+" spacing=-1.0
+    icon code="+" gap=-1.0
 "#;
     let error = analyze(source).unwrap_err();
     assert_eq!(error.code, "E128");
@@ -484,7 +493,7 @@ state
   disabled = false
 on pressed
 view
-  button #action label="Save" disabled=disabled width=fill height=48.0 padding=8.0 clip=true style=dynamic_button(disabled) -> pressed
+  button #action label="Save" disabled=disabled w=fill h=48.0 p=8.0 clip=true style=dynamic_button(disabled) -> pressed
     row
       text "Save"
       text "⌘S"
@@ -550,14 +559,14 @@ on changed(next)
   enabled = next
 view
   col
-    checkbox "Checkbox" checked=enabled style=dynamic_checkbox(enabled) size=20.0 width=fill spacing=8.0 text-size=14.0 line-height=1.2 shaping=advanced wrapping=word-or-glyph font=mono icon="✓" icon-size=12.0 icon-line-height=1.0 icon-shaping=basic -> changed _
+    checkbox "Checkbox" checked=enabled style=dynamic_checkbox(enabled) size=20.0 w=fill gap=8.0 text-size=14.0 line-h=1.2 shape=advanced wrap=word-or-glyph font=mono icon="✓" icon-size=12.0 icon-line-h=1.0 icon-shape=basic -> changed _
       active checked bg=linear(1.57, primary@0.0, bg@1.0) icon=fg text=fg border=primary border-w=1.0 r=4.0 r-tl=2.0 r-tr=3.0 r-br=5.0 r-bl=6.0
       active unchecked bg=bg icon=primary text=fg border=fg
       hovered checked bg=primary icon=fg text=fg border=primary
       hovered unchecked bg=fg icon=bg text=primary border=primary
       disabled checked bg=bg icon=fg text=fg border=fg
       disabled unchecked bg=bg icon=primary text=fg border=primary
-    toggler "Toggler" checked=enabled style=dynamic_toggler(enabled) size=20.0 width=fill spacing=8.0 text-size=14.0 line-height=1.2 shaping=auto wrapping=glyph font=default align=right -> changed _
+    toggler "Toggler" checked=enabled style=dynamic_toggler(enabled) size=20.0 w=fill gap=8.0 text-size=14.0 line-h=1.2 shape=auto wrap=glyph font=default align=right -> changed _
       active checked bg=linear(1.57, primary@0.0, bg@1.0) bg-border=primary bg-border-w=1.0 fg=linear(0.0, fg@0.0, primary@1.0) fg-border=fg fg-border-w=2.0 text=fg r=7.0 r-tl=6.0 r-tr=7.0 r-br=8.0 r-bl=9.0 p-ratio=0.125
       active unchecked bg=bg fg=fg text=primary
       hovered checked bg=primary fg=fg text=fg
@@ -658,7 +667,7 @@ on float_changed(next)
 on item_changed(next)
 view
   col
-    radio "List" value="list" selected=(choice == "list") style=dynamic_radio(highlight) size=20.0 width=fill spacing=8.0 text-size=14.0 line-height=1.2 shaping=advanced wrapping=word-or-glyph font=mono -> changed _
+    radio "List" value="list" selected=(choice == "list") style=dynamic_radio(highlight) size=20.0 w=fill gap=8.0 text-size=14.0 line-h=1.2 shape=advanced wrap=word-or-glyph font=mono -> changed _
       active selected bg=linear(1.57, primary@0.0, bg@1.0) dot=fg border=primary border-w=2.0 text=fg
       active unselected bg=bg dot=primary border=fg text=fg
       hovered selected bg=primary dot=fg border=fg text=fg
@@ -718,11 +727,11 @@ theme
   danger #ff0000
 state
 view
-  text "Long text" width=fill height=40.0 size=16.0 line-height-px=20.0 font=mono align-x=justified align-y=center shaping=advanced wrapping=word-or-glyph @font-bold
+  text "Long text" w=fill h=40.0 size=16.0 line-h-px=20.0 font=mono align-x=justified align-y=center shape=advanced wrap=word-or-glyph @font-bold
 "#;
     analyze(source).unwrap();
 
-    let invalid = source.replace("line-height-px=20.0", "line-height=0.0");
+    let invalid = source.replace("line-h-px=20.0", "line-h=0.0");
     let error = analyze(&invalid).unwrap_err();
     assert_eq!(error.code, "E128");
     assert!(error.message.contains("text line height"));
@@ -778,9 +787,9 @@ theme
 state
 on link(url)
 view
-  rich-text width=fill height=48.0 size=16.0 line-height=1.2 font=ui align-x=justified align-y=center wrapping=word color=fg @font-bold -> link _
-    span "Ice " size=18.0 line-height-px=22.0 font=ui color=primary bg=linear(1.57, bg@0.0, primary@1.0) border=fg border-w=1.0 r=4.0 r-tl=2.0 r-tr=3.0 r-br=5.0 r-bl=6.0 p=2.0 pl=4.0 underline strike=false
-    span "language" link="https://example.com" @text-lg font-bold text-primary
+  rich-text w=fill h=48.0 size=16.0 line-h=1.2 font=ui align-x=justified align-y=center wrap=word color=fg @font-bold -> link _
+    span "Ice " size=18.0 line-h-px=22.0 font=ui color=primary bg=linear(1.57, bg@0.0, primary@1.0) border=fg border-w=1.0 r=4.0 r-tl=2.0 r-tr=3.0 r-br=5.0 r-bl=6.0 p=2.0 pl=4.0 underline strike=false
+    span "language" link="https://example.com" size=18.0 @font-bold text-primary
 "#;
     analyze(source).unwrap();
 

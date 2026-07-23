@@ -35,12 +35,12 @@ on start
       units -> measured _
     flow
       from task optional_task(2)
-      and-then item -> task double_task(item)
+      try item -> task double_task(item)
       done -> finished _
     flow
       from task fallible_task(2)
       map item -> item + 1
-      and-then item -> task fallible_task(item)
+      try item -> task fallible_task(item)
       done -> finished _
       error -> failed _
     flow
@@ -51,7 +51,7 @@ on start
       done -> themed _
     flow
       from task network_task(-1)
-      map-error reason -> normalize_error(reason)
+      map-err reason -> normalize_error(reason)
       collect
       done -> collected_results _
     flow

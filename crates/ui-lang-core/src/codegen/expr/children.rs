@@ -27,15 +27,7 @@ pub(in crate::codegen) fn render_children(
                 children,
                 span,
             } => {
-                let Type::List(inner) = expr_type(
-                    items,
-                    &env.iter()
-                        .map(|(name, binding)| (name.clone(), binding.ty.clone()))
-                        .collect(),
-                    document,
-                    span,
-                )?
-                else {
+                let Type::List(inner) = expr_type(items, &env_types(env), document, span)? else {
                     return Err(Error::new("E121", span, "for expects a list"));
                 };
                 let items = expr_code(items, env, document, ValueMode::Borrowed)?;

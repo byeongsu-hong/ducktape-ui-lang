@@ -19,9 +19,12 @@ pub(in crate::check) fn keyboard_variant<'a>(
             format!("{name} expects a string literal"),
         ));
     };
-    let mut chars = value.chars();
-    if !chars.next().is_some_and(|ch| ch.is_ascii_uppercase())
-        || !chars.all(|ch| ch.is_ascii_alphanumeric())
+    if !crate::valid_identifier(value)
+        || !value
+            .bytes()
+            .next()
+            .is_some_and(|byte| byte.is_ascii_uppercase())
+        || !value.bytes().all(|byte| byte.is_ascii_alphanumeric())
     {
         return Err(Error::new(
             "E152",
@@ -95,6 +98,23 @@ pub(in crate::check) fn check_builtin_args(
     }
     for (value, expected) in args.iter().zip(expected) {
         require_type(&expr_type(value, env, document, span)?, expected, span)?;
+    }
+    Ok(())
+}
+
+pub(in crate::check) fn check_f32_args(
+    name: &str,
+    args: &[Expr],
+    expected: &[Type],
+    env: &HashMap<String, Type>,
+    document: &Document,
+    span: &Span,
+) -> Result<(), Error> {
+    check_builtin_args(name, args, expected, env, document, span)?;
+    for (value, expected) in args.iter().zip(expected) {
+        if *expected == Type::F64 {
+            require_f32_literal_range(value, f64::NEG_INFINITY, None, name, span)?;
+        }
     }
     Ok(())
 }
@@ -262,15 +282,17 @@ pub(in crate::check) fn require_pixel_value(
     span: &Span,
 ) -> Result<Type, Error> {
     let actual = expr_type(value, env, document, span)?;
-    if matches!(actual, Type::F64 | Type::Pixels) {
-        Ok(actual)
-    } else {
-        Err(Error::new(
+    if !matches!(actual, Type::F64 | Type::Pixels) {
+        return Err(Error::new(
             "E101",
             span,
             format!("expected `f64` or `pixels`, got `{}`", actual.display()),
-        ))
+        ));
     }
+    if actual == Type::F64 {
+        require_f32_literal_range(value, f64::NEG_INFINITY, None, "pixel value", span)?;
+    }
+    Ok(actual)
 }
 
 pub(in crate::check) fn require_radius_value(
@@ -280,15 +302,17 @@ pub(in crate::check) fn require_radius_value(
     span: &Span,
 ) -> Result<Type, Error> {
     let actual = expr_type(value, env, document, span)?;
-    if matches!(actual, Type::F64 | Type::Radius) {
-        Ok(actual)
-    } else {
-        Err(Error::new(
+    if !matches!(actual, Type::F64 | Type::Radius) {
+        return Err(Error::new(
             "E101",
             span,
             format!("expected `f64` or `radius`, got `{}`", actual.display()),
-        ))
+        ));
     }
+    if actual == Type::F64 {
+        require_f32_literal_range(value, f64::NEG_INFINITY, None, "radius value", span)?;
+    }
+    Ok(actual)
 }
 
 pub(in crate::check) fn check_length_value(
@@ -315,7 +339,7 @@ pub(in crate::check) fn check_length_value(
             ),
         ));
     }
-    require_literal_range(value, 0.0, None, label, span)
+    require_f32_literal_range(value, 0.0, None, label, span)
 }
 
 pub(in crate::check) fn require_radians_value(
@@ -325,15 +349,17 @@ pub(in crate::check) fn require_radians_value(
     span: &Span,
 ) -> Result<Type, Error> {
     let actual = expr_type(value, env, document, span)?;
-    if matches!(actual, Type::F64 | Type::Radians) {
-        Ok(actual)
-    } else {
-        Err(Error::new(
+    if !matches!(actual, Type::F64 | Type::Radians) {
+        return Err(Error::new(
             "E101",
             span,
             format!("expected `f64` or `radians`, got `{}`", actual.display()),
-        ))
+        ));
     }
+    if actual == Type::F64 {
+        require_f32_literal_range(value, f64::NEG_INFINITY, None, "radians value", span)?;
+    }
+    Ok(actual)
 }
 
 pub(in crate::check) fn arithmetic_type(left: &Type, op: BinaryOp, right: &Type) -> Option<Type> {

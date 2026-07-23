@@ -99,7 +99,7 @@ pub(in crate::codegen) fn generate_theme(
         let value = expr_code(&setting.value, &callback_env, document, ValueMode::Owned)?;
         writeln!(
             out,
-            "fn __scale_factor(&self{callback_arg}) -> f32 {{ (({value}) as f32).max(f32::EPSILON) }}"
+            "fn __scale_factor(&self{callback_arg}) -> f32 {{ (({value}) as f32).max(f32::EPSILON).min(f32::MAX) }}"
         )
         .unwrap();
     }
@@ -379,7 +379,7 @@ pub(in crate::codegen) fn generate_update(
         if handler.name == "mount" {
             continue;
         }
-        let variant = pascal(&handler.name);
+        let variant = handler_variant(&handler.name);
         let pattern = if handler.params.is_empty() {
             format!("{message}::{variant}")
         } else {

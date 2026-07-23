@@ -1,6 +1,22 @@
 use super::*;
 
 #[test]
+fn keeps_distinct_handler_names_distinct_in_rust() {
+    let generated = compile(
+        "app Demo\ntheme\n  bg #000000\n  fg #ffffff\n  primary #333333\n  danger #ff0000\non foo_bar\non fooBar\nview\n  col\n    button \"one\" -> foo_bar\n    button \"two\" -> fooBar\n",
+        "handlers.ice",
+    )
+    .unwrap();
+
+    assert!(generated.contains("FooBar"));
+    assert!(generated.contains("__0H666f6f426172"));
+    assert!(generated.contains("impl ::std::fmt::Debug for Demo"));
+    assert!(generated.contains("impl ::std::fmt::Debug for __DemoMessage"));
+    assert!(!generated.contains("#[derive(Debug)]\npub struct Demo"));
+    assert!(!generated.contains("#[derive(Debug, Clone)]\nenum __DemoMessage"));
+}
+
+#[test]
 fn lowers_every_native_alignment_operation() {
     let source = example!("alignment.ice");
     let generated = compile(source, "alignment.ice").unwrap();
@@ -108,8 +124,8 @@ fn lowers_every_native_background_and_gradient_operation() {
         "(self.custom_stop).color",
         "::iced::gradient::Linear::new(::iced::Radians((0.5) as f32))",
         "::iced::gradient::Linear::new(::iced::Radians((0.75) as f32))",
-        ".add_stop((0.75) as f32, ::iced::Color::WHITE)",
-        ".add_stops(::std::vec![",
+        "::ui_lang_runtime::add_gradient_stops(self.numeric_linear, [::iced::gradient::ColorStop { offset: (0.75) as f32, color: ::iced::Color::WHITE }])",
+        "::ui_lang_runtime::add_gradient_stops(::iced::gradient::Linear::new(::iced::Radians((1.0) as f32)), ::std::vec![",
         ".scale_alpha((0.5) as f32)",
         "crate::backend::linear_round_trip(self.multi_linear)",
         "(self.numeric_linear).angle",
@@ -418,9 +434,8 @@ fn lowers_every_native_window_screenshot_operation() {
     for expected in [
         "::iced::window::Screenshot::new(",
         "crate::backend::screenshot_round_trip(self.sample.clone())",
-        "(&(self.sample)).crop(crate::backend::screenshot_crop_region()).ok()",
+        "::ui_lang_runtime::crop_screenshot(&(self.sample), crate::backend::screenshot_crop_region()).ok()",
         "::iced::window::screenshot(__window).map(move |value| __NativeWindowScreenshotMessage::NativeCaptured(value))",
-        "__NativeWindowScreenshotMessage::RgbaCaptured(value.rgba.to_vec(), value.size.width as i64, value.size.height as i64, value.scale_factor as f64)",
         "::iced::window::screenshot::CropError::Zero",
         "::iced::window::screenshot::CropError::OutOfBounds",
         ".err().map(|error| error.to_string())",
@@ -472,16 +487,17 @@ fn lowers_every_native_color_operation() {
         "::iced::Color::TRANSPARENT",
         "::iced::Color::from_rgb(",
         "::iced::Color::from_rgba(",
+        "::iced::Color::from_rgba(((self.red) as f32).max(0.0).min(1.0), ((self.green) as f32).max(0.0).min(1.0), ((self.blue) as f32).max(0.0).min(1.0), ((self.alpha) as f32).max(0.0).min(1.0))",
         "::iced::Color::from_rgb8(12u8, 34u8, 56u8)",
         "::iced::Color::from_rgba8(12u8, 34u8, 56u8,",
         "<u8>::try_from(self.red8)",
         "<u8>::try_from(self.green8)",
         "<u8>::try_from(self.blue8)",
+        "if (0.0..=1.0).contains(&__alpha)",
         "::iced::Color::from_linear_rgba(",
         "::iced::Color::from([",
         ".parse::<::iced::Color>().ok()",
         ".inverse()",
-        ".invert();",
         ".scale_alpha(",
         ".into_rgba8()",
         ".into_linear()",
@@ -583,6 +599,7 @@ fn lowers_native_animation_without_a_custom_runtime() {
         "self.progress.go_mut",
         ".interpolate_with(",
         "::std::option::Option::<f32>::None",
+        "::ui_lang_runtime::animation_remaining_millis(&(self.expanded), ::iced::time::Instant::now())",
         "::iced::window::frames()",
         "__AnimationFrame",
     ] {
@@ -595,7 +612,7 @@ fn lowers_windowless_daemon_and_exit() {
     let source = r#"daemon Agent
   title label(window)
   theme "dark"
-  scale-factor scale(window)
+  scale scale(window)
   window dashboard
     size 800 600
 extern crate::backend
@@ -649,10 +666,10 @@ fn lowers_complete_common_application_and_window_settings() {
   executor iced::executor::Default
   font "fonts/Brand.ttf"
   font "fonts/Icons.otf"
-  default-text-size 15
+  text-size 15
   antialiasing false
   vsync false
-  scale-factor 1.25
+  scale 1.25
   window
     icon-rgba "assets/app.rgba" 2 1
     size 960 720
@@ -669,9 +686,9 @@ fn lowers_complete_common_application_and_window_settings() {
     transparent true
     blur true
     level always-on-top
-    exit-on-close-request false
+    exit-on-close false
     platform linux
-      application-id "dev.example.configured"
+      app-id "dev.example.configured"
       override-redirect true
     platform windows
       drag-and-drop false
@@ -756,6 +773,7 @@ view
         "#[cfg(target_arch = \"wasm32\")]",
         ".scale_factor(Self::__scale_factor)",
         "fn __scale_factor(&self) -> f32",
+        ".max(f32::EPSILON).min(f32::MAX)",
     ] {
         assert!(generated.contains(expected), "missing {expected}");
     }
@@ -771,7 +789,8 @@ view
         ("title \"Configured app\"", "title ready", "expected `str`"),
         ("theme \"dark\"", "theme \"unknown\"", "unknown iced theme"),
         ("bg \"123456\"", "bg \"not-a-color\"", "hexadecimal"),
-        ("scale-factor 1.25", "scale-factor 0", "greater than zero"),
+        ("scale 1.25", "scale 0", "greater than zero"),
+        ("scale 1.25", "scale 3.5e38", "scale"),
     ] {
         let error = compile(&source.replace(from, to), "configured.ice").unwrap_err();
         assert!(error.message.contains(expected), "{error:?}");
@@ -803,9 +822,21 @@ view
   text len(items)
 "#;
     let generated = compile(source, "demo.ice").unwrap();
-    assert!(generated.contains("async fn __ui_lang_check_load"));
+    assert!(generated.contains("async fn __ui_lang_check_future_load"));
     assert!(generated.contains("crate::backend::load(arg0).await"));
     assert!(generated.contains("let task = (||"));
+}
+
+#[test]
+fn keeps_extern_struct_and_future_probe_names_distinct() {
+    let generated = compile(
+        "app Demo\nextern crate::backend\n  Load()\n  load() -> unit\ntheme\n  bg #000000\n  fg #ffffff\n  primary #333333\n  danger #ff0000\nview\n  text \"ok\"\n",
+        "probes.ice",
+    )
+    .unwrap();
+
+    assert!(generated.contains("fn __ui_lang_check_Load"));
+    assert!(generated.contains("async fn __ui_lang_check_future_load"));
 }
 
 #[test]

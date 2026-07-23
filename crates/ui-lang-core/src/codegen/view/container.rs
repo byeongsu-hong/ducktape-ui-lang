@@ -40,12 +40,7 @@ pub(in crate::codegen) fn render_container(
     if let Some(padding) = typed_padding_code(&options.padding, env, document)? {
         write!(code, ".padding({padding})").unwrap();
     }
-    if let Some(width) = &options.width {
-        write!(code, ".width({})", length_code(width, env, document)?).unwrap();
-    }
-    if let Some(height) = &options.height {
-        write!(code, ".height({})", length_code(height, env, document)?).unwrap();
-    }
+    append_dimensions(&mut code, [&options.width, &options.height], env, document)?;
     for (method, value) in [
         ("max_width", &options.max_width),
         ("max_height", &options.max_height),

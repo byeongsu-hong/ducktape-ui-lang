@@ -15,14 +15,7 @@ pub(in crate::codegen) fn render_media(
             options,
             span,
         } => {
-            let source_type = expr_type(
-                source,
-                &env.iter()
-                    .map(|(name, binding)| (name.clone(), binding.ty.clone()))
-                    .collect(),
-                document,
-                span,
-            )?;
+            let source_type = expr_type(source, &env_types(env), document, span)?;
             let source = expr_code(source, env, document, ValueMode::Owned)?;
             let mut code = match kind {
                 MediaKind::Image => format!("::iced::widget::image({source})"),
@@ -38,12 +31,7 @@ pub(in crate::codegen) fn render_media(
                 ),
                 MediaKind::Svg => format!("::iced::widget::svg({source})"),
             };
-            if let Some(width) = &options.width {
-                write!(code, ".width({})", length_code(width, env, document)?).unwrap();
-            }
-            if let Some(height) = &options.height {
-                write!(code, ".height({})", length_code(height, env, document)?).unwrap();
-            }
+            append_dimensions(&mut code, [&options.width, &options.height], env, document)?;
             if let Some(fit) = &options.fit {
                 write!(
                     code,
@@ -53,26 +41,18 @@ pub(in crate::codegen) fn render_media(
                 .unwrap();
             }
             if let Some(rotation) = &options.rotation {
-                let rotation_type = expr_type(rotation, &env_types(env), document, span)?;
-                let rotation = expr_code(rotation, env, document, ValueMode::Owned)?;
                 write!(
                     code,
                     ".rotation({})",
-                    if rotation_type == Type::Rotation {
-                        rotation
-                    } else if options.rotation_solid {
-                        format!("::iced::Rotation::Solid(::iced::Radians({rotation} as f32))")
-                    } else {
-                        format!("{rotation} as f32")
-                    }
+                    expr_code(rotation, env, document, ValueMode::Owned)?
                 )
                 .unwrap();
             }
             if let Some(opacity) = &options.opacity {
                 write!(
                     code,
-                    ".opacity({} as f32)",
-                    expr_code(opacity, env, document, ValueMode::Owned)?
+                    ".opacity({})",
+                    clamped_f32_code(opacity, "0.0", "1.0", env, document)?
                 )
                 .unwrap();
             }
@@ -81,25 +61,13 @@ pub(in crate::codegen) fn render_media(
                     .svg_style
                     .as_ref()
                     .map(|style| {
-                        let function = document
-                            .functions
-                            .iter()
-                            .find(|item| {
-                                item.name == style.function && item.kind == ExternKind::SvgStyle
-                            })
-                            .expect("checker validates svg style");
-                        let args = style
-                            .args
-                            .iter()
-                            .map(|arg| expr_code(arg, env, document, ValueMode::Owned))
-                            .collect::<Result<Vec<_>, _>>()?;
-                        Ok::<_, Error>(format!(
-                            "{}(__theme, __status{})",
-                            function.rust_path,
-                            args.iter()
-                                .map(|arg| format!(", {arg}"))
-                                .collect::<String>()
-                        ))
+                        custom_style_call_code(
+                            style,
+                            ExternKind::SvgStyle,
+                            "__theme, __status",
+                            env,
+                            document,
+                        )
                     })
                     .transpose()?;
                 let has_colors = options.svg_color.is_some() || options.svg_hover_color.is_some();
@@ -154,26 +122,42 @@ pub(in crate::codegen) fn render_media(
                 )
                 .unwrap();
             }
-            for (value, method) in [
-                (&options.padding, "padding"),
-                (&options.min_scale, "min_scale"),
-                (&options.max_scale, "max_scale"),
-                (&options.scale_step, "scale_step"),
-            ] {
-                if let Some(value) = value {
-                    write!(
-                        code,
-                        ".{method}({} as f32)",
-                        expr_code(value, env, document, ValueMode::Owned)?
-                    )
-                    .unwrap();
-                }
+            if let Some(padding) = &options.padding {
+                write!(
+                    code,
+                    ".padding({})",
+                    clamped_f32_code(padding, "0.0", "f32::MAX", env, document)?
+                )
+                .unwrap();
+            }
+            if *kind == MediaKind::Viewer
+                && (options.min_scale.is_some() || options.max_scale.is_some())
+            {
+                let min = options.min_scale.as_ref().map_or_else(
+                    || Ok("0.25".into()),
+                    |value| expr_code(value, env, document, ValueMode::Owned),
+                )?;
+                let max = options.max_scale.as_ref().map_or_else(
+                    || Ok("10.0".into()),
+                    |value| expr_code(value, env, document, ValueMode::Owned),
+                )?;
+                code = format!(
+                    "{{ let (__viewer_min_scale, __viewer_max_scale) = ::ui_lang_runtime::viewer_scale_bounds({min}, {max}); {code}.min_scale(__viewer_min_scale).max_scale(__viewer_max_scale) }}"
+                );
+            }
+            if let Some(step) = &options.scale_step {
+                write!(
+                    code,
+                    ".scale_step({})",
+                    clamped_f32_code(step, "f32::EPSILON", "f32::MAX", env, document)?
+                )
+                .unwrap();
             }
             if let Some(scale) = &options.scale {
                 write!(
                     code,
-                    ".scale({} as f32)",
-                    expr_code(scale, env, document, ValueMode::Owned)?
+                    ".scale({})",
+                    clamped_f32_code(scale, "f32::EPSILON", "f32::MAX", env, document)?
                 )
                 .unwrap();
             }
@@ -209,18 +193,11 @@ pub(in crate::codegen) fn render_media(
                 )
                 .unwrap();
             }
-            if let Some(label) = &options.accessibility.label {
+            if options.accessibility.label.is_some() {
                 let accessibility_key =
                     accessibility_key_code(None, "media", span, scope, env, document)?;
-                let label = expr_code(label, env, document, ValueMode::Owned)?;
-                let description = options
-                    .accessibility
-                    .description
-                    .as_ref()
-                    .map(|value| expr_code(value, env, document, ValueMode::Owned))
-                    .transpose()?
-                    .map(|value| format!(".description({value})"))
-                    .unwrap_or_default();
+                let (label, description) =
+                    accessibility_code(&options.accessibility, String::new, env, document)?;
                 Ok(format!(
                     "{{ let __a11y_key = {accessibility_key}; let __a11y_id = ::ui_lang_runtime::StableId::new(&__a11y_key); ::ui_lang_runtime::accessible({code}, __a11y_id, ::ui_lang_runtime::Role::Image).label({label}){description}.into() }}"
                 ))
@@ -248,7 +225,7 @@ pub(in crate::codegen) fn render_media(
             let delay = expr_code(&options.delay_ms, env, document, ValueMode::Owned)?;
             let snap = expr_code(&options.snap, env, document, ValueMode::Owned)?;
             let mut code = format!(
-                "{{ let __tooltip_content: __IceElement<'_, {message}> = {content}; let __tooltip_tip: __IceElement<'_, {message}> = {tip}; ::iced::widget::tooltip(__tooltip_content, __tooltip_tip, ::iced::widget::tooltip::Position::{position}).gap({gap} as f32).padding({padding} as f32).delay(::std::time::Duration::from_millis({delay} as u64)).snap_within_viewport({snap})"
+                "{{ let __tooltip_content: __IceElement<'_, {message}> = {content}; let __tooltip_tip: __IceElement<'_, {message}> = {tip}; ::iced::widget::tooltip(__tooltip_content, __tooltip_tip, ::iced::widget::tooltip::Position::{position}).gap(::ui_lang_runtime::bounded_table_metric({gap}, 1)).padding(::ui_lang_runtime::bounded_table_metric({padding}, 1)).delay(::std::time::Duration::from_millis(u64::try_from({delay}).unwrap_or(0))).snap_within_viewport({snap})"
             );
             append_tooltip_style(&mut code, options, env, document)?;
             code.push_str(".into() }");

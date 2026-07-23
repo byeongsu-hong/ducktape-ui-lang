@@ -35,10 +35,10 @@ on inspect
   equal = default_rotation == rotation.floating(radians(0.0))
 
 view
-  col spacing=8.0 padding=16.0
+  col gap=8.0 p=16.0
     button "Inspect" -> inspect
-    image pixel width=48.0 height=48.0 rotation=solid_rotation
-    svg "<svg/>" memory width=48.0 height=48.0 rotation=adjusted_rotation
+    image pixel w=48.0 h=48.0 rotate=solid_rotation
+    svg "<svg/>" memory w=48.0 h=48.0 rotate=adjusted_rotation
     text kind
     text radians_value.value
     text degrees_value.value

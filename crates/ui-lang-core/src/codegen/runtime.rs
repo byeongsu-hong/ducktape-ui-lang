@@ -94,10 +94,11 @@ pub(in crate::codegen) fn generate_widget_selector_types(out: &mut String, docum
             !matches!(selector, WidgetSelector::Extern { .. })
         })
     };
-    if !document
-        .handlers
-        .iter()
-        .any(|handler| uses_builtin(&handler.statements))
+    if !document_uses_widget_target(document)
+        && !document
+            .handlers
+            .iter()
+            .any(|handler| uses_builtin(&handler.statements))
         && !document
             .presets
             .iter()
@@ -175,6 +176,55 @@ fn __ice_widget_target_from_text(value: ::iced::widget::selector::Text) -> __Ice
 }
 "#,
     );
+}
+
+fn document_uses_widget_target(document: &Document) -> bool {
+    let uses = document_type_uses_widget_target;
+
+    document.states.iter().any(|state| uses(&state.ty))
+        || document
+            .structs
+            .iter()
+            .flat_map(|item| &item.fields)
+            .any(|(_, ty)| uses(ty))
+        || document.functions.iter().any(|item| {
+            item.params.iter().any(|(_, ty)| uses(ty))
+                || item.progress.as_ref().is_some_and(uses)
+                || uses(&item.output)
+                || item.error.as_ref().is_some_and(uses)
+        })
+        || document
+            .handlers
+            .iter()
+            .flat_map(|handler| &handler.params)
+            .any(|param| uses(&param.ty))
+        || canvases(document)
+            .into_iter()
+            .flat_map(|(_, locals, _)| locals)
+            .any(|state| uses(&state.ty))
+        || document.components.iter().any(|component| {
+            component.params.iter().any(|(_, ty)| uses(ty))
+                || uses(&component.output)
+                || component.states.iter().any(|state| uses(&state.ty))
+                || component
+                    .handlers
+                    .iter()
+                    .flat_map(|handler| &handler.params)
+                    .any(|param| uses(&param.ty))
+        })
+}
+
+fn document_type_uses_widget_target(ty: &Type) -> bool {
+    match ty {
+        Type::WidgetTarget => true,
+        Type::List(inner) | Type::Option(inner) | Type::Combo(inner) | Type::Animation(inner) => {
+            document_type_uses_widget_target(inner)
+        }
+        Type::Result(output, error) => {
+            document_type_uses_widget_target(output) || document_type_uses_widget_target(error)
+        }
+        _ => false,
+    }
 }
 
 pub(in crate::codegen) fn statements_use_widget_selector(
@@ -310,6 +360,10 @@ pub(in crate::codegen) fn uses_system_task(document: &Document, name: &str) -> b
         .handlers
         .iter()
         .any(|handler| statements_use_system_task(&handler.statements, name))
+        || document
+            .presets
+            .iter()
+            .any(|preset| statements_use_system_task(&preset.statements, name))
 }
 
 pub(in crate::codegen) fn statements_use_system_task(statements: &[Statement], name: &str) -> bool {

@@ -75,8 +75,7 @@ pub(in crate::check) fn infer_documents_group(
             .into_iter()
             .flatten()
             {
-                require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                require_literal_range(value, 0.0, None, "keyed metric", span)?;
+                require_nonnegative_f64(value, env, document, "keyed metric", span)?;
             }
             infer_view(child, &child_env, document, signatures, ids)?;
         }
@@ -126,7 +125,7 @@ pub(in crate::check) fn infer_documents_group(
             ] {
                 if let Some(value) = value {
                     require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                    require_literal_range(value, min, None, label, span)?;
+                    require_f32_literal_range(value, min, None, label, span)?;
                 }
             }
             check_markdown_style(&options.style, env, document, span)?;
@@ -168,7 +167,7 @@ pub(in crate::check) fn infer_documents_group(
             ] {
                 if let Some(value) = value {
                     require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                    require_literal_range(value, min, None, label, span)?;
+                    require_f32_literal_range(value, min, None, label, span)?;
                 }
             }
             if let Some(length) = &options.height {
@@ -179,7 +178,7 @@ pub(in crate::check) fn infer_documents_group(
                     TextLineHeight::Relative(value) | TextLineHeight::Absolute(value) => value,
                 };
                 require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                require_literal_range(value, f64::EPSILON, None, "editor line height", span)?;
+                require_f32_literal_range(value, f64::EPSILON, None, "editor line height", span)?;
             }
             if let (Some(Expr::F64(min)), Some(Expr::F64(max))) =
                 (&options.min_height, &options.max_height)
@@ -245,8 +244,7 @@ pub(in crate::check) fn infer_documents_group(
                 (&options.separator_y, "table vertical separator"),
             ] {
                 if let Some(value) = value {
-                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                    require_literal_range(value, 0.0, None, label, span)?;
+                    require_nonnegative_f64(value, env, document, label, span)?;
                 }
             }
             let mut cell_env = env.clone();

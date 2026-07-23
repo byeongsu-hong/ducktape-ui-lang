@@ -13,15 +13,7 @@ pub(in crate::codegen) fn render_table(
     scope: &str,
     slot: Option<&SlotContext>,
 ) -> Result<String, Error> {
-    let Type::List(inner) = expr_type(
-        rows,
-        &env.iter()
-            .map(|(name, binding)| (name.clone(), binding.ty.clone()))
-            .collect(),
-        document,
-        span,
-    )?
-    else {
+    let Type::List(inner) = expr_type(rows, &env_types(env), document, span)? else {
         unreachable!("checker validates table rows")
     };
     let rows = expr_code(rows, env, document, ValueMode::Owned)?;
@@ -40,7 +32,7 @@ pub(in crate::codegen) fn render_table(
     let mut column_codes = Vec::with_capacity(columns.len());
     for (index, column) in columns.iter().enumerate() {
         let header_scope = format!("format!(\"{{}}/header({index})\", {scope})");
-        let cell_scope = format!("format!(\"{{}}/row({{}})/column({index})\", {scope}, __row)");
+        let cell_scope = format!("format!(\"{{}}/row({{}})/col({index})\", {scope}, __row)");
         let header = render_node(&column.header, document, message, env, &header_scope, slot)?;
         let cell = render_node(
             &column.cell,
@@ -51,10 +43,16 @@ pub(in crate::codegen) fn render_table(
             slot,
         )?;
         let mut code = format!(
-            "{{ let __table_header: __IceElement<'_, {message}> = {header}; ::iced::widget::table::column(__table_header, move |(__row, {item}): (usize, {row_rust})| -> __IceElement<'_, {message}> {{ {cell} }})"
+            "{{ let __table_header: __IceElement<'_, {message}> = {header}; let __table_header = ::ui_lang_runtime::bounded_fill_element(__table_header, __table_row_count, false); ::iced::widget::table::column(__table_header, move |(__row, {item}): (usize, {row_rust})| -> __IceElement<'_, {message}> {{ let __table_cell: __IceElement<'_, {message}> = {cell}; ::ui_lang_runtime::bounded_fill_element(__table_cell, __table_row_count, false) }})"
         );
         if let Some(width) = &column.width {
-            write!(code, ".width({})", length_code(width, env, document)?).unwrap();
+            write!(
+                code,
+                ".width(::ui_lang_runtime::bounded_fill_length({}, {}))",
+                length_code(width, env, document)?,
+                columns.len()
+            )
+            .unwrap();
         }
         if let Some(align) = column.align_x {
             let align = match align {
@@ -76,30 +74,50 @@ pub(in crate::codegen) fn render_table(
         column_codes.push(code);
     }
     let mut code = format!(
-        "::iced::widget::table::table(::std::vec![{}], {rows}.into_iter().enumerate())",
+        "{{ let __table_rows = {rows}; let __table_row_count = __table_rows.len().saturating_add(1); ::iced::widget::table::table(::std::vec![{}], __table_rows.into_iter().enumerate())",
         column_codes.join(", ")
     );
     if let Some(width) = &options.width {
         write!(code, ".width({})", length_code(width, env, document)?).unwrap();
     }
-    for (value, method) in [
-        (&options.padding, "padding"),
-        (&options.padding_x, "padding_x"),
-        (&options.padding_y, "padding_y"),
-        (&options.separator, "separator"),
-        (&options.separator_x, "separator_x"),
-        (&options.separator_y, "separator_y"),
+    for (value, method, entries) in [
+        (
+            &options.padding,
+            "padding",
+            format!("{}usize.max(__table_row_count)", columns.len()),
+        ),
+        (&options.padding_x, "padding_x", columns.len().to_string()),
+        (
+            &options.padding_y,
+            "padding_y",
+            "__table_row_count".to_owned(),
+        ),
+        (
+            &options.separator,
+            "separator",
+            format!("{}usize.max(__table_row_count)", columns.len()),
+        ),
+        (
+            &options.separator_x,
+            "separator_x",
+            columns.len().to_string(),
+        ),
+        (
+            &options.separator_y,
+            "separator_y",
+            "__table_row_count".to_owned(),
+        ),
     ] {
         if let Some(value) = value {
             write!(
                 code,
-                ".{method}({} as f32)",
-                expr_code(value, env, document, ValueMode::Owned)?
+                ".{method}(::ui_lang_runtime::bounded_table_metric({}, {entries}))",
+                expr_code(value, env, document, ValueMode::Owned)?,
             )
             .unwrap();
         }
     }
-    Ok(format!("{code}.into()"))
+    Ok(format!("{code}.into() }}"))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -116,15 +134,7 @@ pub(in crate::codegen) fn render_keyed_column(
     scope: &str,
     slot: Option<&SlotContext>,
 ) -> Result<String, Error> {
-    let Type::List(inner) = expr_type(
-        items,
-        &env.iter()
-            .map(|(name, binding)| (name.clone(), binding.ty.clone()))
-            .collect(),
-        document,
-        span,
-    )?
-    else {
+    let Type::List(inner) = expr_type(items, &env_types(env), document, span)? else {
         unreachable!("checker validates keyed lists")
     };
     let items = expr_code(items, env, document, ValueMode::Borrowed)?;
@@ -142,12 +152,12 @@ pub(in crate::codegen) fn render_keyed_column(
     let child_scope = format!("format!(\"{{}}/key({{}})\", {scope}, __key)");
     let child = render_node(child, document, message, &child_env, &child_scope, slot)?;
     let mut code = format!(
-        "{{ let mut __children: ::std::vec::Vec<_> = ::std::vec::Vec::new(); for {item} in {items}.iter() {{ let __key = {key}; let __child: __IceElement<'_, {message}> = {child}; __children.push((__key, __child)); }} let __layout = ::iced::widget::keyed_column(__children)"
+        "{{ let mut __children: ::std::vec::Vec<_> = ::std::vec::Vec::new(); for {item} in {items}.iter() {{ let __key = {key}; let __child: __IceElement<'_, {message}> = {child}; __children.push((__key, __child)); }} let __child_count = __children.len(); let __children = __children.into_iter().map(|(__key, __child)| (__key, ::ui_lang_runtime::bounded_fill_element(__child, __child_count, false))).collect::<::std::vec::Vec<_>>(); let __layout = ::iced::widget::keyed_column(__children)"
     );
     if let Some(spacing) = &options.spacing {
         write!(
             code,
-            ".spacing({} as f32)",
+            ".spacing(::ui_lang_runtime::bounded_spacing({}, __child_count))",
             expr_code(spacing, env, document, ValueMode::Owned)?
         )
         .unwrap();
@@ -155,12 +165,7 @@ pub(in crate::codegen) fn render_keyed_column(
     if let Some(padding) = typed_padding_code(&options.padding, env, document)? {
         write!(code, ".padding({padding})").unwrap();
     }
-    if let Some(width) = &options.width {
-        write!(code, ".width({})", length_code(width, env, document)?).unwrap();
-    }
-    if let Some(height) = &options.height {
-        write!(code, ".height({})", length_code(height, env, document)?).unwrap();
-    }
+    append_dimensions(&mut code, [&options.width, &options.height], env, document)?;
     if let Some(max_width) = &options.max_width {
         write!(
             code,

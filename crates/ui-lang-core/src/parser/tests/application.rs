@@ -14,10 +14,10 @@ fn parses_checked_application_and_window_settings() {
   renderer crate::backend::Renderer
   font "assets/Brand.ttf"
   font "assets/Icons.otf"
-  default-text-size 15
+  text-size 15
   antialiasing false
   vsync false
-  scale-factor 1.25
+  scale 1.25
   window
     icon-rgba "assets/app.rgba" 2 1
     size 960 720
@@ -27,7 +27,7 @@ fn parses_checked_application_and_window_settings() {
     level always-on-top
     visible true
     platform linux
-      application-id "dev.example.demo"
+      app-id "dev.example.demo"
       override-redirect false
     platform windows
       drag-and-drop true
@@ -160,6 +160,14 @@ fn parses_checked_application_and_window_settings() {
     assert!(error.message.contains("positive integers"));
 
     let error = parse(&source.replace(
+        "icon-rgba \"assets/app.rgba\" 2 1",
+        "icon-rgba \"assets/app.rgba\" 4294967295 2",
+    ))
+    .unwrap_err();
+    assert_eq!(error.code, "E015");
+    assert!(error.message.contains("dimensions are too large"));
+
+    let error = parse(&source.replace(
         "executor iced::executor::Default",
         "executor iced::bad-path",
     ))
@@ -167,10 +175,10 @@ fn parses_checked_application_and_window_settings() {
     assert_eq!(error.code, "E073");
 
     let error = parse(&source.replace(
-            "    platform linux\n      application-id \"dev.example.demo\"\n      override-redirect false",
-            "    platform plan9\n      application-id \"dev.example.demo\"",
-        ))
-        .unwrap_err();
+        "    platform linux\n      app-id \"dev.example.demo\"\n      override-redirect false",
+        "    platform plan9\n      app-id \"dev.example.demo\"",
+    ))
+    .unwrap_err();
     assert_eq!(error.code, "E015");
     assert!(error.message.contains("linux, windows, macos, or wasm"));
 
@@ -193,6 +201,42 @@ fn parses_checked_application_and_window_settings() {
     .unwrap_err();
     assert_eq!(error.code, "E014");
     assert!(error.message.contains("duplicate setting `skip-taskbar`"));
+}
+
+#[test]
+fn rejects_host_independent_absolute_asset_paths() {
+    for setting in [
+        "  font \"C:/tmp/brand.ttf\"",
+        "  window\n    icon-rgba \"C:/tmp/app.rgba\" 1 1",
+    ] {
+        let source = format!("app Demo\n{setting}\nview\n  text \"ok\"\n");
+        let error = parse(&source).unwrap_err();
+
+        assert_eq!(error.code, "E015", "{setting}");
+        assert!(error.message.contains("relative"), "{setting}");
+    }
+}
+
+#[test]
+fn rejects_redeclared_builtin_theme_colors() {
+    for name in ["white", "black", "transparent"] {
+        let source = format!("app Demo\ntheme\n  {name} #123456\nview\n  text \"ok\"\n");
+        let error = parse(&source).unwrap_err();
+
+        assert_eq!(error.code, "E012", "{name}");
+        assert!(error.message.contains("built in"), "{name}");
+    }
+}
+
+#[test]
+fn rejects_redeclared_builtin_font_presets() {
+    for name in ["default", "mono"] {
+        let source = format!("app Demo\nfont {name}\nview\n  text \"ok\"\n");
+        let error = parse(&source).unwrap_err();
+
+        assert_eq!(error.code, "E013", "{name}");
+        assert!(error.message.contains("built in"), "{name}");
+    }
 }
 
 #[test]
@@ -272,7 +316,7 @@ fn accepts_an_input_without_an_id() {
 fn parses_every_pick_list_handle() {
     for handle in [
         "handle arrow size=12.0",
-        "handle static code=\"⌄\" font=default size=12.0 line-height=1.0 shaping=basic",
+        "handle static code=\"⌄\" font=default size=12.0 line-h=1.0 shape=basic",
         "handle dynamic\n      closed code=\"⌄\"\n      open code=\"⌃\"",
         "handle none",
     ] {
