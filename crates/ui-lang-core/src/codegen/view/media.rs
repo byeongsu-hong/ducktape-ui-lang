@@ -337,6 +337,44 @@ pub(in crate::codegen) fn render_media(
             }
             Ok(format!("{code}.into() }}"))
         }
+        ViewNode::ResizeHandle {
+            options, content, ..
+        } => {
+            let content = render_node(content, document, message, env, scope, slot)?;
+            let mut code = format!(
+                "{{ let __resize_content: __IceElement<'_, {message}> = {content}; ::ui_lang_runtime::resize_handle(__resize_content)"
+            );
+            if let Some(route) = &options.drag {
+                let callback = ordered_route_callback_code(
+                    route,
+                    "__dx, __dy",
+                    &["__dx", "__dy"],
+                    env,
+                    document,
+                    message,
+                )?;
+                write!(code, ".on_drag({callback})").unwrap();
+            }
+            for (route, method) in [(&options.press, "on_press"), (&options.release, "on_release")] {
+                if let Some(route) = route {
+                    write!(
+                        code,
+                        ".{method}({})",
+                        route_code(route, "", env, document, message)?
+                    )
+                    .unwrap();
+                }
+            }
+            if let Some(interaction) = options.interaction {
+                write!(
+                    code,
+                    ".interaction(::iced::mouse::Interaction::{})",
+                    mouse_interaction_code(interaction)
+                )
+                .unwrap();
+            }
+            Ok(format!("{code}.into() }}"))
+        }
         ViewNode::Canvas {
             options,
             locals,

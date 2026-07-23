@@ -50,6 +50,7 @@ pub(in crate::check) fn check_lazy_subtree(
             ..
         }
         | ViewNode::MouseArea { content, .. }
+        | ViewNode::ResizeHandle { content, .. }
         | ViewNode::Container { content, .. }
         | ViewNode::Theme { content, .. }
         | ViewNode::Float { content, .. }

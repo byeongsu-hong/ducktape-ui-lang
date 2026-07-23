@@ -289,6 +289,24 @@ pub(in crate::check) fn infer_media_group(
             }
             infer_view(content, env, document, signatures, ids)?;
         }
+        ViewNode::ResizeHandle {
+            options, content, ..
+        } => {
+            if let Some(route) = &options.drag {
+                infer_ordered_payload_route(
+                    route,
+                    &[Type::F64, Type::F64],
+                    env,
+                    document,
+                    signatures,
+                    "resize-handle drag",
+                )?;
+            }
+            for route in [&options.press, &options.release].into_iter().flatten() {
+                infer_route(route, None, env, document, signatures)?;
+            }
+            infer_view(content, env, document, signatures, ids)?;
+        }
         ViewNode::Canvas {
             options,
             locals,

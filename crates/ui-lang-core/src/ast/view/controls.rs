@@ -333,3 +333,15 @@ pub struct MouseAreaOptions {
     pub interaction: Option<MouseInteraction>,
     pub interaction_expr: Option<Expr>,
 }
+
+#[derive(Clone, Debug, Default)]
+pub struct ResizeHandleOptions {
+    /// Payload route receiving `(dx, dy)` logical-pixel deltas per drag move.
+    pub drag: Option<Route>,
+    /// Route fired when the drag begins (left press over the handle).
+    pub press: Option<Route>,
+    /// Route fired when the drag ends (left release while dragging).
+    pub release: Option<Route>,
+    /// Cursor shown while hovering or dragging the handle.
+    pub interaction: Option<MouseInteraction>,
+}

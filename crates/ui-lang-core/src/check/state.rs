@@ -53,6 +53,7 @@ pub(crate) fn controlled_state_bindings(
                 ..
             }
             | ViewNode::MouseArea { content, .. }
+            | ViewNode::ResizeHandle { content, .. }
             | ViewNode::Container { content, .. }
             | ViewNode::Theme { content, .. }
             | ViewNode::Float { content, .. }
@@ -220,6 +221,7 @@ pub(in crate::check) fn pane_grid_span(node: &ViewNode) -> Option<&Span> {
             ..
         }
         | ViewNode::MouseArea { content, .. }
+        | ViewNode::ResizeHandle { content, .. }
         | ViewNode::Container { content, .. }
         | ViewNode::Theme { content, .. }
         | ViewNode::Float { content, .. }
@@ -264,6 +266,7 @@ pub(in crate::check) fn repeated_pane_grid_span(node: &ViewNode) -> Option<&Span
             ..
         }
         | ViewNode::MouseArea { content, .. }
+        | ViewNode::ResizeHandle { content, .. }
         | ViewNode::Container { content, .. }
         | ViewNode::Theme { content, .. }
         | ViewNode::Float { content, .. }

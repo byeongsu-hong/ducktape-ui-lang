@@ -246,6 +246,11 @@ pub enum ViewNode {
         content: Box<ViewNode>,
         span: Span,
     },
+    ResizeHandle {
+        options: ResizeHandleOptions,
+        content: Box<ViewNode>,
+        span: Span,
+    },
     Canvas {
         options: Box<CanvasOptions>,
         locals: Vec<State>,

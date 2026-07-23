@@ -397,6 +397,49 @@ pub(in crate::parser) fn parse_mouse_area(
     })
 }
 
+pub(in crate::parser) fn parse_resize_handle(
+    parts: &[String],
+    styles: Vec<String>,
+    line: &Line,
+) -> Result<ViewNode, Error> {
+    if !styles.is_empty() {
+        return Err(error("E087", line, "resize-handle does not accept `@` utilities"));
+    }
+    if line.children.len() != 1 {
+        return Err(error("E087", line, "resize-handle requires exactly one child"));
+    }
+    let mut options = ResizeHandleOptions::default();
+    for part in &parts[1..] {
+        if let Some(value) = part.strip_prefix("drag=") {
+            options.drag = Some(parse_payload_route(value, line, 2)?);
+        } else if let Some(value) = part.strip_prefix("press=") {
+            options.press = Some(parse_route(value, line)?);
+        } else if let Some(value) = part.strip_prefix("release=") {
+            options.release = Some(parse_route(value, line)?);
+        } else if let Some(value) = part.strip_prefix("cursor=") {
+            options.interaction = Some(parse_mouse_interaction(value, line)?);
+        } else {
+            return Err(error(
+                "E087",
+                line,
+                format!("unknown resize-handle property `{part}`"),
+            ));
+        }
+    }
+    if options.drag.is_none() {
+        return Err(error(
+            "E087",
+            line,
+            "resize-handle requires `drag=handler` to report the drag delta",
+        ));
+    }
+    Ok(ViewNode::ResizeHandle {
+        options,
+        content: Box::new(parse_view(&line.children[0])?),
+        span: Span::line(line.number),
+    })
+}
+
 pub(in crate::parser) fn parse_mouse_interaction(
     source: &str,
     line: &Line,

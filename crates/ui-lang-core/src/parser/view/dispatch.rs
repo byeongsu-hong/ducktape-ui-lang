@@ -213,6 +213,7 @@ pub(in crate::parser) fn parse_view(line: &Line) -> Result<ViewNode, Error> {
         "image" | "svg" | "viewer" => parse_media(kind, &parts, styles, line),
         "tooltip" => parse_tooltip(&parts, styles, line),
         "mouse" => parse_mouse_area(&parts, styles, line),
+        "resize-handle" => parse_resize_handle(&parts, styles, line),
         "canvas" => parse_canvas(&parts, styles, line),
         "theme" => parse_theme(&parts, styles, line),
         "slot" => parse_slot(&parts, styles, line),

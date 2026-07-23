@@ -41,6 +41,59 @@ view
 }
 
 #[test]
+fn lowers_resize_handle_to_a_grabbing_widget() {
+    // A `resize-handle` wraps a divider child and reports `(dx, dy)` drag deltas
+    // plus press/release, so a component can drive a bound width — something
+    // `pane_grid` cannot do outside the app view.
+    let source = r#"app Split
+theme
+  bg #000000
+  fg #ffffff
+  primary #333333
+  danger #ff0000
+state
+  left_width = 240.0
+on drag_started
+on drag_ended
+on sidebar_dragged(dx, dy)
+  return if dx < 0.0 && left_width + dx < 160.0
+  left_width = left_width + dx
+view
+  row
+    container width=left_width height=fill bg=primary
+      text "Sidebar"
+    resize-handle drag=sidebar_dragged press=drag_started release=drag_ended cursor=resize-horizontal
+      container width=6.0 height=fill bg=fg
+        text ""
+    container width=fill height=fill bg=bg
+      text "Main"
+"#;
+    let generated = compile(source, "split.ice").unwrap();
+    assert!(generated.contains("::ui_lang_runtime::resize_handle("));
+    assert!(generated.contains(".on_drag("));
+    assert!(generated.contains(".on_press("));
+    assert!(generated.contains(".on_release("));
+    assert!(generated.contains(".interaction(::iced::mouse::Interaction::ResizingHorizontally)"));
+
+    // The drag route carries two f64 payloads; the wrong arity is rejected.
+    assert!(
+        compile(
+            &source.replace("on sidebar_dragged(dx, dy)", "on sidebar_dragged(dx)"),
+            "split.ice",
+        )
+        .is_err()
+    );
+
+    // The handle refuses to exist without a drag route.
+    let error = compile(
+        &source.replace("drag=sidebar_dragged ", ""),
+        "split.ice",
+    )
+    .unwrap_err();
+    assert_eq!(error.code, "E087");
+}
+
+#[test]
 fn lowers_complex_native_controls() {
     let source = r#"app Controls
 extern crate::backend
