@@ -1,6 +1,46 @@
 use super::*;
 
 #[test]
+fn reads_editor_text_and_replaces_content() {
+    // `editor_text(state)` lets a handler read an editor's current text back as a
+    // String (to send/persist it), and assigning `editor("")` replaces/clears the
+    // content — the two halves a multiline composer needs.
+    let source = r#"app Composer
+theme
+  bg #000000
+  fg #ffffff
+  primary #333333
+  danger #ff0000
+state
+  notes:editor = "hello"
+  snapshot = ""
+on capture
+  snapshot = editor_text(notes)
+on clear
+  notes = editor("")
+view
+  col
+    editor <-> notes
+    text snapshot
+    button "Read" -> capture
+    button "Clear" -> clear
+"#;
+    let generated = compile(source, "composer.ice").unwrap();
+    // The read lowers to `Content::text()`.
+    assert!(generated.contains(".text()"));
+    // Clearing lowers to a fresh `Content` assigned onto the editor state.
+    assert!(generated.contains(".notes = ::iced::widget::text_editor::Content::with_text"));
+
+    // Reading a non-editor state is a type error.
+    let error = compile(
+        &source.replace("editor_text(notes)", "editor_text(snapshot)"),
+        "composer.ice",
+    )
+    .unwrap_err();
+    assert_eq!(error.code, "E101");
+}
+
+#[test]
 fn lowers_complex_native_controls() {
     let source = r#"app Controls
 extern crate::backend

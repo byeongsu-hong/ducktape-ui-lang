@@ -76,6 +76,7 @@ state
   help:markdown = "# Ice **renders** [iced docs](https://iced.rs)"
   help_images:[str] = []
   notes:editor = "fn main() { println!(\"ice\"); }"
+  notes_text = ""
   editor_title = "Editor"
   last_key = "none"
   command_down = false
@@ -405,6 +406,12 @@ on docs_link(url)
 on editor_command(command)
   event_seen = command.save
 
+on read_notes
+  notes_text = editor_text(notes)
+
+on clear_notes
+  notes = editor("")
+
 on extend_markdown
   markdown help append "\n\n![Ice](asset://ice)"
   help_images = markdown_images(help)
@@ -559,6 +566,10 @@ view
           button "Append Markdown image" -> extend_markdown
           text len(help_images) size=12.0 @text-muted
         EditorPanel(notes, editor_title, loading)
+        row spacing=8.0 align=center
+          button "Read notes" -> read_notes
+          button "Clear notes" -> clear_notes
+          text notes_text size=12.0 @text-muted
         pick display_modes display_mode placeholder="Choose a view" width=fill menu-height=160.0 padding=8.0 text-size=14.0 line-height=1.2 shaping=advanced font=ui open=picker_opened close=picker_closed style=view_picker(loading) menu-style=view_menu(loading) -> display_mode_changed _
           active text=fg placeholder=muted handle=primary bg=surface border=border border-w=1.0 r=6.0
           hovered text=fg placeholder=muted handle=fg bg=bg border=primary border-w=1.0 r=6.0
