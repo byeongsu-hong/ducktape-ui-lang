@@ -1,8 +1,10 @@
 //! Runtime support for the accessibility contract emitted by `ui-lang`.
 
 mod flex;
+mod zstack;
 
 pub use flex::*;
+pub use zstack::*;
 
 pub use accesskit::{Action, ActionRequest, Node, NodeId, Role, Toggled, TreeUpdate};
 
