@@ -493,9 +493,39 @@ view
     assert!(generated.contains("__ice_component_counter: ::std::collections::HashMap"));
     assert!(generated.contains("__CounterHandleIncrement(::std::string::String)"));
     assert!(generated.contains("__CounterBindDraft(::std::string::String, ::std::string::String)"));
-    assert!(generated.contains("self.__ice_component_counter.entry(__scope).or_default()"));
+    assert!(generated.contains("self.__ice_component_counter.entry(__scope.clone()).or_default()"));
     assert!(generated.contains("__local.count = (__local.count + 1)"));
     assert!(generated.contains("self.__ice_component_counter.get(&__ice_component_counter_scope_"));
+}
+
+#[test]
+fn lowers_component_scoped_widget_operations() {
+    let source = r#"app LocalFocus
+theme
+  bg #000000
+  fg #ffffff
+  primary #333333
+  danger #ff0000
+component EditableTitle()
+  state
+    editing = false
+    draft = ""
+  on begin
+    editing = true
+    task widget focus #title
+  col
+    button "Edit" -> begin
+    if editing
+      input "Title" #title <-> draft
+view
+  col
+    EditableTitle #first
+    EditableTitle #second
+"#;
+    let generated = compile(source, "local_focus.ice").unwrap();
+    assert!(generated.contains(
+        "::iced::widget::operation::focus::<__LocalFocusMessage>(::iced::widget::Id::from(format!(\"{}/title\", __scope)))"
+    ));
 }
 
 #[test]

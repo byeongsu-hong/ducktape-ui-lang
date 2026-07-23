@@ -61,8 +61,21 @@ component Loader()
     button "Load" disabled=loading -> load
     text len(tasks)
 
+component EditableTitle()
+  state
+    editing = false
+    draft = ""
+  on edit
+    editing = true
+    task widget focus #draft
+  col
+    button "Edit title" -> edit
+    if editing
+      input "Title" #draft <-> draft
+
 view
   row
     Counter label="First" #first
     Counter label="Second" #second
     Loader #loader
+    EditableTitle #title

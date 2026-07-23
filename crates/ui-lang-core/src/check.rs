@@ -113,6 +113,24 @@ fn check(document: &mut Document) -> Result<(), Error> {
                     statement,
                     Statement::Assign { .. }
                         | Statement::ReturnIf { .. }
+                        | Statement::WidgetOperation {
+                            operation: WidgetOperation::Focus { .. }
+                                | WidgetOperation::Focused { .. }
+                                | WidgetOperation::CursorFront { .. }
+                                | WidgetOperation::CursorEnd { .. }
+                                | WidgetOperation::Cursor { .. }
+                                | WidgetOperation::SelectAll { .. }
+                                | WidgetOperation::Select { .. }
+                                | WidgetOperation::Snap { .. }
+                                | WidgetOperation::SnapEnd { .. }
+                                | WidgetOperation::ScrollTo { .. }
+                                | WidgetOperation::ScrollBy { .. }
+                                | WidgetOperation::Find {
+                                    selector: WidgetSelector::Id(_),
+                                    ..
+                                },
+                            ..
+                        }
                         | Statement::Run {
                             kind: EffectKind::Future,
                             ..
@@ -122,7 +140,7 @@ fn check(document: &mut Document) -> Result<(), Error> {
                 return Err(Error::new(
                     "E140",
                     &handler.span,
-                    "component handlers support state assignments and `run` futures only",
+                    "component handlers support state assignments, scoped widget operations, and `run` futures only",
                 ));
             }
         }
@@ -229,13 +247,21 @@ fn check(document: &mut Document) -> Result<(), Error> {
         check_handler(handler, &states, document, &operation_ids, &pane_grids)?;
     }
     for component in &document.components {
+        let mut operation_env: HashMap<String, Type> = component.params.iter().cloned().collect();
+        operation_env.extend(
+            component
+                .states
+                .iter()
+                .map(|state| (state.name.clone(), state.ty.clone())),
+        );
+        let operation_ids = widget_operation_ids(&component.root, &operation_env, document)?;
         let states = component
             .states
             .iter()
             .map(|state| (state.name.clone(), state.ty.clone()))
             .collect();
         for handler in &component.handlers {
-            check_handler(handler, &states, document, &[], &HashMap::new())?;
+            check_handler(handler, &states, document, &operation_ids, &HashMap::new())?;
         }
     }
     Ok(())

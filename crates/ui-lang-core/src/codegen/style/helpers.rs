@@ -206,6 +206,13 @@ pub(in crate::codegen) fn widget_target_code(
     env: &HashMap<String, Binding>,
     document: &Document,
 ) -> Result<String, Error> {
+    if let Some((_, context)) = component_context(env) {
+        let mut scope = context.code.clone();
+        for segment in &target.segments {
+            scope = id_code(segment, &scope, env, document)?;
+        }
+        return Ok(format!("::iced::widget::Id::from({scope})"));
+    }
     if target.segments.iter().all(|segment| segment.key.is_none()) {
         return Ok(format!(
             "::iced::widget::Id::new({})",

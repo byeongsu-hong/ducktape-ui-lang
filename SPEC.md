@@ -2810,9 +2810,10 @@ component Counter(label:str)
 They have one root, typed inputs, and no implicit capture of app state. A local
 `state` block accepts self-contained ordinary cloneable values. Local `on`
 handlers may assign that state, stop with `return if`, or end with a Future
-extern call using `run`. Native tasks, streams, task composition, lifecycle
-hooks, and implicit prop capture stay at app level. Pass a prop or event value
-explicitly through the route when a local handler needs it.
+extern call using `run`. They may also end with a widget operation targeting
+their own rendered subtree. Other native tasks, streams, task composition,
+lifecycle hooks, and implicit prop capture stay at app level. Pass a prop or
+event value explicitly through the route when a local handler needs it.
 
 `run latest` gives local request/response interactions latest-wins behavior:
 
@@ -3702,6 +3703,9 @@ Explicit component IDs create a scope; a component without one uses its name.
 Layout and container IDs create descendant scopes, slot content inherits its
 slot position's scope, keyed rows add `key(value)`, table headers/cells add
 `header(index)` or `row(index)/column(index)`, and panes add their name.
+Inside a component handler, the path starts at that component instance, so
+`task widget focus #title` targets its own `#title` descendant without naming
+the call-site scope.
 Declared dynamic IDs use `i64` or `str`; keyed rows use bool/i64/f64 and table
 indices use i64. Every segment name, key presence, order, and key type must
 match a real input, editor, or scroll ID. Static paths lower to

@@ -582,6 +582,39 @@ view
 }
 
 #[test]
+fn checks_component_scoped_widget_operations() {
+    let source = r#"app LocalFocus
+theme
+  bg #000000
+  fg #ffffff
+  primary #333333
+  danger #ff0000
+component EditableTitle()
+  state
+    editing = false
+    draft = ""
+  on begin
+    editing = true
+    task widget focus #title
+  col
+    button "Edit" -> begin
+    if editing
+      input "Title" #title <-> draft
+view
+  col
+    EditableTitle #first
+    EditableTitle #second
+"#;
+    analyze(source).unwrap();
+
+    let error = analyze(&source.replace("focus #title", "focus #missing")).unwrap_err();
+    assert_eq!(error.code, "E172");
+
+    let error = analyze(&source.replace("focus #title", "focus-next")).unwrap_err();
+    assert_eq!(error.code, "E140");
+}
+
+#[test]
 fn checks_component_scoped_futures_and_latest() {
     let source = r#"app Search
 extern crate::backend

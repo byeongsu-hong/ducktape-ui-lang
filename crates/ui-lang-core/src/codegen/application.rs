@@ -449,7 +449,7 @@ pub(in crate::codegen) fn generate_update(
             } else {
                 writeln!(
                     out,
-                    "let __local = self.{field}.entry(__scope).or_default();"
+                    "let __local = self.{field}.entry(__scope.clone()).or_default();"
                 )
                 .unwrap();
             }
