@@ -53,17 +53,19 @@ pub(in crate::codegen) fn render_controls(
                 render_node(content, document, message, env, &child_scope, slot)?
             } else {
                 let label = rust_string(label.as_ref().expect("button label"));
-                if options.width.is_none() && options.height.is_none() {
+                let center_x = matches!(options.width.as_ref(), Some(LengthValue::Fixed(_)));
+                let center_y = matches!(options.height.as_ref(), Some(LengthValue::Fixed(_)));
+                if !center_x && !center_y {
                     format!("::iced::widget::text({label}).into()")
                 } else {
                     let mut label =
                         format!("::iced::widget::container(::iced::widget::text({}))", label);
-                    if options.width.is_some() {
+                    if center_x {
                         label.push_str(
                             ".width(::iced::Fill).align_x(::iced::alignment::Horizontal::Center)",
                         );
                     }
-                    if options.height.is_some() {
+                    if center_y {
                         label.push_str(
                             ".height(::iced::Fill).align_y(::iced::alignment::Vertical::Center)",
                         );
