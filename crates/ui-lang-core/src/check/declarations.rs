@@ -56,6 +56,8 @@ pub(in crate::check) fn check_declared_types(document: &Document) -> Result<(), 
             reject_debug_span(ty, &component.span)?;
             check(ty, &component.span)?;
         }
+        reject_debug_span(&component.output, &component.span)?;
+        check(&component.output, &component.span)?;
         for state in &component.states {
             if !component_state_is_cloneable(&state.ty) {
                 return Err(Error::new(
@@ -238,11 +240,11 @@ pub(in crate::check) fn check_unique(document: &Document) -> Result<(), Error> {
         }
         let mut local_handlers = HashSet::new();
         for handler in &component.handlers {
-            if handler.name == "mount" {
+            if matches!(handler.name.as_str(), "mount" | "emit") {
                 return Err(Error::new(
                     "E100",
                     &handler.span,
-                    "component handlers cannot be named `mount`",
+                    format!("component handlers cannot be named `{}`", handler.name),
                 ));
             }
             if !local_handlers.insert(&handler.name) {

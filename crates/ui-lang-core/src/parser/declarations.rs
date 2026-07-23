@@ -511,7 +511,21 @@ pub(in crate::parser) fn parse_animation_duration(source: &str, line: &Line) -> 
 }
 
 pub(in crate::parser) fn parse_component(header: &str, line: &Line) -> Result<Component, Error> {
-    let (name, params_source) = parse_component_signature(header, line)?;
+    let close = matching_paren(header, line)?;
+    let (name, params_source) = parse_component_signature(&header[..=close], line)?;
+    let output = match header[close + 1..].trim() {
+        "" => Type::Unit,
+        rest => {
+            let output = rest.strip_prefix("->").ok_or_else(|| {
+                error(
+                    "E043",
+                    line,
+                    "component output uses `component Name(...) -> Type`",
+                )
+            })?;
+            parse_type(output.trim(), line)?
+        }
+    };
     line.record_symbol(SymbolKind::Component, &name, true, header);
     let mut params = Vec::new();
     if !params_source.trim().is_empty() {
@@ -576,6 +590,7 @@ pub(in crate::parser) fn parse_component(header: &str, line: &Line) -> Result<Co
     Ok(Component {
         name,
         params,
+        output,
         states,
         handlers,
         root,

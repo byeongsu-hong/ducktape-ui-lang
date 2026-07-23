@@ -117,6 +117,7 @@ pub(in crate::parser) fn parse_view(line: &Line) -> Result<ViewNode, Error> {
                 | "themer"
                 | "shader"
         )
+        && !kind.chars().next().is_some_and(char::is_uppercase)
     {
         return Err(error(
             "E081",
@@ -235,11 +236,15 @@ pub(in crate::parser) fn parse_view(line: &Line) -> Result<ViewNode, Error> {
             }
             let (name, args, id) = parse_component_call(&parts, line)?;
             let slots = parse_component_slots(&name, line)?;
+            let route = route_source
+                .map(|route| parse_route(route.trim(), line))
+                .transpose()?;
             Ok(ViewNode::Component {
                 name,
                 args,
                 id,
                 slots,
+                route,
                 span,
             })
         }

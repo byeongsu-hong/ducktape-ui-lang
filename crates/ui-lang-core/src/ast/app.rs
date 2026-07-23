@@ -7,7 +7,6 @@ pub struct Document {
     pub daemon: bool,
     pub settings: AppSettings,
     pub presets: Vec<Preset>,
-    pub extern_path: Option<String>,
     pub structs: Vec<ExternStruct>,
     pub functions: Vec<ExternFn>,
     pub subscriptions: Vec<Subscription>,

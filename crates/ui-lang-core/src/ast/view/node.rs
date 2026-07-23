@@ -203,6 +203,7 @@ pub enum ViewNode {
         args: Vec<ComponentArg>,
         id: Option<Id>,
         slots: Vec<ComponentSlot>,
+        route: Option<Route>,
         span: Span,
     },
     Slot {

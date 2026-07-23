@@ -112,7 +112,6 @@ pub(crate) fn parse_with_symbols(source: &str) -> Result<(Document, Vec<ParsedSy
     let mut daemon = false;
     let mut settings = AppSettings::default();
     let mut presets = Vec::new();
-    let mut extern_path = None;
     let mut structs = Vec::new();
     let mut functions = Vec::new();
     let mut subscriptions = Vec::new();
@@ -153,15 +152,7 @@ pub(crate) fn parse_with_symbols(source: &str) -> Result<(Document, Vec<ParsedSy
         } else if let Some(name) = line.text.strip_prefix("preset ") {
             presets.push(parse_preset(name.trim(), line)?);
         } else if let Some(path) = line.text.strip_prefix("extern ") {
-            if extern_path.is_some() {
-                return Err(error(
-                    "E003",
-                    line,
-                    "only one extern namespace is supported",
-                ));
-            }
             let path = rust_path(path.trim(), line)?;
-            extern_path = Some(path.clone());
             for item in &line.children {
                 if let Some(source) = item.text.strip_prefix("component ") {
                     functions.push(parse_extern_fn(source, item, &path, ExternKind::Component)?);
@@ -418,7 +409,6 @@ pub(crate) fn parse_with_symbols(source: &str) -> Result<(Document, Vec<ParsedSy
         daemon,
         settings,
         presets,
-        extern_path,
         structs,
         functions,
         subscriptions,

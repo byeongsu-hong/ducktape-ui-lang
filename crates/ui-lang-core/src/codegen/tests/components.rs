@@ -1,6 +1,78 @@
 use super::*;
 
 #[test]
+fn lowers_multiple_extern_namespaces() {
+    let source = r#"app Plugins
+extern crate::backend
+  sync title() -> str
+extern ducktape_ui::ice
+  component native_switch(checked:bool) -> bool
+theme
+  bg #000000
+  fg #ffffff
+  primary #333333
+  danger #ff0000
+state
+  checked = false
+on changed(next)
+  checked = next
+view
+  col
+    text title()
+    extern native_switch(checked) -> changed _
+"#;
+    let generated = compile(source, "plugins.ice").unwrap();
+    assert!(generated.contains("crate::backend::title()"));
+    assert!(generated.contains("ducktape_ui::ice::native_switch(arg0)"));
+}
+
+#[test]
+fn lowers_component_outputs_through_emit_routes() {
+    let source = r#"app Plugins
+extern crate::backend
+  component native_switch(checked:bool) -> bool
+theme
+  bg #000000
+  fg #ffffff
+  primary #333333
+  danger #ff0000
+component PluginSwitch(checked:bool) -> bool
+  extern native_switch(checked) -> emit _
+component NestedSwitch(checked:bool) -> bool
+  PluginSwitch checked=checked -> emit _
+state
+  checked = false
+on changed(next)
+  checked = next
+view
+  NestedSwitch checked=checked -> changed _
+"#;
+    let generated = compile(source, "plugins.ice").unwrap();
+    assert!(generated.contains("crate::backend::native_switch"));
+    assert!(generated.contains("__PluginsMessage::Changed(__value)"));
+}
+
+#[test]
+fn lowers_single_ordered_payloads_through_component_outputs() {
+    let source = r#"app Demo
+theme
+  bg #000000
+  fg #ffffff
+  primary #333333
+  danger #ff0000
+component PointerCapture() -> mouse-button
+  canvas width=fill height=120.0
+    event mouse pressed -> emit _
+    circle x=60.0 y=60.0 r=24.0 fill=primary
+on changed(value)
+view
+  PointerCapture -> changed _
+"#;
+    let generated = compile(source, "pointer.ice").unwrap();
+    assert!(generated.contains("__DemoMessage::Changed(__value)"));
+}
+
+#[test]
 fn lowers_qr_data_and_widget_options() {
     let source = r#"app Codes
 theme

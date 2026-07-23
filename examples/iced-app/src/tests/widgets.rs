@@ -25,6 +25,22 @@ mod dynamic_widget_operations {
 }
 
 #[cfg(test)]
+mod component_output {
+    mod plugin_backend {
+        pub use crate::backend::borrowed_help;
+    }
+
+    ui_lang::include_app!("src/ui/component_output.ice");
+
+    #[test]
+    fn routes_nested_plugin_component_outputs() {
+        let (mut app, _) = ComponentOutput::__boot();
+        let _ = app.__update(__ComponentOutputMessage::Changed(true));
+        assert!(app.active);
+    }
+}
+
+#[cfg(test)]
 mod scoped_widget_operations {
     ui_lang::include_app!("src/ui/scoped_widget_operations.ice");
 

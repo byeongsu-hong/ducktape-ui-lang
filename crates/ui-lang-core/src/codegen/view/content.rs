@@ -79,6 +79,7 @@ pub(in crate::codegen) fn render_content(
             args,
             id,
             slots,
+            route,
             span,
         } => {
             let component = document
@@ -108,6 +109,19 @@ pub(in crate::codegen) fn render_content(
                         ty: ty.clone(),
                         local: false,
                         state,
+                    },
+                );
+            }
+            if let Some(route) = route {
+                component_env.insert(
+                    component_output_key(name),
+                    Binding {
+                        code: route_callback_code(
+                            route, "__value", "__value", env, document, message,
+                        )?,
+                        ty: component.output.clone(),
+                        local: true,
+                        state: None,
                     },
                 );
             }

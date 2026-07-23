@@ -189,6 +189,10 @@ fn check(document: &mut Document) -> Result<(), Error> {
                 .map(|state| (state.name.clone(), state.ty.clone())),
         );
         env.insert(component_context_key(&component.name), Type::Unit);
+        env.insert(
+            component_output_key(&component.name),
+            component.output.clone(),
+        );
         let mut ids = HashSet::new();
         infer_view(&component.root, &env, document, &mut signatures, &mut ids)?;
     }
@@ -268,14 +272,24 @@ fn check(document: &mut Document) -> Result<(), Error> {
 }
 
 const COMPONENT_CONTEXT_PREFIX: &str = "\0component:";
+const COMPONENT_OUTPUT_PREFIX: &str = "\0component-output:";
 
 fn component_context_key(component: &str) -> String {
     format!("{COMPONENT_CONTEXT_PREFIX}{component}")
 }
 
+fn component_output_key(component: &str) -> String {
+    format!("{COMPONENT_OUTPUT_PREFIX}{component}")
+}
+
 fn component_context(env: &HashMap<String, Type>) -> Option<&str> {
     env.keys()
         .find_map(|name| name.strip_prefix(COMPONENT_CONTEXT_PREFIX))
+}
+
+fn component_output(env: &HashMap<String, Type>) -> Option<&Type> {
+    env.iter()
+        .find_map(|(name, output)| name.starts_with(COMPONENT_OUTPUT_PREFIX).then_some(output))
 }
 
 fn component_handler_key(component: &str, handler: &str) -> String {
