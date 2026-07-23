@@ -535,6 +535,20 @@ mod tests {
     }
 
     #[test]
+    fn keeps_component_emit_out_of_navigation() {
+        let fixture = Fixture::new();
+        let root = "app Demo\ntheme\n  bg #000000\n  fg #ffffff\n  primary #333333\n  danger #ff0000\ncomponent Toggle() -> bool\n  checkbox \"Toggle\" checked=false -> emit _\non changed(value)\nview\n  Toggle -> changed _\n";
+        fixture.write("app.ice", root);
+
+        let checked = analyze_file_with_source(fixture.path("app.ice"), root).unwrap();
+        let app = fixture.path("app.ice").canonicalize().unwrap();
+        let route = root.lines().nth(7).unwrap();
+        let column = route.find("emit").unwrap() + 1;
+
+        assert!(checked.symbol_at(Some(&app), 8, column).is_none());
+    }
+
+    #[test]
     fn counts_unicode_indentation_in_source_columns() {
         let fixture = Fixture::new();
         let indent = "\u{a0}\u{a0}";

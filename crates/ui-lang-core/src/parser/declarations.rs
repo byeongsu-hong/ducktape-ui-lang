@@ -582,7 +582,9 @@ pub(in crate::parser) fn parse_component(header: &str, line: &Line) -> Result<Co
     let retained = symbols
         .drain(symbol_start..)
         .filter(|symbol| {
-            symbol.kind != SymbolKind::Handler || symbol.definition || !local_handler(&symbol.name)
+            symbol.kind != SymbolKind::Handler
+                || symbol.definition
+                || (symbol.name != "emit" && !local_handler(&symbol.name))
         })
         .collect::<Vec<_>>();
     symbols.extend(retained);
