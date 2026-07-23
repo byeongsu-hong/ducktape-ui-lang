@@ -61,7 +61,7 @@ theme
   primary #333333
   danger #ff0000
 component PointerCapture() -> mouse-button
-  canvas width=fill height=120.0
+  canvas w=fill h=120.0
     event mouse pressed -> emit _
     circle x=60.0 y=60.0 r=24.0 fill=primary
 on changed(value)
@@ -87,7 +87,7 @@ qr binary bytes(00 ff a4)
 view
   col
     qr automatic cell-size=5.0
-    qr corrected total-size=120.0 cell=primary bg=white
+    qr corrected size=120.0 cell=primary bg=white
     qr fixed
     qr binary
 "#;
@@ -96,9 +96,11 @@ view
     assert!(generated.contains("qr_code::Data::with_error_correction(\"two\", ::iced::widget::qr_code::ErrorCorrection::Quartile)"));
     assert!(generated.contains("qr_code::Data::with_version(\"three\", ::iced::widget::qr_code::Version::Micro(4), ::iced::widget::qr_code::ErrorCorrection::Low)"));
     assert!(generated.contains("qr_code::Data::new(&[0x00u8, 0xffu8, 0xa4u8][..])"));
-    assert!(generated.contains("::iced::widget::qr_code(&self.automatic).cell_size(5.0 as f32)"));
     assert!(generated.contains(
-        "::iced::widget::qr_code(&self.corrected).total_size(120.0 as f32).style(|theme|"
+        "::iced::widget::qr_code(&self.automatic).cell_size(::ui_lang_runtime::bounded_spacing(5.0, 182))"
+    ));
+    assert!(generated.contains(
+        "::iced::widget::qr_code(&self.corrected).total_size(::ui_lang_runtime::bounded_spacing(120.0, 3)).style(|theme|"
     ));
     assert!(generated.contains("qr_code::Style { cell: ::iced::Color"));
 }
@@ -270,10 +272,10 @@ component Dialog()
     slot Header
     slot Body
 component Dialog.Header()
-  container #root
+  box #root
     slot
 component Dialog.Body()
-  container #root
+  box #root
     slot
 view
   Dialog
@@ -302,16 +304,20 @@ theme
 state
   items:[Item] = []
 view
-  keyed item in items by=item.id width=fill(2) height=120.0 spacing=8.0 padding=4.0 padding-left=12.0 max-width=640.0 align=end
+  keyed item in items by=item.id w=fill(2) h=120.0 gap=8.0 p=4.0 pl=12.0 max-w=640.0 align=end
     scroll #row
       text item.name
 "#;
     let generated = compile(source, "keyed.ice").unwrap();
     assert!(generated.contains("for item in self.items.iter()"));
     assert!(generated.contains("__children.push((__key, __child))"));
+    assert!(
+        generated
+            .contains("::ui_lang_runtime::bounded_fill_element(__child, __child_count, false)")
+    );
     assert!(generated.contains("::iced::widget::keyed_column(__children)"));
-    assert!(generated.contains(".spacing(8.0 as f32)"));
-    assert!(generated.contains("left: 12.0 as f32"));
+    assert!(generated.contains(".spacing(::ui_lang_runtime::bounded_spacing(8.0, __child_count))"));
+    assert!(generated.contains("::ui_lang_runtime::bounded_padding(4.0, 4.0, 4.0, 12.0)"));
     assert!(generated.contains(".width(::iced::Length::FillPortion(2))"));
     assert!(generated.contains(".height(120.0 as f32)"));
     assert!(generated.contains(".max_width(640.0 as f32)"));
@@ -365,7 +371,7 @@ on extend
   markdown docs append "\n![Ice](asset://ice)"
   images = markdown_images(docs)
 view
-  markdown docs text-size=16.0 h1-size=32.0 h2-size=28.0 h3-size=24.0 h4-size=20.0 h5-size=18.0 h6-size=16.0 code-size=13.0 spacing=12.0 viewer=docs_viewer("docs") -> open _
+  markdown docs text-size=16.0 h1-size=32.0 h2-size=28.0 h3-size=24.0 h4-size=20.0 h5-size=18.0 h6-size=16.0 code-size=13.0 gap=12.0 viewer=docs_viewer("docs") -> open _
     style font=ui inline-code-bg=linear(1.57, bg@0.0, primary@1.0) inline-code-fg=fg inline-code-font=mono code-block-font=mono link=primary inline-code-p=2.0 inline-code-px=3.0 inline-code-py=4.0 inline-code-pt=5.0 inline-code-pr=6.0 inline-code-pb=7.0 inline-code-pl=8.0 inline-code-border=primary inline-code-border-w=1.0 inline-code-r=4.0 inline-code-r-tl=1.0 inline-code-r-tr=2.0 inline-code-r-br=3.0 inline-code-r-bl=4.0
 "##;
     let generated = compile(source, "docs.ice").unwrap();
@@ -423,8 +429,8 @@ theme
 state
   rows:[Item] = []
 view
-  table row in rows width=fill padding=4.0 padding-x=8.0 padding-y=6.0 separator=1.0 separator-x=2.0 separator-y=3.0
-    column width=fill(2) align-x=right align-y=bottom
+  table row in rows w=fill p=4.0 px=8.0 py=6.0 sep=1.0 sep-x=2.0 sep-y=3.0
+    col w=fill(2) align-x=right align-y=bottom
       header
         text "Name"
       cell
@@ -433,22 +439,32 @@ view
 "#;
     let generated = compile(source, "rows.ice").unwrap();
     assert!(generated.contains("table::table(::std::vec!["));
-    assert!(generated.contains("self.rows.clone().into_iter().enumerate()"));
+    assert!(generated.contains("let __table_rows = self.rows.clone();"));
+    assert!(generated.contains("let __table_row_count = __table_rows.len().saturating_add(1);"));
+    assert!(generated.contains("__table_rows.into_iter().enumerate()"));
     assert!(generated.contains("move |(__row, row): (usize, crate::backend::Item)|"));
-    assert!(generated.contains(".width(::iced::Length::FillPortion(2))"));
+    assert!(generated.contains(
+        ".width(::ui_lang_runtime::bounded_fill_length(::iced::Length::FillPortion(2), 1))"
+    ));
+    assert!(generated.contains(
+        "::ui_lang_runtime::bounded_fill_element(__table_header, __table_row_count, false)"
+    ));
+    assert!(generated.contains(
+        "::ui_lang_runtime::bounded_fill_element(__table_cell, __table_row_count, false)"
+    ));
     assert!(generated.contains(".align_x(::iced::alignment::Horizontal::Right)"));
     assert!(generated.contains(".align_y(::iced::alignment::Vertical::Bottom)"));
     for method in [
-        "padding(4.0 as f32)",
-        "padding_x(8.0 as f32)",
-        "padding_y(6.0 as f32)",
-        "separator(1.0 as f32)",
-        "separator_x(2.0 as f32)",
-        "separator_y(3.0 as f32)",
+        "padding(::ui_lang_runtime::bounded_table_metric(4.0, 1usize.max(__table_row_count)))",
+        "padding_x(::ui_lang_runtime::bounded_table_metric(8.0, 1))",
+        "padding_y(::ui_lang_runtime::bounded_table_metric(6.0, __table_row_count))",
+        "separator(::ui_lang_runtime::bounded_table_metric(1.0, 1usize.max(__table_row_count)))",
+        "separator_x(::ui_lang_runtime::bounded_table_metric(2.0, 1))",
+        "separator_y(::ui_lang_runtime::bounded_table_metric(3.0, __table_row_count))",
     ] {
         assert!(generated.contains(method));
     }
-    assert!(generated.contains("format!(\"{}/row({})/column(0)\""));
+    assert!(generated.contains("format!(\"{}/row({})/col(0)\""));
 }
 
 #[test]
@@ -463,7 +479,7 @@ state
   body:editor = "fn main() {}"
   locked = false
 view
-  editor #body <-> body placeholder="Write" width=640.0 height=fill min-height=80.0 max-height=240.0 size=14.0 line-height-px=18.0 padding=8.0 wrapping=word-or-glyph font=mono highlight="rs" highlight-theme=inspired-github disabled=locked
+  editor #body <-> body hint="Write" w=640.0 h=fill min-h=80.0 max-h=240.0 size=14.0 line-h-px=18.0 p=8.0 wrap=word-or-glyph font=mono highlight="rs" highlight-theme=inspired-github disabled=locked
     active bg=bg border=fg border-w=1.0 r=4.0 placeholder=danger value=fg selection=primary
     hovered bg=bg border=primary placeholder=danger value=fg selection=primary
     focused bg=bg border=primary
@@ -475,11 +491,15 @@ view
     assert!(generated.contains("__EditBody(::iced::widget::text_editor::Action)"));
     assert!(generated.contains("self.body.perform(action)"));
     assert!(generated.contains("::iced::widget::text_editor(&self.body)"));
-    assert!(generated.contains(".width(640.0 as f32)"));
+    assert!(generated.contains(".width(((640.0) as f32).max(0.0).min(f32::MAX))"));
     assert!(generated.contains(".height(::iced::Fill)"));
-    assert!(generated.contains(".min_height(80.0 as f32)"));
-    assert!(generated.contains(".max_height(240.0 as f32)"));
-    assert!(generated.contains("LineHeight::Absolute((18.0 as f32).into())"));
+    assert!(generated.contains(".min_height(((80.0) as f32).max(0.0).min(f32::MAX))"));
+    assert!(generated.contains(".max_height(((240.0) as f32).max(0.0).min(f32::MAX))"));
+    assert!(
+        generated.contains(
+            "LineHeight::Absolute(((18.0) as f32).max(f32::EPSILON).min(f32::MAX).into())"
+        )
+    );
     assert!(generated.contains("Wrapping::WordOrGlyph"));
     assert!(generated.contains(".font(::iced::Font::MONOSPACE)"));
     assert!(generated.contains(".highlight(\"rs\", ::iced::highlighter::Theme::InspiredGitHub)"));
@@ -515,7 +535,7 @@ component EditorPanel(content:editor, heading:str, readonly:bool, syntax:str)
     editor <-> content highlighter=editor_highlight(syntax) key-binding=editor_keys(readonly) style=editor_surface(readonly) -> command _
 on command(value)
 view
-  EditorPanel(body, title, locked, language)
+  EditorPanel content=body heading=title readonly=locked syntax=language
 "#;
     let generated = compile(source, "notes.ice").unwrap();
     assert!(generated.contains("__BindTitle(::std::string::String)"));

@@ -33,24 +33,43 @@ pub enum SymbolKind {
 
 impl SymbolKind {
     pub fn accepts(self, name: &str) -> bool {
-        fn identifier(name: &str) -> bool {
-            !name.is_empty()
-                && name.chars().enumerate().all(|(index, ch)| {
-                    ch == '_' || ch.is_ascii_alphanumeric() && (index > 0 || !ch.is_ascii_digit())
-                })
-        }
-
         match self {
             Self::Component => name.split('.').all(|part| {
-                identifier(part)
+                valid_identifier(part)
                     && part
                         .chars()
                         .next()
                         .is_some_and(|ch| ch.is_ascii_uppercase())
             }),
-            Self::Handler => name != "mount" && identifier(name),
+            Self::Handler => name != "mount" && valid_identifier(name),
         }
     }
+}
+
+const RUST_KEYWORDS: &str = concat!(
+    "abstract as async await become box break const continue crate do dyn else enum extern false ",
+    "final fn for gen if impl in let loop macro match mod move mut override priv pub ref return ",
+    "self Self static struct super trait true try type typeof unsafe unsized use virtual where while yield",
+);
+
+fn valid_rust_identifier(name: &str) -> bool {
+    !name.is_empty()
+        && name != "_"
+        && RUST_KEYWORDS
+            .split_ascii_whitespace()
+            .all(|keyword| keyword != name)
+        && name.chars().enumerate().all(|(index, ch)| {
+            ch == '_' || ch.is_ascii_alphanumeric() && (index > 0 || !ch.is_ascii_digit())
+        })
+}
+
+fn valid_identifier(name: &str) -> bool {
+    name != "none" && !name.starts_with("__") && valid_rust_identifier(name)
+}
+
+fn has_windows_drive_prefix(path: &str) -> bool {
+    let bytes = path.as_bytes();
+    bytes.get(1) == Some(&b':') && bytes[0].is_ascii_alphabetic()
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

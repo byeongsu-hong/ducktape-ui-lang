@@ -254,7 +254,7 @@ pub(in crate::check) fn widget_operation_ids(
                     )?;
                     let mut cell_scope = scope.clone();
                     cell_scope.push(("row".into(), Some(Type::I64)));
-                    cell_scope.push(("column".into(), Some(Type::I64)));
+                    cell_scope.push(("col".into(), Some(Type::I64)));
                     collect(
                         &column.cell,
                         &cell_env,
@@ -601,7 +601,7 @@ pub(in crate::check) fn static_pane_grids(
                     return Err(Error::new(
                         "E187",
                         span,
-                        format!("duplicate persistent pane-grid `#{name}`"),
+                        format!("duplicate persistent panes `#{name}`"),
                     ));
                 }
                 for pane in panes {

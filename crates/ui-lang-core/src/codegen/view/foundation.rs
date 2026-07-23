@@ -117,21 +117,8 @@ pub(in crate::codegen) fn render_foundation(
                 .unwrap_or(binding_constructor);
             let accessibility_key =
                 accessibility_key_code(id.as_ref(), "input", span, scope, env, document)?;
-            let accessibility_label = options
-                .accessibility
-                .label
-                .as_ref()
-                .map(|value| expr_code(value, env, document, ValueMode::Owned))
-                .transpose()?
-                .unwrap_or_else(|| rust_string(label));
-            let accessibility_description = options
-                .accessibility
-                .description
-                .as_ref()
-                .map(|value| expr_code(value, env, document, ValueMode::Owned))
-                .transpose()?
-                .map(|value| format!(".description({value})"))
-                .unwrap_or_default();
+            let (accessibility_label, accessibility_description) =
+                accessibility_code(&options.accessibility, || rust_string(label), env, document)?;
             let disabled_value = disabled
                 .as_ref()
                 .map(|value| expr_code(value, env, document, ValueMode::Owned))
@@ -170,16 +157,16 @@ pub(in crate::codegen) fn render_foundation(
             if let Some(size) = &options.text_size {
                 write!(
                     input,
-                    ".size({} as f32)",
-                    expr_code(size, env, document, ValueMode::Owned)?
+                    ".size({})",
+                    clamped_f32_code(size, "f32::EPSILON", "f32::MAX", env, document)?
                 )
                 .unwrap();
             }
             if let Some(height) = &options.line_height {
                 write!(
                     input,
-                    ".line_height(::iced::widget::text::LineHeight::Relative({} as f32))",
-                    expr_code(height, env, document, ValueMode::Owned)?
+                    ".line_height(::iced::widget::text::LineHeight::Relative({}))",
+                    clamped_f32_code(height, "f32::EPSILON", "f32::MAX", env, document)?
                 )
                 .unwrap();
             }

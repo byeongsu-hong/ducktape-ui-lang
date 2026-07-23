@@ -56,6 +56,6 @@ subscribe
   keyboard modifiers -> modifiers_changed _
 
 view
-  col spacing=8.0 padding=16.0
+  col gap=8.0 p=16.0
     text kind
     text location_name

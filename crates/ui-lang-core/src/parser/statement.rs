@@ -272,12 +272,12 @@ pub(in crate::parser) fn parse_task_flow(line: &Line) -> Result<Statement, Error
             });
             continue;
         }
-        if let Some(source) = item.text.strip_prefix("map-error ") {
+        if let Some(source) = item.text.strip_prefix("map-err ") {
             let Some((binding, value)) = split_top_marker(source, "->") else {
                 return Err(error(
                     "E050",
                     item,
-                    "map-error uses `map-error error -> sync_call(error)`",
+                    "map-err uses `map-err error -> sync_call(error)`",
                 ));
             };
             transforms.push(TaskTransform::MapError {
@@ -291,17 +291,13 @@ pub(in crate::parser) fn parse_task_flow(line: &Line) -> Result<Statement, Error
             .text
             .strip_prefix("then ")
             .map(|source| (false, source))
-            .or_else(|| {
-                item.text
-                    .strip_prefix("and-then ")
-                    .map(|source| (true, source))
-            });
+            .or_else(|| item.text.strip_prefix("try ").map(|source| (true, source)));
         if let Some((and_then, source)) = transform {
             let Some((binding, source)) = split_top_marker(source, "->") else {
                 return Err(error(
                     "E050",
                     item,
-                    "flow transforms use `then value -> task call(...)` or `and-then value -> task call(...)`",
+                    "flow transforms use `then value -> task call(...)` or `try value -> task call(...)`",
                 ));
             };
             let binding = identifier(binding.trim(), item)?;
@@ -325,7 +321,7 @@ pub(in crate::parser) fn parse_task_flow(line: &Line) -> Result<Statement, Error
             return Err(error(
                 "E050",
                 item,
-                "flow lines must be map, then, and-then, map-error, collect, discard, done, error, or units",
+                "flow lines must be map, then, try, map-err, collect, discard, done, error, or units",
             ));
         };
         let slot = match kind.trim() {
@@ -700,7 +696,7 @@ pub(in crate::parser) fn parse_widget_operation(
         }
     } else {
         match parts.first().map(String::as_str) {
-            Some("focus-previous") if parts.len() == 1 => WidgetOperation::FocusPrevious,
+            Some("focus-prev") if parts.len() == 1 => WidgetOperation::FocusPrevious,
             Some("focus-next") if parts.len() == 1 => WidgetOperation::FocusNext,
             Some("focus") if parts.len() == 2 => WidgetOperation::Focus { target: target(1)? },
             Some("focused") if parts.len() == 2 => WidgetOperation::Focused { target: target(1)? },
@@ -887,14 +883,14 @@ pub(in crate::parser) fn parse_window_operation(
         Some("resizable") if parts.len() == 2 => WindowOperation::Resizable(expr(1)?),
         Some("min-size") => WindowOperation::MinSize(size()?),
         Some("max-size") => WindowOperation::MaxSize(size()?),
-        Some("resize-increments") => WindowOperation::ResizeIncrements(size()?),
+        Some("resize-step") => WindowOperation::ResizeIncrements(size()?),
         Some("size") if parts.len() == 1 => WindowOperation::Size,
         Some("maximized") if parts.len() == 1 => WindowOperation::IsMaximized,
         Some("maximize") if parts.len() == 2 => WindowOperation::Maximize(expr(1)?),
         Some("minimized") if parts.len() == 1 => WindowOperation::IsMinimized,
         Some("minimize") if parts.len() == 2 => WindowOperation::Minimize(expr(1)?),
         Some("position") if parts.len() == 1 => WindowOperation::Position,
-        Some("scale-factor") if parts.len() == 1 => WindowOperation::ScaleFactor,
+        Some("scale") if parts.len() == 1 => WindowOperation::ScaleFactor,
         Some("move") if parts.len() == 3 => WindowOperation::Move(expr(1)?, expr(2)?),
         Some("mode") if parts.len() == 1 => WindowOperation::Mode,
         Some("set-mode") if parts.len() == 2 => WindowOperation::SetMode(match parts[1].as_str() {
@@ -939,9 +935,7 @@ pub(in crate::parser) fn parse_window_operation(
             WindowOperation::MousePassthrough(expr(1)?)
         }
         Some("monitor-size") if parts.len() == 1 => WindowOperation::MonitorSize,
-        Some("automatic-tabbing") if parts.len() == 2 => {
-            WindowOperation::AutomaticTabbing(expr(1)?)
-        }
+        Some("auto-tabs") if parts.len() == 2 => WindowOperation::AutomaticTabbing(expr(1)?),
         Some("icon") if parts.len() == 4 => WindowOperation::Icon {
             pixels: expr(1)?,
             width: expr(2)?,

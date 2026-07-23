@@ -5,6 +5,17 @@ use std::collections::HashMap;
 use std::fmt::Write;
 use std::path::Path;
 
+pub(in crate::codegen) fn find_extern_function<'a>(
+    document: &'a Document,
+    name: &str,
+    kind: ExternKind,
+) -> Option<&'a ExternFn> {
+    document
+        .functions
+        .iter()
+        .find(|item| item.name == name && item.kind == kind)
+}
+
 pub(in crate::codegen) fn component_latest_lines(
     component: &Component,
 ) -> impl Iterator<Item = usize> + '_ {
@@ -33,6 +44,14 @@ pub(in crate::codegen) fn handler_future(handler: &Handler) -> Option<(bool, usi
             } => Some((*latest, span.line)),
             _ => None,
         })
+}
+
+pub(in crate::codegen) fn event_filter_type(name: &str) -> String {
+    if canonical_snake(name) {
+        format!("__IceEventFilter{}", pascal(name))
+    } else {
+        format!("__Ice0E{}", rust_identifier_hex(name))
+    }
 }
 
 pub fn generate(document: &CheckedDocument, source_path: &str) -> Result<String, Error> {
@@ -66,7 +85,7 @@ pub fn generate(document: &CheckedDocument, source_path: &str) -> Result<String,
         .filter(|component| !component.states.is_empty() || !component.handlers.is_empty())
     {
         let ty = component_state_type(&component.name);
-        writeln!(out, "#[derive(Debug)]\nstruct {ty} {{").unwrap();
+        writeln!(out, "struct {ty} {{").unwrap();
         for state in &component.states {
             writeln!(out, "{}: {},", state.name, state.ty.rust(&document.structs)).unwrap();
         }
@@ -87,7 +106,7 @@ pub fn generate(document: &CheckedDocument, source_path: &str) -> Result<String,
         writeln!(out, "}} }}\n}}").unwrap();
     }
 
-    writeln!(out, "#[derive(Debug)]\npub struct {} {{", document.app).unwrap();
+    writeln!(out, "pub struct {} {{", document.app).unwrap();
     writeln!(
         out,
         "pub(crate) __ice_accessibility: ::ui_lang_runtime::Bridge<{message}>,"
@@ -163,8 +182,15 @@ pub fn generate(document: &CheckedDocument, source_path: &str) -> Result<String,
         .unwrap();
     }
     writeln!(out, "}}").unwrap();
+    writeln!(
+        out,
+        "impl ::std::fmt::Debug for {} {{ fn fmt(&self, __formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {{ __formatter.write_str({}) }} }}",
+        document.app,
+        rust_string(&document.app)
+    )
+    .unwrap();
 
-    writeln!(out, "#[derive(Debug, Clone)]\nenum {message} {{").unwrap();
+    writeln!(out, "#[derive(Clone)]\nenum {message} {{").unwrap();
     writeln!(
         out,
         "__AccessibilitySnapshot(::std::boxed::Box<::ui_lang_runtime::Snapshot<{message}>>),\n__AccessibilityAction(::ui_lang_runtime::ActionRequest),\n__AccessibilityWindow(::iced::window::Id, ::iced::window::Event),\n#[cfg(all(target_os = \"windows\", not(test)))]\n__AccessibilityNativeWindow(::ui_lang_runtime::NativeWindow),\n__AccessibilityFocusNext,\n__AccessibilityFocusPrevious,"
@@ -174,7 +200,7 @@ pub fn generate(document: &CheckedDocument, source_path: &str) -> Result<String,
         if handler.name == "mount" {
             continue;
         }
-        let variant = pascal(&handler.name);
+        let variant = handler_variant(&handler.name);
         if handler.params.is_empty() {
             writeln!(out, "{variant},").unwrap();
         } else {
@@ -265,6 +291,12 @@ pub fn generate(document: &CheckedDocument, source_path: &str) -> Result<String,
         }
     }
     writeln!(out, "}}").unwrap();
+    writeln!(
+        out,
+        "impl ::std::fmt::Debug for {message} {{ fn fmt(&self, __formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {{ __formatter.write_str({}) }} }}",
+        rust_string(&message)
+    )
+    .unwrap();
 
     generate_extern_probes(&mut out, document);
     generate_editor_binding_mapper(&mut out, document);

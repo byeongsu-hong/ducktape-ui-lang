@@ -51,9 +51,10 @@ pub(in crate::check) fn check_app_settings(
             return Err(Error::new(
                 "E015",
                 &setting.span,
-                "scale-factor must be greater than zero",
+                "scale must be greater than zero",
             ));
         }
+        require_f32_literal_range(&setting.value, 0.0, None, "scale", &setting.span)?;
     }
     if let Some(AppExpression {
         value: Expr::Str(value),

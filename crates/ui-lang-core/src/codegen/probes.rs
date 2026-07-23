@@ -1,5 +1,103 @@
 use super::*;
 
+fn style_probe(
+    kind: ExternKind,
+) -> Option<(&'static str, &'static str, &'static str, &'static str)> {
+    Some(match kind {
+        ExternKind::EditorStyle => (
+            "editor_style",
+            "theme: &::iced::Theme, status: ::iced::widget::text_editor::Status",
+            "theme, status",
+            "::iced::widget::text_editor::Style",
+        ),
+        ExternKind::TextStyle => (
+            "text_style",
+            "theme: &::iced::Theme",
+            "theme",
+            "::iced::widget::text::Style",
+        ),
+        ExternKind::SliderStyle => (
+            "slider_style",
+            "theme: &::iced::Theme, status: ::iced::widget::slider::Status",
+            "theme, status",
+            "::iced::widget::slider::Style",
+        ),
+        ExternKind::ProgressStyle => (
+            "progress_style",
+            "theme: &::iced::Theme",
+            "theme",
+            "::iced::widget::progress_bar::Style",
+        ),
+        ExternKind::ButtonStyle => (
+            "button_style",
+            "theme: &::iced::Theme, status: ::iced::widget::button::Status",
+            "theme, status",
+            "::iced::widget::button::Style",
+        ),
+        ExternKind::CheckboxStyle => (
+            "checkbox_style",
+            "theme: &::iced::Theme, status: ::iced::widget::checkbox::Status",
+            "theme, status",
+            "::iced::widget::checkbox::Style",
+        ),
+        ExternKind::TogglerStyle => (
+            "toggler_style",
+            "theme: &::iced::Theme, status: ::iced::widget::toggler::Status",
+            "theme, status",
+            "::iced::widget::toggler::Style",
+        ),
+        ExternKind::RadioStyle => (
+            "radio_style",
+            "theme: &::iced::Theme, status: ::iced::widget::radio::Status",
+            "theme, status",
+            "::iced::widget::radio::Style",
+        ),
+        ExternKind::ContainerStyle => (
+            "container_style",
+            "theme: &::iced::Theme",
+            "theme",
+            "::iced::widget::container::Style",
+        ),
+        ExternKind::SvgStyle => (
+            "svg_style",
+            "theme: &::iced::Theme, status: ::iced::widget::svg::Status",
+            "theme, status",
+            "::iced::widget::svg::Style",
+        ),
+        ExternKind::InputStyle => (
+            "input_style",
+            "theme: &::iced::Theme, status: ::iced::widget::text_input::Status",
+            "theme, status",
+            "::iced::widget::text_input::Style",
+        ),
+        ExternKind::ScrollStyle => (
+            "scroll_style",
+            "theme: &::iced::Theme, status: ::iced::widget::scrollable::Status",
+            "theme, status",
+            "::iced::widget::scrollable::Style",
+        ),
+        ExternKind::PickListStyle => (
+            "pick_list_style",
+            "theme: &::iced::Theme, status: ::iced::widget::pick_list::Status",
+            "theme, status",
+            "::iced::widget::pick_list::Style",
+        ),
+        ExternKind::MenuStyle => (
+            "menu_style",
+            "theme: &::iced::Theme",
+            "theme",
+            "::iced::overlay::menu::Style",
+        ),
+        ExternKind::PaneGridStyle => (
+            "pane_grid_style",
+            "theme: &::iced::Theme",
+            "theme",
+            "::iced::widget::pane_grid::Style",
+        ),
+        _ => return None,
+    })
+}
+
 pub(in crate::codegen) fn generate_extern_probes(out: &mut String, document: &Document) {
     if document
         .functions
@@ -12,8 +110,7 @@ pub(in crate::codegen) fn generate_extern_probes(out: &mut String, document: &Do
         writeln!(
             out,
             "#[allow(dead_code)] fn __ui_lang_check_{}(value: &{}) {{",
-            item.name.to_ascii_lowercase(),
-            item.rust_path
+            item.name, item.rust_path
         )
         .unwrap();
         for (field, ty) in &item.fields {
@@ -57,10 +154,29 @@ pub(in crate::codegen) fn generate_extern_probes(out: &mut String, document: &Do
                 )
             },
         );
+        if let Some((name, leading_params, leading_args, style)) = style_probe(item.kind) {
+            let params = if params.is_empty() {
+                leading_params.to_owned()
+            } else {
+                format!("{leading_params}, {params}")
+            };
+            let args = if args.is_empty() {
+                leading_args.to_owned()
+            } else {
+                format!("{leading_args}, {args}")
+            };
+            writeln!(
+                out,
+                "#[allow(dead_code)] fn __ui_lang_check_{name}_{}({params}) {{ let _: {style} = {}({args}); }}",
+                item.name, item.rust_path
+            )
+            .unwrap();
+            continue;
+        }
         match item.kind {
             ExternKind::Future => writeln!(
                 out,
-                "#[allow(dead_code)] async fn __ui_lang_check_{}({params}) {{ let _: {output} = {}({args}).await; }}",
+                "#[allow(dead_code)] async fn __ui_lang_check_future_{}({params}) {{ let _: {output} = {}({args}).await; }}",
                 item.name, item.rust_path
             )
             .unwrap(),
@@ -115,7 +231,7 @@ pub(in crate::codegen) fn generate_extern_probes(out: &mut String, document: &Do
             )
             .unwrap(),
             ExternKind::EventFilter => {
-                let recipe = format!("__IceEventFilter{}", pascal(&item.name));
+                let recipe = event_filter_type(&item.name);
                 writeln!(
                     out,
                     "#[allow(dead_code)] fn __ui_lang_check_event_filter_{}() {{ let _: fn(::iced::advanced::subscription::Event) -> ::std::option::Option<{output}> = {}; }}",
@@ -207,296 +323,7 @@ pub(in crate::codegen) fn generate_extern_probes(out: &mut String, document: &Do
                 }
             )
             .unwrap(),
-            ExternKind::EditorStyle => {
-                let params = if params.is_empty() {
-                    "theme: &::iced::Theme, status: ::iced::widget::text_editor::Status".into()
-                } else {
-                    format!(
-                        "theme: &::iced::Theme, status: ::iced::widget::text_editor::Status, {params}"
-                    )
-                };
-                let args = if args.is_empty() {
-                    "theme, status".into()
-                } else {
-                    format!("theme, status, {args}")
-                };
-                writeln!(
-                    out,
-                    "#[allow(dead_code)] fn __ui_lang_check_editor_style_{}({params}) {{ let _: ::iced::widget::text_editor::Style = {}({args}); }}",
-                    item.name, item.rust_path
-                )
-                .unwrap();
-            }
-            ExternKind::TextStyle => {
-                let params = if params.is_empty() {
-                    "theme: &::iced::Theme".into()
-                } else {
-                    format!("theme: &::iced::Theme, {params}")
-                };
-                let args = if args.is_empty() {
-                    "theme".into()
-                } else {
-                    format!("theme, {args}")
-                };
-                writeln!(
-                    out,
-                    "#[allow(dead_code)] fn __ui_lang_check_text_style_{}({params}) {{ let _: ::iced::widget::text::Style = {}({args}); }}",
-                    item.name, item.rust_path
-                )
-                .unwrap();
-            }
-            ExternKind::SliderStyle => {
-                let params = if params.is_empty() {
-                    "theme: &::iced::Theme, status: ::iced::widget::slider::Status".into()
-                } else {
-                    format!(
-                        "theme: &::iced::Theme, status: ::iced::widget::slider::Status, {params}"
-                    )
-                };
-                let args = if args.is_empty() {
-                    "theme, status".into()
-                } else {
-                    format!("theme, status, {args}")
-                };
-                writeln!(
-                    out,
-                    "#[allow(dead_code)] fn __ui_lang_check_slider_style_{}({params}) {{ let _: ::iced::widget::slider::Style = {}({args}); }}",
-                    item.name, item.rust_path
-                )
-                .unwrap();
-            }
-            ExternKind::ProgressStyle => {
-                let params = if params.is_empty() {
-                    "theme: &::iced::Theme".into()
-                } else {
-                    format!("theme: &::iced::Theme, {params}")
-                };
-                let args = if args.is_empty() {
-                    "theme".into()
-                } else {
-                    format!("theme, {args}")
-                };
-                writeln!(
-                    out,
-                    "#[allow(dead_code)] fn __ui_lang_check_progress_style_{}({params}) {{ let _: ::iced::widget::progress_bar::Style = {}({args}); }}",
-                    item.name, item.rust_path
-                )
-                .unwrap();
-            }
-            ExternKind::ButtonStyle => {
-                let params = if params.is_empty() {
-                    "theme: &::iced::Theme, status: ::iced::widget::button::Status".into()
-                } else {
-                    format!(
-                        "theme: &::iced::Theme, status: ::iced::widget::button::Status, {params}"
-                    )
-                };
-                let args = if args.is_empty() {
-                    "theme, status".into()
-                } else {
-                    format!("theme, status, {args}")
-                };
-                writeln!(
-                    out,
-                    "#[allow(dead_code)] fn __ui_lang_check_button_style_{}({params}) {{ let _: ::iced::widget::button::Style = {}({args}); }}",
-                    item.name, item.rust_path
-                )
-                .unwrap();
-            }
-            ExternKind::CheckboxStyle => {
-                let params = if params.is_empty() {
-                    "theme: &::iced::Theme, status: ::iced::widget::checkbox::Status".into()
-                } else {
-                    format!(
-                        "theme: &::iced::Theme, status: ::iced::widget::checkbox::Status, {params}"
-                    )
-                };
-                let args = if args.is_empty() {
-                    "theme, status".into()
-                } else {
-                    format!("theme, status, {args}")
-                };
-                writeln!(
-                    out,
-                    "#[allow(dead_code)] fn __ui_lang_check_checkbox_style_{}({params}) {{ let _: ::iced::widget::checkbox::Style = {}({args}); }}",
-                    item.name, item.rust_path
-                )
-                .unwrap();
-            }
-            ExternKind::TogglerStyle => {
-                let params = if params.is_empty() {
-                    "theme: &::iced::Theme, status: ::iced::widget::toggler::Status".into()
-                } else {
-                    format!(
-                        "theme: &::iced::Theme, status: ::iced::widget::toggler::Status, {params}"
-                    )
-                };
-                let args = if args.is_empty() {
-                    "theme, status".into()
-                } else {
-                    format!("theme, status, {args}")
-                };
-                writeln!(
-                    out,
-                    "#[allow(dead_code)] fn __ui_lang_check_toggler_style_{}({params}) {{ let _: ::iced::widget::toggler::Style = {}({args}); }}",
-                    item.name, item.rust_path
-                )
-                .unwrap();
-            }
-            ExternKind::RadioStyle => {
-                let params = if params.is_empty() {
-                    "theme: &::iced::Theme, status: ::iced::widget::radio::Status".into()
-                } else {
-                    format!(
-                        "theme: &::iced::Theme, status: ::iced::widget::radio::Status, {params}"
-                    )
-                };
-                let args = if args.is_empty() {
-                    "theme, status".into()
-                } else {
-                    format!("theme, status, {args}")
-                };
-                writeln!(
-                    out,
-                    "#[allow(dead_code)] fn __ui_lang_check_radio_style_{}({params}) {{ let _: ::iced::widget::radio::Style = {}({args}); }}",
-                    item.name, item.rust_path
-                )
-                .unwrap();
-            }
-            ExternKind::ContainerStyle => {
-                let params = if params.is_empty() {
-                    "theme: &::iced::Theme".into()
-                } else {
-                    format!("theme: &::iced::Theme, {params}")
-                };
-                let args = if args.is_empty() {
-                    "theme".into()
-                } else {
-                    format!("theme, {args}")
-                };
-                writeln!(
-                    out,
-                    "#[allow(dead_code)] fn __ui_lang_check_container_style_{}({params}) {{ let _: ::iced::widget::container::Style = {}({args}); }}",
-                    item.name, item.rust_path
-                )
-                .unwrap();
-            }
-            ExternKind::SvgStyle => {
-                let params = if params.is_empty() {
-                    "theme: &::iced::Theme, status: ::iced::widget::svg::Status".into()
-                } else {
-                    format!(
-                        "theme: &::iced::Theme, status: ::iced::widget::svg::Status, {params}"
-                    )
-                };
-                let args = if args.is_empty() {
-                    "theme, status".into()
-                } else {
-                    format!("theme, status, {args}")
-                };
-                writeln!(
-                    out,
-                    "#[allow(dead_code)] fn __ui_lang_check_svg_style_{}({params}) {{ let _: ::iced::widget::svg::Style = {}({args}); }}",
-                    item.name, item.rust_path
-                )
-                .unwrap();
-            }
-            ExternKind::InputStyle => {
-                let params = if params.is_empty() {
-                    "theme: &::iced::Theme, status: ::iced::widget::text_input::Status".into()
-                } else {
-                    format!(
-                        "theme: &::iced::Theme, status: ::iced::widget::text_input::Status, {params}"
-                    )
-                };
-                let args = if args.is_empty() {
-                    "theme, status".into()
-                } else {
-                    format!("theme, status, {args}")
-                };
-                writeln!(
-                    out,
-                    "#[allow(dead_code)] fn __ui_lang_check_input_style_{}({params}) {{ let _: ::iced::widget::text_input::Style = {}({args}); }}",
-                    item.name, item.rust_path
-                )
-                .unwrap();
-            }
-            ExternKind::ScrollStyle => {
-                let params = if params.is_empty() {
-                    "theme: &::iced::Theme, status: ::iced::widget::scrollable::Status".into()
-                } else {
-                    format!(
-                        "theme: &::iced::Theme, status: ::iced::widget::scrollable::Status, {params}"
-                    )
-                };
-                let args = if args.is_empty() {
-                    "theme, status".into()
-                } else {
-                    format!("theme, status, {args}")
-                };
-                writeln!(
-                    out,
-                    "#[allow(dead_code)] fn __ui_lang_check_scroll_style_{}({params}) {{ let _: ::iced::widget::scrollable::Style = {}({args}); }}",
-                    item.name, item.rust_path
-                )
-                .unwrap();
-            }
-            ExternKind::PickListStyle => {
-                let params = if params.is_empty() {
-                    "theme: &::iced::Theme, status: ::iced::widget::pick_list::Status".into()
-                } else {
-                    format!(
-                        "theme: &::iced::Theme, status: ::iced::widget::pick_list::Status, {params}"
-                    )
-                };
-                let args = if args.is_empty() {
-                    "theme, status".into()
-                } else {
-                    format!("theme, status, {args}")
-                };
-                writeln!(
-                    out,
-                    "#[allow(dead_code)] fn __ui_lang_check_pick_list_style_{}({params}) {{ let _: ::iced::widget::pick_list::Style = {}({args}); }}",
-                    item.name, item.rust_path
-                )
-                .unwrap();
-            }
-            ExternKind::MenuStyle => {
-                let params = if params.is_empty() {
-                    "theme: &::iced::Theme".into()
-                } else {
-                    format!("theme: &::iced::Theme, {params}")
-                };
-                let args = if args.is_empty() {
-                    "theme".into()
-                } else {
-                    format!("theme, {args}")
-                };
-                writeln!(
-                    out,
-                    "#[allow(dead_code)] fn __ui_lang_check_menu_style_{}({params}) {{ let _: ::iced::overlay::menu::Style = {}({args}); }}",
-                    item.name, item.rust_path
-                )
-                .unwrap();
-            }
-            ExternKind::PaneGridStyle => {
-                let params = if params.is_empty() {
-                    "theme: &::iced::Theme".into()
-                } else {
-                    format!("theme: &::iced::Theme, {params}")
-                };
-                let args = if args.is_empty() {
-                    "theme".into()
-                } else {
-                    format!("theme, {args}")
-                };
-                writeln!(
-                    out,
-                    "#[allow(dead_code)] fn __ui_lang_check_pane_grid_style_{}({params}) {{ let _: ::iced::widget::pane_grid::Style = {}({args}); }}",
-                    item.name, item.rust_path
-                )
-                .unwrap();
-            }
+            _ => unreachable!("style probes returned above"),
         }
     }
 }

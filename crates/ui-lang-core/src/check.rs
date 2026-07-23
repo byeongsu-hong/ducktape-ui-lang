@@ -18,7 +18,7 @@ fn check(document: &mut Document) -> Result<(), Error> {
         return Err(Error::new(
             "E187",
             span,
-            "pane-grid cannot be repeated because each static ID owns one persistent layout state",
+            "panes cannot be repeated because each static ID owns one persistent layout state",
         ));
     }
 
@@ -58,6 +58,15 @@ fn check(document: &mut Document) -> Result<(), Error> {
             require_type(&actual, expected, &state.span)?;
         } else if let Type::Animation(expected) = &state.ty {
             require_type(&actual, expected, &state.span)?;
+            if **expected == Type::F64 {
+                require_f32_literal_range(
+                    &state.initial,
+                    f64::NEG_INFINITY,
+                    None,
+                    "animation value",
+                    &state.span,
+                )?;
+            }
             if let Some(easing) = state
                 .animation
                 .as_ref()
@@ -178,7 +187,7 @@ fn check(document: &mut Document) -> Result<(), Error> {
             return Err(Error::new(
                 "E187",
                 span,
-                "pane-grid must live in the app view because it owns persistent layout state",
+                "panes must live in the app view because it owns persistent layout state",
             ));
         }
         let mut env: HashMap<String, Type> = component.params.iter().cloned().collect();

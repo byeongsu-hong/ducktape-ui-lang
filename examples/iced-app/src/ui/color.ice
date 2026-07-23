@@ -18,6 +18,7 @@ state
   rgba:color = color.default()
   rgb8:color = color.default()
   rgba8:color = color.default()
+  dynamic:color = color.default()
   linear:color = color.default()
   from3:color = color.default()
   from4:color = color.default()
@@ -28,6 +29,7 @@ state
   red8 = 12
   green8 = 34
   blue8 = 56
+  rgba8_alpha = 0.5
   bad8 = 256
   dynamic_rgb8:color? = none
   dynamic_rgba8:color? = none
@@ -60,6 +62,7 @@ on inspect
   rgba = color.rgba(0.1, 0.2, 0.3, 0.8)
   rgb8 = color.rgb8(12, 34, 56)
   rgba8 = color.rgba8(12, 34, 56, 0.5)
+  dynamic = color.rgba(red, green, blue, alpha)
   linear = color.linear_rgba(0.1, 0.2, 0.3, 0.4)
   from3 = color.from3(0.25, 0.5, 0.75)
   from4 = color.from4(0.1, 0.2, 0.3, 0.8)
@@ -68,7 +71,7 @@ on inspect
   scaled = color.scale_alpha(rgba, 0.5)
   round_trip = color_round_trip(rgba8)
   dynamic_rgb8 = color.try_rgb8(red8, green8, blue8)
-  dynamic_rgba8 = color.try_rgba8(red8, green8, blue8, 0.5)
+  dynamic_rgba8 = color.try_rgba8(red8, green8, blue8, rgba8_alpha)
   dynamic_invalid = color.try_rgb8(bad8, green8, blue8)
   parsed3 = color.parse("#abc")
   parsed4 = color.parse("#abcd")
@@ -90,7 +93,7 @@ on inspect
   equal = rgb == from3
 
 view
-  col spacing=8.0 padding=16.0
+  col gap=8.0 p=16.0
     button "Inspect" -> inspect
     text display
     text red

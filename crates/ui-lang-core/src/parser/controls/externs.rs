@@ -67,19 +67,19 @@ pub(in crate::parser) fn parse_shader(
         return Err(error(
             "E191",
             line,
-            "shader uses `shader name(args) width=fill height=120.0 -> handler _`",
+            "shader uses `shader name(args) w=fill h=120.0 -> handler _`",
         ));
     }
     let (function, args) = parse_signature(&parts[1], line)?;
     let mut width = None;
     let mut height = None;
     for part in &parts[2..] {
-        if let Some(value) = part.strip_prefix("width=") {
+        if let Some(value) = part.strip_prefix("w=") {
             if width.is_some() {
                 return Err(error("E191", line, "duplicate shader width"));
             }
             width = Some(parse_length(value, line)?);
-        } else if let Some(value) = part.strip_prefix("height=") {
+        } else if let Some(value) = part.strip_prefix("h=") {
             if height.is_some() {
                 return Err(error("E191", line, "duplicate shader height"));
             }

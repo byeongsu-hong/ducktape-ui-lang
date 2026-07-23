@@ -40,25 +40,25 @@ interaction -> handler -> extern async Rust fn -> result handler -> state -> vie
 UI validation such as disabling an empty submit button is only a convenience.
 The Rust action must still validate its input.
 
-### Core and compatibility boundary
+### Core and backend boundary
 
 Ice Core is the stable authoring surface: `app`, `use`, `state`, `component`,
 `slot`, `on`, `view`, `if`, `match`, `for`, `keyed`, and `lazy`; common row, column,
-stack, scroll, and container layout; text, input, button, checkbox, and image
+stack, scroll, and box layout; text, input, button, checkbox, and image
 widgets; bindings, routes, payloads, scoped IDs, typed extern calls, and basic
 async success/failure routing.
 
 A new Core construct must be common UI authoring, have one canonical source
 form, and not fit an existing typed Rust boundary. Core vocabulary is frozen
-for revision 1.61; adding or changing it requires an explicit language design
-and a new revision, while removal requires deprecation and migration.
+for revision 1.61, with one canonical spelling for each construct. Spellings
+removed in this revision are syntax errors and the formatter never translates
+old vocabulary. Future additions or changes require an explicit language
+design and a new revision; future removals require deprecation and migration.
 
-Accepted advanced syntax such as Canvas paths, complete PaneGrid mutation, raw
-window/platform values, shaders, custom renderers, task-composition variants,
-and exhaustive native status styles remains a compatibility surface. It is not
-a parity roadmap and must not grow only because iced exposes another public
-type or method. Removing accepted compatibility syntax also requires a separate
-deprecation and migration decision.
+Canvas paths, complete PaneGrid mutation, raw window/platform values, shaders,
+custom renderers, task-composition variants, and exhaustive native status styles
+are the extended surface. It is not a parity roadmap and must not grow only
+because iced exposes another public type or method.
 
 Language revisions and Cargo package versions use separate schemes. This
 document specifies language revision 1.61. The workspace packages are
@@ -169,7 +169,10 @@ version. `cargo ice compat` verifies the lockfile and direct-manifest contract.
 - Empty lines are ignored by the parser and normalized by the formatter.
 - A line whose first non-space characters are `//` is a comment. Inline and
   block comments are not part of 1.61.
-- Identifiers use ASCII letters, digits, and `_`, and cannot begin with a digit.
+- Identifiers use ASCII letters, digits, and `_`; they cannot begin with a digit
+  or `__`, and `_`, `none`, and Rust keywords are reserved.
+- Rust path segments use Rust identifier rules; the Ice-only `none` and `__`
+  reservations do not apply to them.
 - App, extern-struct, and component names conventionally use `PascalCase`.
 - State, field, function, handler, and parameter names conventionally use
   `snake_case`.
@@ -196,12 +199,13 @@ subscribe
 view
 ```
 
-An Ice source graph has exactly one `app` or `daemon` root and one `view`, with
-any number of `extern` namespaces. The root file declares it and normally the
-view; imported fragments may hold any other top-level declarations. Extern
-items still share one graph-global name table, so duplicate names are errors.
-The graph may have multiple components and handlers. The view and each
-component have exactly one root node.
+An Ice source graph has exactly one `app` or `daemon` root and one `view`.
+It may have multiple `extern` namespaces; imported plugin fragments can
+therefore bind their own Rust modules beside the application's backend.
+Extern type and function names remain graph-global and duplicates are errors.
+The root file declares the app and normally the view; imported fragments may
+hold any other top-level declarations. The graph may have multiple components
+and handlers. The view and each component have exactly one root node.
 
 ## 4. Compact grammar
 
@@ -224,7 +228,7 @@ app_setting    = "title" expr | "theme" expr
                | ("bg" | "fg") expr
                | "id" string | "font" string
                | ("executor" | "renderer") rust_path
-               | "default-text-size" number | "scale-factor" expr
+               | "text-size" number | "scale" expr
                | ("antialiasing" | "vsync") bool
                | window_decl
 window_decl    = "window" name? INDENT window_setting*
@@ -234,10 +238,10 @@ window_setting = ("size" | "min-size" | "max-size") number number
                | "level" ("normal" | "always-on-bottom" | "always-on-top")
                | ("maximized" | "fullscreen" | "visible" | "resizable"
                  | "closeable" | "minimizable" | "decorations" | "transparent"
-                 | "blur" | "exit-on-close-request") bool
+                 | "blur" | "exit-on-close") bool
                | window_platform
 window_platform = "platform" "linux" INDENT
-                    (("application-id" string) | ("override-redirect" bool))*
+                    (("app-id" string) | ("override-redirect" bool))*
                 | "platform" "windows" INDENT
                     (("drag-and-drop" | "skip-taskbar" | "undecorated-shadow") bool
                     | "corner" ("default" | "do-not-round" | "round" | "round-small"))*
@@ -346,7 +350,7 @@ extern_toggler_style_sig
 extern_radio_style_sig
                = "radio-style" name "(" field_list? ")"
 extern_container_style_sig
-               = "container-style" name "(" field_list? ")"
+               = "box-style" name "(" field_list? ")"
 extern_svg_style_sig
                = "svg-style" name "(" field_list? ")"
 extern_input_style_sig
@@ -358,7 +362,7 @@ extern_pick_list_style_sig
 extern_menu_style_sig
                = "menu-style" name "(" field_list? ")"
 extern_pane_grid_style_sig
-               = "pane-grid-style" name "(" field_list? ")"
+               = "panes-style" name "(" field_list? ")"
 
 theme_decl     = "theme" INDENT color_entry+
 color_entry    = name color
@@ -445,8 +449,8 @@ task_source    = ("run" | "task" | "stream") call
                | "task font load" expr
                | "task image allocate" expr
 flow_item      = "map" name "->" expr
-               | ("then" | "and-then") name "->" task_source
-               | "map-error" name "->" expr
+               | ("then" | "try") name "->" task_source
+               | "map-err" name "->" expr
                | "collect" | "discard"
                | ("done" | "error" | "units") "->" route
 task_member    = task_group | abortable_task
@@ -466,7 +470,7 @@ native_task    = "task time now" "->" route
                | "task widget" widget_operation ("->" route)?
                | "pane" "#" name pane_operation ("->" route)?
                | window_task
-widget_operation = "focus-previous" | "focus-next"
+widget_operation = "focus-prev" | "focus-next"
                  | ("focus" | "focused" | "cursor-front" | "cursor-end"
                    | "select-all" | "snap-end") widget_target
                  | "cursor" widget_target expr
@@ -493,14 +497,14 @@ window_operation = "open" name? | "oldest" | "latest"
                  | "drag-resize" direction
                  | ("resize" | "move") expr expr
                  | ("resizable" | "maximize" | "minimize" | "mouse-passthrough"
-                   | "automatic-tabbing") expr
-                 | ("min-size" | "max-size" | "resize-increments")
+                   | "auto-tabs") expr
+                 | ("min-size" | "max-size" | "resize-step")
                    ("none" | expr expr)
                  | "set-mode" ("windowed" | "fullscreen" | "hidden")
                  | "attention" ("none" | "critical" | "informational")
                  | "level" ("normal" | "always-on-bottom" | "always-on-top")
                  | "size" | "maximized" | "minimized" | "position"
-                 | "scale-factor" | "mode" | "monitor-size"
+                 | "scale" | "mode" | "monitor-size"
                  | "icon" expr expr expr
                  | call
 direction      = "north" | "south" | "east" | "west"
@@ -544,50 +548,50 @@ node           = layout | text | input | button | checkbox | toggler
                | shader_view
                | if_node | match_node | for_node
                | keyed_column | lazy_node | markdown_view | table_view
-               | editor_view | container | overlay | rich_text | pane_grid
+               | editor_view | box | overlay | rich_text | pane_grid
 layout         = "col" id? column_property* styles? INDENT node+
                | "row" id? flex_property* styles? INDENT node+
                | "flex" id? css_flex_property* styles? INDENT node+
                | "scroll" id? scroll_property* styles? INDENT node scroll_status*
                | "grid" id? grid_property* styles? INDENT node+
                | "stack" id? stack_property* styles? INDENT node+
-container      = ("container" | "box") id? container_property* styles? INDENT node
-container_property = ("width=" | "height=") length
-                   | ("max-width=" | "max-height=") expr
+box            = "box" id? box_property* styles? INDENT node
+box_property   = ("w=" | "h=") length
+                   | ("max-w=" | "max-h=") expr
                    | ("align-x=" | "align-y=") ("start" | "center" | "end")
                    | "clip=" expr
-                   | ("padding=" | "padding-x=" | "padding-y="
-                     | "padding-top=" | "padding-right=" | "padding-bottom="
-                     | "padding-left=") expr
+                   | ("p=" | "px=" | "py="
+                     | "pt=" | "pr=" | "pb="
+                     | "pl=") expr
                    | flex_item_property
                    | surface_style_property
 flex_item_property = "order=" expr
-                   | ("flex-grow=" | "flex-shrink=") expr
-                   | "flex-basis=" ("auto" | "content" | expr
+                   | ("grow=" | "shrink=") expr
+                   | "basis=" ("auto" | "content" | expr
                      | "percent(" expr ")")
                    | "flex=" ("none" | "auto" | "initial"
                      | expr ("," expr ("," (expr | "auto" | "content"
                        | "percent(" expr ")"))?)?)
-                   | "align-self=" ("auto" | flex_item_alignment)
-                   | ("margin=" | "margin-x=" | "margin-y="
-                     | "margin-top=" | "margin-right=" | "margin-bottom="
-                     | "margin-left=") ("auto" | expr | "percent(" expr ")")
+                   | "self=" ("auto" | flex_item_alignment)
+                   | ("m=" | "mx=" | "my="
+                     | "mt=" | "mr=" | "mb="
+                     | "ml=") ("auto" | expr | "percent(" expr ")")
 overlay        = "overlay" "when=" expr overlay_property*
                  INDENT "content" INDENT node
                  INDENT "layer" INDENT node
 overlay_property = "dismiss=" route | "backdrop=" name ("/" u8)?
-                 | "padding=" expr
+                 | "p=" expr
                  | ("align-x=" | "align-y=") ("start" | "center" | "end")
 rich_text      = "rich-text" rich_text_property* styles? ("->" route)?
                  INDENT rich_span*
-rich_text_property = ("width=" | "height=") length | "size=" expr
-                   | ("line-height=" | "line-height-px=") expr
+rich_text_property = ("w=" | "h=") length | "size=" expr
+                   | ("line-h=" | "line-h-px=") expr
                    | "font=" font_ref | "align-x=" text_alignment
                    | "align-y=" ("top" | "center" | "bottom")
-                   | "wrapping=" text_wrapping | "color=" color_ref
+                   | "wrap=" text_wrapping | "color=" color_ref
                    | "style=" call
 rich_span      = "span" expr rich_span_property* styles?
-rich_span_property = ("size=" | "line-height=" | "line-height-px=") expr
+rich_span_property = ("size=" | "line-h=" | "line-h-px=") expr
                    | "font=" font_ref | "color=" color_ref | "link=" expr
                    | "bg=" background_value | "border=" color_ref
                    | "border-w=" expr
@@ -597,13 +601,10 @@ rich_span_property = ("size=" | "line-height=" | "line-height-px=") expr
                      | "pl=") expr
                    | "underline" | "underline=" expr
                    | "strike" | "strike=" expr
-pane_grid      = "pane-grid" id
-                 ("split=" pane_axis ("ratio=" number)? pane_grid_property*
-                   INDENT pane_grid_style? pane_view pane_view pane_declaration*
-                 | pane_grid_property*
-                   INDENT pane_grid_style? pane_configuration pane_declaration*)
-pane_grid_property = ("width=" | "height=") length
-                   | ("spacing=" | "min-size=" | "resize=") expr
+pane_grid      = "panes" id pane_grid_property*
+                 INDENT pane_grid_style? pane_configuration pane_declaration*
+pane_grid_property = ("w=" | "h=") length
+                   | ("gap=" | "min-size=" | "resize=") expr
                    | "drag" | "click=" route | "style=" call
 pane_grid_style = "style" INDENT pane_grid_style_status+
 pane_grid_style_status
@@ -618,21 +619,20 @@ pane_configuration = pane_view
                    | "split" name? pane_axis ("ratio=" number)?
                      INDENT pane_configuration pane_configuration
 pane_view      = "pane" name pane_property* styles?
-                 INDENT (node | pane_section+)
+                 INDENT pane_section* node
 closed_pane    = "pane" name "closed" pane_property* styles?
-                 INDENT (node | pane_section+)
+                 INDENT pane_section* node
 pane_template  = "pane" name "in" name "by=" expr
-                 pane_property* styles? INDENT (node | pane_section+)
+                 pane_property* styles? INDENT pane_section* node
 pane_declaration = closed_pane | pane_template
 pane_property  = surface_style_property | "maximized=" name
 pane_section   = "title" pane_title_property* styles? INDENT node
                | "controls" INDENT node
-               | "compact-controls" INDENT node
-               | "content" INDENT node
+               | "compact" INDENT node
 pane_title_property
-               = ("padding=" | "padding-x=" | "padding-y="
-                 | "padding-top=" | "padding-right=" | "padding-bottom="
-                 | "padding-left=") expr
+               = ("p=" | "px=" | "py="
+                 | "pt=" | "pr=" | "pb="
+                 | "pl=") expr
                | "always-controls" | surface_style_property
 surface_style_property
                = "bg=" background_value
@@ -646,18 +646,18 @@ background_value = color_ref
 pane_axis      = "horizontal" | "vertical"
 keyed_column   = "keyed" name "in" expr "by=" expr keyed_property*
                  INDENT node
-keyed_property = ("width=" | "height=") length | "spacing=" expr
-               | ("padding=" | "padding-x=" | "padding-y="
-                 | "padding-top=" | "padding-right=" | "padding-bottom="
-                 | "padding-left=") expr
-               | "max-width=" expr
+keyed_property = ("w=" | "h=") length | "gap=" expr
+               | ("p=" | "px=" | "py="
+                 | "pt=" | "pr=" | "pb="
+                 | "pl=") expr
+               | "max-w=" expr
                | "align=" ("start" | "center" | "end")
 lazy_node      = "lazy" expr "as" name INDENT node
 markdown_view  = "markdown" name markdown_property* "->" route
                  (INDENT markdown_style)?
 markdown_property = ("text-size=" | "h1-size=" | "h2-size="
                   | "h3-size=" | "h4-size=" | "h5-size=" | "h6-size="
-                  | "code-size=" | "spacing=") expr
+                  | "code-size=" | "gap=") expr
                   | "viewer=" call
 markdown_style = "style" markdown_style_property+
 markdown_style_property
@@ -672,21 +672,21 @@ markdown_style_property
                  | "inline-code-r-tr=" | "inline-code-r-br="
                  | "inline-code-r-bl=") expr
 table_view     = "table" name "in" expr table_property* INDENT table_column+
-table_property = "width=" length
-               | ("padding=" | "padding-x=" | "padding-y="
-                 | "separator=" | "separator-x=" | "separator-y=") expr
-table_column   = "column" table_column_property* INDENT
+table_property = "w=" length
+               | ("p=" | "px=" | "py="
+                 | "sep=" | "sep-x=" | "sep-y=") expr
+table_column   = "col" table_column_property* INDENT
                  "header" INDENT node
                  "cell" INDENT node
-table_column_property = "width=" length
+table_column_property = "w=" length
                       | "align-x=" ("left" | "center" | "right")
                       | "align-y=" ("top" | "center" | "bottom")
 editor_view    = "editor" id? "<->" name editor_property*
                  (INDENT editor_status*)?
-editor_property = "placeholder=" string | "width=" expr | "height=" length
-                | ("min-height=" | "max-height=" | "size="
-                  | "line-height=" | "line-height-px=" | "padding=") expr
-                | "wrapping=" text_wrapping
+editor_property = "hint=" string | "w=" expr | "h=" length
+                | ("min-h=" | "max-h=" | "size="
+                  | "line-h=" | "line-h-px=" | "p=") expr
+                | "wrap=" text_wrapping
                 | "font=" font_ref
                 | "highlight=" string
                 | "highlight-theme=" ("solarized-dark" | "base16-mocha"
@@ -699,42 +699,42 @@ editor_style_property
                | ("border=" | "placeholder=" | "value=" | "selection=") color_ref
                | ("border-w=" | "r=" | "r-tl="
                  | "r-tr=" | "r-br=" | "r-bl=") expr
-column_property = flex_property | "max-width=" expr
-flex_property  = ("width=" | "height=") length | "spacing=" expr
-               | ("padding=" | "padding-x=" | "padding-y="
-                 | "padding-top=" | "padding-right=" | "padding-bottom="
-                 | "padding-left=") expr
+column_property = flex_property | "max-w=" expr
+flex_property  = ("w=" | "h=") length | "gap=" expr
+               | ("p=" | "px=" | "py="
+                 | "pt=" | "pr=" | "pb="
+                 | "pl=") expr
                | "align=" ("start" | "center" | "end") | "clip=" expr
-               | "wrap" | "wrap-spacing=" expr
+               | "wrap" | "wrap-gap=" expr
                | "wrap-align=" ("start" | "center" | "end")
-css_flex_property = flex_property
-                  | ("direction=" | "flex-direction=")
-                    ("row" | "row-reverse" | "column" | "column-reverse")
-                  | "flex-flow=" ("row" | "row-reverse" | "column"
+css_flex_property = ("w=" | "h=") length | "clip=" expr
+                  | ("p=" | "px=" | "py="
+                    | "pt=" | "pr=" | "pb=" | "pl=") expr
+                  | "dir=" ("row" | "row-reverse" | "column" | "column-reverse")
+                  | "flow=" ("row" | "row-reverse" | "column"
                     | "column-reverse") "," ("nowrap" | "wrap"
                     | "wrap-reverse")
-                  | "flex-wrap=" ("nowrap" | "wrap" | "wrap-reverse")
-                  | "justify-content=" flex_content_alignment
-                  | "align-items=" flex_item_alignment
-                  | "align-content=" flex_content_alignment
-                  | ("gap=" | "row-gap=" | "column-gap="
-                    | "max-width=" | "max-height=") expr
-flex_item_alignment = "normal" | "start" | "end" | "self-start"
-                    | "self-end" | "flex-start" | "flex-end" | "center"
+                  | "wrap=" ("nowrap" | "wrap" | "wrap-reverse")
+                  | "justify=" flex_content_alignment
+                  | "items=" flex_item_alignment
+                  | "content=" flex_content_alignment
+                  | ("gap=" | "gap-y=" | "gap-x="
+                    | "max-w=" | "max-h=") expr
+flex_item_alignment = "start" | "end" | "flex-start" | "flex-end" | "center"
                     | "baseline" | "stretch"
-flex_content_alignment = "normal" | "start" | "end" | "left" | "right"
-                       | "flex-start" | "flex-end" | "center" | "stretch" | "space-between"
+flex_content_alignment = "start" | "end" | "flex-start" | "flex-end"
+                       | "center" | "stretch" | "space-between"
                        | "space-around" | "space-evenly"
-stack_property = ("width=" | "height=") length | "clip=" expr
+stack_property = ("w=" | "h=") length | "clip=" expr
                | "under=" u16
-grid_property  = "columns=" expr | "fluid=" expr | "width=" expr
-               | "spacing=" expr | "height=" grid_sizing
+grid_property  = "cols=" expr | "fluid=" expr | "w=" expr
+               | "gap=" expr | "h=" grid_sizing
 grid_sizing    = length | "aspect(" expr "," expr ")"
-scroll_property = "direction=" ("vertical" | "horizontal" | "both")
-                | ("width=" | "height=") length
+scroll_property = "dir=" ("vertical" | "horizontal" | "both")
+                | ("w=" | "h=") length
                 | "bar=" ("visible" | "hidden")
-                | ("bar-w=" | "bar-margin=" | "scroller-w="
-                  | "bar-spacing=") expr
+                | ("bar-w=" | "bar-m=" | "scroller-w="
+                  | "bar-gap=") expr
                 | ("anchor-x=" | "anchor-y=") ("start" | "end")
                 | "auto=" expr | ("scroll=" | "viewport=") route
                 | "style=" call
@@ -753,34 +753,30 @@ scroll_auto_property
                | ("shadow-x=" | "shadow-y=" | "shadow-blur=") expr
                | "icon=" color_ref
 scroll_style_section
-               = "container" surface_style_property*
+               = "box" surface_style_property*
                | ("x-rail" | "y-rail"
                  | "x-scroller" | "y-scroller")
                  scroll_bar_surface_property*
                | "gap" "bg=" background_value
                | "auto" scroll_auto_property*
 text           = "text" expr text_property* styles?
-text_property  = ("width=" | "height=") length | "size=" expr
-               | ("line-height=" | "line-height-px=") expr
+text_property  = ("w=" | "h=") length | "size=" expr
+               | ("line-h=" | "line-h-px=") expr
                | "font=" font_ref
                | "align-x=" text_alignment
                | "align-y=" ("top" | "center" | "bottom")
-               | "shaping=" ("auto" | "basic" | "advanced")
-               | "wrapping=" ("none" | "word" | "glyph" | "word-or-glyph")
+               | "shape=" ("auto" | "basic" | "advanced")
+               | "wrap=" ("none" | "word" | "glyph" | "word-or-glyph")
                | "style=" call
 accessibility_property = ("label=" | "description=") expr
 input          = "input" string id? accessibility_property* "<->" name
                  input_property* styles?
                  (INDENT input_child*)?
 input_property = "hint=" string | ("disabled=" | "secure=") expr
-               | ("change=" | "submit=" | "paste=") route
-               | "width=" length
-               | ("padding=" | "text-size=" | "line-height=") expr
+               | ("change=" | "submit=" | "paste=") route | "w=" length
+               | ("p=" | "text-size=" | "line-h=") expr
                | "align=" ("left" | "center" | "right")
                | "font=" font_ref | "style=" call
-               | "icon=" string | "icon-font=" font_ref
-               | "icon-side=" ("left" | "right")
-               | ("icon-size=" | "icon-spacing=") expr
 input_child    = input_status | input_icon
 input_status   = ("active" | "hovered" | "focused"
                | "focused-hovered" | "disabled") input_style_property*
@@ -794,8 +790,8 @@ input_icon     = "icon" combo_icon_property+
 button         = "button" (string | INDENT node) id? button_property*
                  styles? "->" route (INDENT button_status_style*)?
 button_property = accessibility_property | "disabled=" expr
-                | ("width=" | "height=") length
-                | ("padding=" | "clip=") expr
+                | ("w=" | "h=") length
+                | ("p=" | "clip=") expr
                 | "style=" (("primary" | "secondary" | "success" | "warning"
                   | "danger" | "text" | "bg" | "subtle") | call)
 button_status_style = ("active" | "hovered" | "pressed" | "disabled")
@@ -807,14 +803,14 @@ checkbox       = "checkbox" expr id? accessibility_property* "checked=" expr
 toggler        = "toggler" expr "checked=" expr bool_property*
                  ("align=" text_alignment)? styles? "->" route
                  (INDENT toggler_status_style*)?
-bool_property  = "disabled=" expr | "size=" expr | "width=" length
-               | ("spacing=" | "text-size=" | "line-height=") expr
-               | "shaping=" ("auto" | "basic" | "advanced")
-               | "wrapping=" ("none" | "word" | "glyph" | "word-or-glyph")
+bool_property  = "disabled=" expr | "size=" expr | "w=" length
+               | ("gap=" | "text-size=" | "line-h=") expr
+               | "shape=" ("auto" | "basic" | "advanced")
+               | "wrap=" ("none" | "word" | "glyph" | "word-or-glyph")
                | "font=" font_ref
 checkbox_icon_property = "icon=" string
-                       | ("icon-size=" | "icon-line-height=") expr
-                       | "icon-shaping=" ("auto" | "basic" | "advanced")
+                       | ("icon-size=" | "icon-line-h=") expr
+                       | "icon-shape=" ("auto" | "basic" | "advanced")
 checkbox_style = "style=" ("primary" | "secondary" | "success" | "danger")
 checkbox_status_style = ("active" | "hovered" | "disabled")
                         ("checked" | "unchecked") checkbox_style_property*
@@ -837,7 +833,7 @@ color_ref      = name ("/" u8)?
 slider         = "slider" expr "min=" expr "max=" expr slider_property*
                  styles? "->" route (INDENT slider_status+)?
 slider_property = ("step=" | "default=" | "shift-step=") expr
-                | ("width=" | "height=") length
+                | ("w=" | "h=") length
                 | "vertical" | "release=" route | "style=" call
 slider_status  = ("active" | "hovered" | "dragged") slider_style_property*
 slider_style_property
@@ -865,10 +861,10 @@ progress_property
 radio          = "radio" expr "value=" expr "selected=" expr
                  radio_property* styles? "->" route
                  (INDENT radio_status_style*)?
-radio_property = ("size=" | "spacing=" | "text-size=" | "line-height=") expr
-               | "width=" length
-               | "shaping=" ("auto" | "basic" | "advanced")
-               | "wrapping=" ("none" | "word" | "glyph" | "word-or-glyph")
+radio_property = ("size=" | "gap=" | "text-size=" | "line-h=") expr
+               | "w=" length
+               | "shape=" ("auto" | "basic" | "advanced")
+               | "wrap=" ("none" | "word" | "glyph" | "word-or-glyph")
                | "font=" font_ref
 radio_status_style = ("active" | "hovered")
                      ("selected" | "unselected") radio_style_property*
@@ -877,10 +873,10 @@ radio_style_property = "bg=" background_value
                      | "border-w=" expr
 pick_list      = "pick" expr expr pick_property* "->" route
                  (INDENT pick_child*)?
-pick_property  = "placeholder=" expr | "width=" length
-               | "menu-height=" length | "padding=" expr
-               | ("text-size=" | "line-height=") expr
-               | "shaping=" ("auto" | "basic" | "advanced")
+pick_property  = "hint=" expr | "w=" length
+               | "menu-h=" length | "p=" expr
+               | ("text-size=" | "line-h=") expr
+               | "shape=" ("auto" | "basic" | "advanced")
                | "font=" font_ref | "open=" route | "close=" route
                | ("style=" | "menu-style=") call
 pick_child     = pick_status | menu_style | pick_handle
@@ -906,13 +902,13 @@ pick_closed_icon = "closed" pick_icon_property+
 pick_open_icon = "open" pick_icon_property+
 pick_icon_property
                = "code=" string | "font=" font_ref
-               | ("size=" | "line-height=") expr
-               | "shaping=" ("auto" | "basic" | "advanced")
+               | ("size=" | "line-h=") expr
+               | "shape=" ("auto" | "basic" | "advanced")
 combo_box      = "combo" name expr string combo_property* "->" route
                  (INDENT combo_child*)?
-combo_property = "width=" length | "menu-height=" length
-               | "padding=" expr | ("text-size=" | "line-height=") expr
-               | "shaping=" ("auto" | "basic" | "advanced")
+combo_property = "w=" length | "menu-h=" length
+               | "p=" expr | ("text-size=" | "line-h=") expr
+               | "shape=" ("auto" | "basic" | "advanced")
                | "font=" font_ref
                | "input=" route | "hover=" route
                | "open=" route | "close=" route
@@ -929,7 +925,7 @@ combo_style_property
 combo_icon     = "icon" combo_icon_property+
 combo_icon_property
                = "code=" string | "font=" font_ref
-               | ("size=" | "spacing=") expr
+               | ("size=" | "gap=") expr
                | "side=" ("left" | "right")
 float          = "float" float_property* INDENT node
 float_property = ("scale=" | "x=" | "y=" | "shadow-x="
@@ -937,13 +933,13 @@ float_property = ("scale=" | "x=" | "y=" | "shadow-x="
                  | "r-tl=" | "r-tr=" | "r-br="
                  | "r-bl=") expr
                | "shadow=" color_ref
-pin            = "pin" (("width=" | "height=") length)?
+pin            = "pin" (("w=" | "h=") length)?
                  ("x=" expr)? ("y=" expr)? INDENT node
 sensor         = "sensor" sensor_property+ INDENT node
 sensor_property = ("show=" | "resize=" | "hide=") route
                 | "key=" expr | "anticipate=" expr | "delay=" expr
 responsive     = "responsive" responsive_mode
-                 (("width=" | "height=") length)? INDENT node+
+                 (("w=" | "h=") length)? INDENT node+
 responsive_mode = "at=" expr | "size=(" name "," name ")"
 rule           = "rule" ("horizontal" | "vertical") rule_property* styles?
 rule_property  = "thickness=" expr | "style=" ("default" | "weak")
@@ -954,13 +950,13 @@ rule_property  = "thickness=" expr | "style=" ("default" | "weak")
 rule_fill      = "full" | "percent(" expr ")" | "pad(" u16 ")"
                | "pad(" u16 "," u16 ")"
 qr_code        = "qr" name qr_property*
-qr_property    = ("cell-size=" | "total-size=") expr
+qr_property    = ("cell-size=" | "size=") expr
                | ("cell=" | "bg=") name ("/" u8)?
-space          = "space" ("width=" length)? ("height=" length)? styles?
+space          = "space" ("w=" length)? ("h=" length)? styles?
 media          = ("image" | "svg" | "viewer") expr media_property*
-media_property = accessibility_property | ("width=" | "height=") length
-               | "fit=" ("contain" | "cover" | "fill" | "none" | "scale-down")
-               | "rotation=" (expr | "solid(" expr ")") | "opacity=" expr
+media_property = accessibility_property | ("w=" | "h=") length
+               | "fit=" ("contain" | "cover" | "fill" | "none" | "scale-down" | expr)
+               | "rotate=" expr | "opacity=" expr
                | "memory" | "color=" color_ref
                | "hover=" (color_ref | "none")
                | "style=" name "(" expr_list? ")"
@@ -969,13 +965,13 @@ media_property = accessibility_property | ("width=" | "height=") length
                | ("r=" | "r-tl=" | "r-tr="
                  | "r-br=" | "r-bl=") expr
                | "crop=(" expr "," expr "," expr "," expr ")"
-               | ("padding=" | "min-scale=" | "max-scale="
+               | ("p=" | "min-scale=" | "max-scale="
                  | "scale-step=") expr
 length         = "fill" | "fill(" u16 ")" | "shrink" | expr
 tooltip        = "tooltip" tooltip_property* INDENT node node
 tooltip_property
                = "position=" ("top" | "bottom" | "left" | "right" | "cursor")
-               | "gap=" expr | "padding=" expr | "delay=" expr | "snap=" expr
+               | "gap=" expr | "p=" expr | "delay=" expr | "snap=" expr
                | "style=" (("transparent" | "rounded" | "bordered" | "dark"
                  | "primary" | "secondary" | "success" | "warning" | "danger")
                  | name "(" expr_list? ")")
@@ -991,7 +987,7 @@ mouse_property = ("press=" | "release=" | "double=" | "right_press="
                | "enter=" | "move=" | "scroll=" | "exit=") route
                | "cursor=" mouse_cursor
 canvas         = "canvas" canvas_property* INDENT canvas_item*
-canvas_property = ("width=" | "height=") length
+canvas_property = ("w=" | "h=") length
                 | ("cache=" | "capture=") expr
                 | ("press=" | "release=" | "right_press=" | "right_release="
                   | "middle_press=" | "middle_release=" | "enter=" | "move="
@@ -1020,19 +1016,19 @@ canvas_circle  = "circle" point "r=" expr canvas_paint+
 canvas_line    = "line" "x1=" expr "y1=" expr "x2=" expr "y2=" expr
                  canvas_stroke
 canvas_text    = "text" expr "x=" expr "y=" expr canvas_text_property*
-canvas_text_property = ("max-width=" | "size=" | "line-height="
-                       | "line-height-px=") expr
+canvas_text_property = ("max-w=" | "size=" | "line-h="
+                       | "line-h-px=") expr
                      | "color=" color_ref | "font=" name
                      | "align-x=" ("default" | "left" | "center" | "right"
                        | "justified")
                      | "align-y=" ("top" | "center" | "bottom")
-                     | "shaping=" ("auto" | "basic" | "advanced")
+                     | "shape=" ("auto" | "basic" | "advanced")
 canvas_path    = "path" canvas_paint+ INDENT canvas_path_segment+
 canvas_group   = "group" canvas_transform* INDENT canvas_command*
 canvas_if      = "if" expr INDENT canvas_command*
 canvas_for     = "for" name "in" expr INDENT canvas_command*
 point          = "x=" expr "y=" expr
-size           = "width=" expr "height=" expr
+size           = "w=" expr "h=" expr
 canvas_radius  = ("r=" | "r-tl=" | "r-tr="
                  | "r-br=" | "r-bl=") expr
 canvas_paint   = "fill=" background_value | "fill-rule=" ("non-zero" | "even-odd")
@@ -1049,7 +1045,7 @@ canvas_path_segment = "move" point | "line" point
                     | "arc-to" "ax=" expr "ay=" expr "bx=" expr "by=" expr
                       "r=" expr
                     | "ellipse" point "r-x=" expr "r-y=" expr
-                      "rotation=" expr "start=" expr "end=" expr
+                      "rotate=" expr "start=" expr "end=" expr
                     | "bezier" "ax=" expr "ay=" expr "bx=" expr "by=" expr point
                     | "quadratic" "cx=" expr "cy=" expr point
                     | "rect" point size
@@ -1069,7 +1065,7 @@ built_in_iced_theme
                | "moonfly" | "nightfly" | "oxocarbon" | "ferra"
 theme_property = ("fg=" | "bg=") name ("/" u8)?
 component_name = PascalName ("." PascalName)*
-component_call = component_name ("(" expr_list? ")" id? | component_item*)
+component_call = component_name component_item*
                  (INDENT (node | named_slot+ | component_call+))?
 component_item = named_prop | id
 named_prop     = name "=" expr
@@ -1079,7 +1075,7 @@ extern_component_call
                = "extern" name "(" expr_list? ")" ("->" route)?
 themer_view    = "themer" name "(" expr_list? ")" ("->" route)?
 shader_view    = "shader" name "(" expr_list? ")"
-                 (("width=" | "height=") length)* ("->" route)?
+                 (("w=" | "h=") length)* ("->" route)?
 if_node        = "if" expr INDENT node+
 match_node     = "match" expr INDENT match_arm+
 match_arm      = (expr | "_") INDENT node+
@@ -1106,10 +1102,10 @@ app Tasks
   renderer crate::backend::AppRenderer
   font "assets/Inter-Regular.ttf"
   font "assets/Inter-Bold.ttf"
-  default-text-size 16
+  text-size 16
   antialiasing true
   vsync true
-  scale-factor ui_scale
+  scale ui_scale
   window
     icon-rgba "assets/app.rgba" 32 32
     size 960 720
@@ -1118,7 +1114,7 @@ app Tasks
     position centered
     level normal
     platform linux
-      application-id "dev.ducktape.ice.tasks"
+      app-id "dev.ducktape.ice.tasks"
       override-redirect false
     platform windows
       drag-and-drop true
@@ -1144,7 +1140,7 @@ state
   ui_scale = 1.0
 ```
 
-`title`, `theme`, `bg`, `fg`, and `scale-factor` are recomputed
+`title`, `theme`, `bg`, `fg`, and `scale` are recomputed
 from current state through iced's native callbacks. Title/theme/style values are
 typed `str`; scale is `f64`. Theme accepts `app`, `default`, or any of iced's 22
 kebab-case built-ins. Application colors accept 3/4/6/8 digit hexadecimal
@@ -1178,8 +1174,9 @@ All four may coexist in one source; generated `cfg` blocks select only the
 current compilation target. Wasm `target none` appends to the document body.
 Sizes, text size, and scale factor must be positive; minimum size cannot exceed
 maximum size. `icon-rgba` embeds a relative raw RGBA file without an image
-codec; width and height are positive integers, and generated Rust rejects a
-byte length other than `width × height × 4`. `cargo ice check` reports a
+codec; width and height are positive integers whose product fits the native
+`u32` pixel count, and generated Rust rejects a byte length other than
+`width × height × 4`. `cargo ice check` reports a
 mismatch at the icon declaration, and generated Rust repeats the check at
 compile time. Encoded icon formats remain outside 1.61.
 
@@ -1188,7 +1185,7 @@ an initial window and remains alive after all windows close. A daemon rejects
 the unnamed `window` block; declare named window templates and open them from
 `on mount` or another handler. The read-only `window:window-id` binding names
 the window currently being rendered and is available to the root view, title,
-theme, and scale-factor expressions. Pure components receive it explicitly as
+theme, and scale expressions. Pure components receive it explicitly as
 a typed prop. Standalone `exit` is a native `iced::exit()` task and must be the
 final statement in a handler (or a task-group member):
 
@@ -1229,9 +1226,8 @@ side-effect-free default-state fixture.
 
 Media fixed lengths, opacity, scale, and radius are `f64`. `fit=` accepts its
 compact contain/cover/fill/none/scale-down names or a first-class `content-fit`
-expression. Rotation accepts
-legacy f64 radians (floating by default), `solid(angle)`, or a first-class
-`rotation` expression. Opacity is `0.0..=1.0`, scale is positive, and
+expression. `rotate=` requires a first-class `rotation` expression. Opacity is
+`0.0..=1.0`, scale is positive, and
 sizes/radius are non-negative. `filter`, `scale`, `expand`, `radius`, and `crop` are image-only.
 Crop is `(x, y, width, height)` in non-negative `i64` source-pixel coordinates.
 `memory`, `color`, and `hover` are SVG-only. `memory` accepts UTF-8 SVG text or
@@ -1243,11 +1239,13 @@ without a label is rejected.
 `viewer` wraps an image path or handle in iced's stateful zoom/pan widget. It
 accepts width, height, fit, filter, non-negative padding, positive minimum and
 maximum scales, and a positive scale step; the minimum cannot exceed the
-maximum. The widget owns gesture state in iced's tree, so no app state or event
+maximum. Dynamic numeric values are bounded to their documented finite ranges,
+and dynamic viewer scale bounds are ordered before reaching iced's pan/zoom
+clamp. The widget owns gesture state in iced's tree, so no app state or event
 handler is needed:
 
 ```ice
-viewer memory_image width=fill height=240.0 fit=contain filter=nearest padding=8.0 min-scale=0.5 max-scale=8.0 scale-step=0.1
+viewer memory_image w=fill h=240.0 fit=contain filter=nearest p=8.0 min-scale=0.5 max-scale=8.0 scale-step=0.1
 ```
 Every `length` position accepts fixed `f64`, `fill`, `fill(N)` portions with a
 decimal `u16`, `shrink`, or a checked first-class `length` expression;
@@ -1260,7 +1258,7 @@ color token (including `/0..100` opacity), uniform or per-corner non-negative
 radius, and bool pixel snapping.
 QR declarations accept UTF-8 strings or arbitrary hexadecimal bytes. Normal
 versions are `1..=40`, micro versions are `1..=4`, and omitted correction uses
-iced's medium default. A QR view accepts one of `cell-size=` or `total-size=`
+iced's medium default. A QR view accepts one of `cell-size=` or `size=`
 plus checked cell/background colors. Its encoded data is built once at app
 startup and borrowed by each view.
 Tooltip gap/padding are non-negative `f64`, delay is non-negative `i64`
@@ -1303,11 +1301,11 @@ the `active` line applies first as the shared base, then matching hovered or
 dragged lines apply in source order after the typed callback:
 
 ```ice
-scroll direction=both viewport=viewport_changed style=task_scroll(loading)
+scroll dir=both viewport=viewport_changed style=task_scroll(loading)
   col
     text "Scrollable"
   active
-    container bg=bg
+    box bg=bg
     x-scroller bg=primary
     y-scroller bg=primary
     auto bg=surface icon=fg
@@ -1318,9 +1316,9 @@ scroll direction=both viewport=viewport_changed style=task_scroll(loading)
 ```
 
 `text` accepts str, i64, and f64 values plus typed width/height, positive size,
-relative `line-height=` or absolute `line-height-px=`, horizontal and vertical
-alignment, shaping, wrapping, and declared or built-in fonts. An explicit `size=`
-overrides a `@text-*` utility; `font=mono @font-bold` preserves both choices.
+relative `line-h=` or absolute `line-h-px=`, horizontal and vertical
+alignment, shaping, wrapping, and declared or built-in fonts.
+`font=mono @font-bold` preserves both choices.
 
 `input` keeps its required `str` binding and additionally supports checked
 `label=`/`description=` accessibility text, bool secure mode, submit routes,
@@ -1332,14 +1330,14 @@ field. Without `change=`, typing writes the bound state directly. With
 which lets one state transition also launch validation or autosave. A disabled
 input suppresses typing, submit, paste, and accessibility focus together. The
 old inline `icon=`, `icon-font=`, `icon-size=`,
-`icon-spacing=`, and `icon-side=` properties remain accepted as compact syntax.
+`icon-gap=`, and `icon-side=` properties remain accepted as compact syntax.
 
 ```ice
 input "Search" #query <-> query hint="Find anything" font=ui
   active bg=surface border=border icon=primary placeholder=muted value=fg selection=primary
   focused-hovered bg=surface border=primary border-w=2.0 r=8.0
   disabled bg=bg border=border value=muted
-  icon code="⌕" font=ui size=14.0 spacing=6.0 side=left
+  icon code="⌕" font=ui size=14.0 gap=6.0 side=left
 ```
 
 `style=form_input(disabled)` may call a declared `input-style`. Its Rust
@@ -1460,7 +1458,9 @@ status block.
 danger presets. Checked solid or linear backgrounds can override the track and
 filled bar; a checked theme color overrides the border. Border width and
 uniform/per-corner radii are non-negative f64 values.
-Literal reversed ranges are rejected before generation.
+Literal reversed ranges are rejected before generation; dynamic ranges are
+converted to finite `f32`, ordered, and used to bound the current value before
+the native constructor.
 
 A declared progress style call may replace the preset while keeping those
 field overrides:
@@ -1491,7 +1491,7 @@ concrete field. Hovered styles inherit the matching active selected/unselected
 base:
 
 ```ice
-radio "Summary" value="summary" selected=(mode == "summary") size=18.0 width=fill font=ui -> mode_changed _
+radio "Summary" value="summary" selected=(mode == "summary") size=18.0 w=fill font=ui -> mode_changed _
   active selected bg=linear(1.57, primary@0.0, surface@1.0) dot=fg border=primary border-w=2.0 text=fg
   active unselected bg=surface dot=primary border=border text=muted
   hovered selected bg=primary dot=fg border=fg text=fg
@@ -1509,9 +1509,9 @@ secondary, success, warning, or danger iced container presets. A checked solid
 or linear background plus theme colors can override the preset's background,
 text, border, and shadow. Border width, shadow
 blur, and uniform/per-corner radii are non-negative f64 values; shadow x/y may
-be negative. `px-snap=` controls the container style's pixel-grid snap and is
+be negative. `px-snap=` controls the box style's pixel-grid snap and is
 separate from the tooltip overlay's viewport `snap=` behavior. A declared
-`container-style` call may replace the preset because iced uses the same
+`box-style` call may replace the preset because iced uses the same
 `container::Style` callback for tooltip surfaces; concrete tooltip properties
 override the callback result.
 
@@ -1530,13 +1530,13 @@ start from declared native callbacks; the structured status and menu fields
 remain final overrides.
 
 ```ice
-pick modes mode placeholder="Choose" font=ui shaping=advanced style=view_picker(loading) menu-style=view_menu(loading) -> changed _
+pick modes mode hint="Choose" font=ui shape=advanced style=view_picker(loading) menu-style=view_menu(loading) -> changed _
   active text=fg placeholder=muted handle=primary bg=surface border=border r=6.0
   opened-hovered text=fg bg=bg border=primary
   menu text=fg selected-text=fg selected-bg=primary bg=surface shadow=black/50 shadow-y=4.0
   handle dynamic
     closed code="⌄" font=ui size=12.0
-    open code="⌃" font=ui size=12.0 shaping=advanced
+    open code="⌃" font=ui size=12.0 shape=advanced
 ```
 
 Handles support iced's arrow with optional size, one static icon, distinct
@@ -1560,11 +1560,11 @@ exposes every menu overlay Style field:
 Structured lines override both callback results.
 
 ```ice
-combo modes mode "Search views" font=ui shaping=advanced style=form_input(loading) menu-style=view_menu(loading) -> changed _
+combo modes mode "Search views" font=ui shape=advanced style=form_input(loading) menu-style=view_menu(loading) -> changed _
   active bg=surface border=border icon=primary placeholder=muted value=fg selection=primary
   focused-hovered bg=bg border=primary border-w=2.0 r=6.0
   menu text=fg selected-text=fg selected-bg=primary bg=surface shadow=black/50
-  icon code="⌕" font=ui size=14.0 spacing=6.0 side=right
+  icon code="⌕" font=ui size=14.0 gap=6.0 side=right
 ```
 
 Assigning a matching `[T]` to `combo[T]` state replaces its searchable options
@@ -1611,27 +1611,28 @@ leave the stack without an intrinsic base layer.
 
 `row` and `col` accept typed spacing, every iced `Length` for width/height,
 cross-axis `start`/`center`/`end` alignment, and clipping. Columns additionally
-accept `max-width=`. Padding can be uniform, axis-specific, or per-side; the
+accept `max-w=`. Padding can be uniform, axis-specific, or per-side; the
 more specific value wins regardless of property order. Bare `wrap` switches to
-iced's wrapping layout. `wrap-spacing=` controls spacing between wrapped rows or
+iced's wrapping layout. `wrap-gap=` controls spacing between wrapped rows or
 columns and `wrap-align=` controls their main-axis placement; both require
-`wrap`.
+`wrap`. Non-wrapping rows and columns bound child fill factors so iced's native
+`u16` sum cannot overflow.
 
-`flex` uses Ice's native flexbox runtime. It supports row/column and reverse
-directions, nowrap/wrap/wrap-reverse, `justify-content`, `align-items`,
-`align-content`, axis-specific gaps, sizing, padding, and clipping. A direct
-`box` child can set `order`, `flex-grow`, `flex-shrink`, `flex-basis`,
-`align-self`, and uniform/axis/per-side margins, including `auto` and
+`flex` uses Ice's native flexbox runtime. It supports `dir`, `flow`, `wrap`,
+`justify`, `items`, `content`, axis-specific gaps, sizing, padding, and
+clipping. A direct `box` child can set `order`, `grow`, `shrink`, `basis`,
+`self`, and uniform/axis/per-side `m` margins, including `auto` and
 `percent(N)`. `flex=none|auto|initial|grow[,shrink[,basis]]` is the compact
-item form. Existing `spacing`, `align`, bare `wrap`, `wrap-spacing`, and
-`wrap-align` remain accepted aliases.
+item form.
 
 `keyed item in items by=key` is iced's identity-preserving column. `items` must
 be a list, `key` is checked in the item scope and must be bool, i64, or f64,
 and the indented node is the single repeated child template. Each child also
 receives an automatic `key(...)` identity scope. Keyed columns accept every
 native keyed-column setter: spacing, uniform/axis/per-side padding, every
-`Length` for width and height, max width, and cross-axis alignment.
+`Length` for width and height, max width, and cross-axis alignment. Repeated
+child fill factors are bounded against the rendered item count so the native
+`u16` sum cannot overflow.
 
 `lazy dependency as cached` rebuilds its one child subtree only when the
 dependency hash changes. The dependency may be bool, i64, str, an extern type
@@ -1658,7 +1659,7 @@ on extend
   images = markdown_images(help)
 
 view
-  markdown help text-size=16.0 spacing=12.0 -> open_link _
+  markdown help text-size=16.0 gap=12.0 -> open_link _
     style font=ui inline-code-bg=surface inline-code-fg=fg inline-code-font=mono code-block-font=mono link=primary inline-code-p=3.0 inline-code-border=border inline-code-border-w=1.0 inline-code-r=4.0
 ```
 
@@ -1675,8 +1676,8 @@ A table iterates a typed list and gives every cell its row binding. Headers and
 cells are arbitrary one-root Ice subtrees:
 
 ```ice
-table task in tasks width=fill padding-x=8.0 separator=1.0
-  column width=fill align-x=left align-y=center
+table task in tasks w=fill px=8.0 sep=1.0
+  col w=fill align-x=left align-y=center
     header
       text "Task" @font-bold
     cell
@@ -1685,9 +1686,11 @@ table task in tasks width=fill padding-x=8.0 separator=1.0
 
 Table width accepts every iced `Length`. Uniform/horizontal/vertical padding
 and separator thickness are non-negative pixels. Each column accepts every
-`Length` width plus all horizontal and vertical alignments. Row and column
-identity scopes are generated automatically, so IDs inside repeated cells do
-not collide. Rust row values must be `Clone`, matching iced's table contract.
+`Length` width plus all horizontal and vertical alignments; fill factors are
+bounded across both columns and rows so their native `u16` sums cannot
+overflow. Row and column identity scopes are generated automatically, so IDs
+inside repeated cells do not collide. Rust row values must be `Clone`, matching
+iced's table contract.
 
 Text editor content is another owned UI state type. A literal initializes it,
 and `editor(source)` replaces it from a runtime str:
@@ -1697,7 +1700,7 @@ state
   notes:editor = "fn main() {}"
 
 view
-  editor #notes <-> notes placeholder="Write notes" width=640.0 height=fill min-height=80.0 max-height=240.0 size=14.0 line-height=1.3 padding=8.0 wrapping=word font=mono highlight="rs" highlight-theme=base16-ocean disabled=loading
+  editor #notes <-> notes hint="Write notes" w=640.0 h=fill min-h=80.0 max-h=240.0 size=14.0 line-h=1.3 p=8.0 wrap=word font=mono highlight="rs" highlight-theme=base16-ocean disabled=loading
     active bg=surface border=border placeholder=muted value=fg selection=primary
     focused-hovered bg=surface border=primary border-w=2.0 r=8.0
     disabled bg=bg border=border value=muted
@@ -1829,7 +1832,9 @@ crate::backend::create_task
 Bare extern functions are asynchronous. `A -> B` means `async fn(...) -> B`.
 `A -> B ! E` means `async fn(...) -> Result<B, E>`. Values crossing into iced
 messages must satisfy the traits required by generated iced code, notably
-`Clone` for 1.61 message payloads.
+`Clone` for 1.61 message payloads. Generated app and message debug output is
+opaque, so ordinary extern state and payload types do not additionally need to
+implement `Debug`.
 
 Declared `sync` functions are checked, synchronous Rust calls available in
 Ice expressions. They are the small escape hatch for pure domain conversions
@@ -1875,13 +1880,13 @@ extern crate::backend
   checkbox-style task_checkbox(busy:bool)
   toggler-style notification_toggler(busy:bool)
   radio-style view_radio(busy:bool)
-  container-style summary_container(busy:bool)
+  box-style summary_container(busy:bool)
   svg-style status_svg(active:bool)
   input-style form_input(disabled:bool)
   scroll-style task_scroll(active:bool)
   pick-list-style view_picker(active:bool)
   menu-style view_menu(active:bool)
-  pane-grid-style workspace_panes(active:bool)
+  panes-style workspace_panes(active:bool)
 ```
 
 Their Rust signatures are:
@@ -1936,7 +1941,7 @@ width/height builder API, and maps the program's published event through a
 checked route:
 
 ```ice
-shader status_shader(1.0) width=fill height=32.0 -> shader_hovered _
+shader status_shader(1.0) w=fill h=32.0 -> shader_hovered _
 ```
 
 A selector factory returns any concrete `widget::selector::Selector`. Ice passes
@@ -1991,15 +1996,15 @@ declared arguments and returns any value convertible to the same default
 rich-text `color=` or trailing `@text-*` utility overrides the callback color.
 `button-style` also receives the current button Status and returns its native
 Style. `checkbox-style`, `toggler-style`, and `radio-style` do the same for
-their selection-aware widget Status values. `container-style` receives Theme
+their selection-aware widget Status values. `box-style` receives Theme
 without a Status and returns its native surface Style. `svg-style` receives
 Theme and the idle/hovered SVG Status and returns the native SVG Style.
 `input-style` receives Theme and the current text-input Status and returns its
 native Style. `scroll-style` receives Theme and the complete scrollable Status
 and returns its native Style. `pick-list-style` does the same for pick-list
 Status. `menu-style` receives Theme without a Status and returns the shared
-pick-list/combo overlay menu Style. `pane-grid-style` receives Theme without a
-Status and returns the native pane-grid Style; checked structured style fields
+pick-list/combo overlay menu Style. `panes-style` receives Theme without a
+Status and returns the native panes Style; checked structured style fields
 remain available as explicit overrides.
 
 Generated probes type-check every declaration
@@ -2112,12 +2117,17 @@ The expression language contains:
   `animation.interpolate(bool_state, start, end[, at])` for matching `f64` or
   `f64?` endpoints, and
   `animation.remaining(bool_state[, at])`; remaining time is returned in
-  milliseconds;
+  milliseconds independently of easing overshoot;
 - checked projection
   `animation.project(state, value, expression[, at])`, where the expression
   sees the current inner value as `value` and returns `f64` or `f64?`;
 - `markdown(str) -> markdown` and `markdown_images(markdown) -> [str]`;
 - calls to declared typed `sync` extern functions.
+
+Declared sync calls take precedence over ordinary built-ins. The name `bytes`
+remains reserved for hexadecimal byte-literal syntax. If a sync declaration
+shadows `encoded` or `rgba`, state initialized by that call needs an explicit
+type because it is no longer a built-in literal constructor.
 
 Store `encoded` and `rgba` handles in state so they are created when state
 changes instead of on every view pass. Literal RGBA data is checked to contain
@@ -2215,6 +2225,7 @@ Rules:
   returns one iced `Task`;
 - fallible externs require both success and error routes;
 - infallible externs permit only the success route;
+- parameter names are unique within each handler;
 - handler parameter types are inferred from every incoming route;
 - incompatible incoming payloads are a type error;
 - `_` means the payload produced by the current widget or action route.
@@ -2349,7 +2360,7 @@ flow
 
 `then name -> source` lowers to `Task::then` and binds each output only inside
 the next source call. Use
-`and-then` for `T?` output or a fallible task; fallible steps must keep the same
+`try` for `T?` output or a fallible task; fallible steps must keep the same
 error type required by iced's `Result` overload. A transform cannot capture UI
 state because the native closure is static; pass stable input to the first
 source or read current state in the destination handler.
@@ -2367,14 +2378,14 @@ flow
   error -> failed _
 ```
 
-`map-error error -> expr` lowers to `Task::map_err`, may read only its error
+`map-err error -> expr` lowers to `Task::map_err`, may read only its error
 binding, and replaces the flow's error type with the expression type. A sync
 extern is the normal way to translate one domain error into another:
 
 ```ice
 flow
   from task request()
-  map-error reason -> normalize_error(reason)
+  map-err reason -> normalize_error(reason)
   collect
   done -> collected _
 ```
@@ -2415,11 +2426,11 @@ The implemented native nodes are:
 | `scroll` | one content child; complete direction/scrollbar/builders, every viewport getter and status selector, every concrete Style field, and typed native runtime style callbacks |
 | `grid` | responsive children with pixel width/spacing, fixed columns or fluid max-cell width, and aspect-ratio or evenly distributed `Length` height |
 | `stack` | overlays children with typed width/height, optional clipping and `under=N` intrinsic-base control |
-| `container` | exactly one child with ID, all length bounds, max bounds, per-axis alignment, clipping, per-side padding, every concrete surface style field including linear backgrounds, and typed native runtime style callbacks |
+| `box` | exactly one child with ID, all length bounds, max bounds, per-axis alignment, clipping, per-side padding, every concrete surface style field including linear backgrounds, and typed native runtime style callbacks |
 | `overlay` | named `content` and `layer` trees with checked visibility, alignment, padding, backdrop and optional dismissal |
 | `text` | one `str`, `i64`, or `f64` expression with bounds, size/line-height, font, alignment, shaping, wrapping, checked color/weight styles, and an AccessKit `Label` role containing the visible value |
 | `rich-text` | zero or more structured spans with rich defaults, complete span highlights and optional string link events |
-| `pane-grid` | named pane trees backed by recursive persistent split state, structured title/full/compact controls, complete concrete state and surface styles with linear backgrounds, closed panes, list-keyed runtime templates, typed dynamic references, click, resize and drag/drop behavior |
+| `panes` | named pane trees backed by recursive persistent split state, structured title/full/compact controls, complete concrete state and surface styles with linear backgrounds, closed panes, list-keyed runtime templates, typed dynamic references, click, resize and drag/drop behavior |
 | `input` | required `str` binding; checked accessible label/description, `TextInput` or value-suppressing `PasswordInput` role, ID, hint, disabled/secure, submit/paste, every concrete builder setter, complete icon, all concrete status style fields, and typed native runtime style callbacks |
 | `button` | string label or one child; checked accessible label/description with an explicit label required for child content, `Button` role and keyboard activation, optional ID/disabled, typed size/padding/clip, eight presets, complete status styles, typed native runtime style callbacks and required route |
 | `checkbox` | string label, optional accessible label/description, `CheckBox` role and keyboard activation, bool value/route, disabled, sizing/typography/wrapping/font, custom icon, four presets and complete checked-aware status styles |
@@ -2434,12 +2445,12 @@ The implemented native nodes are:
 | `sensor` | one child with show/resize `(width, height)`, hide, key, anticipation and delay |
 | `responsive` | breakpoint sugar or one arbitrary size-dependent child tree with scoped width/height bindings and typed bounds |
 | `rule` | horizontal/vertical separator with non-negative thickness, all fill modes, default/weak preset, color, corner radii and snap |
-| `qr` | named text/binary QR data with correction/version, cell/total sizing and checked colors |
+| `qr` | named text/binary QR data with correction/version, cell/overall sizing and checked colors |
 | `space` | optional fixed/fill/fill-portion/shrink width and height |
-| `image` | raster path or encoded/RGBA handle with every concrete sizing/fit/filter/floating-or-solid rotation/opacity/scale/expand/per-corner-radius/crop property; `label=` adds an AccessKit `Image` role and unlabeled images are decorative |
+| `image` | raster path or encoded/RGBA handle with every concrete sizing/fit/filter/typed rotation/opacity/scale/expand/per-corner-radius/crop property; `label=` adds an AccessKit `Image` role and unlabeled images are decorative |
 | `viewer` | interactive image zoom/pan with path/handle sources and complete sizing/fit/filter/padding/scale configuration |
 | `svg` | SVG path or UTF-8/raw-byte memory expression with typed layout, idle/hover color properties, and a typed native runtime style callback |
-| `tooltip` | exactly two children (content then tip), full positioning/timing, every concrete container style field, and typed native runtime style callbacks |
+| `tooltip` | exactly two children (content then tip), full positioning/timing, every concrete box style field, and typed native runtime style callbacks |
 | `mouse` | one child; all button/enter/move/scroll/exit events and every iced cursor interaction |
 | `canvas` | declarative native geometry, raster/SVG drawing, path building, transforms, clipping, typed control flow, grouped dependency caches and pointer events |
 | `theme` | one child with default/app/all built-in iced themes and checked text color plus solid/linear background |
@@ -2455,25 +2466,25 @@ The implemented native nodes are:
 DOM or runtime reconciliation layer; the iced backend constructs the current
 element tree from state.
 
-Grid `columns=` and `fluid=` are mutually exclusive. `columns=` is a positive
-`i64`; `fluid=` and both dimensions of `height=aspect(W,H)` are positive `f64`
-values. `width=` and `spacing=` are non-negative `f64` pixels. A non-aspect
-`height=` accepts `fill`, `fill(N)`, `shrink`, or a non-negative `f64` pixel
+Grid `cols=` and `fluid=` are mutually exclusive. `cols=` is a positive
+`i64`; `fluid=` and both dimensions of `h=aspect(W,H)` are positive `f64`
+values. `w=` and `gap=` are non-negative `f64` pixels. A non-aspect
+`h=` accepts `fill`, `fill(N)`, `shrink`, or a non-negative `f64` pixel
 expression and maps to iced's evenly distributed sizing.
 
-`container` is the explicit one-child wrapper used to size, align, clip, pad,
+`box` is the explicit one-child wrapper used to size, align, clip, pad,
 and style an arbitrary structured child tree. It accepts the shared surface
 properties used by pane content and title bars: solid or linear background,
 text, border with per-corner radius, shadow offset/blur, and pixel snapping.
-Typed properties and equivalent `@` utilities may each be used alone, but the
-checker rejects both owning the same field on one node:
+Geometry uses typed properties; semantic color and emphasis utilities may be
+layered on top when they do not duplicate a typed surface field:
 
 ```ice
-container #card width=fill max-width=640.0 align-x=center padding=12.0 bg=linear(1.57, surface@0.0, bg@1.0) r=10.0 shadow=black/50 shadow-y=2.0 shadow-blur=8.0 px-snap=true
+box #card w=fill max-w=640.0 align-x=center p=12.0 bg=linear(1.57, surface@0.0, bg@1.0) r=10.0 shadow=black/50 shadow-y=2.0 shadow-blur=8.0 px-snap=true
   TaskRow task=task loading=loading
 ```
 
-`style=summary_container(loading)` may call a declared `container-style`. Its
+`style=summary_container(loading)` may call a declared `box-style`. Its
 Rust function receives `&iced::Theme`, then its owned arguments, and returns
 `container::Style`. Utilities and typed properties override that returned base.
 
@@ -2488,7 +2499,7 @@ blocks button and scroll input and an optional `dismiss=` route handles a left
 click outside the layer. Pointer events inside the layer do not dismiss it:
 
 ```ice
-overlay when=about_open dismiss=close_about backdrop=black/60 padding=24.0
+overlay when=about_open dismiss=close_about backdrop=black/60 p=24.0
   content
     Dashboard
   layer
@@ -2519,7 +2530,7 @@ readable without embedding markup in a string. A route is required exactly when
 at least one span has a string `link=`:
 
 ```ice
-rich-text width=fill wrapping=word @text-sm text-muted -> open_link _
+rich-text w=fill wrap=word size=14.0 @text-muted -> open_link _
   span "Read the "
   span "Ice guide" link="https://example.com" underline @font-bold text-primary
   span "."
@@ -2534,22 +2545,23 @@ A pane grid owns persistent iced layout state generated from its required static
 ID. Static names and checked `template(key)` references are the identities
 exposed to Ice; native pane/split IDs stay inside generated Rust. `resize=` is
 grab leeway and enables automatic ratio
-updates, while `drag` automatically applies successful drop targets. The old
-two-pane shorthand remains valid:
+updates, while `drag` automatically applies successful drop targets. A two-pane
+layout uses the same explicit split tree as every larger layout:
 
 ```ice
-pane-grid #workspace split=vertical ratio=0.7 width=fill height=fill spacing=8.0 min-size=120.0 resize=6.0 drag click=pane_clicked(_)
-  pane files
-    FileList
-  pane editor
-    Editor
+panes #workspace w=fill h=fill gap=8.0 min-size=120.0 resize=6.0 drag click=pane_clicked(_)
+  split vertical ratio=0.7
+    pane files
+      FileList
+    pane editor
+      Editor
 ```
 
 For an arbitrary initial layout, nest binary split nodes. A root-level
 `pane name closed` declares checked content without opening it:
 
 ```ice
-pane-grid #workspace width=fill height=fill
+panes #workspace w=fill h=fill
   split workspace_root vertical ratio=0.7
     pane files
       FileList
@@ -2578,7 +2590,7 @@ on close_document(id)
   pane #workspace close document(id)
 
 view
-  pane-grid #workspace
+  panes #workspace
     pane editor
       EditorHome
     pane document in documents by=document.id maximized=is_maximized
@@ -2586,11 +2598,10 @@ view
         text document.title
       controls
         button "Close" -> close_document document.id
-      content
-        col
-          if is_maximized
-            text "Focused editor"
-          DocumentEditor document=document
+      col
+        if is_maximized
+          text "Focused editor"
+        DocumentEditor document=document
 ```
 
 The list must be app state so the generated pane body can safely borrow its
@@ -2598,61 +2609,62 @@ current item. If an open key is no longer present, the pane renders a readable
 missing-data placeholder until it is closed or the item returns. Opening the
 same `template(key)` twice is a no-op. Optional `maximized=name` binds iced's
 per-pane maximized callback flag as a checked bool inside that pane's title,
-controls, content, styles, and scoped IDs; it works on static, closed, and
+controls, content node, styles, and scoped IDs; it works on static, closed, and
 runtime panes.
 
 A pane may expose iced's native `Content`, `TitleBar`, and `Controls`
-structure directly. `compact-controls` is the fallback used when the full
+structure directly. `compact` is the fallback used when the full
 controls would overlap the title. `always-controls` disables the default
 hover-only visibility, and title padding accepts the same per-side precedence
-as containers:
+as boxes:
 
 ```ice
-pane-grid #workspace split=vertical resize=8.0 drag
+panes #workspace resize=8.0 drag
   style
     hovered-region bg=linear(0.785, primary/10@0.0, primary/40@1.0) border=primary border-w=2.0 r=8.0
     hovered-split color=primary w=3.0
     picked-split color=fg w=3.0
-  pane files bg=linear(1.57, surface@0.0, bg@1.0) border=border border-w=1.0 r=10.0 shadow=black/50 shadow-y=2.0 shadow-blur=8.0 px-snap=true
-    title padding=8.0 padding-x=12.0 always-controls bg=bg border=border border-w=1.0 r-tl=8.0 r-tr=8.0
-      text "Files" @font-bold
-    controls
-      row @gap-2
-        button "Refresh" -> refresh
-        button "Close" -> close_files
-    compact-controls
-      button "…" -> open_file_menu
-    content
+  split vertical
+    pane files bg=linear(1.57, surface@0.0, bg@1.0) border=border border-w=1.0 r=10.0 shadow=black/50 shadow-y=2.0 shadow-blur=8.0 px-snap=true
+      title p=8.0 px=12.0 always-controls bg=bg border=border border-w=1.0 r-tl=8.0 r-tr=8.0
+        text "Files" @font-bold
+      controls
+        row gap=8.0
+          button "Refresh" -> refresh
+          button "Close" -> close_files
+      compact
+        button "…" -> open_file_menu
       FileList
-  pane editor
-    Editor
+    pane editor
+      Editor
 ```
 
-The legacy one-child form remains identical. Structured panes require exactly
-one `content` section; `controls` require `title`, and `compact-controls`
-require full `controls`. Pane and title typed surface properties cover every
+Each pane requires exactly one direct content node; wrap siblings in `row` or
+`col`. `controls` require `title`, and `compact` requires full `controls`.
+Pane and title typed surface properties cover every
 concrete `container::Style` field: solid or linear background, text, border
-with per-corner radius, shadow offset/blur, and pixel snapping. Their checked
-`@` utilities remain a concise base and typed properties override them; layout
-stays explicit in child nodes. Linear angles are radians, offsets are checked
+with per-corner radius, shadow offset/blur, and pixel snapping. Semantic
+`@` colors may be used when they do not duplicate a typed field; layout stays
+explicit in child nodes. Linear angles are radians, offsets are checked
 in `0.0..=1.0`, and iced's maximum of eight color stops is enforced.
 
 The optional first `style` child maps directly to iced's complete concrete
 `pane_grid::Style`: hovered region solid or linear background and border
 (including every corner radius), plus hovered and picked split line colors and
 widths. Omitted fields retain `pane_grid::default(theme)`. Background parsing
-is shared with pane surfaces instead of being a pane-grid-only special case.
-A declared `pane-grid-style` call can provide the native runtime base instead;
+is shared with pane surfaces instead of being a panes-only special case.
+A declared `panes-style` call can provide the native runtime base instead;
 the structured child still applies checked field overrides after that callback:
 
 ```ice
-pane-grid #workspace split=vertical style=workspace_panes(loading)
+panes #workspace style=workspace_panes(loading)
   style
     picked-split w=4.0
-  pane files
-    FileList
-  pane editor
-    Editor
+  split vertical
+    pane files
+      FileList
+    pane editor
+      Editor
 ```
 
 Pane grids may only live in the app view because component/repeated instances
@@ -2663,7 +2675,7 @@ Canvas is a checked declarative layer over iced's native `Canvas`, `Program`,
 `Frame`, `Path`, and `Cache`. Its body is drawing code, not a widget subtree:
 
 ```ice
-canvas width=fill height=220.0 cache=chart_version cache-group=charts capture=true cursor=(cursor_state) cursor-outside=true
+canvas w=fill h=220.0 cache=chart_version cache-group=charts capture=true cursor=(cursor_state) cursor-outside=true
   state
     cursor_state = "crosshair"
     drag_count = 0
@@ -2681,7 +2693,7 @@ canvas width=fill height=220.0 cache=chart_version cache-group=charts capture=tr
   event keyboard press -> chart_key _
   capture touch lost
   redraw window frame after=16ms
-  rect x=0.0 y=0.0 width=canvas_width height=canvas_height fill=bg
+  rect x=0.0 y=0.0 w=canvas_width h=canvas_height fill=bg
   circle x=64.0 y=64.0 r=28.0 fill=primary stroke=fg stroke-w=2.0
   path fill=primary/25 stroke=primary stroke-w=2.0 cap=round join=round
     move x=96.0 y=160.0
@@ -2689,8 +2701,8 @@ canvas width=fill height=220.0 cache=chart_version cache-group=charts capture=tr
     line x=240.0 y=160.0
     close
   text "Drag me" x=16.0 y=196.0 color=fg size=14.0
-  image logo x=264.0 y=16.0 width=48.0 height=48.0 filter=nearest opacity=0.9 snap=true r=6.0
-  svg "icon.svg" x=320.0 y=16.0 width=48.0 height=48.0 color=primary rotation=0.1 opacity=0.9
+  image logo x=264.0 y=16.0 w=48.0 h=48.0 filter=nearest opacity=0.9 snap=true r=6.0
+  svg "icon.svg" x=320.0 y=16.0 w=48.0 h=48.0 color=primary rotate=0.1 opacity=0.9
 ```
 
 `canvas_width` and `canvas_height` are scoped `f64` bindings containing the
@@ -2765,7 +2777,9 @@ event publishes a message and therefore already redraws. A structured event
 uses `as` to name its typed payload, then may update local state with `set`,
 choose one explicit `emit` or immediate/timed `redraw`, and optionally
 `capture`. Publishing already requests a redraw. `emit` uses the named values
-instead of `_`. `cursor=(expression)`
+instead of `_`. Timed redraws use checked instant arithmetic and fall back to
+an immediate redraw when a platform clock cannot represent the requested
+deadline. `cursor=(expression)`
 derives the complete iced mouse interaction from canvas state, while
 `cursor-outside=true` lets that interaction remain active outside the bounds;
 unknown runtime strings safely use the default interaction. `capture=true`
@@ -2855,19 +2869,18 @@ A component may declare required slots. Bare `slot` is the conventional
 
 ```ice
 component Panel(title:str)
-  col @p-4 bg-surface rounded-lg
+  col p=16.0 @bg-surface rounded-lg
     text title @font-bold
     slot
 
 Panel title="Tasks" #tasks-panel
-  scroll height=fill
+  scroll h=fill
     col
       for task in tasks
         TaskRow task=task loading=loading #task(task.id)
 ```
 
-A component call may use checked named props in any order, as above. The older
-positional form `Panel("Tasks")` remains accepted for compatibility. Unknown,
+A component call uses checked named props in any order, as above. Unknown,
 missing, duplicate, and incorrectly typed props are compile-time errors.
 
 For React-like compound structure, name the slots in the component and fill
@@ -2875,7 +2888,7 @@ them with readable `name:` blocks at the call site:
 
 ```ice
 component Dialog()
-  col @p-6 bg-surface rounded-lg
+  col p=24.0 @bg-surface rounded-lg
     slot header
     slot body
     slot actions
@@ -2886,7 +2899,7 @@ Dialog
   body:
     text "This cannot be undone."
   actions:
-    row @gap-2
+    row gap=8.0
       button "Cancel" -> cancel
       button "Delete" -> delete
 ```
@@ -2897,7 +2910,7 @@ slot while remaining a normal checked component call:
 
 ```ice
 component Dialog()
-  col @p-6 bg-surface rounded-lg
+  col p=24.0 @bg-surface rounded-lg
     slot Header
     slot Body
     slot Actions
@@ -2907,11 +2920,11 @@ component Dialog.Header()
     slot
 
 component Dialog.Body()
-  container width=fill
+  box w=fill
     slot
 
 component Dialog.Actions()
-  row @gap-2
+  row gap=8.0
     slot
 
 Dialog
@@ -2920,7 +2933,7 @@ Dialog
   Dialog.Body
     text "This cannot be undone."
   Dialog.Actions
-    row @gap-2
+    row gap=8.0
       button "Cancel" -> cancel
       button "Delete" -> delete
 ```
@@ -3015,20 +3028,17 @@ subscribe
 ```
 
 `captured` means a widget handled the event; `ignored` means none did; `any`
-accepts both. The modifier is available on generic, input-method, keyboard,
-mouse, touch, and non-frame window events. Timers, system/extern subscriptions,
-and raw window frames have no iced event status and reject it. For compatibility,
-an omitted `event` or keyboard status keeps iced's ignored-only listener while
-the other direct input sources keep their previous any-status behavior.
+accepts both and is the default when `status=` is omitted. The modifier is
+available on generic, input-method, keyboard, mouse, touch, and non-frame
+window events. Timers, system/extern subscriptions, and raw window frames have
+no iced event status and reject it.
 
 `event` carries the complete native `iced::Event` value across handlers and
-typed extern functions. Plain `event` lowers to `event::listen`; adding
-`status=` or `with-id` lowers to `event::listen_with`. `event raw` lowers to
-`event::listen_raw`, includes redraw requests, and therefore must be filtered
-or routed without causing another redraw; an unfiltered raw listener can loop
-forever. `with-id` prepends the originating `window-id`. The raw source defaults
-to any status, while a non-raw `with-id` source without `status=` preserves
-`listen` semantics by accepting ignored events only. Runtime system-theme
+typed extern functions. Non-raw events lower to `event::listen_with` so the
+status rule is uniform. `event raw` lowers to `event::listen_raw`, includes
+redraw requests, and therefore must be filtered or routed without causing
+another redraw; an unfiltered raw listener can loop forever. `with-id` prepends
+the originating `window-id`. Runtime system-theme
 changes are not `iced::Event` values and remain available through
 `system theme`.
 
@@ -3317,6 +3327,8 @@ borrowed and owned byte views at Ice's owned `bytes` boundary.
 `screenshot.crop(value, rectangle-u32)` returns the cropped screenshot or
 `none`. `screenshot.crop_error` returns `zero`, `out-of-bounds`, or `none`, and
 `screenshot.crop_error_message` preserves the native Display message. The
+crop boundary validates region arithmetic and RGBA length before calling Iced,
+so malformed constructed or extern values return `out-of-bounds` instead of panicking. The
 native value is cloneable but implements neither equality nor hashing, so
 comparisons and lazy identity are rejected. Typed sync externs pass the exact
 `iced::window::Screenshot` value.
@@ -3374,10 +3386,9 @@ the native constant and `display` uses native formatting.
 `degrees.range_start/end/in_range` and `radians.range_start/end/in_range`
 expose the full native `RangeInclusive` behavior without adding a speculative
 generic range type. `radians.distance_start/end` expose both points returned by
-native `to_distance`. Size and rectangle rotation accept either the existing
-f64 radians or a first-class radians value; `rectangle.vertices_angle` keeps
-the exact native radians result alongside the compatible f64
-`vertices_rotation` projection.
+native `to_distance`. Size and rectangle rotation accept either f64 radians or
+a first-class radians value; `rectangle.vertices_angle` keeps the exact native
+radians result alongside the f64 `vertices_rotation` projection.
 
 `rotation.default()` and `rotation.from(f64)` preserve iced's floating default
 and scalar conversion. `rotation.floating(radians)` and
@@ -3386,8 +3397,8 @@ and scalar conversion. `rotation.floating(radians)` and
 `radians_mut` method and returns the value. A rotation exposes checked
 `.radians`, `.degrees`, and `.kind` (`floating` or `solid`) projections, supports
 native equality and typed extern passage, and `rotation.apply(value, size)`
-returns iced's exact minimum layout size. Image and SVG `rotation=` properties
-accept this first-class value directly alongside the compact numeric syntax.
+returns iced's exact minimum layout size. Image and SVG `rotate=` properties
+accept only this first-class value.
 
 `fit.default()` and `fit.contain()` produce iced's default `Contain` strategy;
 `fit.cover`, `fit.fill`, `fit.none`, and `fit.scale_down` construct every other
@@ -3405,13 +3416,16 @@ native constructors; the three 8-bit channels are checked integer literals in
 `0..=255`. `color.try_rgb8(i64, i64, i64)` and
 `color.try_rgba8(i64, i64, i64, f64)` accept dynamic channels and return `none`
 instead of wrapping an out-of-range value. `color.from3` and `color.from4`
-preserve iced's array conversions.
+preserve iced's array conversions. Floating-point color constructor channels
+are checked statically when literal and clamped to `0.0..=1.0` when dynamic;
+`color.try_rgba8` returns `none` for a dynamic alpha outside that range.
 `color.parse(str) -> color?` accepts every native 3/4/6/8-digit RGB hexadecimal
 form and maps its native parse error to `none`.
 
 A color exposes `.r`, `.g`, `.b`, `.a`, `.rgba8`, `.linear`, `.luminance`, and
-`.display`. `color.inverse`, `color.invert`, and `color.scale_alpha` preserve the
-native value and in-place APIs while returning the resulting color;
+`.display`. `color.inverse` and `color.invert` return the same channel-wise
+inverse, avoiding iced 0.14's broken in-place channel update; `color.scale_alpha`
+returns the native alpha-scaled color;
 `color.luminance`, `color.contrast`, and `color.readable(foreground, background)`
 call iced's exact WCAG calculations. Colors support equality and typed extern
 passage. They are deliberately rejected as lazy identities because native
@@ -3425,7 +3439,9 @@ point values.
 `linear(angle)` constructs `iced::gradient::Linear` and accepts either `f64` or
 `radians`. `linear.add_stop` and `linear.add_stops` delegate to the native
 sorting, finite/range rejection, and eight-stop limit; `linear.scale_alpha`
-preserves the native stop-color operation. A linear gradient exposes `.angle`
+preserves the native stop-color operation. Existing malformed stops received
+from extern Rust are discarded before adding, instead of reaching the native
+sorter's partial-order panic. A linear gradient exposes `.angle`
 and its exact eight-entry `[color-stop?]` `.stops`, supports equality and typed
 extern passage, and is not a lazy identity.
 
@@ -3483,8 +3499,8 @@ variants. `line_height.from_f64`, `line_height.from_pixels`, and
 resolution. Enum values expose `.kind`; line heights additionally expose
 optional `.relative` and `.absolute` payloads. All four values support equality,
 hashable lazy identity, and exact typed extern passage; ordering is rejected.
-Existing `align-x=`, `shaping=`, `wrapping=`, `line-height=`, and
-`line-height-px=` properties remain the concise widget sugar.
+Existing `align-x=`, `shape=`, `wrap=`, `line-h=`, and
+`line-h-px=` properties remain the concise widget sugar.
 
 `length.fill()`, `length.fill_portion(u16 literal)`, `length.shrink()`, and
 `length.fixed(f64)` construct every native variant. Dynamic `i64` portions use
@@ -3655,8 +3671,9 @@ view
 The family may be a named family or any of iced's five generic families. Every
 weight, stretch, and style variant is accepted. At most one declaration may be
 the application default. `font=default` and `font=mono` remain built-ins;
-declared fonts also work on text, rich text and spans, input, editor, checkbox,
-toggler, radio, pick, combo, and their custom icons. App-level `font "path"`
+`default` and `mono` therefore cannot be declaration names. Declared fonts also
+work on text, rich text and spans, input, editor, checkbox, toggler, radio, pick,
+combo, and their custom icons. App-level `font "path"`
 settings embed and preload the corresponding bytes before iced starts; a
 descriptor's named family selects the family exposed by those bytes.
 
@@ -3715,9 +3732,9 @@ view
 ```
 
 Explicit component IDs create a scope; a component without one uses its name.
-Layout and container IDs create descendant scopes, slot content inherits its
+Layout and box IDs create descendant scopes, slot content inherits its
 slot position's scope, keyed rows add `key(value)`, table headers/cells add
-`header(index)` or `row(index)/column(index)`, and panes add their name.
+`header(index)` or `row(index)/col(index)`, and panes add their name.
 Inside a component handler, the path starts at that component instance, so
 `task widget focus #title` targets its own `#title` descendant without naming
 the call-site scope.
@@ -3819,15 +3836,9 @@ on inspect_raw_id
   task window raw-id -> raw_id_read _
 
 on capture_window
-  task window screenshot -> window_captured _ _ _ _
+  task window screenshot -> window_captured _
 
-on window_captured(pixels, width, height, scale)
-  snapshot = rgba(width, height, pixels)
-
-on capture_native
-  task window screenshot -> native_captured _
-
-on native_captured(value)
+on window_captured(value)
   last_capture = value
 
 on change_icon
@@ -3842,12 +3853,11 @@ and does not accept a target.
 
 Other effects have no route and queries require one. `size` emits two `f64`
 values; `maximized` emits `bool`; `minimized` emits `bool?`; `position` and
-`monitor-size` each emit two `f64?` values; `scale-factor` emits `f64`; and
+`monitor-size` each emit two `f64?` values; `scale` emits `f64`; and
 `mode` emits `str`. `raw-id` emits the opaque platform `u64` identifier as a
-lossless `str`. A one-placeholder `screenshot` route emits one native
-`window-screenshot`; the existing four-placeholder form emits RGBA `bytes`,
-physical `i64` width and height, then its `f64` scale factor. Those bytes can
-feed directly into `rgba(width, height, pixels)`. `icon` accepts RGBA `bytes`
+lossless `str`. A `screenshot` route emits one native `window-screenshot`; its
+RGBA bytes, physical size, and scale factor are available as typed fields.
+`icon` accepts RGBA `bytes`
 followed by positive `i64` width and height. Literal byte counts are checked as
 `width × height × 4`; dynamic invalid data safely produces no task.
 
@@ -3971,8 +3981,8 @@ theme
 ```
 
 `bg`, `fg`, `primary`, and `danger` are required. Other names
-are app-defined. `white`, `black`, and `transparent` are built in. A color may
-carry opacity, such as `bg-primary/70`.
+are app-defined. `white`, `black`, and `transparent` are built in and cannot be
+redeclared. A color may carry opacity, such as `bg-primary/70`.
 
 Apps and nested subtrees may use `default`, `app`, or any of iced's 22 built-in
 default-renderer themes. A typed Rust factory covers arbitrary native
@@ -3997,31 +4007,30 @@ probes reject a missing function, wrong arguments, or a different return type.
 `@` switches the remainder of a node to checked semantic color, font-emphasis,
 and design-token utilities. Layout, geometry, and text size use typed
 properties such as
-`width=`, `height=`, `padding=`, `spacing=`, and `r=`. Fixed native widget
+`w=`, `h=`, `p=`, `gap=`, and `r=`. Fixed native widget
 appearance uses `style=` presets; reusable or state-dependent native appearance
 that is more complex than token variants crosses a typed Rust style or
 component boundary.
 
-The accepted geometry utilities below predate that ownership rule and remain a
-compatibility surface during migration. New source should use the typed
-property. Utilities are resolved at compile time; there is no CSS engine,
-selector matching, cascade, or runtime string parser. When a node writes the
-same semantic property through two forms, the checker may reject it with
-`E045`; for example, `container width=fill @w-full` must be written as
-`container width=fill`.
+Utilities are resolved at compile time; there is no CSS engine, selector
+matching, cascade, or runtime string parser. Geometry utilities exist only when
+they style a generated wrapper or fill a gap in the typed properties. Direct
+builder geometry uses the typed spelling and the old utility spelling is an
+error on that target.
 
 The accepted utility surface is:
 
 | Family | Values | Effective on |
 | --- | --- | --- |
-| size | `w-full`, `h-full` | row, col, scroll, grid, stack, container; `w-full` also input |
-| max width | `max-w-sm` through `max-w-2xl` | row, col, grid, stack, container |
-| alignment | `items-center`, `self-center` | `items-center` on row/col; `self-center` on row/col/grid/stack/container |
-| spacing | `p-*`, `px-*`, `py-*`, `gap-*` | padding on row/col/grid/stack/container/input/button; gap on row/col/grid |
-| text | `text-xs` through `text-2xl`, `font-bold` | text |
+| wrapper size | `w-full`, `h-full` | row, col, grid, stack |
+| wrapper max width | `max-w-sm` through `max-w-2xl` | non-flex layout wrappers |
+| wrapper alignment | `self-center` | layout wrappers |
+| wrapper padding | `p-*`, `px-*`, `py-*` | grid and stack |
+| control-axis padding | `px-*`, `py-*` | input and button |
+| text | `font-bold` | text |
 | color | `bg-TOKEN`, `text-TOKEN`, `border-TOKEN` | checked per widget |
-| border | `border`, `border-2` | row, col, grid, stack, container, pane/title, input |
-| radius | `rounded-sm`, `rounded`, `rounded-md`, `rounded-lg`, `rounded-full` | row, col, grid, stack, container, pane/title, input, button |
+| border | `border`, `border-2` | layout wrappers and input |
+| radius | `rounded-sm`, `rounded`, `rounded-md`, `rounded-lg`, `rounded-full` | layout wrappers, input, and button |
 | states | `hover:bg-*`, `pressed:bg-*`, `disabled:opacity-*` | button |
 | focus | `focus:border-*` | input |
 
@@ -4037,10 +4046,10 @@ Spacing values are `0 1 2 3 4 5 6 8 10 12 16 20 24` and map to four iced
 logical pixels per unit. Opacity values are `0 25 50 75 100`; color opacity may
 be any integer from 0 through 100.
 
-`border-TOKEN` and `focus:border-TOKEN` require either `border-w=` or the
-deprecated `border`/`border-2` utility on the same node. A rounded row, column,
-grid, or stack requires a background or border, because iced would otherwise
-have nothing to round.
+`border-TOKEN` and `focus:border-TOKEN` require a border width on the same node,
+provided by `border-w=` or a supported wrapper/status `border` utility. A
+rounded row, column, grid, or stack requires a background or border, because
+iced would otherwise have nothing to round.
 
 The checker rejects both an unknown utility (`E041`) and a known utility on a
 node where the iced backend would ignore it (`E042`/`E044`). Silent CSS-like
@@ -4060,38 +4069,22 @@ When the resolved source file is readable, command-line rendering includes the
 offending line and a caret at the checked column:
 
 ```text
-E045 src/ui/panel.ice:8:1: style property `width` is set by both `width=` and `@w-full`
-8 |   container width=fill @w-full
+E045 src/ui/panel.ice:8:1: style property `width` is set by both `w=` and `@w-full`
+8 |   stack w=fill @w-full
   | ^
-hint: remove `@w-full`; `width=` is the canonical spelling
+hint: remove `w=`; `@w-full` sizes both the stack and its generated outer wrapper
 ```
 
 Imported-file errors use the imported path and excerpt. Callers that only have
 an in-memory source, or whose file is no longer readable, retain the compact
 coordinate-only form.
 
-`E045` is limited to forms that write the same generated builder. It does not
-reject callback or fixed-preset base styles, `font=` composed with
-`@font-bold`, or layout utilities that deliberately style a generated outer
-wrapper. The formatter reuses the parser's string/depth-aware tokenization and
-rewrites only ownership-equivalent forms: direct widget sizing, spacing,
-padding, alignment, text size, border width, and radius. It simulates ordered
-padding utilities before emitting typed sides, preserves routes and quoted
-markers, and leaves semantic utilities and wrapper-only geometry unchanged.
-Radius utilities are rewritten only when their original utility surface already
-satisfies `E044`, so formatting cannot legalize invalid source.
-
-Those directly replaceable geometry utilities are deprecated compatibility
-spellings. `cargo ice fmt` is their migration path; they remain accepted on a
-node by themselves in revision 1.61 and are not removed without a later
-language revision. Row/column/grid wrapper sizing, layout `max-w-*` and
-`self-center`, stack/grid wrapper padding, and axis-specific input/button
-padding are intentional utilities because their generated owner has no
-equivalent typed property. Stack `w-full`/`h-full` write both the stack and its
-wrapper, so the formatter preserves them and `E045` rejects combining them with
-the corresponding typed stack size. A final input/button `p-0` is also
-preserved because the legacy form keeps Iced's default padding instead of
-emitting an explicit zero.
+`E045` is limited to two current forms that write the same generated field. It
+does not reject callback or fixed-preset base styles, `font=` composed with
+`@font-bold`, or layout utilities that style only a generated outer wrapper.
+Stack `w-full`/`h-full` write both the stack and its wrapper, so combining them
+with typed stack size is rejected. `cargo ice fmt` only normalizes indentation
+and blank lines; it never changes language vocabulary.
 
 The implemented families are:
 
@@ -4126,7 +4119,7 @@ extern line; 1.61 does not claim that remapping.
 | `cargo ice clippy` | language analysis followed by workspace clippy |
 | `cargo ice compat` | analyzes app graphs, verifies exact Iced/runtime/AccessKit lockfile versions and direct reference-app/runtime manifest pins, and runs the reference app tests |
 | `cargo ice expand FILE` | prints generated Rust for debugging |
-| `cargo ice schema` | prints the generative Core grammar, style migration, editor capabilities, and backend contract as JSON |
+| `cargo ice schema` | prints the generative Core grammar, style contract, editor capabilities, and backend contract as JSON |
 | `cargo ice lsp` | serves stdio UTF-16 diagnostics, formatting, schema-driven completion, definition, and rename |
 
 `cargo-ice` discovers `.ice` files recursively below the current directory,
@@ -4200,5 +4193,5 @@ native window handle     -> typed Rust window callback
 The readable multi-file task app starts at
 [`examples/iced-app/src/ui/tasks.ice`](examples/iced-app/src/ui/tasks.ice).
 [`showcase.ice`](examples/iced-app/src/ui/showcase.ice) and focused sibling
-fixtures compile-test the compatibility surface recorded in
+fixtures compile-test the extended surface recorded in
 [`COVERAGE.md`](COVERAGE.md).

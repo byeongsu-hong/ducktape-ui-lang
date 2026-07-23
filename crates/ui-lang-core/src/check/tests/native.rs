@@ -310,10 +310,6 @@ fn checks_native_window_screenshot_values_and_routes() {
     let source = example!("window_screenshot.ice");
     let document = analyze(source).unwrap();
     assert_eq!(document.handlers[2].params[0].ty, Type::WindowScreenshot);
-    assert_eq!(document.handlers[4].params[0].ty, Type::Bytes);
-    assert_eq!(document.handlers[4].params[1].ty, Type::I64);
-    assert_eq!(document.handlers[4].params[2].ty, Type::I64);
-    assert_eq!(document.handlers[4].params[3].ty, Type::F64);
 
     let error = analyze(&source.replace(
         "scale_factor = returned.scale_factor",
@@ -336,12 +332,8 @@ fn checks_native_window_screenshot_values_and_routes() {
         "task window screenshot -> native_captured _ _",
     ))
     .unwrap_err();
-    assert_eq!(error.code, "E129");
-    assert!(
-        error
-            .message
-            .contains("one native placeholder or four RGBA placeholders")
-    );
+    assert_eq!(error.code, "E133");
+    assert!(error.message.contains("expects 1 arguments, got 2"));
 
     let error = analyze(&source.replace(
         "screenshot.crop(sample, screenshot_crop_region())",
@@ -366,18 +358,15 @@ fn checks_native_length_values_and_widget_passage() {
     assert!(error.message.contains("0..=65535"));
 
     let error = analyze(&source.replace(
-        "col width=fill_length height=shrink_length",
-        "col width=true height=shrink_length",
+        "col w=fill_length h=shrink_length",
+        "col w=true h=shrink_length",
     ))
     .unwrap_err();
     assert_eq!(error.code, "E101");
     assert!(error.message.contains("expected `f64` or `length`"));
 
-    let error = analyze(&source.replace(
-        "grid columns=1 width=96.0",
-        "grid columns=1 width=round_trip",
-    ))
-    .unwrap_err();
+    let error =
+        analyze(&source.replace("grid cols=1 w=96.0", "grid cols=1 w=round_trip")).unwrap_err();
     assert_eq!(error.code, "E101");
     assert!(error.message.contains("expected `f64`"));
     assert!(error.message.contains("got `length`"));
@@ -395,6 +384,14 @@ fn checks_native_color_values_and_boundaries() {
     .unwrap_err();
     assert_eq!(error.code, "E152");
     assert!(error.message.contains("channels must be in 0..=255"));
+
+    let error = analyze(&source.replace(
+        "rgb = color.rgb(0.25, 0.5, 0.75)",
+        "rgb = color.rgb(1.1, 0.5, 0.75)",
+    ))
+    .unwrap_err();
+    assert_eq!(error.code, "E128");
+    assert!(error.message.contains("color channel"));
 
     let error = analyze(&source.replace(
         "contrast = color.contrast(black, white)",
@@ -433,9 +430,9 @@ fn checks_native_rotation_values_and_widgets() {
     assert_eq!(error.code, "E101");
     assert!(error.message.contains("expected `radians`"));
 
-    let error = analyze(&source.replace("rotation=solid_rotation", "rotation=true")).unwrap_err();
+    let error = analyze(&source.replace("rotate=solid_rotation", "rotate=true")).unwrap_err();
     assert_eq!(error.code, "E101");
-    assert!(error.message.contains("expected `f64` or `rotation`"));
+    assert!(error.message.contains("expected `rotation`"));
 }
 
 #[test]
@@ -513,6 +510,14 @@ view
     assert_eq!(error.code, "E103");
     assert!(error.message.contains("supports `bool`, `f64`"));
 
+    let error = analyze(&source.replace(
+        "label:animation[str] = \"\"",
+        "label:animation[f64] = 3.5e38",
+    ))
+    .unwrap_err();
+    assert_eq!(error.code, "E128");
+    assert!(error.message.contains("animation value"));
+
     let source = source
         .replace("label:animation[str] = \"\"", "label = \"\"")
         .replace(
@@ -555,7 +560,7 @@ view
 fn exposes_the_current_window_only_to_daemon_views_and_callbacks() {
     let source = r#"daemon Agent
   title label(window)
-  scale-factor scale(window)
+  scale scale(window)
 extern crate::backend
   sync label(id:window-id) -> str
   sync scale(id:window-id) -> f64

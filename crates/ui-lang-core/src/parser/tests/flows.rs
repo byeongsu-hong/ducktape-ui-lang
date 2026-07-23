@@ -114,12 +114,14 @@ view
         SubscriptionSource::Event { raw: false }
     ));
     assert!(!document.subscriptions[0].window_id);
+    assert_eq!(document.subscriptions[0].status, None);
     assert_eq!(document.subscriptions[2].status, Some(EventStatus::Ignored));
     assert!(document.subscriptions[2].window_id);
     assert!(matches!(
         document.subscriptions[3].source,
         SubscriptionSource::Event { raw: true }
     ));
+    assert_eq!(document.subscriptions[4].status, None);
     assert!(document.subscriptions[4].window_id);
 
     let error =
@@ -247,7 +249,7 @@ on start
   parallel
     flow
       from task request()
-      map-error reason -> normalize(reason)
+      map-err reason -> normalize(reason)
       collect
       done -> collected _
     flow

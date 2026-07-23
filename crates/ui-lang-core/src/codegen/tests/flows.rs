@@ -176,7 +176,7 @@ on start
     flow
       from task fallible(2)
       map value -> value + 1
-      and-then value -> task fallible(value)
+      try value -> task fallible(value)
       done -> finished _
       error -> failed _
     flow
@@ -219,7 +219,7 @@ on start
   parallel
     flow
       from task request()
-      map-error reason -> normalize(reason)
+      map-err reason -> normalize(reason)
       collect
       done -> collected _
     flow

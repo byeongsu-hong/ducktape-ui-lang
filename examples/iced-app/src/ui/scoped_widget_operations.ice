@@ -42,7 +42,7 @@ on focus_header
   task widget focus #header(column_index)/filter
 
 on focus_cell
-  task widget focus #row(row_index)/column(column_index)/cell
+  task widget focus #row(row_index)/col(column_index)/cell
 
 on snap_pane
   task widget snap #details/list 0.0 1.0
@@ -57,14 +57,15 @@ view
     keyed task in tasks by=task.id
       input "Keyed" #field <-> value
     table task in tasks
-      column
+      col
         header
           input "Filter" #filter <-> value
         cell
           input "Cell" #cell <-> value
-    pane-grid #workspace split=vertical
-      pane details
-        scroll #list
-          text "Details"
-      pane other
-        text "Other"
+    panes #workspace
+      split vertical
+        pane details
+          scroll #list
+            text "Details"
+        pane other
+          text "Other"

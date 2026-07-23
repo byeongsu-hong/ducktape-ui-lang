@@ -63,6 +63,28 @@ view
 }
 
 #[test]
+fn infers_single_ordered_component_output_payloads() {
+    let document = analyze(
+        r#"app Demo
+theme
+  bg #000000
+  fg #ffffff
+  primary #333333
+  danger #ff0000
+component PointerCapture() -> mouse-button
+  canvas w=fill h=120.0
+    event mouse pressed -> emit _
+    circle x=60.0 y=60.0 r=24.0 fill=primary
+on changed(value)
+view
+  PointerCapture -> changed _
+"#,
+    )
+    .unwrap();
+    assert_eq!(document.handlers[0].params[0].ty, Type::MouseButton);
+}
+
+#[test]
 fn checks_optional_selection_values() {
     let source = r#"app Demo
 extern crate::backend
@@ -82,15 +104,15 @@ on selected(next)
   selected = some(next)
 on opened
 view
-  pick choices selected placeholder="Choose" line-height=1.2 shaping=advanced font=ui open=opened style=dynamic_pick(busy) menu-style=dynamic_menu(busy) -> selected _
+  pick choices selected hint="Choose" line-h=1.2 shape=advanced font=ui open=opened style=dynamic_pick(busy) menu-style=dynamic_menu(busy) -> selected _
     active text=fg placeholder=danger handle=primary bg=bg border=fg border-w=1.0 r=4.0
     hovered text=fg
     opened text=fg
     opened-hovered text=fg
     menu text=fg selected-text=bg selected-bg=primary bg=bg border=fg shadow=danger shadow-y=2.0
     handle dynamic
-      closed code="⌄" font=ui size=12.0 line-height=1.0 shaping=basic
-      open code="⌃" font=ui size=12.0 line-height=1.0 shaping=advanced
+      closed code="⌄" font=ui size=12.0 line-h=1.0 shape=basic
+      open code="⌃" font=ui size=12.0 line-h=1.0 shape=advanced
 "#;
     let document = analyze(source).unwrap();
     assert_eq!(document.states[1].ty.display(), "[str]");
@@ -161,6 +183,14 @@ view
     let error = analyze(&source).unwrap_err();
     assert_eq!(error.code, "E136");
     assert!(error.message.contains("unknown qr data `code`"));
+
+    let source = source.replace(
+        "qr saved \"hello\" version=micro(4)",
+        "qr code \"hello\" version=micro(1)",
+    );
+    let error = analyze(&source).unwrap_err();
+    assert_eq!(error.code, "E136");
+    assert!(error.message.contains("cannot encode qr data"));
 }
 
 #[test]
@@ -207,11 +237,13 @@ view
     input "Name" <-> draft
 "#;
     analyze(source).unwrap();
-    analyze(&source.replace(
+    let error = analyze(&source.replace(
         "Card padded=true title=\"Editor\"",
         "Card(\"Editor\", true)",
     ))
-    .unwrap();
+    .unwrap_err();
+    assert_eq!(error.code, "E072");
+    assert!(error.message.contains("invalid component name"));
 
     let error = analyze(&source.replace(
         "  Card padded=true title=\"Editor\"\n    input \"Name\" <-> draft",
@@ -322,7 +354,7 @@ component Dialog.Header(title:str)
     text title
     slot
 component Dialog.Body()
-  container
+  box
     slot
 component Dialog.Actions()
   row
@@ -369,7 +401,7 @@ theme
 state
   items:[Item] = []
 view
-  keyed item in items by=item.id width=fill height=shrink spacing=8.0 padding=4.0 max-width=640.0 align=center
+  keyed item in items by=item.id w=fill h=shrink gap=8.0 p=4.0 max-w=640.0 align=center
     text item.name
 "#;
     analyze(source).unwrap();
@@ -378,7 +410,7 @@ view
     assert_eq!(error.code, "E138");
     assert!(error.message.contains("bool, i64, or f64"));
 
-    let error = analyze(&source.replace("spacing=8.0", "spacing=-1.0")).unwrap_err();
+    let error = analyze(&source.replace("gap=8.0", "gap=-1.0")).unwrap_err();
     assert!(error.message.contains("outside its valid range"));
 }
 
@@ -416,7 +448,7 @@ view
 
     let component_source = source.replace(
             "view\n  lazy title as cached\n    col\n      text cached\n      text len(cached)",
-            "component Editor(value:str)\n  input \"Edit\" <-> value\nview\n  lazy title as cached\n    Editor(cached)",
+            "component Editor(value:str)\n  input \"Edit\" <-> value\nview\n  lazy title as cached\n    Editor value=cached",
         );
     let error = analyze(&component_source).unwrap_err();
     assert_eq!(error.code, "E139");
@@ -444,14 +476,14 @@ on extend
   markdown docs append "\n![Ice](asset://ice)"
   images = markdown_images(docs)
 view
-  markdown docs text-size=16.0 h1-size=32.0 h2-size=28.0 h3-size=24.0 h4-size=20.0 h5-size=18.0 h6-size=16.0 code-size=13.0 spacing=12.0 viewer=docs_viewer("docs") -> open _
+  markdown docs text-size=16.0 h1-size=32.0 h2-size=28.0 h3-size=24.0 h4-size=20.0 h5-size=18.0 h6-size=16.0 code-size=13.0 gap=12.0 viewer=docs_viewer("docs") -> open _
     style font=ui inline-code-bg=linear(1.57, bg@0.0, primary@1.0) inline-code-fg=fg inline-code-font=mono code-block-font=mono link=primary inline-code-p=2.0 inline-code-px=3.0 inline-code-py=4.0 inline-code-pt=5.0 inline-code-pr=6.0 inline-code-pb=7.0 inline-code-pl=8.0 inline-code-border=primary inline-code-border-w=1.0 inline-code-r=4.0 inline-code-r-tl=1.0 inline-code-r-tr=2.0 inline-code-r-br=3.0 inline-code-r-bl=4.0
 "##;
     let document = analyze(source).unwrap();
     assert_eq!(document.states[0].ty.display(), "markdown");
     assert_eq!(document.handlers[0].params[0].ty.display(), "str");
 
-    let error = analyze(&source.replace("spacing=12.0", "spacing=-1.0")).unwrap_err();
+    let error = analyze(&source.replace("gap=12.0", "gap=-1.0")).unwrap_err();
     assert!(error.message.contains("outside its valid range"));
 
     let error = analyze(&source.replace("markdown docs", "markdown missing")).unwrap_err();
@@ -496,8 +528,8 @@ theme
 state
   rows:[Item] = []
 view
-  table row in rows width=fill padding=4.0 padding-x=8.0 padding-y=6.0 separator=1.0 separator-x=2.0 separator-y=3.0
-    column width=fill(2) align-x=left align-y=center
+  table row in rows w=fill p=4.0 px=8.0 py=6.0 sep=1.0 sep-x=2.0 sep-y=3.0
+    col w=fill(2) align-x=left align-y=center
       header
         text "Name"
       cell
@@ -505,7 +537,7 @@ view
 "#;
     analyze(source).unwrap();
 
-    let error = analyze(&source.replace("padding=4.0", "padding=-1.0")).unwrap_err();
+    let error = analyze(&source.replace("p=4.0", "p=-1.0")).unwrap_err();
     assert!(error.message.contains("outside its valid range"));
 
     let error = analyze(&source.replace("table row in rows", "table row in true")).unwrap_err();
@@ -525,7 +557,7 @@ state
   body:editor = "fn main() {}"
   locked = false
 view
-  editor #body <-> body placeholder="Write" width=640.0 height=fill min-height=80.0 max-height=240.0 size=14.0 line-height=1.3 padding=8.0 wrapping=word-or-glyph font=mono highlight="rs" highlight-theme=solarized-dark disabled=locked
+  editor #body <-> body hint="Write" w=640.0 h=fill min-h=80.0 max-h=240.0 size=14.0 line-h=1.3 p=8.0 wrap=word-or-glyph font=mono highlight="rs" highlight-theme=solarized-dark disabled=locked
     active bg=bg border=fg border-w=1.0 r=4.0 placeholder=danger value=fg selection=primary
     hovered bg=bg border=primary placeholder=danger value=fg selection=primary
     focused bg=bg border=primary
@@ -535,7 +567,7 @@ view
     let document = analyze(source).unwrap();
     assert_eq!(document.states[0].ty.display(), "editor");
 
-    let error = analyze(&source.replace("min-height=80.0", "min-height=300.0")).unwrap_err();
+    let error = analyze(&source.replace("min-h=80.0", "min-h=300.0")).unwrap_err();
     assert_eq!(error.code, "E139");
     assert!(error.message.contains("cannot exceed"));
 
@@ -568,16 +600,13 @@ component EditorPanel(content:editor, heading:str, readonly:bool, syntax:str)
     editor <-> content highlighter=editor_highlight(syntax) key-binding=editor_keys(readonly) style=editor_surface(readonly) -> command _
 on command(value)
 view
-  EditorPanel(body, title, locked, language)
+  EditorPanel content=body heading=title readonly=locked syntax=language
 "#;
     let document = analyze(source).unwrap();
     assert_eq!(document.handlers[0].params[0].ty.display(), "EditorCommand");
 
-    let error = analyze(&source.replace(
-        "EditorPanel(body, title, locked, language)",
-        "EditorPanel(editor(\"scratch\"), title, locked, language)",
-    ))
-    .unwrap_err();
+    let error =
+        analyze(&source.replace("content=body", "content=editor(\"scratch\")")).unwrap_err();
     assert_eq!(error.code, "E139");
     assert!(
         error
@@ -804,14 +833,14 @@ on closed
 on add
   combo modes push "Timeline"
 view
-  combo modes selected "Search modes" line-height=1.2 shaping=advanced font=ui input=searched hover=hovered open=opened close=closed style=dynamic_input(busy) menu-style=dynamic_menu(busy) -> selected _
+  combo modes selected "Search modes" line-h=1.2 shape=advanced font=ui input=searched hover=hovered open=opened close=closed style=dynamic_input(busy) menu-style=dynamic_menu(busy) -> selected _
     active bg=bg border=fg border-w=1.0 r=4.0 icon=primary placeholder=danger value=fg selection=primary
     hovered bg=bg icon=fg placeholder=danger value=fg selection=primary
     focused bg=bg border=primary
     focused-hovered bg=bg border=fg
     disabled bg=bg value=danger
     menu text=fg selected-text=bg selected-bg=primary bg=bg border=fg shadow=danger shadow-y=2.0
-    icon code="⌕" font=ui size=12.0 spacing=6.0 side=right
+    icon code="⌕" font=ui size=12.0 gap=6.0 side=right
 "#;
     let document = analyze(source).unwrap();
     assert_eq!(document.states[1].ty.display(), "combo[str]");
@@ -819,7 +848,7 @@ view
     assert_eq!(document.handlers[1].params[0].ty.display(), "str");
     assert_eq!(document.handlers[2].params[0].ty.display(), "str");
 
-    let error = analyze(&source.replace("spacing=6.0", "spacing=-1.0")).unwrap_err();
+    let error = analyze(&source.replace("gap=6.0", "gap=-1.0")).unwrap_err();
     assert_eq!(error.code, "E128");
     assert!(error.message.contains("icon spacing"));
 
@@ -883,24 +912,24 @@ view
   col
     float scale=1.1 x=(viewport_x + viewport_width - original_x - original_width) y=(viewport_y + viewport_height - original_y - original_height) shadow=black/50 shadow-x=1.0 shadow-y=2.0 shadow-blur=4.0 r=8.0 r-tl=1.0 r-tr=2.0 r-br=3.0 r-bl=4.0
       text "Floating"
-    pin width=fill height=80.0 x=12.0 y=8.0
+    pin w=fill h=80.0 x=12.0 y=8.0
       text "Pinned"
     sensor show=shown resize=resized hide=hidden key=sensor_key anticipate=32.0 delay=10
       text "Observed"
-    responsive at=600.0 width=fill height=40.0
+    responsive at=600.0 w=fill h=40.0
       text "Narrow"
       text "Wide"
-    responsive size=(available_width, available_height) width=fill height=fill
+    responsive size=(available_width, available_height) w=fill h=fill
       col
         if available_width < available_height
           text "Portrait"
         if available_width >= available_height
           text "Landscape"
-    stack width=fill(2) height=120.0 clip=true under=1
+    stack w=fill(2) h=120.0 clip=true under=1
       text "Base"
       text "Overlay"
     rule horizontal thickness=2.0 style=weak fill=percent(75.0) color=primary/50 r=4.0 r-tl=2.0 snap=false
-    space width=fill(2) height=shrink
+    space w=fill(2) h=shrink
 "#;
     let document = analyze(source).unwrap();
     assert_eq!(document.handlers[0].params[0].ty.display(), "f64");
@@ -924,7 +953,7 @@ view
     assert_eq!(error.code, "E128");
     assert!(error.message.contains("unknown float shadow color"));
 
-    let bad_stack = source.replace("height=120.0 clip=true", "height=-1.0 clip=true");
+    let bad_stack = source.replace("h=120.0 clip=true", "h=-1.0 clip=true");
     let error = analyze(&bad_stack).unwrap_err();
     assert_eq!(error.code, "E128");
     assert!(error.message.contains("stack size"));

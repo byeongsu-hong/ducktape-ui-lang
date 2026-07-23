@@ -37,7 +37,7 @@ on allocate_flow
   flow
     from task image allocate handle
     map value -> value.size.width
-    map-error error -> error.message
+    map-err error -> error.message
     done -> width_ready _
     error -> flow_failed _
 
@@ -48,8 +48,8 @@ on flow_failed(message)
   error_message = message
 
 view
-  col spacing=8.0 padding=16.0
-    image handle width=64.0 height=64.0
+  col gap=8.0 p=16.0
+    image handle w=64.0 h=64.0
     button "Allocate" -> allocate
     button "Allocate flow" -> allocate_flow
     text width

@@ -22,56 +22,37 @@ pub(in crate::check) fn infer_components_group(
                 .iter()
                 .find(|item| item.name == *name)
                 .ok_or_else(|| Error::new("E122", span, format!("unknown component `{name}`")))?;
-            if args.iter().any(|arg| arg.name.is_some()) {
-                let mut supplied = HashSet::new();
-                for arg in args {
-                    let prop = arg.name.as_ref().expect("named component call");
-                    let Some((_, expected)) =
-                        component.params.iter().find(|(param, _)| param == prop)
-                    else {
-                        return Err(Error::new(
-                            "E123",
-                            span,
-                            format!("component `{name}` has no prop `{prop}`"),
-                        ));
-                    };
-                    if !supplied.insert(prop) {
-                        return Err(Error::new(
-                            "E123",
-                            span,
-                            format!("component `{name}` receives prop `{prop}` more than once"),
-                        ));
-                    }
-                    let actual = expr_type(&arg.value, env, document, span)?;
-                    require_type(&actual, expected, span)?;
-                }
-                if let Some((missing, _)) = component
-                    .params
-                    .iter()
-                    .find(|(param, _)| !supplied.contains(param))
-                {
+            let mut supplied = HashSet::new();
+            for arg in args {
+                let prop = &arg.name;
+                let Some((_, expected)) = component.params.iter().find(|(param, _)| param == prop)
+                else {
                     return Err(Error::new(
                         "E123",
                         span,
-                        format!("component `{name}` is missing prop `{missing}`"),
+                        format!("component `{name}` has no prop `{prop}`"),
                     ));
-                }
-            } else {
-                if args.len() != component.params.len() {
+                };
+                if !supplied.insert(prop) {
                     return Err(Error::new(
                         "E123",
                         span,
-                        format!(
-                            "component `{name}` expects {} arguments, got {}",
-                            component.params.len(),
-                            args.len()
-                        ),
+                        format!("component `{name}` receives prop `{prop}` more than once"),
                     ));
                 }
-                for (arg, (_, expected)) in args.iter().zip(&component.params) {
-                    let actual = expr_type(&arg.value, env, document, span)?;
-                    require_type(&actual, expected, span)?;
-                }
+                let actual = expr_type(&arg.value, env, document, span)?;
+                require_type(&actual, expected, span)?;
+            }
+            if let Some((missing, _)) = component
+                .params
+                .iter()
+                .find(|(param, _)| !supplied.contains(param))
+            {
+                return Err(Error::new(
+                    "E123",
+                    span,
+                    format!("component `{name}` is missing prop `{missing}`"),
+                ));
             }
             let declared_slots = slots(&component.root);
             let mut supplied = HashSet::new();

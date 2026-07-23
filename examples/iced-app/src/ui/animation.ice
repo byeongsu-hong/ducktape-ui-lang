@@ -47,7 +47,7 @@ on sample
   maybe_visibility = animation.interpolate(expanded, none, some(1.0))
 
 view
-  col spacing=8.0 padding=16.0
+  col gap=8.0 p=16.0
     button "Start" -> start
     button "Rewind" -> request_rewind
     button "Sample" -> sample

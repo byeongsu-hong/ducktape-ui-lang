@@ -179,11 +179,20 @@ fn load_with_overlays<S: AsRef<str>>(
     path: &Path,
     overlays: &HashMap<PathBuf, S>,
 ) -> Result<LoadedSource, Error> {
-    let root = canonical(path, path, 1)?;
-    let mut overlays = overlays
-        .iter()
-        .filter_map(|(path, source)| path.canonicalize().ok().map(|path| (path, source.as_ref())))
-        .collect::<HashMap<_, _>>();
+    let mut normalized_overlays = HashMap::new();
+    for (overlay_path, source) in overlays {
+        let normalized = normalize_overlay_path(overlay_path).map_err(|error| {
+            file_error(
+                "E181",
+                overlay_path,
+                1,
+                format!("cannot resolve overlay path: {error}"),
+            )
+        })?;
+        normalized_overlays.insert(normalized, source.as_ref());
+    }
+    let root = resolve(path, path, 1, &normalized_overlays)?;
+    let mut overlays = normalized_overlays;
     let disk_source = if overlays.contains_key(&root) {
         None
     } else {
@@ -201,7 +210,7 @@ fn load_with_overlays<S: AsRef<str>>(
             "E183",
             &root,
             1,
-            "an app root must declare `app Name`; import this fragment from an app instead",
+            "a root must declare `app Name` or `daemon Name`; import this fragment from an app or daemon instead",
         ));
     }
     if let Some(source) = disk_source.as_deref() {
@@ -267,13 +276,14 @@ fn load_into(
         let line = index + 1;
         if raw.len() == raw.trim_start().len() && raw.starts_with("use ") {
             let relative = parse_use(raw, path, line)?;
-            let target = canonical(
+            let target = resolve(
                 &path
                     .parent()
                     .unwrap_or_else(|| Path::new("."))
                     .join(relative),
                 path,
                 line,
+                overlays,
             )?;
             load_into(&target, path, line, overlays, loaded, included, stack)?;
         } else {
@@ -302,6 +312,7 @@ fn parse_use<'a>(source: &'a str, path: &Path, line: usize) -> Result<&'a str, E
     let value = &value[1..value.len() - 1];
     let import = Path::new(value);
     if value.contains('\\')
+        || crate::has_windows_drive_prefix(value)
         || import.is_absolute()
         || import.extension().and_then(|ext| ext.to_str()) != Some("ice")
     {
@@ -315,14 +326,39 @@ fn parse_use<'a>(source: &'a str, path: &Path, line: usize) -> Result<&'a str, E
     Ok(value)
 }
 
-fn canonical(path: &Path, source: &Path, line: usize) -> Result<PathBuf, Error> {
-    path.canonicalize().map_err(|error| {
-        file_error(
-            "E181",
-            source,
-            line,
-            format!("cannot read `{}`: {error}", path.display()),
-        )
+fn resolve(
+    path: &Path,
+    source: &Path,
+    line: usize,
+    overlays: &HashMap<PathBuf, &str>,
+) -> Result<PathBuf, Error> {
+    match path.canonicalize() {
+        Ok(path) => Ok(path),
+        Err(error) => match normalize_overlay_path(path) {
+            Ok(path) if overlays.contains_key(&path) => Ok(path),
+            _ => Err(file_error(
+                "E181",
+                source,
+                line,
+                format!("cannot read `{}`: {error}", path.display()),
+            )),
+        },
+    }
+}
+
+fn normalize_overlay_path(path: &Path) -> std::io::Result<PathBuf> {
+    path.canonicalize().or_else(|_| {
+        let parent = path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        let name = path.file_name().ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "overlay path has no file name",
+            )
+        })?;
+        parent.canonicalize().map(|parent| parent.join(name))
     })
 }
 
@@ -345,12 +381,13 @@ fn file_error(code: &'static str, path: &Path, line: usize, message: impl Into<S
 #[cfg(test)]
 mod tests {
     use super::{
-        analyze_file_with_overlays, analyze_file_with_source, compile_file, source_is_app,
+        analyze_file_with_overlays, analyze_file_with_source, compile_file, parse_use,
+        source_is_app,
     };
     use crate::SymbolKind;
     use std::collections::HashMap;
     use std::fs;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     struct Fixture(PathBuf);
@@ -391,7 +428,7 @@ mod tests {
         let fixture = Fixture::new();
         fixture.write(
             "app.ice",
-            "app Demo\nuse \"shared/theme.ice\"\nuse \"parts/body.ice\"\nview\n  Card()\n",
+            "app Demo\nuse \"shared/theme.ice\"\nuse \"parts/body.ice\"\nview\n  Card\n",
         );
         fixture.write(
             "shared/theme.ice",
@@ -410,11 +447,19 @@ mod tests {
     }
 
     #[test]
+    fn rejects_host_independent_absolute_imports() {
+        let error = parse_use(r#"use "C:/tmp/part.ice""#, Path::new("app.ice"), 1).unwrap_err();
+
+        assert_eq!(error.code, "E180");
+        assert!(error.message.contains("relative"));
+    }
+
+    #[test]
     fn analyzes_an_unsaved_root_with_disk_imports_and_source_mapping() {
         let fixture = Fixture::new();
         fixture.write("app.ice", "app Saved\nview\n  text \"Saved\"\n");
         fixture.write("part.ice", "component Broken()\n  wat\n");
-        let overlay = "app Overlay\nuse \"part.ice\"\nview\n  Broken()\n";
+        let overlay = "app Overlay\nuse \"part.ice\"\nview\n  Broken\n";
 
         let error = analyze_file_with_source(fixture.path("app.ice"), overlay).unwrap_err();
 
@@ -436,7 +481,7 @@ mod tests {
         let mut overlays = HashMap::from([
             (
                 root.clone(),
-                "app Overlay\nuse \"part.ice\"\ntheme\n  bg #000000\n  fg #ffffff\n  primary #333333\n  danger #ff0000\nview\n  Broken()\n"
+                "app Overlay\nuse \"part.ice\"\ntheme\n  bg #000000\n  fg #ffffff\n  primary #333333\n  danger #ff0000\nview\n  Broken\n"
                     .into(),
             ),
             (part.clone(), "component Broken()\n  wat\n".into()),
@@ -453,9 +498,26 @@ mod tests {
     }
 
     #[test]
+    fn analyzes_new_unsaved_root_and_import_files() {
+        let fixture = Fixture::new();
+        let root = fixture.path("new.ice");
+        let part = fixture.path("part.ice");
+        let overlays = HashMap::from([
+            (
+                root.clone(),
+                "app New\nuse \"part.ice\"\ntheme\n  bg #000000\n  fg #ffffff\n  primary #333333\n  danger #ff0000\nview\n  Card\n"
+                    .to_owned(),
+            ),
+            (part, "component Card()\n  text \"Unsaved\"\n".to_owned()),
+        ]);
+
+        analyze_file_with_overlays(root, &overlays).unwrap();
+    }
+
+    #[test]
     fn retains_checked_component_and_handler_locations_across_imports() {
         let fixture = Fixture::new();
-        let root = "app Demo\nuse \"part.ice\"\ntheme\n  bg #000000\n  fg #ffffff\n  primary #333333\n  danger #ff0000\nview\n  Card()\n";
+        let root = "app Demo\nuse \"part.ice\"\ntheme\n  bg #000000\n  fg #ffffff\n  primary #333333\n  danger #ff0000\nview\n  Card\n";
         fixture.write("app.ice", root);
         fixture.write(
             "part.ice",
@@ -498,6 +560,51 @@ mod tests {
         assert!(checked.symbol_at(Some(&app), 10, 6).is_none());
         let route_column = root.lines().nth(11).unwrap().rfind("changed").unwrap() + 1;
         assert!(checked.symbol_at(Some(&app), 12, route_column).is_none());
+    }
+
+    #[test]
+    fn keeps_component_outputs_out_of_global_handler_navigation() {
+        let fixture = Fixture::new();
+        let root = "app Demo\ntheme\n  bg #000000\n  fg #ffffff\n  primary #333333\n  danger #ff0000\ncomponent Choice() -> bool\n  checkbox \"Choice\" checked=false -> emit _\non emit(value)\non changed(value)\nview\n  col\n    Choice -> changed _\n    checkbox \"Global\" checked=false -> emit _\n";
+        fixture.write("app.ice", root);
+
+        let checked = analyze_file_with_source(fixture.path("app.ice"), root).unwrap();
+        let app = fixture.path("app.ice").canonicalize().unwrap();
+        let emit = checked
+            .symbols()
+            .iter()
+            .find(|symbol| symbol.kind == SymbolKind::Handler && symbol.name == "emit")
+            .unwrap();
+        let output_route = root.lines().nth(7).unwrap();
+        let output_column = output_route.rfind("emit").unwrap() + 1;
+
+        assert_eq!(emit.references.len(), 1);
+        assert!(checked.symbol_at(Some(&app), 8, output_column).is_none());
+    }
+
+    #[test]
+    fn retains_global_handler_routes_from_component_handlers() {
+        let fixture = Fixture::new();
+        let root = "app Demo\nextern crate::backend\n  fetch() -> str\ntheme\n  bg #000000\n  fg #ffffff\n  primary #333333\n  danger #ff0000\ncomponent Search()\n  on search\n    run fetch() -> loaded _\n  button \"Search\" -> search\non loaded(value)\nview\n  Search\n";
+        fixture.write("app.ice", root);
+
+        let checked = analyze_file_with_source(fixture.path("app.ice"), root).unwrap();
+        let app = fixture.path("app.ice").canonicalize().unwrap();
+        let route = root.lines().nth(10).unwrap();
+        let route_column = route.rfind("loaded").unwrap() + 1;
+        let (loaded, reference) = checked.symbol_at(Some(&app), 11, route_column).unwrap();
+
+        assert_eq!(loaded.name, "loaded");
+        assert_eq!(
+            loaded.references.as_slice(),
+            std::slice::from_ref(reference)
+        );
+        assert!(
+            !checked
+                .symbols()
+                .iter()
+                .any(|symbol| symbol.name == "search")
+        );
     }
 
     #[test]
@@ -553,7 +660,7 @@ mod tests {
         let fixture = Fixture::new();
         let indent = "\u{a0}\u{a0}";
         let root = format!(
-            "app Demo\ntheme\n{indent}bg #000000\n{indent}fg #ffffff\n{indent}primary #333333\n{indent}danger #ff0000\ncomponent Card()\n{indent}text \"Card\"\nview\n{indent}Card()\n"
+            "app Demo\ntheme\n{indent}bg #000000\n{indent}fg #ffffff\n{indent}primary #333333\n{indent}danger #ff0000\ncomponent Card()\n{indent}text \"Card\"\nview\n{indent}Card\n"
         );
         fixture.write("app.ice", &root);
 
@@ -569,7 +676,7 @@ mod tests {
     #[test]
     fn retains_compact_canvas_routes_without_synthetic_references() {
         let fixture = Fixture::new();
-        let root = "app Demo\ntheme\n  bg #000000\n  fg #ffffff\n  primary #333333\n  danger #ff0000\non pressed(button)\non __canvas_event\nview\n  canvas\n    event mouse pressed -> pressed _\n    capture touch lost\n";
+        let root = "app Demo\ntheme\n  bg #000000\n  fg #ffffff\n  primary #333333\n  danger #ff0000\non pressed(button)\non canvas_event\nview\n  canvas\n    event mouse pressed -> pressed _\n    capture touch lost\n";
         fixture.write("app.ice", root);
 
         let checked = analyze_file_with_source(fixture.path("app.ice"), root).unwrap();
@@ -580,7 +687,7 @@ mod tests {
         let synthetic = checked
             .symbols()
             .iter()
-            .find(|symbol| symbol.name == "__canvas_event")
+            .find(|symbol| symbol.name == "canvas_event")
             .unwrap();
 
         assert_eq!(pressed.name, "pressed");
@@ -682,7 +789,7 @@ mod tests {
     #[test]
     fn remaps_language_errors_to_the_fragment() {
         let fixture = Fixture::new();
-        fixture.write("app.ice", "app Demo\nuse \"part.ice\"\nview\n  Broken()\n");
+        fixture.write("app.ice", "app Demo\nuse \"part.ice\"\nview\n  Broken\n");
         fixture.write("part.ice", "component Broken()\n  wat\n");
 
         let error = compile_file(fixture.path("app.ice")).unwrap_err();
@@ -702,13 +809,13 @@ mod tests {
     }
 
     #[test]
-    fn rejects_a_fragment_as_an_app_root() {
+    fn rejects_a_fragment_as_a_root() {
         let fixture = Fixture::new();
         fixture.write("part.ice", "component Card()\n  text \"Hi\"\n");
 
         let error = compile_file(fixture.path("part.ice")).unwrap_err();
 
         assert_eq!(error.code, "E183");
-        assert!(error.message.contains("app root"));
+        assert!(error.message.contains("`app Name` or `daemon Name`"));
     }
 }

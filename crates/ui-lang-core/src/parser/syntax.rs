@@ -96,27 +96,43 @@ pub(in crate::parser) fn signature_parts<'a>(
     Ok((source[..open].trim(), source[open + 1..close].into()))
 }
 
-pub(in crate::parser) fn matching_paren(source: &str, line: &Line) -> Result<usize, Error> {
-    let open = source
-        .find('(')
-        .ok_or_else(|| error("E024", line, "expected `(`"))?;
+fn advance_string(ch: char, string: &mut bool, escaped: &mut bool) {
+    if !*string {
+        *string = ch == '"';
+    } else if *escaped {
+        *escaped = false;
+    } else if ch == '\\' {
+        *escaped = true;
+    } else if ch == '"' {
+        *string = false;
+    }
+}
+
+fn closing_paren(source: &str, open: usize) -> Option<usize> {
     let mut depth = 0;
     let mut string = false;
+    let mut escaped = false;
     for (index, ch) in source.char_indices().skip_while(|(index, _)| *index < open) {
-        if ch == '"' {
-            string = !string;
-        } else if !string {
+        advance_string(ch, &mut string, &mut escaped);
+        if !string {
             if ch == '(' {
                 depth += 1;
             } else if ch == ')' {
                 depth -= 1;
                 if depth == 0 {
-                    return Ok(index);
+                    return Some(index);
                 }
             }
         }
     }
-    Err(error("E024", line, "missing closing `)`"))
+    None
+}
+
+pub(in crate::parser) fn matching_paren(source: &str, line: &Line) -> Result<usize, Error> {
+    let open = source
+        .find('(')
+        .ok_or_else(|| error("E024", line, "expected `(`"))?;
+    closing_paren(source, open).ok_or_else(|| error("E024", line, "missing closing `)`"))
 }
 
 pub(crate) fn split_words(source: &str) -> Vec<String> {
@@ -124,10 +140,11 @@ pub(crate) fn split_words(source: &str) -> Vec<String> {
     let mut start = 0;
     let mut depth = 0;
     let mut string = false;
+    let mut escaped = false;
     let chars: Vec<(usize, char)> = source.char_indices().collect();
     for (byte, ch) in &chars {
+        advance_string(*ch, &mut string, &mut escaped);
         match *ch {
-            '"' => string = !string,
             '(' | '[' if !string => depth += 1,
             ')' | ']' if !string => depth -= 1,
             ch if ch.is_whitespace() && !string && depth == 0 => {
@@ -150,9 +167,10 @@ pub(in crate::parser) fn split_top(source: &str, delimiter: char) -> Vec<&str> {
     let mut start = 0;
     let mut depth = 0;
     let mut string = false;
+    let mut escaped = false;
     for (index, ch) in source.char_indices() {
+        advance_string(ch, &mut string, &mut escaped);
         match ch {
-            '"' => string = !string,
             '(' | '[' if !string => depth += 1,
             ')' | ']' if !string => depth -= 1,
             ch if ch == delimiter && !string && depth == 0 => {
@@ -169,9 +187,10 @@ pub(in crate::parser) fn split_top(source: &str, delimiter: char) -> Vec<&str> {
 pub(in crate::parser) fn split_top_once(source: &str, delimiter: char) -> Option<(&str, &str)> {
     let mut depth = 0;
     let mut string = false;
+    let mut escaped = false;
     for (index, ch) in source.char_indices() {
+        advance_string(ch, &mut string, &mut escaped);
         match ch {
-            '"' => string = !string,
             '(' | '[' if !string => depth += 1,
             ')' | ']' if !string => depth -= 1,
             ch if ch == delimiter && !string && depth == 0 => {
@@ -186,12 +205,13 @@ pub(in crate::parser) fn split_top_once(source: &str, delimiter: char) -> Option
 pub(crate) fn split_top_marker<'a>(source: &'a str, marker: &str) -> Option<(&'a str, &'a str)> {
     let mut depth = 0;
     let mut string = false;
+    let mut escaped = false;
     let bytes = source.as_bytes();
     let mut index = 0;
     while index + marker.len() <= bytes.len() {
         let ch = source[index..].chars().next()?;
+        advance_string(ch, &mut string, &mut escaped);
         match ch {
-            '"' => string = !string,
             '(' | '[' if !string => depth += 1,
             ')' | ']' if !string => depth -= 1,
             _ => {}
@@ -207,7 +227,7 @@ pub(crate) fn split_top_marker<'a>(source: &'a str, marker: &str) -> Option<(&'a
 
 pub(in crate::parser) fn strip_wrapping_parens(source: &str) -> &str {
     let source = source.trim();
-    if source.starts_with('(') && source.ends_with(')') {
+    if source.starts_with('(') && closing_paren(source, 0) == Some(source.len() - 1) {
         &source[1..source.len() - 1]
     } else {
         source
@@ -254,11 +274,7 @@ pub(in crate::parser) fn valid_color(value: &str) -> bool {
 }
 
 pub(in crate::parser) fn identifier(source: &str, line: &Line) -> Result<String, Error> {
-    if !source.is_empty()
-        && source.chars().enumerate().all(|(index, ch)| {
-            ch == '_' || ch.is_ascii_alphanumeric() && (index > 0 || !ch.is_ascii_digit())
-        })
-    {
+    if crate::valid_identifier(source) {
         Ok(source.into())
     } else {
         Err(error(
@@ -270,7 +286,7 @@ pub(in crate::parser) fn identifier(source: &str, line: &Line) -> Result<String,
 }
 
 pub(in crate::parser) fn component_identifier(source: &str, line: &Line) -> Result<String, Error> {
-    if source.split('.').all(|part| identifier(part, line).is_ok()) {
+    if SymbolKind::Component.accepts(source) {
         Ok(source.into())
     } else {
         Err(error(
@@ -296,7 +312,8 @@ pub(in crate::parser) fn kebab_identifier(source: &str, line: &Line) -> Result<S
 pub(in crate::parser) fn rust_path(source: &str, line: &Line) -> Result<String, Error> {
     if source
         .split("::")
-        .all(|part| part == "crate" || identifier(part, line).is_ok())
+        .enumerate()
+        .all(|(index, part)| index == 0 && part == "crate" || crate::valid_rust_identifier(part))
     {
         Ok(source.into())
     } else {

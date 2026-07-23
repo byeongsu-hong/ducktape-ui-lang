@@ -36,8 +36,7 @@ pub(in crate::check) fn infer_controls_group(
                 check_length_value(length, env, document, span, "button size")?;
             }
             if let Some(padding) = &options.padding {
-                require_type(&expr_type(padding, env, document, span)?, &Type::F64, span)?;
-                require_literal_range(padding, 0.0, None, "button padding", span)?;
+                require_nonnegative_f64(padding, env, document, "button padding", span)?;
             }
             if let Some(clip) = &options.clip {
                 require_type(&expr_type(clip, env, document, span)?, &Type::Bool, span)?;
@@ -195,12 +194,7 @@ pub(in crate::check) fn infer_controls_group(
                 if let Some(length) = length {
                     match length {
                         LengthValue::Fixed(value) if !fluid => {
-                            require_type(
-                                &expr_type(value, env, document, span)?,
-                                &Type::F64,
-                                span,
-                            )?;
-                            require_literal_range(value, 0.0, None, label, span)?;
+                            require_nonnegative_f64(value, env, document, label, span)?;
                         }
                         LengthValue::Fixed(_) => {
                             check_length_value(length, env, document, span, label)?;
@@ -238,7 +232,7 @@ pub(in crate::check) fn infer_controls_group(
             ..
         } => {
             for expr in [value, min, max] {
-                require_type(&expr_type(expr, env, document, span)?, &Type::F64, span)?;
+                require_f32_value(expr, env, document, "progress value", span)?;
             }
             if let (Some(min), Some(max)) = (f64_literal(min), f64_literal(max))
                 && min > max
@@ -261,14 +255,8 @@ pub(in crate::check) fn infer_controls_group(
                     check_background_value(background, env, document, span, "E129", label)?;
                 }
             }
-            if let Some(color) = &options.border_color
-                && !valid_theme_color(color, document)
-            {
-                return Err(Error::new(
-                    "E129",
-                    span,
-                    format!("unknown progress color `{color}`"),
-                ));
+            if let Some(color) = &options.border_color {
+                require_theme_color(color, document, span, "E129", "progress")?;
             }
             for (value, label) in [
                 (&options.border_width, "progress border width"),
@@ -279,8 +267,7 @@ pub(in crate::check) fn infer_controls_group(
                 (&options.radius_bottom_left, "progress radius"),
             ] {
                 if let Some(value) = value {
-                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                    require_literal_range(value, 0.0, None, label, span)?;
+                    require_nonnegative_f64(value, env, document, label, span)?;
                 }
             }
             check_styles(styles, document, span, StyleTarget::Progress)?;
@@ -369,8 +356,7 @@ pub(in crate::check) fn infer_controls_group(
                 (&options_config.line_height, "pick line height"),
             ] {
                 if let Some(value) = value {
-                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                    require_literal_range(value, 0.0, None, label, span)?;
+                    require_nonnegative_f64(value, env, document, label, span)?;
                 }
             }
             check_font(options_config.font.as_ref(), document, span)?;
@@ -436,8 +422,7 @@ pub(in crate::check) fn infer_controls_group(
                 (&options.line_height, "combo line height"),
             ] {
                 if let Some(value) = value {
-                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                    require_literal_range(value, 0.0, None, label, span)?;
+                    require_nonnegative_f64(value, env, document, label, span)?;
                 }
             }
             check_font(options.font.as_ref(), document, span)?;
@@ -489,24 +474,13 @@ pub(in crate::check) fn infer_controls_group(
             span,
             ..
         } => {
-            require_type(
-                &expr_type(thickness, env, document, span)?,
-                &Type::F64,
-                span,
-            )?;
-            require_literal_range(thickness, 0.0, None, "rule thickness", span)?;
+            require_nonnegative_f64(thickness, env, document, "rule thickness", span)?;
             if let Some(RuleFill::Percent(percent)) = &options.fill {
                 require_type(&expr_type(percent, env, document, span)?, &Type::F64, span)?;
                 require_literal_range(percent, 0.0, Some(100.0), "rule percent", span)?;
             }
-            if let Some(color) = &options.color
-                && !valid_theme_color(color, document)
-            {
-                return Err(Error::new(
-                    "E129",
-                    span,
-                    format!("unknown rule color `{color}`"),
-                ));
+            if let Some(color) = &options.color {
+                require_theme_color(color, document, span, "E129", "rule")?;
             }
             for radius in [
                 &options.radius,
@@ -518,8 +492,7 @@ pub(in crate::check) fn infer_controls_group(
             .into_iter()
             .flatten()
             {
-                require_type(&expr_type(radius, env, document, span)?, &Type::F64, span)?;
-                require_literal_range(radius, 0.0, None, "rule radius", span)?;
+                require_nonnegative_f64(radius, env, document, "rule radius", span)?;
             }
             if let Some(snap) = &options.snap {
                 require_type(&expr_type(snap, env, document, span)?, &Type::Bool, span)?;
@@ -545,19 +518,12 @@ pub(in crate::check) fn infer_controls_group(
                 (total_size.as_ref(), "qr total size"),
             ] {
                 if let Some(value) = value {
-                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                    require_literal_range(value, 0.0, None, label, span)?;
+                    require_nonnegative_f64(value, env, document, label, span)?;
                 }
             }
             for (color, label) in [(cell, "cell"), (background, "background")] {
-                if let Some(color) = color
-                    && !valid_theme_color(color, document)
-                {
-                    return Err(Error::new(
-                        "E136",
-                        span,
-                        format!("unknown qr {label} color `{color}`"),
-                    ));
+                if let Some(color) = color {
+                    require_theme_color(color, document, span, "E136", &format!("qr {label}"))?;
                 }
             }
         }

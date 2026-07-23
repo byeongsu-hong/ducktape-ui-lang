@@ -203,6 +203,16 @@ pub struct AlternateTheme {
 }
 
 #[cfg(test)]
+pub fn alternate_theme(active: bool) -> AlternateTheme {
+    AlternateTheme { active }
+}
+
+#[cfg(test)]
+pub async fn load_alternate_theme() -> AlternateTheme {
+    alternate_theme(true)
+}
+
+#[cfg(test)]
 impl iced::theme::Base for AlternateTheme {
     fn default(preference: iced::theme::Mode) -> Self {
         Self {

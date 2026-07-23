@@ -268,6 +268,19 @@ pub enum InputAlignment {
     Right,
 }
 
+impl std::str::FromStr for InputAlignment {
+    type Err = ();
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "left" => Ok(Self::Left),
+            "center" => Ok(Self::Center),
+            "right" => Ok(Self::Right),
+            _ => Err(()),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FontPreset {
     Default,
@@ -401,9 +414,37 @@ pub enum TextAlignment {
     Justified,
 }
 
+impl std::str::FromStr for TextAlignment {
+    type Err = ();
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "default" => Ok(Self::Default),
+            "left" => Ok(Self::Left),
+            "center" => Ok(Self::Center),
+            "right" => Ok(Self::Right),
+            "justified" => Ok(Self::Justified),
+            _ => Err(()),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum VerticalAlignment {
     Top,
     Center,
     Bottom,
+}
+
+impl std::str::FromStr for VerticalAlignment {
+    type Err = ();
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "top" => Ok(Self::Top),
+            "center" => Ok(Self::Center),
+            "bottom" => Ok(Self::Bottom),
+            _ => Err(()),
+        }
+    }
 }

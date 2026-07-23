@@ -11,9 +11,9 @@ pub(in crate::parser) fn parse_canvas(
     let mut options = CanvasOptions::default();
     for part in &parts[1..] {
         let expr = |value: &str| parse_expr(strip_wrapping_parens(value), line);
-        if let Some(value) = part.strip_prefix("width=") {
+        if let Some(value) = part.strip_prefix("w=") {
             options.width = Some(parse_length(value, line)?);
-        } else if let Some(value) = part.strip_prefix("height=") {
+        } else if let Some(value) = part.strip_prefix("h=") {
             options.height = Some(parse_length(value, line)?);
         } else if let Some(value) = part.strip_prefix("cache=") {
             options.cache = Some(expr(value)?);
@@ -149,26 +149,32 @@ pub(in crate::parser) fn parse_canvas_event(line: &Line) -> Result<CanvasEvent, 
         }
         let (source, bindings) = header
             .split_once(" as ")
-            .map_or((header, ""), |(source, bindings)| (source, bindings));
+            .map_or((header, None), |(source, bindings)| {
+                (source, Some(bindings))
+            });
         let source = parse_canvas_event_source(source, line)?;
         validate_canvas_event_source(&source, line)?;
         let mut seen_bindings = std::collections::HashSet::new();
         let bindings = bindings
-            .split(',')
-            .map(str::trim)
-            .filter(|binding| !binding.is_empty())
-            .map(|binding| {
-                let binding = identifier(binding, line)?;
-                if !seen_bindings.insert(binding.clone()) {
-                    return Err(error(
-                        "E190",
-                        line,
-                        format!("duplicate canvas event binding `{binding}`"),
-                    ));
-                }
-                Ok(binding)
+            .map(|bindings| {
+                bindings
+                    .split(',')
+                    .map(str::trim)
+                    .map(|binding| {
+                        let binding = identifier(binding, line)?;
+                        if !seen_bindings.insert(binding.clone()) {
+                            return Err(error(
+                                "E190",
+                                line,
+                                format!("duplicate canvas event binding `{binding}`"),
+                            ));
+                        }
+                        Ok(binding)
+                    })
+                    .collect::<Result<Vec<_>, Error>>()
             })
-            .collect::<Result<Vec<_>, Error>>()?;
+            .transpose()?
+            .unwrap_or_default();
         let mut updates = Vec::new();
         let mut action = None;
         let mut capture = false;
@@ -321,7 +327,7 @@ pub(in crate::parser) fn parse_canvas_event_source(
     line: &Line,
 ) -> Result<SubscriptionSource, Error> {
     let mut event_line = line.clone();
-    event_line.text = format!("{source} -> __canvas_event");
+    event_line.text = format!("{source} -> canvas_event");
     event_line.children.clear();
     event_line.track_symbols = false;
     let subscription = parse_subscription(&event_line)?;
@@ -382,8 +388,8 @@ pub(in crate::parser) fn parse_canvas_command(line: &Line) -> Result<CanvasComma
                 &[
                     "x",
                     "y",
-                    "width",
-                    "height",
+                    "w",
+                    "h",
                     "r",
                     "r-tl",
                     "r-tr",
@@ -405,8 +411,8 @@ pub(in crate::parser) fn parse_canvas_command(line: &Line) -> Result<CanvasComma
             Ok(CanvasCommand::Rectangle {
                 x: canvas_required_expr(&fields, "x", line)?,
                 y: canvas_required_expr(&fields, "y", line)?,
-                width: canvas_required_expr(&fields, "width", line)?,
-                height: canvas_required_expr(&fields, "height", line)?,
+                width: canvas_required_expr(&fields, "w", line)?,
+                height: canvas_required_expr(&fields, "h", line)?,
                 radius: Box::new(parse_canvas_radius(&fields, line)?),
                 paint: Box::new(paint),
                 span,
@@ -481,8 +487,8 @@ pub(in crate::parser) fn parse_canvas_command(line: &Line) -> Result<CanvasComma
             let fields = canvas_fields(
                 &parts[2..],
                 &[
-                    "x", "y", "width", "height", "filter", "rotation", "opacity", "snap", "r",
-                    "r-tl", "r-tr", "r-br", "r-bl",
+                    "x", "y", "w", "h", "filter", "rotate", "opacity", "snap", "r", "r-tl", "r-tr",
+                    "r-br", "r-bl",
                 ],
                 line,
             )?;
@@ -501,10 +507,10 @@ pub(in crate::parser) fn parse_canvas_command(line: &Line) -> Result<CanvasComma
                 source: parse_expr(source, line)?,
                 x: canvas_required_expr(&fields, "x", line)?,
                 y: canvas_required_expr(&fields, "y", line)?,
-                width: canvas_required_expr(&fields, "width", line)?,
-                height: canvas_required_expr(&fields, "height", line)?,
+                width: canvas_required_expr(&fields, "w", line)?,
+                height: canvas_required_expr(&fields, "h", line)?,
                 filter,
-                rotation: fields.get("rotation").map_or_else(
+                rotation: fields.get("rotate").map_or_else(
                     || Ok(Expr::F64(0.0)),
                     |value| parse_expr(strip_wrapping_parens(value), line),
                 )?,
@@ -539,7 +545,7 @@ pub(in crate::parser) fn parse_canvas_command(line: &Line) -> Result<CanvasComma
                 .collect::<Vec<_>>();
             let fields = canvas_fields(
                 &properties,
-                &["x", "y", "width", "height", "color", "rotation", "opacity"],
+                &["x", "y", "w", "h", "color", "rotate", "opacity"],
                 line,
             )?;
             Ok(CanvasCommand::Svg {
@@ -547,10 +553,10 @@ pub(in crate::parser) fn parse_canvas_command(line: &Line) -> Result<CanvasComma
                 memory: memory_count == 1,
                 x: canvas_required_expr(&fields, "x", line)?,
                 y: canvas_required_expr(&fields, "y", line)?,
-                width: canvas_required_expr(&fields, "width", line)?,
-                height: canvas_required_expr(&fields, "height", line)?,
+                width: canvas_required_expr(&fields, "w", line)?,
+                height: canvas_required_expr(&fields, "h", line)?,
                 color: fields.get("color").cloned(),
-                rotation: fields.get("rotation").map_or_else(
+                rotation: fields.get("rotate").map_or_else(
                     || Ok(Expr::F64(0.0)),
                     |value| parse_expr(strip_wrapping_parens(value), line),
                 )?,
@@ -640,31 +646,31 @@ pub(in crate::parser) fn parse_canvas_text(
         &[
             "x",
             "y",
-            "max-width",
+            "max-w",
             "color",
             "size",
-            "line-height",
-            "line-height-px",
+            "line-h",
+            "line-h-px",
             "font",
             "align-x",
             "align-y",
-            "shaping",
+            "shape",
         ],
         line,
     )?;
-    if fields.contains_key("line-height") && fields.contains_key("line-height-px") {
+    if fields.contains_key("line-h") && fields.contains_key("line-h-px") {
         return Err(error(
             "E190",
             line,
-            "canvas text accepts only one line-height property",
+            "canvas text accepts only one line-h property",
         ));
     }
-    let line_height = if let Some(value) = fields.get("line-height") {
+    let line_height = if let Some(value) = fields.get("line-h") {
         Some(TextLineHeight::Relative(parse_expr(
             strip_wrapping_parens(value),
             line,
         )?))
-    } else if let Some(value) = fields.get("line-height-px") {
+    } else if let Some(value) = fields.get("line-h-px") {
         Some(TextLineHeight::Absolute(parse_expr(
             strip_wrapping_parens(value),
             line,
@@ -674,37 +680,25 @@ pub(in crate::parser) fn parse_canvas_text(
     };
     let align_x = fields
         .get("align-x")
-        .map(|value| match value.as_str() {
-            "default" => Ok(TextAlignment::Default),
-            "left" => Ok(TextAlignment::Left),
-            "center" => Ok(TextAlignment::Center),
-            "right" => Ok(TextAlignment::Right),
-            "justified" => Ok(TextAlignment::Justified),
-            _ => Err(error(
-                "E190",
-                line,
-                "unknown canvas text horizontal alignment",
-            )),
+        .map(|value| {
+            value
+                .parse()
+                .map_err(|()| error("E190", line, "unknown canvas text horizontal alignment"))
         })
         .transpose()?;
     let align_y = fields
         .get("align-y")
-        .map(|value| match value.as_str() {
-            "top" => Ok(VerticalAlignment::Top),
-            "center" => Ok(VerticalAlignment::Center),
-            "bottom" => Ok(VerticalAlignment::Bottom),
-            _ => Err(error(
-                "E190",
-                line,
-                "unknown canvas text vertical alignment",
-            )),
+        .map(|value| {
+            value
+                .parse()
+                .map_err(|()| error("E190", line, "unknown canvas text vertical alignment"))
         })
         .transpose()?;
     Ok(CanvasCommand::Text {
         value: parse_expr(value, line)?,
         x: canvas_required_expr(&fields, "x", line)?,
         y: canvas_required_expr(&fields, "y", line)?,
-        max_width: canvas_optional_expr(&fields, "max-width", line)?,
+        max_width: canvas_optional_expr(&fields, "max-w", line)?,
         color: fields.get("color").cloned(),
         size: canvas_optional_expr(&fields, "size", line)?,
         line_height,
@@ -715,7 +709,7 @@ pub(in crate::parser) fn parse_canvas_text(
         align_x,
         align_y,
         shaping: fields
-            .get("shaping")
+            .get("shape")
             .map(|value| parse_text_shaping(value, line, "E190"))
             .transpose()?,
         span: Span::line(line.number),
@@ -735,13 +729,11 @@ pub(in crate::parser) fn parse_canvas_path_segment(
         "move" | "line" => &["x", "y"][..],
         "arc" => &["x", "y", "r", "start", "end"],
         "arc-to" => &["ax", "ay", "bx", "by", "r"],
-        "ellipse" => &["x", "y", "r-x", "r-y", "rotation", "start", "end"],
+        "ellipse" => &["x", "y", "r-x", "r-y", "rotate", "start", "end"],
         "bezier" => &["ax", "ay", "bx", "by", "x", "y"],
         "quadratic" => &["cx", "cy", "x", "y"],
-        "rect" => &["x", "y", "width", "height"],
-        "rounded" => &[
-            "x", "y", "width", "height", "r", "r-tl", "r-tr", "r-br", "r-bl",
-        ],
+        "rect" => &["x", "y", "w", "h"],
+        "rounded" => &["x", "y", "w", "h", "r", "r-tl", "r-tr", "r-br", "r-bl"],
         "circle" => &["x", "y", "r"],
         "close" if parts.len() == 1 => return Ok(CanvasPathSegment::Close),
         _ => {
@@ -787,7 +779,7 @@ pub(in crate::parser) fn parse_canvas_path_segment(
             y: value("y")?,
             radius_x: value("r-x")?,
             radius_y: value("r-y")?,
-            rotation: value("rotation")?,
+            rotation: value("rotate")?,
             start: value("start")?,
             end: value("end")?,
         },
@@ -808,14 +800,14 @@ pub(in crate::parser) fn parse_canvas_path_segment(
         "rect" => CanvasPathSegment::Rectangle {
             x: value("x")?,
             y: value("y")?,
-            width: value("width")?,
-            height: value("height")?,
+            width: value("w")?,
+            height: value("h")?,
         },
         "rounded" => CanvasPathSegment::RoundedRectangle {
             x: value("x")?,
             y: value("y")?,
-            width: value("width")?,
-            height: value("height")?,
+            width: value("w")?,
+            height: value("h")?,
             radius: parse_canvas_radius(&fields, line)?,
         },
         "circle" => CanvasPathSegment::Circle {

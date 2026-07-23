@@ -235,7 +235,6 @@ pub struct MediaOptions {
     pub height: Option<LengthValue>,
     pub fit: Option<Expr>,
     pub rotation: Option<Expr>,
-    pub rotation_solid: bool,
     pub opacity: Option<Expr>,
     pub svg_memory: bool,
     pub svg_color: Option<String>,

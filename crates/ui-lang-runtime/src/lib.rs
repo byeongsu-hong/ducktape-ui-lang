@@ -11,7 +11,7 @@ use iced::advanced::widget::operation::{Focusable, Operation, Outcome, Scrollabl
 use iced::advanced::widget::{self, tree};
 use iced::advanced::{Clipboard, Layout, Shell, Widget, layout, mouse, overlay, renderer};
 use iced::keyboard::{self, key};
-use iced::{Element, Event, Length, Rectangle, Size, Subscription, Task, Vector};
+use iced::{Element, Event, Length, Padding, Rectangle, Size, Subscription, Task, Vector};
 use std::any::Any;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -362,11 +362,9 @@ where
 
         if wrapper_focus && !state.semantics.disabled {
             match event {
-                Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
+                Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left))
+                | Event::Touch(iced::touch::Event::FingerPressed { .. }) => {
                     state.focused = cursor.is_over(layout.bounds());
-                }
-                Event::Touch(iced::touch::Event::FingerPressed { position, .. }) => {
-                    state.focused = layout.bounds().contains(*position);
                 }
                 _ => {}
             }
@@ -738,10 +736,32 @@ fn duplicate_node_id(base: NodeId, occurrence: u64) -> NodeId {
     NodeId(if value == 0 { 1 } else { value })
 }
 
+fn disambiguate_semantic_id(
+    base: StableId,
+    occurrences: &mut HashMap<NodeId, u64>,
+    used_ids: &mut HashSet<NodeId>,
+) -> (NodeId, SemanticFocus) {
+    let next_occurrence = occurrences.entry(base.node_id()).or_default();
+    let mut occurrence = *next_occurrence;
+    let mut id = if occurrence == 0 {
+        base.node_id()
+    } else {
+        duplicate_node_id(base.node_id(), occurrence)
+    };
+    while used_ids.contains(&id) {
+        occurrence += 1;
+        id = duplicate_node_id(base.node_id(), occurrence);
+    }
+    *next_occurrence = occurrence + 1;
+    used_ids.insert(id);
+    (id, SemanticFocus { base, occurrence })
+}
+
 struct FocusOperation<Message> {
     target: SemanticFocus,
     occurrences: HashMap<NodeId, u64>,
-    current: Option<(SemanticFocus, FocusBehavior)>,
+    used_ids: HashSet<NodeId>,
+    frames: Vec<Option<(SemanticFocus, FocusBehavior, bool)>>,
     marker: std::marker::PhantomData<Message>,
 }
 
@@ -752,25 +772,29 @@ impl<Message: Send + 'static> Operation<()> for FocusOperation<Message> {
 
     fn custom(&mut self, _id: Option<&widget::Id>, _bounds: Rectangle, state: &mut dyn Any) {
         if state.downcast_mut::<SemanticEnd>().is_some() {
-            self.current = None;
+            self.frames.pop();
             return;
         }
         let Some(state) = state.downcast_mut::<SemanticState<Message>>() else {
             return;
         };
-        let occurrence = self
-            .occurrences
-            .entry(state.semantics.id.node_id())
-            .or_default();
-        let current = SemanticFocus {
-            base: state.semantics.id,
-            occurrence: *occurrence,
-        };
-        *occurrence += 1;
-        self.current = Some((current, state.semantics.focus));
+        if self.frames.iter().flatten().any(|(_, _, atomic)| *atomic) {
+            self.frames.push(None);
+            return;
+        }
+        let (_, current) = disambiguate_semantic_id(
+            state.semantics.id,
+            &mut self.occurrences,
+            &mut self.used_ids,
+        );
+        self.frames.push(Some((
+            current,
+            state.semantics.focus,
+            atomic_role(state.semantics.role),
+        )));
 
         if state.semantics.focus == FocusBehavior::Wrapper {
-            if current == self.target {
+            if !state.semantics.disabled && current == self.target {
                 state.focus();
             } else {
                 state.unfocus();
@@ -785,8 +809,12 @@ impl<Message: Send + 'static> Operation<()> for FocusOperation<Message> {
         state: &mut dyn Focusable,
     ) {
         if self
-            .current
-            .is_some_and(|(current, _)| current == self.target)
+            .frames
+            .iter()
+            .rev()
+            .flatten()
+            .find(|(_, focus, _)| *focus != FocusBehavior::None)
+            .is_some_and(|(current, _, _)| *current == self.target)
         {
             state.focus();
         } else {
@@ -803,7 +831,8 @@ fn focus_semantic<Message: Send + 'static>(target: SemanticFocus) -> Task<Messag
     iced::advanced::widget::operate(FocusOperation::<Message> {
         target,
         occurrences: HashMap::new(),
-        current: None,
+        used_ids: HashSet::from([ROOT_ID]),
+        frames: Vec::new(),
         marker: std::marker::PhantomData,
     })
     .discard()
@@ -818,6 +847,8 @@ struct SnapshotOperation<Message> {
     used_ids: HashSet<NodeId>,
     focus: NodeId,
     root_label: String,
+    translation: Vector,
+    pending_translation: Option<Vector>,
 }
 
 struct SemanticFrame {
@@ -854,6 +885,8 @@ impl<Message> Default for SnapshotOperation<Message> {
             used_ids: HashSet::from([ROOT_ID]),
             focus: ROOT_ID,
             root_label: "Ice application".into(),
+            translation: Vector::ZERO,
+            pending_translation: None,
         }
     }
 }
@@ -869,7 +902,21 @@ impl<Message> SnapshotOperation<Message> {
 
 impl<Message: Clone + Send + 'static> Operation<Snapshot<Message>> for SnapshotOperation<Message> {
     fn traverse(&mut self, operate: &mut dyn FnMut(&mut dyn Operation<Snapshot<Message>>)) {
+        let translation = self.pending_translation.take().unwrap_or(Vector::ZERO);
+        self.translation += translation;
         operate(self);
+        self.translation -= translation;
+    }
+
+    fn scrollable(
+        &mut self,
+        _id: Option<&widget::Id>,
+        _bounds: Rectangle,
+        _content_bounds: Rectangle,
+        translation: Vector,
+        _state: &mut dyn Scrollable,
+    ) {
+        self.pending_translation = Some(translation);
     }
 
     fn custom(&mut self, _id: Option<&widget::Id>, bounds: Rectangle, state: &mut dyn Any) {
@@ -895,30 +942,23 @@ impl<Message: Clone + Send + 'static> Operation<Snapshot<Message>> for SnapshotO
             return;
         }
         let semantics = &state.semantics;
-        let base = semantics.id.node_id();
-        let next_occurrence = self.occurrences.entry(base).or_default();
-        let mut occurrence = *next_occurrence;
-        let mut id = if occurrence == 0 {
-            base
-        } else {
-            duplicate_node_id(base, occurrence)
+        let (id, focus) =
+            disambiguate_semantic_id(semantics.id, &mut self.occurrences, &mut self.used_ids);
+        let finite = |value: f32| {
+            if value.is_nan() {
+                0.0
+            } else {
+                f64::from(value.clamp(f32::MIN, f32::MAX))
+            }
         };
-        while self.used_ids.contains(&id) {
-            occurrence += 1;
-            id = duplicate_node_id(base, occurrence);
-        }
-        *next_occurrence = occurrence + 1;
-        let focus = SemanticFocus {
-            base: semantics.id,
-            occurrence,
-        };
-        self.used_ids.insert(id);
+        let x = finite(bounds.x) - finite(self.translation.x);
+        let y = finite(bounds.y) - finite(self.translation.y);
         let mut node = Node::new(semantics.role);
         node.set_bounds(Rect {
-            x0: f64::from(bounds.x),
-            y0: f64::from(bounds.y),
-            x1: f64::from(bounds.x + bounds.width),
-            y1: f64::from(bounds.y + bounds.height),
+            x0: x,
+            y0: y,
+            x1: x + finite(bounds.width),
+            y1: y + finite(bounds.height),
         });
         if let Some(label) = &semantics.label {
             node.set_label(label.clone());
@@ -998,7 +1038,7 @@ impl<Message: Clone + Send + 'static> Operation<Snapshot<Message>> for SnapshotO
                 tree: Some(Tree {
                     root: ROOT_ID,
                     toolkit_name: Some("Ice/Iced".into()),
-                    toolkit_version: Some("0.1/0.14".into()),
+                    toolkit_version: Some(concat!(env!("CARGO_PKG_VERSION"), "/0.14").into()),
                 }),
                 tree_id: TreeId::ROOT,
                 focus: self.focus,
@@ -1291,6 +1331,287 @@ pub fn focus_previous<Message>() -> Task<Message> {
     iced::widget::operation::focus_previous()
 }
 
+/// Adds gradient stops after discarding malformed stops from an extern value.
+pub fn add_gradient_stops(
+    linear: iced::gradient::Linear,
+    stops: impl IntoIterator<Item = iced::gradient::ColorStop>,
+) -> iced::gradient::Linear {
+    iced::gradient::Linear::new(linear.angle)
+        .add_stops(linear.stops.into_iter().flatten())
+        .add_stops(stops)
+}
+
+/// Converts viewer scale bounds to a finite, positive, ordered `f32` range.
+pub fn viewer_scale_bounds(min: f64, max: f64) -> (f32, f32) {
+    let positive = |value: f64| {
+        let value = value as f32;
+        if value.is_nan() {
+            f32::EPSILON
+        } else {
+            value.clamp(f32::EPSILON, f32::MAX)
+        }
+    };
+    let min = positive(min);
+    let max = positive(max);
+    (min.min(max), min.max(max))
+}
+
+/// Converts progress inputs to a finite, ordered range and bounded value.
+pub fn progress_range(min: f64, max: f64, value: f64) -> (std::ops::RangeInclusive<f32>, f32) {
+    let finite = |value: f64| {
+        let value = value as f32;
+        if value.is_nan() {
+            0.0
+        } else {
+            value.clamp(-f32::MAX, f32::MAX)
+        }
+    };
+    let min = finite(min);
+    let max = finite(max);
+    let (min, max) = (min.min(max), min.max(max));
+    let value = finite(value).clamp(min, max);
+    (min..=max, value)
+}
+
+/// Returns animation time remaining without letting overshooting easing produce a negative duration.
+pub fn animation_remaining_millis(
+    animation: &iced::Animation<bool>,
+    at: iced::time::Instant,
+) -> f64 {
+    animation
+        .clone()
+        .easing(iced::animation::Easing::Linear)
+        .remaining(at)
+        .as_secs_f64()
+        * 1_000.0
+}
+
+/// Bounds spacing so Iced can multiply it by every gap without overflowing.
+pub fn bounded_spacing(spacing: f64, entries: usize) -> f32 {
+    let spacing = bounded_nonnegative_f32(spacing);
+    let gaps = entries.saturating_sub(1) as f32;
+    if gaps <= 1.0 {
+        spacing
+    } else {
+        spacing.min((f32::MAX / gaps).next_down())
+    }
+}
+
+/// Converts padding without letting opposing sides overflow Iced's `f32` totals.
+pub fn bounded_padding(top: f64, right: f64, bottom: f64, left: f64) -> Padding {
+    let top = bounded_nonnegative_f32(top);
+    let left = bounded_nonnegative_f32(left);
+    Padding {
+        top,
+        right: bounded_nonnegative_f32(right).min(f32::MAX - left),
+        bottom: bounded_nonnegative_f32(bottom).min(f32::MAX - top),
+        left,
+    }
+}
+
+/// Bounds one table padding/separator metric across an entire row or column.
+pub fn bounded_table_metric(value: f64, entries: usize) -> f32 {
+    let terms = entries.max(1) as f32 * 3.0;
+    bounded_nonnegative_f32(value).min((f32::MAX / terms).next_down())
+}
+
+fn bounded_nonnegative_f32(value: f64) -> f32 {
+    if value.is_nan() {
+        0.0
+    } else {
+        value.clamp(0.0, f64::from(f32::MAX)) as f32
+    }
+}
+
+/// Bounds a fill factor so Iced can sum its peers in a `u16`.
+pub fn bounded_fill_length(length: impl Into<Length>, entries: usize) -> Length {
+    let length = length.into();
+    let max_factor = u16::try_from(entries.max(1)).map_or(0, |entries| u16::MAX / entries);
+    match length {
+        Length::Fill | Length::FillPortion(_) if max_factor == 0 => Length::Shrink,
+        Length::FillPortion(factor) => Length::FillPortion(factor.min(max_factor)),
+        length => length,
+    }
+}
+
+/// Bounds one axis of an element only when its native fill-factor sum would overflow.
+pub fn bounded_fill_element<'a, Message, Theme, Renderer>(
+    content: Element<'a, Message, Theme, Renderer>,
+    entries: usize,
+    horizontal: bool,
+) -> Element<'a, Message, Theme, Renderer>
+where
+    Message: 'a,
+    Theme: 'a,
+    Renderer: iced::advanced::Renderer + 'a,
+{
+    if entries <= 1 {
+        return content;
+    }
+    Element::new(BoundedFill {
+        content,
+        entries,
+        horizontal,
+    })
+}
+
+struct BoundedFill<'a, Message, Theme, Renderer>
+where
+    Renderer: iced::advanced::Renderer,
+{
+    content: Element<'a, Message, Theme, Renderer>,
+    entries: usize,
+    horizontal: bool,
+}
+
+impl<Message, Theme, Renderer> BoundedFill<'_, Message, Theme, Renderer>
+where
+    Renderer: iced::advanced::Renderer,
+{
+    fn size(&self, mut size: Size<Length>) -> Size<Length> {
+        let length = if self.horizontal {
+            &mut size.width
+        } else {
+            &mut size.height
+        };
+        *length = bounded_fill_length(*length, self.entries);
+        size
+    }
+}
+
+impl<Message, Theme, Renderer> Widget<Message, Theme, Renderer>
+    for BoundedFill<'_, Message, Theme, Renderer>
+where
+    Renderer: iced::advanced::Renderer,
+{
+    fn tag(&self) -> tree::Tag {
+        self.content.as_widget().tag()
+    }
+
+    fn state(&self) -> tree::State {
+        self.content.as_widget().state()
+    }
+
+    fn children(&self) -> Vec<widget::Tree> {
+        self.content.as_widget().children()
+    }
+
+    fn diff(&self, tree: &mut widget::Tree) {
+        self.content.as_widget().diff(tree);
+    }
+
+    fn size(&self) -> Size<Length> {
+        self.size(self.content.as_widget().size())
+    }
+
+    fn size_hint(&self) -> Size<Length> {
+        self.size(self.content.as_widget().size_hint())
+    }
+
+    fn layout(
+        &mut self,
+        tree: &mut widget::Tree,
+        renderer: &Renderer,
+        limits: &layout::Limits,
+    ) -> layout::Node {
+        self.content.as_widget_mut().layout(tree, renderer, limits)
+    }
+
+    fn operate(
+        &mut self,
+        tree: &mut widget::Tree,
+        layout: Layout<'_>,
+        renderer: &Renderer,
+        operation: &mut dyn Operation,
+    ) {
+        self.content
+            .as_widget_mut()
+            .operate(tree, layout, renderer, operation);
+    }
+
+    fn update(
+        &mut self,
+        tree: &mut widget::Tree,
+        event: &Event,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        renderer: &Renderer,
+        clipboard: &mut dyn Clipboard,
+        shell: &mut Shell<'_, Message>,
+        viewport: &Rectangle,
+    ) {
+        self.content.as_widget_mut().update(
+            tree, event, layout, cursor, renderer, clipboard, shell, viewport,
+        );
+    }
+
+    fn mouse_interaction(
+        &self,
+        tree: &widget::Tree,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+        renderer: &Renderer,
+    ) -> mouse::Interaction {
+        self.content
+            .as_widget()
+            .mouse_interaction(tree, layout, cursor, viewport, renderer)
+    }
+
+    fn draw(
+        &self,
+        tree: &widget::Tree,
+        renderer: &mut Renderer,
+        theme: &Theme,
+        style: &renderer::Style,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+    ) {
+        self.content
+            .as_widget()
+            .draw(tree, renderer, theme, style, layout, cursor, viewport);
+    }
+
+    fn overlay<'a>(
+        &'a mut self,
+        tree: &'a mut widget::Tree,
+        layout: Layout<'a>,
+        renderer: &Renderer,
+        viewport: &Rectangle,
+        translation: Vector,
+    ) -> Option<overlay::Element<'a, Message, Theme, Renderer>> {
+        self.content
+            .as_widget_mut()
+            .overlay(tree, layout, renderer, viewport, translation)
+    }
+}
+
+/// Crops a screenshot after checking the invariants assumed by Iced's native crop.
+pub fn crop_screenshot(
+    screenshot: &iced::window::Screenshot,
+    region: Rectangle<u32>,
+) -> Result<iced::window::Screenshot, iced::window::screenshot::CropError> {
+    use iced::window::screenshot::CropError;
+
+    if region.width == 0 || region.height == 0 {
+        return Err(CropError::Zero);
+    }
+    let in_bounds = region
+        .x
+        .checked_add(region.width)
+        .is_some_and(|right| right <= screenshot.size.width)
+        && region
+            .y
+            .checked_add(region.height)
+            .is_some_and(|bottom| bottom <= screenshot.size.height);
+    let expected = u128::from(screenshot.size.width) * u128::from(screenshot.size.height) * 4;
+    if !in_bounds || expected != screenshot.rgba.len() as u128 {
+        return Err(CropError::OutOfBounds);
+    }
+    screenshot.crop(region)
+}
+
 #[cfg(test)]
 #[allow(clippy::let_unit_value)]
 mod tests {
@@ -1313,6 +1634,148 @@ mod tests {
         Last,
         Next,
         Previous,
+    }
+
+    #[test]
+    fn safely_adds_stops_to_malformed_gradients() {
+        let mut malformed = iced::gradient::Linear::new(iced::Radians(0.0));
+        malformed.stops[0] = Some(iced::gradient::ColorStop {
+            offset: f32::NAN,
+            color: iced::Color::BLACK,
+        });
+        let safe = add_gradient_stops(
+            malformed,
+            [iced::gradient::ColorStop {
+                offset: 0.5,
+                color: iced::Color::WHITE,
+            }],
+        );
+
+        assert_eq!(safe.stops[0].map(|stop| stop.offset), Some(0.5));
+        assert!(safe.stops[1..].iter().all(Option::is_none));
+    }
+
+    #[test]
+    fn normalizes_viewer_scale_bounds() {
+        assert_eq!(viewer_scale_bounds(4.0, 0.5), (0.5, 4.0));
+        assert_eq!(
+            viewer_scale_bounds(f64::NAN, f64::INFINITY),
+            (f32::EPSILON, f32::MAX)
+        );
+    }
+
+    #[test]
+    fn normalizes_progress_ranges() {
+        assert_eq!(progress_range(10.0, -10.0, 20.0), (-10.0..=10.0, 10.0));
+        assert_eq!(progress_range(f64::NAN, 1.0, f64::NAN), (0.0..=1.0, 0.0));
+    }
+
+    #[test]
+    fn reads_remaining_time_with_overshooting_easing() {
+        let started = iced::time::Instant::now();
+        let animation = iced::Animation::new(false)
+            .duration(std::time::Duration::from_secs(1))
+            .easing(iced::animation::Easing::EaseOutBack)
+            .go(true, started);
+        let halfway = started
+            .checked_add(std::time::Duration::from_millis(500))
+            .expect("halfway instant");
+
+        assert_eq!(animation_remaining_millis(&animation, halfway), 500.0);
+    }
+
+    #[test]
+    fn bounds_native_spacing() {
+        assert_eq!(bounded_spacing(f64::NAN, 3), 0.0);
+        assert_eq!(bounded_spacing(-1.0, 3), 0.0);
+        assert_eq!(bounded_spacing(8.0, 3), 8.0);
+        for entries in [0, 1, 2, 3, usize::MAX] {
+            let spacing = bounded_spacing(f64::MAX, entries);
+            assert!((spacing * entries.saturating_sub(1) as f32).is_finite());
+        }
+    }
+
+    #[test]
+    fn bounds_native_padding() {
+        let padding = bounded_padding(f64::MAX, f64::MAX, f64::MAX, f64::MAX);
+        assert!(padding.x().is_finite());
+        assert!(padding.y().is_finite());
+        assert_eq!(bounded_padding(f64::NAN, -1.0, 2.0, 3.0).top, 0.0);
+    }
+
+    #[test]
+    fn bounds_native_table_metrics() {
+        for entries in [0, 1, 2, usize::MAX] {
+            let metric = bounded_table_metric(f64::MAX, entries);
+            let spacing = metric * 2.0 + metric;
+            let total = spacing * entries.saturating_sub(1) as f32 + metric * 2.0;
+            assert!(total.is_finite());
+        }
+    }
+
+    #[test]
+    fn bounds_native_fill_factors() {
+        assert_eq!(
+            bounded_fill_length(Length::FillPortion(u16::MAX), 2),
+            Length::FillPortion(u16::MAX / 2)
+        );
+        assert_eq!(
+            bounded_fill_length(Length::Fill, usize::from(u16::MAX) + 1),
+            Length::Shrink
+        );
+
+        let column_item: TestElement<'_> = iced::widget::space()
+            .height(Length::FillPortion(u16::MAX))
+            .into();
+        assert_eq!(
+            bounded_fill_element(column_item, 2, false)
+                .as_widget()
+                .size()
+                .height,
+            Length::FillPortion(u16::MAX / 2)
+        );
+        let row_item: TestElement<'_> = iced::widget::space()
+            .width(Length::FillPortion(u16::MAX))
+            .into();
+        assert_eq!(
+            bounded_fill_element(row_item, 2, true)
+                .as_widget()
+                .size()
+                .width,
+            Length::FillPortion(u16::MAX / 2)
+        );
+    }
+
+    #[test]
+    fn safely_rejects_invalid_screenshot_crops() {
+        use iced::window::screenshot::CropError;
+
+        let one = Rectangle {
+            x: 0,
+            y: 0,
+            width: 1,
+            height: 1,
+        };
+        let short = iced::window::Screenshot::new(vec![0; 4], Size::new(2, 2), 1.0);
+        assert!(matches!(
+            crop_screenshot(&short, one),
+            Err(CropError::OutOfBounds)
+        ));
+
+        let valid = iced::window::Screenshot::new(vec![0; 4], Size::new(1, 1), 1.0);
+        assert!(matches!(
+            crop_screenshot(
+                &valid,
+                Rectangle {
+                    x: u32::MAX,
+                    y: 0,
+                    width: 2,
+                    height: 1,
+                }
+            ),
+            Err(CropError::OutOfBounds)
+        ));
+        assert!(crop_screenshot(&valid, one).is_ok());
     }
 
     fn renderer() -> TestRenderer {
@@ -1597,6 +2060,72 @@ mod tests {
         };
         ui.operate(&renderer, operation.as_mut());
         assert_eq!(snapshot(&mut ui, &renderer).update.focus, first);
+
+        let mut disabled_focus = FocusOperation::<Message> {
+            target: SemanticFocus {
+                base: StableId::new("disabled-control"),
+                occurrence: 0,
+            },
+            occurrences: HashMap::new(),
+            used_ids: HashSet::from([ROOT_ID]),
+            frames: Vec::new(),
+            marker: std::marker::PhantomData,
+        };
+        ui.operate(&renderer, &mut operation::black_box(&mut disabled_focus));
+        assert_eq!(snapshot(&mut ui, &renderer).update.focus, ROOT_ID);
+    }
+
+    #[test]
+    fn focus_actions_follow_disambiguated_node_ids() {
+        let repeated = StableId(NodeId(42));
+        let colliding = StableId(duplicate_node_id(repeated.node_id(), 1));
+        let nested: TestElement<'static> =
+            accessible(iced::widget::text("Nested"), repeated, Role::Label)
+                .label("Nested")
+                .into();
+        let native_atomic: TestElement<'static> =
+            iced::widget::button(nested).on_press(Message::First).into();
+        let atomic: TestElement<'static> =
+            accessible(native_atomic, StableId(NodeId(1_000)), Role::Button)
+                .label("Atomic")
+                .on_activate(Message::First)
+                .into();
+        let children = vec![
+            button("First", repeated, Message::First, Role::Button, false),
+            button("Collision", colliding, Message::First, Role::Button, false),
+            atomic,
+            button("Last", repeated, Message::Last, Role::Button, false),
+        ];
+        let root: TestElement<'static> = iced::widget::Column::with_children(children).into();
+        let mut renderer = renderer();
+        let mut ui = UserInterface::build(
+            root,
+            Size::new(400.0, 240.0),
+            user_interface::Cache::default(),
+            &mut renderer,
+        );
+        let initial = snapshot(&mut ui, &renderer);
+        let target = semantic_nodes(&initial)
+            .into_iter()
+            .find(|(_, node)| node.label() == Some("Last"))
+            .map(|(id, _)| id)
+            .expect("last node");
+
+        let focus = initial.dispatch(ActionRequest {
+            action: Action::Focus,
+            target_tree: TreeId::ROOT,
+            target_node: target,
+            data: None,
+        });
+        let mut stream = iced_test::runtime::task::into_stream(focus).expect("focus task");
+        let action = iced_test::futures::futures::executor::block_on(stream.next())
+            .expect("focus operation");
+        let iced_test::runtime::Action::Widget(mut operation) = action else {
+            panic!("focus dispatch must produce a widget operation");
+        };
+        ui.operate(&renderer, operation.as_mut());
+
+        assert_eq!(snapshot(&mut ui, &renderer).update.focus, target);
     }
 
     #[test]
@@ -1667,6 +2196,100 @@ mod tests {
             );
             assert_eq!(snapshot(&mut ui, &renderer).update.focus, expected);
         }
+    }
+
+    #[test]
+    fn scroll_translation_reaches_semantics_and_touch_focus() {
+        let target = StableId::new("scrolled-control");
+        let scroll_id: widget::Id = "scrolled-semantics".into();
+        let spacer: TestElement<'static> = iced::widget::Space::new().height(100.0).into();
+        let control: TestElement<'static> = accessible(
+            iced::widget::Space::new().width(10.0).height(20.0),
+            target,
+            Role::Button,
+        )
+        .into();
+        let content: TestElement<'static> =
+            iced::widget::Column::with_children(vec![spacer, control]).into();
+        let root: TestElement<'static> = iced::widget::scrollable(content)
+            .id(scroll_id.clone())
+            .width(20.0)
+            .height(50.0)
+            .into();
+        let mut renderer = renderer();
+        let mut ui = UserInterface::build(
+            root,
+            Size::new(20.0, 50.0),
+            user_interface::Cache::default(),
+            &mut renderer,
+        );
+
+        let before = semantic_nodes(&snapshot(&mut ui, &renderer))[0]
+            .1
+            .bounds()
+            .expect("semantic bounds");
+        assert_eq!(before.y0, 100.0);
+
+        let mut scroll = operation::scrollable::scroll_to::<()>(
+            scroll_id,
+            operation::scrollable::AbsoluteOffset {
+                x: None,
+                y: Some(100.0),
+            },
+        );
+        ui.operate(&renderer, &mut operation::black_box(&mut scroll));
+
+        let after = semantic_nodes(&snapshot(&mut ui, &renderer))[0]
+            .1
+            .bounds()
+            .expect("semantic bounds");
+        assert_eq!(after.y0, 30.0);
+
+        let point = Point::new(5.0, 40.0);
+        let mut messages = Vec::new();
+        let _ = ui.update(
+            &[Event::Touch(iced::touch::Event::FingerPressed {
+                id: iced::touch::Finger(0),
+                position: point,
+            })],
+            mouse::Cursor::Available(point),
+            &mut renderer,
+            &mut iced::advanced::clipboard::Null,
+            &mut messages,
+        );
+        assert_eq!(snapshot(&mut ui, &renderer).update.focus, target.node_id());
+    }
+
+    #[test]
+    fn keeps_exported_accessibility_bounds_finite() {
+        let mut operation = SnapshotOperation::<Message>::named("Test application");
+        operation.translation = Vector::new(-f32::MAX, -f32::MAX);
+        let mut state: SemanticState<Message> = SemanticState {
+            semantics: Semantics::new(StableId::new("extreme-bounds"), Role::Button),
+            focused: false,
+        };
+        operation.custom(
+            None,
+            Rectangle::new(
+                Point::new(f32::MAX, f32::MAX),
+                Size::new(f32::MAX, f32::MAX),
+            ),
+            &mut state,
+        );
+        operation.custom(None, Rectangle::default(), &mut SemanticEnd);
+        let Outcome::Some(snapshot) = operation.finish() else {
+            panic!("snapshot operation did not finish");
+        };
+        let bounds = semantic_nodes(&snapshot)[0]
+            .1
+            .bounds()
+            .expect("semantic bounds");
+
+        assert!(
+            [bounds.x0, bounds.y0, bounds.x1, bounds.y1]
+                .into_iter()
+                .all(f64::is_finite)
+        );
     }
 
     #[derive(Default)]

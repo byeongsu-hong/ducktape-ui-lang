@@ -25,14 +25,10 @@ pub(in crate::parser) fn parse_media(
     };
     let mut options = MediaOptions::default();
     for part in &parts[2..] {
-        if let Some(value) = part.strip_prefix("label=") {
-            options.accessibility.label = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("description=") {
-            options.accessibility.description =
-                Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("width=") {
+        if parse_accessibility_option(part, &mut options.accessibility, line)? {
+        } else if let Some(value) = part.strip_prefix("w=") {
             options.width = Some(parse_length(value, line)?);
-        } else if let Some(value) = part.strip_prefix("height=") {
+        } else if let Some(value) = part.strip_prefix("h=") {
             options.height = Some(parse_length(value, line)?);
         } else if let Some(value) = part.strip_prefix("fit=") {
             options.fit = Some(match value {
@@ -42,16 +38,11 @@ pub(in crate::parser) fn parse_media(
                 },
                 value => parse_expr(strip_wrapping_parens(value), line)?,
             });
-        } else if let Some(value) = part.strip_prefix("rotation=") {
+        } else if let Some(value) = part.strip_prefix("rotate=") {
             if media_kind == MediaKind::Viewer {
-                return Err(error("E085", line, "rotation is not available on viewer"));
+                return Err(error("E085", line, "rotate is not available on viewer"));
             }
-            let (value, solid) = value
-                .strip_prefix("solid(")
-                .and_then(|value| value.strip_suffix(')'))
-                .map_or((value, false), |value| (value, true));
             options.rotation = Some(parse_expr(strip_wrapping_parens(value), line)?);
-            options.rotation_solid = solid;
         } else if let Some(value) = part.strip_prefix("opacity=") {
             if media_kind == MediaKind::Viewer {
                 return Err(error("E085", line, "opacity is not available on viewer"));
@@ -76,12 +67,12 @@ pub(in crate::parser) fn parse_media(
             if media_kind != MediaKind::Svg {
                 return Err(error("E085", line, "style is only available on svg"));
             }
-            let (function, args) = parse_signature(value, line)
-                .map_err(|_| error("E085", line, "svg style must be a declared style call"))?;
-            options.svg_style = Some(ExternCall {
-                function,
-                args: parse_expr_list(&args, line)?,
-            });
+            options.svg_style = Some(parse_extern_call(
+                value,
+                line,
+                "E085",
+                "svg style must be a declared style call",
+            )?);
         } else if let Some(value) = part.strip_prefix("filter=") {
             if media_kind == MediaKind::Svg {
                 return Err(error(
@@ -133,7 +124,7 @@ pub(in crate::parser) fn parse_media(
                     .map_err(|_| error("E085", line, "crop requires x, y, width, and height"))?,
             );
         } else if let Some((property, field, value)) = [
-            ("padding=", &mut options.padding),
+            ("p=", &mut options.padding),
             ("min-scale=", &mut options.min_scale),
             ("max-scale=", &mut options.max_scale),
             ("scale-step=", &mut options.scale_step),
@@ -253,7 +244,7 @@ pub(in crate::parser) fn parse_tooltip(
             };
         } else if let Some(value) = part.strip_prefix("gap=") {
             options.gap = parse_expr(strip_wrapping_parens(value), line)?;
-        } else if let Some(value) = part.strip_prefix("padding=") {
+        } else if let Some(value) = part.strip_prefix("p=") {
             options.padding = parse_expr(strip_wrapping_parens(value), line)?;
         } else if let Some(value) = part.strip_prefix("delay=") {
             options.delay_ms = parse_expr(strip_wrapping_parens(value), line)?;
@@ -272,17 +263,12 @@ pub(in crate::parser) fn parse_tooltip(
                 "warning" => Some(TooltipStyle::Warning),
                 "danger" => Some(TooltipStyle::Danger),
                 _ => {
-                    let (function, args) = parse_signature(value, line).map_err(|_| {
-                        error(
-                            "E086",
-                            line,
-                            "tooltip style must be a preset or declared container style call",
-                        )
-                    })?;
-                    options.custom_style = Some(ExternCall {
-                        function,
-                        args: parse_expr_list(&args, line)?,
-                    });
+                    options.custom_style = Some(parse_extern_call(
+                        value,
+                        line,
+                        "E086",
+                        "tooltip style must be a preset or declared box style call",
+                    )?);
                     None
                 }
             };

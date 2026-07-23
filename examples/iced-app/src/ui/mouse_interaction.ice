@@ -42,9 +42,9 @@ on inspect
   values_ordered = interaction.none() < interaction.pointer()
 
 view
-  col spacing=8.0 padding=16.0
+  col gap=8.0 p=16.0
     button "Inspect" -> inspect
     mouse cursor=(returned)
       text kind
-    canvas width=64.0 height=32.0 cursor=(returned)
-      rect x=0.0 y=0.0 width=canvas_width height=canvas_height fill=primary
+    canvas w=64.0 h=32.0 cursor=(returned)
+      rect x=0.0 y=0.0 w=canvas_width h=canvas_height fill=primary

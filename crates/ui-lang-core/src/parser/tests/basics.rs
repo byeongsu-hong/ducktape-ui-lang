@@ -15,21 +15,20 @@ fn parses_compact_app() {
 }
 
 #[test]
-fn rejects_long_style_spelling() {
-    let source = r#"app Demo
-theme
-  bg #000000
-view
-  container background=bg
-    text \"Demo\"
-"#;
-    let error = parse(source).unwrap_err();
-    assert_eq!(error.code, "E184");
-    assert!(
-        error
-            .message
-            .contains("unknown container property `background=bg`")
-    );
+fn rejects_removed_property_spellings() {
+    for view in [
+        "box background=bg\n    text \"Demo\"",
+        "box width=fill\n    text \"Demo\"",
+        "box padding=8.0\n    text \"Demo\"",
+        "row spacing=8.0\n    text \"Demo\"",
+        "grid columns=2\n    text \"Demo\"",
+        "flex direction=row\n    text \"Demo\"",
+        "flex justify=normal\n    text \"Demo\"",
+        "flex items=self-start\n    text \"Demo\"",
+    ] {
+        let source = format!("app Demo\ntheme\n  bg #000000\nview\n  {view}\n");
+        parse(&source).unwrap_err();
+    }
 }
 
 #[test]

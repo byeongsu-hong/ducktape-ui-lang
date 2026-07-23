@@ -37,6 +37,15 @@ pub(in crate::check) fn check_handler(
                     require_type(&actual, &Type::List(inner.clone()), span)?;
                 } else if let Type::Animation(inner) = expected {
                     require_type(&actual, inner, span)?;
+                    if **inner == Type::F64 {
+                        require_f32_literal_range(
+                            value,
+                            f64::NEG_INFINITY,
+                            None,
+                            "animation value",
+                            span,
+                        )?;
+                    }
                 } else {
                     require_type(&actual, expected, span)?;
                 }
@@ -308,7 +317,7 @@ pub(in crate::check) fn check_handler(
                     | WidgetOperation::ScrollBy { x, y, .. } => vec![(x, false), (y, false)],
                     _ => Vec::new(),
                 } {
-                    require_type(&expr_type(value, &env, document, span)?, &Type::F64, span)?;
+                    require_f32_value(value, &env, document, "scroll offset", span)?;
                     if relative {
                         require_literal_range(
                             value,
@@ -326,9 +335,9 @@ pub(in crate::check) fn check_handler(
                 route,
                 span,
             } => {
-                let names = pane_grids.get(grid).ok_or_else(|| {
-                    Error::new("E188", span, format!("unknown pane-grid `#{grid}`"))
-                })?;
+                let names = pane_grids
+                    .get(grid)
+                    .ok_or_else(|| Error::new("E188", span, format!("unknown panes `#{grid}`")))?;
                 let referenced = match operation {
                     PaneOperation::Maximize { pane }
                     | PaneOperation::Adjacent { pane, .. }
@@ -348,7 +357,7 @@ pub(in crate::check) fn check_handler(
                                 return Err(Error::new(
                                     "E188",
                                     span,
-                                    format!("pane-grid `#{grid}` has no pane `{pane}`"),
+                                    format!("panes `#{grid}` has no pane `{pane}`"),
                                 ));
                             }
                         }
@@ -358,7 +367,7 @@ pub(in crate::check) fn check_handler(
                                     "E188",
                                     span,
                                     format!(
-                                        "pane-grid `#{grid}` has no dynamic pane template `{template}`"
+                                        "panes `#{grid}` has no dynamic pane template `{template}`"
                                     ),
                                 )
                             })?;
@@ -374,7 +383,7 @@ pub(in crate::check) fn check_handler(
                     return Err(Error::new(
                         "E188",
                         span,
-                        format!("pane-grid `#{grid}` has no split `{split}`"),
+                        format!("panes `#{grid}` has no split `{split}`"),
                     ));
                 }
                 let same_static = |first: &PaneReference, second: &PaneReference| matches!((first, second), (PaneReference::Static(first), PaneReference::Static(second)) if first == second);
@@ -520,11 +529,11 @@ pub(in crate::check) fn check_handler(
                     _ => Vec::new(),
                 } {
                     require_type(&expr_type(value, &env, document, span)?, &Type::F64, span)?;
-                    require_literal_range(value, f64::EPSILON, None, "window size", span)?;
+                    require_f32_literal_range(value, f64::EPSILON, None, "window size", span)?;
                 }
                 if let WindowOperation::Move(x, y) = operation {
-                    require_type(&expr_type(x, &env, document, span)?, &Type::F64, span)?;
-                    require_type(&expr_type(y, &env, document, span)?, &Type::F64, span)?;
+                    require_f32_value(x, &env, document, "window position", span)?;
+                    require_f32_value(y, &env, document, "window position", span)?;
                 }
                 if let WindowOperation::Icon {
                     pixels,
@@ -749,13 +758,13 @@ pub(in crate::check) fn extern_function<'a>(
                 ExternKind::CheckboxStyle => "checkbox style",
                 ExternKind::TogglerStyle => "toggler style",
                 ExternKind::RadioStyle => "radio style",
-                ExternKind::ContainerStyle => "container style",
+                ExternKind::ContainerStyle => "box style",
                 ExternKind::SvgStyle => "svg style",
                 ExternKind::InputStyle => "input style",
                 ExternKind::ScrollStyle => "scroll style",
                 ExternKind::PickListStyle => "pick-list style",
                 ExternKind::MenuStyle => "menu style",
-                ExternKind::PaneGridStyle => "pane-grid style",
+                ExternKind::PaneGridStyle => "panes style",
             };
             Error::new("E130", span, format!("unknown extern {label} `{name}`"))
         })
@@ -903,7 +912,7 @@ pub(crate) fn task_flow_type(
                     return Err(Error::new(
                         "E144",
                         span,
-                        "then cannot unwrap a fallible task; use and-then",
+                        "then cannot unwrap a fallible task; use try",
                     ));
                 }
                 let env = HashMap::from([(binding.clone(), output)]);
@@ -932,7 +941,7 @@ pub(crate) fn task_flow_type(
                     return Err(Error::new(
                         "E144",
                         span,
-                        "and-then requires an optional or fallible task output",
+                        "try requires an optional or fallible task output",
                     ));
                 };
                 let env = HashMap::from([(binding.clone(), binding_ty)]);
@@ -950,7 +959,7 @@ pub(crate) fn task_flow_type(
                         return Err(Error::new(
                             "E144",
                             span,
-                            "and-then after a fallible task must return a fallible task",
+                            "try after a fallible task must return a fallible task",
                         ));
                     };
                     require_type(actual, &expected, span)?;
@@ -966,16 +975,12 @@ pub(crate) fn task_flow_type(
                 span,
             } => {
                 let Some(error) = error_ty.take() else {
-                    return Err(Error::new(
-                        "E144",
-                        span,
-                        "map-error requires a fallible flow",
-                    ));
+                    return Err(Error::new("E144", span, "map-err requires a fallible flow"));
                 };
                 let env = HashMap::from([(binding.clone(), error)]);
                 let mapped = expr_type(value, &env, document, span).map_err(|error| {
                     if error.code == "E150" {
-                        error.hint(format!("map-error may only read its `{binding}` binding"))
+                        error.hint(format!("map-err may only read its `{binding}` binding"))
                     } else {
                         error
                     }

@@ -43,7 +43,7 @@ pub(in crate::codegen) fn render_structure(
             ..
         } => {
             let content = render_node(content, document, message, env, scope, slot)?;
-            let scale = expr_code(scale, env, document, ValueMode::Owned)?;
+            let scale = clamped_f32_code(scale, "f32::EPSILON", "f32::MAX", env, document)?;
             let mut translate_env = env.clone();
             for (name, code) in [
                 ("original_x", "(__original.x as f64)"),
@@ -68,7 +68,7 @@ pub(in crate::codegen) fn render_structure(
             let x = expr_code(x, &translate_env, document, ValueMode::Owned)?;
             let y = expr_code(y, &translate_env, document, ValueMode::Owned)?;
             let mut code = format!(
-                "{{ let __float_content: __IceElement<'_, {message}> = {content}; let __float = ::iced::widget::float(__float_content).scale({scale} as f32).translate(move |__original, __viewport| ::iced::Vector::new({x} as f32, {y} as f32))"
+                "{{ let __float_content: __IceElement<'_, {message}> = {content}; let __float = ::iced::widget::float(__float_content).scale({scale}).translate(move |__original, __viewport| ::iced::Vector::new({x} as f32, {y} as f32))"
             );
             append_float_style(&mut code, style, env, document)?;
             Ok(format!("{code}; __float.into() }}"))
@@ -87,12 +87,7 @@ pub(in crate::codegen) fn render_structure(
             let mut code = format!(
                 "{{ let __pin_content: __IceElement<'_, {message}> = {content}; ::iced::widget::pin(__pin_content).x({x} as f32).y({y} as f32)"
             );
-            if let Some(width) = width {
-                write!(code, ".width({})", length_code(width, env, document)?).unwrap();
-            }
-            if let Some(height) = height {
-                write!(code, ".height({})", length_code(height, env, document)?).unwrap();
-            }
+            append_dimensions(&mut code, [width, height], env, document)?;
             Ok(format!("{code}.into() }}"))
         }
         ViewNode::Sensor {
@@ -143,15 +138,15 @@ pub(in crate::codegen) fn render_structure(
             if let Some(distance) = &options.anticipate {
                 write!(
                     code,
-                    ".anticipate({} as f32)",
-                    expr_code(distance, env, document, ValueMode::Owned)?
+                    ".anticipate({})",
+                    clamped_f32_code(distance, "0.0", "f32::MAX", env, document)?
                 )
                 .unwrap();
             }
             if let Some(delay) = &options.delay_ms {
                 write!(
                     code,
-                    ".delay(::std::time::Duration::from_millis({} as u64))",
+                    ".delay(::std::time::Duration::from_millis(u64::try_from({}).unwrap_or(0)))",
                     expr_code(delay, env, document, ValueMode::Owned)?
                 )
                 .unwrap();
@@ -170,11 +165,12 @@ pub(in crate::codegen) fn render_structure(
                     narrow,
                     wide,
                 } => {
-                    let breakpoint = expr_code(breakpoint, env, document, ValueMode::Owned)?;
+                    let breakpoint =
+                        clamped_f32_code(breakpoint, "f32::EPSILON", "f32::MAX", env, document)?;
                     let narrow = render_node(narrow, document, message, env, scope, slot)?;
                     let wide = render_node(wide, document, message, env, scope, slot)?;
                     format!(
-                        "move |__size| {{ let __responsive: __IceElement<'_, {message}> = if __size.width < {breakpoint} as f32 {{ {narrow} }} else {{ {wide} }}; __responsive }}"
+                        "move |__size| {{ let __responsive: __IceElement<'_, {message}> = if __size.width < {breakpoint} {{ {narrow} }} else {{ {wide} }}; __responsive }}"
                     )
                 }
                 ResponsiveContent::Size {
@@ -208,12 +204,7 @@ pub(in crate::codegen) fn render_structure(
                 }
             };
             let mut code = format!("::iced::widget::responsive({builder})");
-            if let Some(width) = width {
-                write!(code, ".width({})", length_code(width, env, document)?).unwrap();
-            }
-            if let Some(height) = height {
-                write!(code, ".height({})", length_code(height, env, document)?).unwrap();
-            }
+            append_dimensions(&mut code, [width, height], env, document)?;
             Ok(format!("{code}.into()"))
         }
         ViewNode::KeyedColumn {
@@ -232,14 +223,7 @@ pub(in crate::codegen) fn render_structure(
             child,
             span,
         } => {
-            let dependency_type = expr_type(
-                dependency,
-                &env.iter()
-                    .map(|(name, binding)| (name.clone(), binding.ty.clone()))
-                    .collect(),
-                document,
-                span,
-            )?;
+            let dependency_type = expr_type(dependency, &env_types(env), document, span)?;
             let dependency = expr_code(dependency, env, document, ValueMode::Owned)?;
             let mut child_env = HashMap::new();
             child_env.insert(

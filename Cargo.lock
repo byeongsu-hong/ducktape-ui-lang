@@ -4118,6 +4118,9 @@ dependencies = [
 [[package]]
 name = "ui-lang-core"
 version = "0.1.0"
+dependencies = [
+ "qrcode",
+]
 
 [[package]]
 name = "ui-lang-runtime"

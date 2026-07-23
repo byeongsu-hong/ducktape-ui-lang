@@ -49,14 +49,14 @@ on raw_window_id_read(value)
   raw_window_id = value
 
 on capture_window
-  task window screenshot -> window_captured _ _ _ _
+  task window screenshot -> window_captured _
 
-on window_captured(pixels, width, height, scale)
-  window_snapshot = rgba(width, height, pixels)
+on window_captured(value)
+  window_snapshot = rgba(value.size.width, value.size.height, value.rgba)
   snapshot_ready = true
-  snapshot_width = width
-  snapshot_height = height
-  snapshot_scale = scale
+  snapshot_width = value.size.width
+  snapshot_height = value.size.height
+  snapshot_scale = value.scale_factor
 
 on about_toggled(next)
   about_open = next

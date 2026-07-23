@@ -37,11 +37,11 @@ on inspect
   equal = default_fit == contain_fit
 
 view
-  col spacing=8.0 padding=16.0
+  col gap=8.0 p=16.0
     button "Inspect" -> inspect
-    image pixel width=48.0 height=48.0 fit=round_trip
-    viewer pixel width=48.0 height=48.0 fit=scale_down_fit
-    svg "<svg/>" memory width=48.0 height=48.0 fit=fill_fit
+    image pixel w=48.0 h=48.0 fit=round_trip
+    viewer pixel w=48.0 h=48.0 fit=scale_down_fit
+    svg "<svg/>" memory w=48.0 h=48.0 fit=fill_fit
     text kind
     text display
     text applied_size.width

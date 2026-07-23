@@ -356,6 +356,7 @@ fn checks_native_geometry_values() {
             "E152",
             "expects 0 argument(s)",
         ),
+        ("point.origin()", "point(3.5e38, 0.0)", "E128", "point"),
         (
             "size.from_u32(640, 480)",
             "size.from_u32(point_distance, 480)",
@@ -397,6 +398,12 @@ fn checks_native_geometry_values() {
             "scaled_bounds = bounds / 2.0",
             "E153",
             "does not accept `rectangle` and `f64`",
+        ),
+        (
+            "scaled_bounds = bounds * 2.0",
+            "scaled_bounds = bounds * 3.5e38",
+            "E128",
+            "native arithmetic value",
         ),
         (
             "contains_point = rectangle.contains(bounds, point(20.0, 30.0))",

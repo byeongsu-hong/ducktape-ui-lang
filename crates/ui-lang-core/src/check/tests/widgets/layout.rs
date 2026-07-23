@@ -10,15 +10,15 @@ theme
   danger #ff0000
 state
 view
-  flex direction=column-reverse flex-wrap=wrap-reverse width=fill height=fill gap=8.0 row-gap=10.0 column-gap=12.0 justify-content=space-between align-items=stretch align-content=space-around
-    box order=-1 flex-grow=2.0 flex-shrink=0.5 flex-basis=percent(40.0) align-self=baseline margin-left=auto margin-right=-4.0
+  flex dir=column-reverse wrap=wrap-reverse w=fill h=fill gap=8.0 gap-y=10.0 gap-x=12.0 justify=space-between items=stretch content=space-around
+    box order=-1 grow=2.0 shrink=0.5 basis=percent(40.0) self=baseline ml=auto mr=-4.0
       text "Flexible"
 "#;
     analyze(source).unwrap();
 
-    let error = analyze(&source.replace("flex-grow=2.0", "flex-grow=-1.0")).unwrap_err();
+    let error = analyze(&source.replace("grow=2.0", "grow=-1.0")).unwrap_err();
     assert_eq!(error.code, "E128");
-    assert!(error.message.contains("flex-grow"));
+    assert!(error.message.contains("grow"));
 
     let error = analyze(&source.replace("order=-1", "order=true")).unwrap_err();
     assert_eq!(error.code, "E101");
@@ -38,24 +38,24 @@ theme
   danger #ff0000
 state
 view
-  col width=fill height=shrink spacing=8.0 padding=1.0 padding-x=2.0 padding-y=3.0 padding-top=4.0 padding-right=5.0 padding-bottom=6.0 padding-left=7.0 max-width=640.0 align=center clip=true wrap wrap-spacing=12.0 wrap-align=end
-    row width=fill(2) height=48.0 spacing=4.0 padding=2.0 align=end clip=false wrap wrap-spacing=6.0 wrap-align=start
+  col w=fill h=shrink gap=8.0 p=1.0 px=2.0 py=3.0 pt=4.0 pr=5.0 pb=6.0 pl=7.0 max-w=640.0 align=center clip=true wrap wrap-gap=12.0 wrap-align=end
+    row w=fill(2) h=48.0 gap=4.0 p=2.0 align=end clip=false wrap wrap-gap=6.0 wrap-align=start
       text "One"
       text "Two"
 "#;
     analyze(source).unwrap();
 
-    let bad_metric = source.replace("spacing=8.0", "spacing=-1.0");
+    let bad_metric = source.replace("gap=8.0", "gap=-1.0");
     let error = analyze(&bad_metric).unwrap_err();
     assert_eq!(error.code, "E128");
     assert!(error.message.contains("column metric"));
 
-    let missing_wrap = source.replace("clip=true wrap wrap-spacing", "clip=true wrap-spacing");
+    let missing_wrap = source.replace("clip=true wrap wrap-gap", "clip=true wrap-gap");
     let error = analyze(&missing_wrap).unwrap_err();
     assert_eq!(error.code, "E074");
     assert!(error.message.contains("require `wrap`"));
 
-    let wrong_property = source.replace("row width=", "row max-width=100.0 width=");
+    let wrong_property = source.replace("row w=", "row max-w=100.0 w=");
     let error = analyze(&wrong_property).unwrap_err();
     assert_eq!(error.code, "E074");
     assert!(error.message.contains("unknown layout property"));
@@ -65,7 +65,7 @@ view
 fn checks_complete_container_layout() {
     let source = r#"app Boxed
 extern crate::backend
-  container-style dynamic_container(highlight:bool)
+  box-style dynamic_container(highlight:bool)
 theme
   bg #000000
   fg #ffffff
@@ -74,15 +74,15 @@ theme
 state
   highlight = false
 view
-  container #card style=dynamic_container(highlight) width=fill height=80.0 max-width=640.0 max-height=120.0 align-x=center align-y=end clip=true padding=8.0 padding-left=12.0 bg=linear(1.57, bg@0.0, primary/25@1.0) text=fg border=primary border-w=2.0 r=4.0 r-tl=1.0 r-tr=2.0 r-br=3.0 r-bl=4.0 shadow=black/50 shadow-x=-1.0 shadow-y=2.0 shadow-blur=6.0 px-snap=true
+  box #card style=dynamic_container(highlight) w=fill h=80.0 max-w=640.0 max-h=120.0 align-x=center align-y=end clip=true p=8.0 pl=12.0 bg=linear(1.57, bg@0.0, primary/25@1.0) text=fg border=primary border-w=2.0 r=4.0 r-tl=1.0 r-tr=2.0 r-br=3.0 r-bl=4.0 shadow=black/50 shadow-x=-1.0 shadow-y=2.0 shadow-blur=6.0 px-snap=true
     text "Card"
 "#;
     analyze(source).unwrap();
 
-    let bad_metric = source.replace("max-height=120.0", "max-height=-1.0");
+    let bad_metric = source.replace("max-h=120.0", "max-h=-1.0");
     let error = analyze(&bad_metric).unwrap_err();
     assert_eq!(error.code, "E128");
-    assert!(error.message.contains("container metric"));
+    assert!(error.message.contains("box metric"));
 
     let bad_clip = source.replace("clip=true", "clip=1");
     let error = analyze(&bad_clip).unwrap_err();
@@ -96,7 +96,7 @@ view
     let error = analyze(&source.replace("style=dynamic_container(highlight)", "style=rounded"))
         .unwrap_err();
     assert_eq!(error.code, "E184");
-    assert!(error.message.contains("container style must be"));
+    assert!(error.message.contains("box style must be"));
 
     let error = analyze(&source.replace(
         "dynamic_container(highlight)",
@@ -104,7 +104,7 @@ view
     ))
     .unwrap_err();
     assert_eq!(error.code, "E130");
-    assert!(error.message.contains("container style"));
+    assert!(error.message.contains("box style"));
 
     let error = analyze(&source.replace("dynamic_container(highlight)", "dynamic_container(1.0)"))
         .unwrap_err();
@@ -113,7 +113,7 @@ view
     let unknown = source.replace("clip=true", "opaque=true");
     let error = analyze(&unknown).unwrap_err();
     assert_eq!(error.code, "E184");
-    assert!(error.message.contains("unknown container property"));
+    assert!(error.message.contains("unknown box property"));
 }
 
 #[test]
@@ -129,11 +129,11 @@ state
 on close
   shown = false
 view
-  overlay when=shown dismiss=close backdrop=black/60 padding=24.0 align-x=center align-y=end
+  overlay when=shown dismiss=close backdrop=black/60 p=24.0 align-x=center align-y=end
     content
       text "Page"
     layer
-      container width=320.0 padding=16.0 @bg-bg rounded-lg
+      box w=320.0 p=16.0 bg=bg r=10.0
         text "Dialog"
 "#;
     analyze(source).unwrap();
@@ -142,7 +142,7 @@ view
     let error = analyze(&wrong_condition).unwrap_err();
     assert_eq!(error.code, "E101");
 
-    let bad_padding = source.replace("padding=24.0", "padding=-1.0");
+    let bad_padding = source.replace("p=24.0", "p=-1.0");
     let error = analyze(&bad_padding).unwrap_err();
     assert_eq!(error.code, "E128");
     assert!(error.message.contains("overlay padding"));
@@ -168,11 +168,12 @@ theme
   danger #ff0000
 on clicked(name)
 view
-  pane-grid #work split=vertical ratio=0.7 width=fill height=fill spacing=8.0 min-size=120.0 resize=6.0 drag click=clicked(_)
-    pane files
-      text "Files"
-    pane editor
-      text "Editor"
+  panes #work w=fill h=fill gap=8.0 min-size=120.0 resize=6.0 drag click=clicked(_)
+    split vertical ratio=0.7
+      pane files
+        text "Files"
+      pane editor
+        text "Editor"
 "#;
     analyze(source).unwrap();
 
@@ -204,7 +205,7 @@ on open_preview
 on resize_editor_stack
   pane #work resize editor_stack 0.55
 view
-  pane-grid #work width=fill height=fill
+  panes #work w=fill h=fill
     split workspace_root vertical ratio=0.7
       pane files
         text "Files"
@@ -223,7 +224,7 @@ view
         ..
     } = &document.view
     else {
-        panic!("pane-grid view")
+        panic!("panes view")
     };
     assert_eq!(panes.len(), 4);
     assert!(matches!(configuration, PaneConfiguration::Split { .. }));
@@ -272,7 +273,7 @@ on open_task
 on close_task
   pane #work close task(selected)
 view
-  pane-grid #work
+  panes #work
     pane files maximized=files_maximized
       col
         if files_maximized
@@ -285,7 +286,7 @@ view
 "#;
     let document = analyze(source).unwrap();
     let ViewNode::PaneGrid { templates, .. } = &document.view else {
-        panic!("pane-grid view")
+        panic!("panes view")
     };
     assert_eq!(templates.len(), 1);
     assert_eq!(templates[0].item, "task");
@@ -315,7 +316,7 @@ view
 fn checks_structured_pane_titles_and_controls() {
     let source = r#"app Workspace
 extern crate::backend
-  pane-grid-style dynamic_panes(active:bool)
+  panes-style dynamic_panes(active:bool)
 theme
   bg #000000
   fg #ffffff
@@ -326,26 +327,25 @@ state
   active = true
 on close
 view
-  pane-grid #work split=vertical style=dynamic_panes(active)
+  panes #work style=dynamic_panes(active)
     style
       hovered-region bg=linear(0.785, primary/25@0.0, bg@0.5, danger@1.0) border=fg border-w=2.0 r=4.0 r-tl=1.0 r-tr=2.0 r-br=3.0 r-bl=4.0
       hovered-split color=primary w=3.0
       picked-split color=danger w=4.0
-    pane files bg=linear(1.57, bg@0.0, primary/25@1.0) text=fg border=primary border-w=2.0 r=4.0 r-tl=1.0 r-tr=2.0 r-br=3.0 r-bl=4.0 shadow=black/50 shadow-x=-1.0 shadow-y=2.0 shadow-blur=6.0 px-snap=true
-      title padding=4.0 padding-x=8.0 padding-top=6.0 always-controls bg=primary/50 text=fg border=danger border-w=1.0 r=3.0 shadow=black/50 shadow-x=1.0 shadow-y=2.0 shadow-blur=4.0 px-snap=false
-        text "Files"
-      controls
-        button "Close" -> close
-      compact-controls
-        button "×" -> close
-      content
+    split vertical
+      pane files bg=linear(1.57, bg@0.0, primary/25@1.0) text=fg border=primary border-w=2.0 r=4.0 r-tl=1.0 r-tr=2.0 r-br=3.0 r-bl=4.0 shadow=black/50 shadow-x=-1.0 shadow-y=2.0 shadow-blur=6.0 px-snap=true
+        title p=4.0 px=8.0 pt=6.0 always-controls bg=primary/50 text=fg border=danger border-w=1.0 r=3.0 shadow=black/50 shadow-x=1.0 shadow-y=2.0 shadow-blur=4.0 px-snap=false
+          text "Files"
+        controls
+          button "Close" -> close
+        compact
+          button "×" -> close
         input "Filter" #filter <-> filter
-    pane editor
-      title
-        text "Editor"
-      controls
-        button "Close" -> close
-      content
+      pane editor
+        title
+          text "Editor"
+        controls
+          button "Close" -> close
         text "Editor body"
 "#;
     analyze(source).unwrap();
@@ -354,32 +354,35 @@ view
         analyze(&source.replace("style=dynamic_panes(active)", "style=missing_panes(active)"))
             .unwrap_err();
     assert_eq!(error.code, "E130");
-    assert!(error.message.contains("unknown extern pane-grid style"));
+    assert!(error.message.contains("unknown extern panes style"));
 
-    let error = analyze(&source.replace("padding-top=6.0", "padding-top=-1.0")).unwrap_err();
+    let error = analyze(&source.replace("pt=6.0", "pt=-1.0")).unwrap_err();
     assert_eq!(error.code, "E128");
     assert!(error.message.contains("pane title padding"));
 
-    let error = analyze(&source.replace("      controls\n        button \"Close\" -> close\n", ""))
-        .unwrap_err();
+    let error = analyze(&source.replace(
+        "        controls\n          button \"Close\" -> close\n",
+        "",
+    ))
+    .unwrap_err();
     assert_eq!(error.code, "E187");
     assert!(
         error
             .message
-            .contains("compact-controls require a `controls`")
-    );
-
-    let error = analyze(&source.replace("      content\n", "      body\n")).unwrap_err();
-    assert_eq!(error.code, "E187");
-    assert!(
-        error
-            .message
-            .contains("title, controls, compact-controls, or content")
+            .contains("compact controls require a `controls`")
     );
 
     let error = analyze(&source.replace(
-        "px-snap=true\n      title",
-        "px-snap=true @p-4\n      title",
+        "        input \"Filter\" #filter <-> filter",
+        "        content\n          input \"Filter\" #filter <-> filter",
+    ))
+    .unwrap_err();
+    assert_eq!(error.code, "E064");
+    assert!(error.message.contains("unknown view node `content`"));
+
+    let error = analyze(&source.replace(
+        "px-snap=true\n        title",
+        "px-snap=true @p-4\n        title",
     ))
     .unwrap_err();
     assert_eq!(error.code, "E042");
@@ -387,7 +390,7 @@ view
 
     let error = analyze(&source.replace("primary/25@0.0", "missing@0.0")).unwrap_err();
     assert_eq!(error.code, "E187");
-    assert!(error.message.contains("unknown pane-grid background color"));
+    assert!(error.message.contains("unknown panes background color"));
 
     let error = analyze(&source.replace("danger@1.0", "danger@1.1")).unwrap_err();
     assert_eq!(error.code, "E128");
@@ -414,7 +417,7 @@ view
 
     let error = analyze(&source.replace("w=3.0", "w=-1.0")).unwrap_err();
     assert_eq!(error.code, "E128");
-    assert!(error.message.contains("pane-grid style metric"));
+    assert!(error.message.contains("panes style metric"));
 
     let error = analyze(&source.replace("hovered-split color", "active-split color")).unwrap_err();
     assert_eq!(error.code, "E187");
@@ -448,11 +451,12 @@ on inspect_neighbor
   pane #work adjacent files right -> observed _
 on observed(name)
 view
-  pane-grid #work split=vertical
-    pane files
-      text "Files"
-    pane editor
-      text "Editor"
+  panes #work
+    split vertical
+      pane files
+        text "Files"
+      pane editor
+        text "Editor"
     pane preview closed
       text "Preview"
 "#;
@@ -461,7 +465,7 @@ view
 
     let error = analyze(&source.replace("#work maximize", "#missing maximize")).unwrap_err();
     assert_eq!(error.code, "E188");
-    assert!(error.message.contains("unknown pane-grid"));
+    assert!(error.message.contains("unknown panes"));
 
     let error = analyze(&source.replace("maximize editor", "maximize missing")).unwrap_err();
     assert_eq!(error.code, "E188");
@@ -494,21 +498,23 @@ component Frame()
 view
   Frame
     left:
-      pane-grid #work split=vertical
-        pane a
-          text "A"
-        pane b
-          text "B"
+      panes #work
+        split vertical
+          pane a
+            text "A"
+          pane b
+            text "B"
     right:
-      pane-grid #work split=horizontal
-        pane c
-          text "C"
-        pane d
-          text "D"
+      panes #work
+        split horizontal
+          pane c
+            text "C"
+          pane d
+            text "D"
 "#;
     let error = analyze(duplicate).unwrap_err();
     assert_eq!(error.code, "E187");
-    assert!(error.message.contains("duplicate persistent pane-grid"));
+    assert!(error.message.contains("duplicate persistent panes"));
 }
 
 #[test]
@@ -521,14 +527,14 @@ theme
   danger #ff0000
 view
   col
-    grid columns=2 width=640.0 spacing=12.0 height=aspect(16.0,9.0)
+    grid cols=2 w=640.0 gap=12.0 h=aspect(16.0,9.0)
       text "Fixed"
-    grid fluid=240.0 height=fill(2)
+    grid fluid=240.0 h=fill(2)
       text "Fluid"
 "#;
     analyze(source).unwrap();
 
-    let conflicting = source.replace("columns=2", "columns=2 fluid=240.0");
+    let conflicting = source.replace("cols=2", "cols=2 fluid=240.0");
     let error = analyze(&conflicting).unwrap_err();
     assert_eq!(error.code, "E074");
     assert!(error.message.contains("mutually exclusive"));

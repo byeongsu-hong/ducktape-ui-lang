@@ -10,6 +10,11 @@ pub(in crate::codegen) fn generate_statements(
     return_task: bool,
 ) -> Result<bool, Error> {
     let mut has_task = false;
+    let (task_prefix, task_suffix) = if return_task {
+        ("return ", ";")
+    } else {
+        ("", "")
+    };
     for statement in statements {
         match statement {
             Statement::Assign {
@@ -60,8 +65,7 @@ pub(in crate::codegen) fn generate_statements(
                 writeln!(
                     out,
                     "{}::iced::exit::<{message}>(){}",
-                    if return_task { "return " } else { "" },
-                    if return_task { ";" } else { "" }
+                    task_prefix, task_suffix
                 )
                 .unwrap();
             }
@@ -98,8 +102,7 @@ pub(in crate::codegen) fn generate_statements(
                         writeln!(
                             out,
                             "{}::iced::font::load({bytes}).map(move |result| match result {{ ::std::result::Result::Ok(value) => {success_message}, ::std::result::Result::Err(error) => match error {{}} }}){}",
-                            if return_task { "return " } else { "" },
-                            if return_task { ";" } else { "" }
+                            task_prefix, task_suffix
                         )
                         .unwrap();
                         continue;
@@ -117,8 +120,7 @@ pub(in crate::codegen) fn generate_statements(
                         writeln!(
                             out,
                             "{}::iced::widget::image::allocate({handle}).map(move |result| match result {{ ::std::result::Result::Ok(value) => {success_message}, ::std::result::Result::Err(error) => {error_message} }}){}",
-                            if return_task { "return " } else { "" },
-                            if return_task { ";" } else { "" }
+                            task_prefix, task_suffix
                         )
                         .unwrap();
                         continue;
@@ -137,8 +139,7 @@ pub(in crate::codegen) fn generate_statements(
                     writeln!(
                         out,
                         "{}{task}.map(move |value| {success_message}){}",
-                        if return_task { "return " } else { "" },
-                        if return_task { ";" } else { "" }
+                        task_prefix, task_suffix
                     )
                     .unwrap();
                     continue;
@@ -148,50 +149,37 @@ pub(in crate::codegen) fn generate_statements(
                     EffectKind::Task => ExternKind::Task,
                     EffectKind::Stream => ExternKind::Stream,
                 };
-                let action = document
-                    .functions
-                    .iter()
-                    .find(|item| item.name == *function && item.kind == extern_kind)
-                    .ok_or_else(|| {
+                let action =
+                    find_extern_function(document, function, extern_kind).ok_or_else(|| {
                         Error::new("E130", span, format!("unknown extern fn `{function}`"))
                     })?;
-                let args = args
-                    .iter()
-                    .map(|arg| expr_code(arg, env, document, ValueMode::Owned))
-                    .collect::<Result<Vec<_>, _>>()?
-                    .join(", ");
+                let args = expr_list_code(args, env, document)?;
                 let success_message = route_code(success, "value", env, document, message)?;
                 if let (Some(error_route), Some(_)) = (error, &action.error) {
                     let error_message = route_code(error_route, "error", env, document, message)?;
                     match kind {
-                        EffectKind::Future => writeln!(out, "{}::iced::Task::perform({}({args}), {mapper}|result| match result {{ ::std::result::Result::Ok(value) => {success_message}, ::std::result::Result::Err(error) => {error_message} }}){}", if return_task { "return " } else { "" }, action.rust_path, if return_task { ";" } else { "" }).unwrap(),
-                        EffectKind::Task => writeln!(out, "{}{}({args}).map(|result| match result {{ ::std::result::Result::Ok(value) => {success_message}, ::std::result::Result::Err(error) => {error_message} }}){}", if return_task { "return " } else { "" }, action.rust_path, if return_task { ";" } else { "" }).unwrap(),
-                        EffectKind::Stream => writeln!(out, "{}::iced::Task::run({}({args}), |result| match result {{ ::std::result::Result::Ok(value) => {success_message}, ::std::result::Result::Err(error) => {error_message} }}){}", if return_task { "return " } else { "" }, action.rust_path, if return_task { ";" } else { "" }).unwrap(),
+                        EffectKind::Future => writeln!(out, "{task_prefix}::iced::Task::perform({}({args}), {mapper}|result| match result {{ ::std::result::Result::Ok(value) => {success_message}, ::std::result::Result::Err(error) => {error_message} }}){task_suffix}", action.rust_path).unwrap(),
+                        EffectKind::Task => writeln!(out, "{task_prefix}{}({args}).map(|result| match result {{ ::std::result::Result::Ok(value) => {success_message}, ::std::result::Result::Err(error) => {error_message} }}){task_suffix}", action.rust_path).unwrap(),
+                        EffectKind::Stream => writeln!(out, "{task_prefix}::iced::Task::run({}({args}), |result| match result {{ ::std::result::Result::Ok(value) => {success_message}, ::std::result::Result::Err(error) => {error_message} }}){task_suffix}", action.rust_path).unwrap(),
                     }
                 } else {
                     match kind {
                         EffectKind::Future => writeln!(
                             out,
-                            "{}::iced::Task::perform({}({args}), {mapper}|value| {success_message}){}",
-                            if return_task { "return " } else { "" },
-                            action.rust_path,
-                            if return_task { ";" } else { "" }
+                            "{task_prefix}::iced::Task::perform({}({args}), {mapper}|value| {success_message}){task_suffix}",
+                            action.rust_path
                         )
                         .unwrap(),
                         EffectKind::Task => writeln!(
                             out,
-                            "{}{}({args}).map(|value| {success_message}){}",
-                            if return_task { "return " } else { "" },
-                            action.rust_path,
-                            if return_task { ";" } else { "" }
+                            "{task_prefix}{}({args}).map(|value| {success_message}){task_suffix}",
+                            action.rust_path
                         )
                         .unwrap(),
                         EffectKind::Stream => writeln!(
                             out,
-                            "{}::iced::Task::run({}({args}), |value| {success_message}){}",
-                            if return_task { "return " } else { "" },
-                            action.rust_path,
-                            if return_task { ";" } else { "" }
+                            "{task_prefix}::iced::Task::run({}({args}), |value| {success_message}){task_suffix}",
+                            action.rust_path
                         )
                         .unwrap(),
                     }
@@ -206,27 +194,18 @@ pub(in crate::codegen) fn generate_statements(
                 span,
             } => {
                 has_task = true;
-                let action = document
-                    .functions
-                    .iter()
-                    .find(|item| item.name == *function && item.kind == ExternKind::Sip)
-                    .ok_or_else(|| {
+                let action =
+                    find_extern_function(document, function, ExternKind::Sip).ok_or_else(|| {
                         Error::new("E130", span, format!("unknown extern sip `{function}`"))
                     })?;
-                let args = args
-                    .iter()
-                    .map(|arg| expr_code(arg, env, document, ValueMode::Owned))
-                    .collect::<Result<Vec<_>, _>>()?
-                    .join(", ");
+                let args = expr_list_code(args, env, document)?;
                 let progress_message = route_code(progress, "value", env, document, message)?;
                 let success_message = route_code(success, "value", env, document, message)?;
-                let prefix = if return_task { "return " } else { "" };
-                let suffix = if return_task { ";" } else { "" };
                 if let (Some(error_route), Some(_)) = (error, &action.error) {
                     let error_message = route_code(error_route, "error", env, document, message)?;
-                    writeln!(out, "{prefix}::iced::Task::sip({}({args}), |value| {progress_message}, |result| match result {{ ::std::result::Result::Ok(value) => {success_message}, ::std::result::Result::Err(error) => {error_message} }}){suffix}", action.rust_path).unwrap();
+                    writeln!(out, "{task_prefix}::iced::Task::sip({}({args}), |value| {progress_message}, |result| match result {{ ::std::result::Result::Ok(value) => {success_message}, ::std::result::Result::Err(error) => {error_message} }}){task_suffix}", action.rust_path).unwrap();
                 } else {
-                    writeln!(out, "{prefix}::iced::Task::sip({}({args}), |value| {progress_message}, |value| {success_message}){suffix}", action.rust_path).unwrap();
+                    writeln!(out, "{task_prefix}::iced::Task::sip({}({args}), |value| {progress_message}, |value| {success_message}){task_suffix}", action.rust_path).unwrap();
                 }
             }
             Statement::TaskFlow {
@@ -268,13 +247,7 @@ pub(in crate::codegen) fn generate_statements(
                 } else {
                     mapped
                 };
-                writeln!(
-                    out,
-                    "{}{task}{}",
-                    if return_task { "return " } else { "" },
-                    if return_task { ";" } else { "" }
-                )
-                .unwrap();
+                writeln!(out, "{}{task}{}", task_prefix, task_suffix).unwrap();
             }
             Statement::TaskGroup {
                 kind, statements, ..
@@ -322,7 +295,7 @@ pub(in crate::codegen) fn generate_statements(
                         }
                     }
                 }
-                writeln!(out, "{}", if return_task { ";" } else { "" }).unwrap();
+                writeln!(out, "{task_suffix}").unwrap();
             }
             Statement::Abortable {
                 handle,
@@ -357,7 +330,7 @@ pub(in crate::codegen) fn generate_statements(
                     } else {
                         ""
                     },
-                    if return_task { ";" } else { "" }
+                    task_suffix
                 )
                 .unwrap();
             }
@@ -383,8 +356,7 @@ pub(in crate::codegen) fn generate_statements(
                 writeln!(
                     out,
                     "{}::iced::clipboard::{function}::<{message}>({value}){}",
-                    if return_task { "return " } else { "" },
-                    if return_task { ";" } else { "" }
+                    task_prefix, task_suffix
                 )
                 .unwrap();
             }
@@ -394,10 +366,12 @@ pub(in crate::codegen) fn generate_statements(
                 has_task = true;
                 let id = |target: &WidgetTarget| widget_target_code(target, env, document);
                 let value = |value: &Expr, cast: &str| {
-                    Ok::<_, Error>(format!(
-                        "({}) as {cast}",
-                        expr_code(value, env, document, ValueMode::Owned)?
-                    ))
+                    let code = expr_code(value, env, document, ValueMode::Owned)?;
+                    Ok::<_, Error>(if cast == "usize" {
+                        format!("usize::try_from({code}).unwrap_or(0)")
+                    } else {
+                        format!("({code}) as {cast}")
+                    })
                 };
                 let task = match operation {
                     WidgetOperation::FocusPrevious => {
@@ -444,8 +418,8 @@ pub(in crate::codegen) fn generate_statements(
                     WidgetOperation::Snap { target, x, y } => format!(
                         "::iced::widget::operation::snap_to::<{message}>({}, ::iced::widget::operation::RelativeOffset {{ x: {}, y: {} }})",
                         id(target)?,
-                        value(x, "f32")?,
-                        value(y, "f32")?
+                        clamped_f32_code(x, "0.0", "1.0", env, document)?,
+                        clamped_f32_code(y, "0.0", "1.0", env, document)?
                     ),
                     WidgetOperation::SnapEnd { target } => format!(
                         "::iced::widget::operation::snap_to_end::<{message}>({})",
@@ -479,13 +453,7 @@ pub(in crate::codegen) fn generate_statements(
                         format!("{task}.map(move |value| {message_code})")
                     }
                 };
-                writeln!(
-                    out,
-                    "{}{task}{}",
-                    if return_task { "return " } else { "" },
-                    if return_task { ";" } else { "" }
-                )
-                .unwrap();
+                writeln!(out, "{}{task}{}", task_prefix, task_suffix).unwrap();
             }
             Statement::PaneOperation {
                 grid,
@@ -553,7 +521,7 @@ pub(in crate::codegen) fn generate_statements(
                         );
                         writeln!(
                             out,
-                            "{{ let __split = {split}; if let ::std::option::Option::Some(__split) = __split {{ {state}.{field}.resize(__split, ({}) as f32); }} }}",
+                            "{{ let __split = {split}; if let ::std::option::Option::Some(__split) = __split {{ {state}.{field}.resize(__split, (({}) as f32).max(0.0).min(1.0)); }} }}",
                             expr_code(ratio, env, document, ValueMode::Owned)?
                         )
                         .unwrap();
@@ -594,14 +562,14 @@ pub(in crate::codegen) fn generate_statements(
                         if dynamic {
                             writeln!(
                                 out,
-                                "{{ let __target = {target}; let __pane_value = {value}; let __pane = {state}.{field}.iter().find_map(|(__pane, __value)| (__value == &__pane_value).then_some(*__pane)); if let (::std::option::Option::Some(__target), ::std::option::Option::None) = (__target, __pane) {{ if let ::std::option::Option::Some((_, __split)) = {state}.{field}.split(::iced::widget::pane_grid::Axis::{}, __target, __pane_value) {{ {state}.{field}.resize(__split, ({ratio}) as f32); }} }} }}",
+                                "{{ let __target = {target}; let __pane_value = {value}; let __pane = {state}.{field}.iter().find_map(|(__pane, __value)| (__value == &__pane_value).then_some(*__pane)); if let (::std::option::Option::Some(__target), ::std::option::Option::None) = (__target, __pane) {{ if let ::std::option::Option::Some((_, __split)) = {state}.{field}.split(::iced::widget::pane_grid::Axis::{}, __target, __pane_value) {{ {state}.{field}.resize(__split, (({ratio}) as f32).max(0.0).min(1.0)); }} }} }}",
                                 axis(direction),
                             )
                             .unwrap();
                         } else {
                             writeln!(
                                 out,
-                                "{{ let __target = {target}; let __pane = {}; if let (::std::option::Option::Some(__target), ::std::option::Option::None) = (__target, __pane) {{ if let ::std::option::Option::Some((_, __split)) = {state}.{field}.split(::iced::widget::pane_grid::Axis::{}, __target, {value}) {{ {state}.{field}.resize(__split, ({ratio}) as f32); }} }} }}",
+                                "{{ let __target = {target}; let __pane = {}; if let (::std::option::Option::Some(__target), ::std::option::Option::None) = (__target, __pane) {{ if let ::std::option::Option::Some((_, __split)) = {state}.{field}.split(::iced::widget::pane_grid::Axis::{}, __target, {value}) {{ {state}.{field}.resize(__split, (({ratio}) as f32).max(0.0).min(1.0)); }} }} }}",
                                 pane(name)?,
                                 axis(direction),
                             )
@@ -640,8 +608,7 @@ pub(in crate::codegen) fn generate_statements(
                         writeln!(
                             out,
                             "{}{task}{}",
-                            if return_task { "return " } else { "" },
-                            if return_task { ";" } else { "" }
+                            task_prefix, task_suffix
                         )
                         .unwrap();
                     }
@@ -666,10 +633,16 @@ pub(in crate::codegen) fn generate_statements(
                     ))
                 };
                 let size = |width: &Expr, height: &Expr| {
+                    let positive = |value| {
+                        Ok::<_, Error>(format!(
+                            "(({}) as f32).max(f32::EPSILON).min(f32::MAX)",
+                            expr_code(value, env, document, ValueMode::Owned)?
+                        ))
+                    };
                     Ok::<_, Error>(format!(
                         "::iced::Size::new({}, {})",
-                        value(width, "f32")?,
-                        value(height, "f32")?
+                        positive(width)?,
+                        positive(height)?
                     ))
                 };
                 let optional_size = |size_value: &Option<(Expr, Expr)>| {
@@ -865,28 +838,7 @@ pub(in crate::codegen) fn generate_statements(
                     }
                     WindowOperation::Screenshot => {
                         let route = route.as_ref().expect("checker requires window route");
-                        let message_code = if route
-                            .args
-                            .iter()
-                            .filter(|arg| matches!(arg, RouteArg::Payload))
-                            .count()
-                            == 1
-                        {
-                            route_code(route, "value", env, document, message)?
-                        } else {
-                            ordered_route_code(
-                                route,
-                                &[
-                                    "value.rgba.to_vec()",
-                                    "value.size.width as i64",
-                                    "value.size.height as i64",
-                                    "value.scale_factor as f64",
-                                ],
-                                env,
-                                document,
-                                message,
-                            )?
-                        };
+                        let message_code = route_code(route, "value", env, document, message)?;
                         format!("::iced::window::screenshot({id}).map(move |value| {message_code})")
                     }
                     WindowOperation::MousePassthrough(enabled) => {
@@ -925,21 +877,9 @@ pub(in crate::codegen) fn generate_statements(
                         )
                     }
                     WindowOperation::Callback { function, args } => {
-                        let callback = document
-                            .functions
-                            .iter()
-                            .find(|item| item.name == *function && item.kind == ExternKind::Window)
+                        let callback = find_extern_function(document, function, ExternKind::Window)
                             .expect("checker validates window callback");
-                        let args = args
-                            .iter()
-                            .map(|arg| expr_code(arg, env, document, ValueMode::Owned))
-                            .collect::<Result<Vec<_>, _>>()?
-                            .join(", ");
-                        let args = if args.is_empty() {
-                            String::new()
-                        } else {
-                            format!(", {args}")
-                        };
+                        let args = expr_args_suffix_code(args, env, document)?;
                         let route = route.as_ref().expect("checker requires window route");
                         let message_code = route_code(route, "value", env, document, message)?;
                         format!(
@@ -960,13 +900,7 @@ pub(in crate::codegen) fn generate_statements(
                 } else {
                     format!("::iced::window::oldest().and_then(move |__window| {task})")
                 };
-                writeln!(
-                    out,
-                    "{}{task}{}",
-                    if return_task { "return " } else { "" },
-                    if return_task { ";" } else { "" }
-                )
-                .unwrap();
+                writeln!(out, "{}{task}{}", task_prefix, task_suffix).unwrap();
             }
         }
     }

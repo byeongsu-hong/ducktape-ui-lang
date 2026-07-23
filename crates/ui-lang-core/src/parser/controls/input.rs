@@ -18,29 +18,22 @@ pub(in crate::parser) fn parse_input(
     let mut hint = String::new();
     let mut disabled = None;
     let mut options = InputOptions::default();
-    let mut icon_code = None;
-    let mut icon_font = None;
-    let mut icon_size = None;
-    let mut icon_spacing = None;
-    let mut icon_side = IconSide::Left;
     let mut index = 2;
     while index < parts.len() {
         let part = &parts[index];
         if part.starts_with('#') {
-            id = Some(parse_id(part, line)?);
+            parse_unique_id(part, &mut id, line, "E065", "input")?;
         } else if part == "<->" {
             index += 1;
             let value = parts
                 .get(index)
                 .ok_or_else(|| error("E065", line, "missing binding after `<->`"))?;
-            binding = Some(identifier(value, line)?);
+            if binding.replace(identifier(value, line)?).is_some() {
+                return Err(error("E065", line, "input has more than one binding"));
+            }
         } else if let Some(value) = part.strip_prefix("hint=") {
             hint = string_literal(value, line)?;
-        } else if let Some(value) = part.strip_prefix("label=") {
-            options.accessibility.label = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("description=") {
-            options.accessibility.description =
-                Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if parse_accessibility_option(part, &mut options.accessibility, line)? {
         } else if let Some(value) = part.strip_prefix("disabled=") {
             disabled = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else if let Some(value) = part.strip_prefix("secure=") {
@@ -51,58 +44,28 @@ pub(in crate::parser) fn parse_input(
             options.submit = Some(parse_route(value, line)?);
         } else if let Some(value) = part.strip_prefix("paste=") {
             options.paste = Some(parse_payload_route(value, line, 1)?);
-        } else if let Some(value) = part.strip_prefix("width=") {
+        } else if let Some(value) = part.strip_prefix("w=") {
             options.width = Some(parse_length(value, line)?);
-        } else if let Some(value) = part.strip_prefix("padding=") {
+        } else if let Some(value) = part.strip_prefix("p=") {
             options.padding = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else if let Some(value) = part.strip_prefix("text-size=") {
             options.text_size = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("line-height=") {
+        } else if let Some(value) = part.strip_prefix("line-h=") {
             options.line_height = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else if let Some(value) = part.strip_prefix("align=") {
-            options.align = Some(match value {
-                "left" => InputAlignment::Left,
-                "center" => InputAlignment::Center,
-                "right" => InputAlignment::Right,
-                _ => {
-                    return Err(error(
-                        "E065",
-                        line,
-                        "input align must be left, center, or right",
-                    ));
-                }
-            });
+            options.align =
+                Some(value.parse().map_err(|()| {
+                    error("E065", line, "input align must be left, center, or right")
+                })?);
         } else if let Some(value) = part.strip_prefix("font=") {
             options.font = Some(parse_font_preset(value, line)?);
         } else if let Some(value) = part.strip_prefix("style=") {
-            let (function, args) = parse_signature(value, line)
-                .map_err(|_| error("E065", line, "input style must be a declared style call"))?;
-            options.custom_style = Some(ExternCall {
-                function,
-                args: parse_expr_list(&args, line)?,
-            });
-        } else if let Some(value) = part.strip_prefix("icon=") {
-            let value = string_literal(value, line)?;
-            let mut chars = value.chars();
-            let icon = chars
-                .next()
-                .ok_or_else(|| error("E065", line, "input icon must contain one character"))?;
-            if chars.next().is_some() {
-                return Err(error("E065", line, "input icon must contain one character"));
-            }
-            icon_code = Some(icon);
-        } else if let Some(value) = part.strip_prefix("icon-font=") {
-            icon_font = Some(parse_font_preset(value, line)?);
-        } else if let Some(value) = part.strip_prefix("icon-side=") {
-            icon_side = match value {
-                "left" => IconSide::Left,
-                "right" => IconSide::Right,
-                _ => return Err(error("E065", line, "input icon side must be left or right")),
-            };
-        } else if let Some(value) = part.strip_prefix("icon-size=") {
-            icon_size = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("icon-spacing=") {
-            icon_spacing = Some(parse_expr(strip_wrapping_parens(value), line)?);
+            options.custom_style = Some(parse_extern_call(
+                value,
+                line,
+                "E065",
+                "input style must be a declared style call",
+            )?);
         } else {
             return Err(error(
                 "E065",
@@ -111,22 +74,6 @@ pub(in crate::parser) fn parse_input(
             ));
         }
         index += 1;
-    }
-    if icon_code.is_some()
-        || icon_font.is_some()
-        || icon_size.is_some()
-        || icon_spacing.is_some()
-        || icon_side != IconSide::Left
-    {
-        options.icon = Some(TextInputIcon {
-            code_point: icon_code
-                .ok_or_else(|| error("E129", line, "input icon properties require `icon=\"x\"`"))?,
-            font: icon_font,
-            size: icon_size,
-            spacing: icon_spacing,
-            side: icon_side,
-            span: Span::line(line.number),
-        });
     }
     for child in &line.children {
         let parts = split_words(&child.text);
@@ -180,19 +127,15 @@ pub(in crate::parser) fn parse_button(
     let option_start = if label.is_some() { 2 } else { 1 };
     for part in &parts[option_start..] {
         if part.starts_with('#') {
-            id = Some(parse_id(part, line)?);
-        } else if let Some(value) = part.strip_prefix("label=") {
-            options.accessibility.label = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("description=") {
-            options.accessibility.description =
-                Some(parse_expr(strip_wrapping_parens(value), line)?);
+            parse_unique_id(part, &mut id, line, "E066", "button")?;
+        } else if parse_accessibility_option(part, &mut options.accessibility, line)? {
         } else if let Some(value) = part.strip_prefix("disabled=") {
             disabled = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("width=") {
+        } else if let Some(value) = part.strip_prefix("w=") {
             options.width = Some(parse_length(value, line)?);
-        } else if let Some(value) = part.strip_prefix("height=") {
+        } else if let Some(value) = part.strip_prefix("h=") {
             options.height = Some(parse_length(value, line)?);
-        } else if let Some(value) = part.strip_prefix("padding=") {
+        } else if let Some(value) = part.strip_prefix("p=") {
             options.padding = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else if let Some(value) = part.strip_prefix("clip=") {
             options.clip = Some(parse_expr(strip_wrapping_parens(value), line)?);
@@ -211,17 +154,12 @@ pub(in crate::parser) fn parse_button(
                 options.style.preset = preset;
                 options.style.custom = None;
             } else {
-                let (function, args) = parse_signature(value, line).map_err(|_| {
-                    error(
-                        "E066",
-                        line,
-                        "button style must be a preset or declared style call",
-                    )
-                })?;
-                options.style.custom = Some(ExternCall {
-                    function,
-                    args: parse_expr_list(&args, line)?,
-                });
+                options.style.custom = Some(parse_extern_call(
+                    value,
+                    line,
+                    "E066",
+                    "button style must be a preset or declared style call",
+                )?);
             }
         } else {
             return Err(error(
@@ -323,12 +261,8 @@ pub(in crate::parser) fn parse_checkbox(
     let mut style = CheckboxStyleSet::default();
     for part in &parts[2..] {
         if part.starts_with('#') {
-            id = Some(parse_id(part, line)?);
-        } else if let Some(value) = part.strip_prefix("label=") {
-            options.accessibility.label = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("description=") {
-            options.accessibility.description =
-                Some(parse_expr(strip_wrapping_parens(value), line)?);
+            parse_unique_id(part, &mut id, line, "E067", "checkbox")?;
+        } else if parse_accessibility_option(part, &mut options.accessibility, line)? {
         } else if let Some(value) = part.strip_prefix("checked=") {
             checked = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else if let Some(value) = part.strip_prefix("disabled=") {
@@ -344,17 +278,12 @@ pub(in crate::parser) fn parse_checkbox(
                 style.preset = preset;
                 style.custom = None;
             } else {
-                let (function, args) = parse_signature(value, line).map_err(|_| {
-                    error(
-                        "E067",
-                        line,
-                        "checkbox style must be a preset or declared style call",
-                    )
-                })?;
-                style.custom = Some(ExternCall {
-                    function,
-                    args: parse_expr_list(&args, line)?,
-                });
+                style.custom = Some(parse_extern_call(
+                    value,
+                    line,
+                    "E067",
+                    "checkbox style must be a preset or declared style call",
+                )?);
             }
         } else if parse_bool_control_option(part, &mut options, false, true, line)? {
         } else {
@@ -475,12 +404,12 @@ pub(in crate::parser) fn parse_toggler(
         } else if let Some(value) = part.strip_prefix("disabled=") {
             disabled = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else if let Some(value) = part.strip_prefix("style=") {
-            let (function, args) = parse_signature(value, line)
-                .map_err(|_| error("E075", line, "toggler style must be a declared style call"))?;
-            style.custom = Some(ExternCall {
-                function,
-                args: parse_expr_list(&args, line)?,
-            });
+            style.custom = Some(parse_extern_call(
+                value,
+                line,
+                "E075",
+                "toggler style must be a declared style call",
+            )?);
         } else if parse_bool_control_option(part, &mut options, true, false, line)? {
         } else {
             return Err(error(
@@ -595,45 +524,38 @@ pub(in crate::parser) fn parse_bool_control_option(
 ) -> Result<bool, Error> {
     if let Some(value) = part.strip_prefix("size=") {
         options.size = Some(parse_expr(strip_wrapping_parens(value), line)?);
-    } else if let Some(value) = part.strip_prefix("width=") {
+    } else if let Some(value) = part.strip_prefix("w=") {
         options.width = Some(parse_length(value, line)?);
-    } else if let Some(value) = part.strip_prefix("spacing=") {
+    } else if let Some(value) = part.strip_prefix("gap=") {
         options.spacing = Some(parse_expr(strip_wrapping_parens(value), line)?);
     } else if let Some(value) = part.strip_prefix("text-size=") {
         options.text_size = Some(parse_expr(strip_wrapping_parens(value), line)?);
-    } else if let Some(value) = part.strip_prefix("line-height=") {
+    } else if let Some(value) = part.strip_prefix("line-h=") {
         options.line_height = Some(parse_expr(strip_wrapping_parens(value), line)?);
-    } else if let Some(value) = part.strip_prefix("shaping=") {
+    } else if let Some(value) = part.strip_prefix("shape=") {
         options.shaping = Some(parse_text_shaping(value, line, "E075")?);
-    } else if let Some(value) = part.strip_prefix("wrapping=") {
+    } else if let Some(value) = part.strip_prefix("wrap=") {
         options.wrapping = Some(parse_text_wrapping(value, line, "E075")?);
     } else if let Some(value) = part.strip_prefix("font=") {
         options.font = Some(parse_font_preset(value, line)?);
     } else if allow_alignment && let Some(value) = part.strip_prefix("align=") {
-        options.alignment = Some(match value {
-            "default" => TextAlignment::Default,
-            "left" => TextAlignment::Left,
-            "center" => TextAlignment::Center,
-            "right" => TextAlignment::Right,
-            "justified" => TextAlignment::Justified,
-            _ => return Err(error("E075", line, "unknown text alignment")),
-        });
+        options.alignment = Some(
+            value
+                .parse()
+                .map_err(|()| error("E075", line, "unknown text alignment"))?,
+        );
     } else if allow_icon && let Some(value) = part.strip_prefix("icon=") {
-        let value = string_literal(value, line)?;
-        let mut chars = value.chars();
-        options.icon = chars.next();
-        if options.icon.is_none() || chars.next().is_some() {
-            return Err(error(
-                "E067",
-                line,
-                "checkbox icon must contain one character",
-            ));
-        }
+        options.icon = Some(parse_char_literal(
+            value,
+            line,
+            "E067",
+            "checkbox icon must contain one character",
+        )?);
     } else if allow_icon && let Some(value) = part.strip_prefix("icon-size=") {
         options.icon_size = Some(parse_expr(strip_wrapping_parens(value), line)?);
-    } else if allow_icon && let Some(value) = part.strip_prefix("icon-line-height=") {
+    } else if allow_icon && let Some(value) = part.strip_prefix("icon-line-h=") {
         options.icon_line_height = Some(parse_expr(strip_wrapping_parens(value), line)?);
-    } else if allow_icon && let Some(value) = part.strip_prefix("icon-shaping=") {
+    } else if allow_icon && let Some(value) = part.strip_prefix("icon-shape=") {
         options.icon_shaping = Some(parse_text_shaping(value, line, "E075")?);
     } else {
         return Ok(false);

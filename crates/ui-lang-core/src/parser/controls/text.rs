@@ -10,51 +10,38 @@ pub(in crate::parser) fn parse_text(
         .ok_or_else(|| error("E063", line, "text expects one expression before `@`"))?;
     let mut options = TextOptions::default();
     for part in &parts[2..] {
-        if let Some(value) = part.strip_prefix("width=") {
+        if let Some(value) = part.strip_prefix("w=") {
             options.width = Some(parse_length(value, line)?);
-        } else if let Some(value) = part.strip_prefix("height=") {
+        } else if let Some(value) = part.strip_prefix("h=") {
             options.height = Some(parse_length(value, line)?);
         } else if let Some(value) = part.strip_prefix("size=") {
             options.size = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("line-height=") {
-            options.line_height = Some(TextLineHeight::Relative(parse_expr(
-                strip_wrapping_parens(value),
-                line,
-            )?));
-        } else if let Some(value) = part.strip_prefix("line-height-px=") {
-            options.line_height = Some(TextLineHeight::Absolute(parse_expr(
-                strip_wrapping_parens(value),
-                line,
-            )?));
+        } else if parse_line_height_option(part, &mut options.line_height, line)? {
         } else if let Some(value) = part.strip_prefix("font=") {
             options.font = Some(parse_font_preset(value, line)?);
         } else if let Some(value) = part.strip_prefix("align-x=") {
-            options.align_x = Some(match value {
-                "default" => TextAlignment::Default,
-                "left" => TextAlignment::Left,
-                "center" => TextAlignment::Center,
-                "right" => TextAlignment::Right,
-                "justified" => TextAlignment::Justified,
-                _ => return Err(error("E063", line, "unknown horizontal text alignment")),
-            });
+            options.align_x = Some(
+                value
+                    .parse()
+                    .map_err(|()| error("E063", line, "unknown horizontal text alignment"))?,
+            );
         } else if let Some(value) = part.strip_prefix("align-y=") {
-            options.align_y = Some(match value {
-                "top" => VerticalAlignment::Top,
-                "center" => VerticalAlignment::Center,
-                "bottom" => VerticalAlignment::Bottom,
-                _ => return Err(error("E063", line, "unknown vertical text alignment")),
-            });
-        } else if let Some(value) = part.strip_prefix("shaping=") {
+            options.align_y = Some(
+                value
+                    .parse()
+                    .map_err(|()| error("E063", line, "unknown vertical text alignment"))?,
+            );
+        } else if let Some(value) = part.strip_prefix("shape=") {
             options.shaping = Some(parse_text_shaping(value, line, "E063")?);
-        } else if let Some(value) = part.strip_prefix("wrapping=") {
+        } else if let Some(value) = part.strip_prefix("wrap=") {
             options.wrapping = Some(parse_text_wrapping(value, line, "E063")?);
         } else if let Some(value) = part.strip_prefix("style=") {
-            let (function, args) = parse_signature(value, line)
-                .map_err(|_| error("E063", line, "text style must be a declared style call"))?;
-            options.custom_style = Some(ExternCall {
-                function,
-                args: parse_expr_list(&args, line)?,
-            });
+            options.custom_style = Some(parse_extern_call(
+                value,
+                line,
+                "E063",
+                "text style must be a declared style call",
+            )?);
         } else {
             return Err(error(
                 "E063",
@@ -81,56 +68,38 @@ pub(in crate::parser) fn parse_rich_text(
     let mut options = TextOptions::default();
     let mut color = None;
     for part in &parts[1..] {
-        if let Some(value) = part.strip_prefix("width=") {
+        if let Some(value) = part.strip_prefix("w=") {
             options.width = Some(parse_length(value, line)?);
-        } else if let Some(value) = part.strip_prefix("height=") {
+        } else if let Some(value) = part.strip_prefix("h=") {
             options.height = Some(parse_length(value, line)?);
         } else if let Some(value) = part.strip_prefix("size=") {
             options.size = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("line-height=") {
-            options.line_height = Some(TextLineHeight::Relative(parse_expr(
-                strip_wrapping_parens(value),
-                line,
-            )?));
-        } else if let Some(value) = part.strip_prefix("line-height-px=") {
-            options.line_height = Some(TextLineHeight::Absolute(parse_expr(
-                strip_wrapping_parens(value),
-                line,
-            )?));
+        } else if parse_line_height_option(part, &mut options.line_height, line)? {
         } else if let Some(value) = part.strip_prefix("font=") {
             options.font = Some(parse_font_preset(value, line)?);
         } else if let Some(value) = part.strip_prefix("align-x=") {
-            options.align_x = Some(match value {
-                "default" => TextAlignment::Default,
-                "left" => TextAlignment::Left,
-                "center" => TextAlignment::Center,
-                "right" => TextAlignment::Right,
-                "justified" => TextAlignment::Justified,
-                _ => return Err(error("E186", line, "unknown rich text alignment")),
-            });
+            options.align_x = Some(
+                value
+                    .parse()
+                    .map_err(|()| error("E186", line, "unknown rich text alignment"))?,
+            );
         } else if let Some(value) = part.strip_prefix("align-y=") {
-            options.align_y = Some(match value {
-                "top" => VerticalAlignment::Top,
-                "center" => VerticalAlignment::Center,
-                "bottom" => VerticalAlignment::Bottom,
-                _ => return Err(error("E186", line, "unknown rich text alignment")),
-            });
-        } else if let Some(value) = part.strip_prefix("wrapping=") {
+            options.align_y = Some(
+                value
+                    .parse()
+                    .map_err(|()| error("E186", line, "unknown rich text alignment"))?,
+            );
+        } else if let Some(value) = part.strip_prefix("wrap=") {
             options.wrapping = Some(parse_text_wrapping(value, line, "E186")?);
         } else if let Some(value) = part.strip_prefix("color=") {
             color = Some(value.to_owned());
         } else if let Some(value) = part.strip_prefix("style=") {
-            let (function, args) = parse_signature(value, line).map_err(|_| {
-                error(
-                    "E186",
-                    line,
-                    "rich-text style must be a declared style call",
-                )
-            })?;
-            options.custom_style = Some(ExternCall {
-                function,
-                args: parse_expr_list(&args, line)?,
-            });
+            options.custom_style = Some(parse_extern_call(
+                value,
+                line,
+                "E186",
+                "rich-text style must be a declared style call",
+            )?);
         } else {
             return Err(error(
                 "E186",
@@ -182,16 +151,7 @@ pub(in crate::parser) fn parse_rich_span(line: &Line) -> Result<RichSpan, Error>
     for part in &parts[2..] {
         if let Some(value) = part.strip_prefix("size=") {
             options.size = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("line-height=") {
-            options.line_height = Some(TextLineHeight::Relative(parse_expr(
-                strip_wrapping_parens(value),
-                line,
-            )?));
-        } else if let Some(value) = part.strip_prefix("line-height-px=") {
-            options.line_height = Some(TextLineHeight::Absolute(parse_expr(
-                strip_wrapping_parens(value),
-                line,
-            )?));
+        } else if parse_line_height_option(part, &mut options.line_height, line)? {
         } else if let Some(value) = part.strip_prefix("font=") {
             options.font = Some(parse_font_preset(value, line)?);
         } else if let Some(value) = part.strip_prefix("color=") {
@@ -214,20 +174,7 @@ pub(in crate::parser) fn parse_rich_span(line: &Line) -> Result<RichSpan, Error>
             options.radius_bottom_right = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else if let Some(value) = part.strip_prefix("r-bl=") {
             options.radius_bottom_left = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("p=") {
-            options.padding.all = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("px=") {
-            options.padding.x = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("py=") {
-            options.padding.y = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("pt=") {
-            options.padding.top = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("pr=") {
-            options.padding.right = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("pb=") {
-            options.padding.bottom = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("pl=") {
-            options.padding.left = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if parse_padding_option(part, &mut options.padding, line)? {
         } else if part == "underline" {
             options.underline = Some(Expr::Bool(true));
         } else if let Some(value) = part.strip_prefix("underline=") {

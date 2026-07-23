@@ -32,6 +32,13 @@ pub(in crate::parser) fn parse_extern_fn(
     ensure_leaf(line)?;
     let close = matching_paren(source, line)?;
     let name = identifier(source[..source.find('(').unwrap_or(0)].trim(), line)?;
+    if kind == ExternKind::Sync && name == "bytes" {
+        return Err(error(
+            "E021",
+            line,
+            "sync function name `bytes` conflicts with byte literal syntax",
+        ));
+    }
     let params_source = &source[source.find('(').unwrap_or(0) + 1..close];
     let mut params = Vec::new();
     let mut borrowed = Vec::new();
@@ -335,29 +342,28 @@ pub(in crate::parser) fn parse_subscription(line: &Line) -> Result<Subscription,
             "window frame does not expose a window ID",
         ));
     }
-    if status.is_some()
-        && !matches!(
-            &source,
-            SubscriptionSource::Event { .. }
-                | SubscriptionSource::InputMethod(_)
-                | SubscriptionSource::Keyboard(_)
-                | SubscriptionSource::Mouse(_)
-                | SubscriptionSource::Touch(_)
-                | SubscriptionSource::Window(
-                    WindowEvent::Opened
-                        | WindowEvent::Closed
-                        | WindowEvent::Moved
-                        | WindowEvent::Resized
-                        | WindowEvent::Rescaled
-                        | WindowEvent::CloseRequested
-                        | WindowEvent::Focused
-                        | WindowEvent::Unfocused
-                        | WindowEvent::FileHovered
-                        | WindowEvent::FileDropped
-                        | WindowEvent::FilesHoveredLeft
-                )
-        )
-    {
+    let supports_status = matches!(
+        &source,
+        SubscriptionSource::Event { .. }
+            | SubscriptionSource::InputMethod(_)
+            | SubscriptionSource::Keyboard(_)
+            | SubscriptionSource::Mouse(_)
+            | SubscriptionSource::Touch(_)
+            | SubscriptionSource::Window(
+                WindowEvent::Opened
+                    | WindowEvent::Closed
+                    | WindowEvent::Moved
+                    | WindowEvent::Resized
+                    | WindowEvent::Rescaled
+                    | WindowEvent::CloseRequested
+                    | WindowEvent::Focused
+                    | WindowEvent::Unfocused
+                    | WindowEvent::FileHovered
+                    | WindowEvent::FileDropped
+                    | WindowEvent::FilesHoveredLeft
+            )
+    );
+    if status.is_some() && !supports_status {
         return Err(error(
             "E084",
             line,
@@ -527,6 +533,7 @@ pub(in crate::parser) fn parse_component(header: &str, line: &Line) -> Result<Co
         }
     };
     line.record_symbol(SymbolKind::Component, &name, true, header);
+    let symbol_start = line.symbols.borrow().len();
     let mut params = Vec::new();
     if !params_source.trim().is_empty() {
         for param in split_top(&params_source, ',') {
@@ -561,9 +568,7 @@ pub(in crate::parser) fn parse_component(header: &str, line: &Line) -> Result<Co
                     .collect::<Result<Vec<_>, _>>()?,
             );
         } else if let Some(header) = child.text.strip_prefix("on ") {
-            let mut local = child.clone();
-            local.track_symbols = false;
-            handlers.push(parse_handler(header, &local)?);
+            handlers.push(parse_handler(header, child)?);
         } else {
             roots.push(child);
         }
@@ -575,7 +580,6 @@ pub(in crate::parser) fn parse_component(header: &str, line: &Line) -> Result<Co
             "component must have exactly one root node",
         ));
     };
-    let symbol_start = line.symbols.borrow().len();
     let root = parse_view(root)?;
     let local_handler = |name: &str| handlers.iter().any(|handler| handler.name == name);
     let mut symbols = line.symbols.borrow_mut();
@@ -583,8 +587,7 @@ pub(in crate::parser) fn parse_component(header: &str, line: &Line) -> Result<Co
         .drain(symbol_start..)
         .filter(|symbol| {
             symbol.kind != SymbolKind::Handler
-                || symbol.definition
-                || (symbol.name != "emit" && !local_handler(&symbol.name))
+                || !symbol.definition && !local_handler(&symbol.name) && symbol.name != "emit"
         })
         .collect::<Vec<_>>();
     symbols.extend(retained);
@@ -604,16 +607,19 @@ pub(in crate::parser) fn parse_handler(header: &str, line: &Line) -> Result<Hand
     let header = header.trim();
     let (name, params) = if header.contains('(') {
         let (name, params) = parse_signature(header, line)?;
-        let params = split_top(&params, ',')
-            .into_iter()
-            .filter(|value| !value.trim().is_empty())
-            .map(|value| {
-                Ok(HandlerParam {
-                    name: identifier(value.trim(), line)?,
-                    ty: Type::Unknown,
+        let params = if params.trim().is_empty() {
+            Vec::new()
+        } else {
+            split_top(&params, ',')
+                .into_iter()
+                .map(|value| {
+                    Ok(HandlerParam {
+                        name: identifier(value.trim(), line)?,
+                        ty: Type::Unknown,
+                    })
                 })
-            })
-            .collect::<Result<Vec<_>, Error>>()?;
+                .collect::<Result<Vec<_>, Error>>()?
+        };
         (name, params)
     } else {
         (identifier(header, line)?, Vec::new())
@@ -636,19 +642,26 @@ pub(in crate::parser) fn parse_route(source: &str, line: &Line) -> Result<Route,
     let source = source.trim();
     if let Some(open) = source.find('(') {
         let close = matching_paren(source, line)?;
+        if !source[close + 1..].trim().is_empty() {
+            return Err(error("E052", line, "unexpected text after route"));
+        }
         let handler = identifier(source[..open].trim(), line)?;
         line.record_symbol(SymbolKind::Handler, &handler, false, source);
-        let args = split_top(&source[open + 1..close], ',')
-            .into_iter()
-            .filter(|part| !part.trim().is_empty())
-            .map(|part| {
-                if part.trim() == "_" {
-                    Ok(RouteArg::Payload)
-                } else {
-                    Ok(RouteArg::Expr(parse_expr(part.trim(), line)?))
-                }
-            })
-            .collect::<Result<_, Error>>()?;
+        let args_source = &source[open + 1..close];
+        let args = if args_source.trim().is_empty() {
+            Vec::new()
+        } else {
+            split_top(args_source, ',')
+                .into_iter()
+                .map(|part| {
+                    if part.trim() == "_" {
+                        Ok(RouteArg::Payload)
+                    } else {
+                        Ok(RouteArg::Expr(parse_expr(part.trim(), line)?))
+                    }
+                })
+                .collect::<Result<_, Error>>()?
+        };
         return Ok(Route {
             handler,
             args,

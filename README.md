@@ -40,11 +40,11 @@ on submit
   run create_task(trim(draft)) -> created _ | failed _
 
 view
-  col width=fill height=fill padding=24.0 spacing=16.0 @bg-bg
+  col w=fill h=fill p=24.0 gap=16.0 @bg-bg
     Panel title="Create task" #create-task
-      row width=fill spacing=12.0
-        input "New task" #new-task <-> draft width=fill padding=12.0 @bg-surface
-        button "Add" disabled=loading padding=12.0 @bg-primary text-white -> submit
+      row w=fill gap=12.0
+        input "New task" #new-task <-> draft w=fill p=12.0 @bg-surface
+        button "Add" disabled=loading p=12.0 @bg-primary text-white -> submit
 ```
 
 `use` resolves relative to the importing file. Imported declarations share the
@@ -85,16 +85,16 @@ component Counter()
 Native interaction styles inherit their `active` fields, so hovered, pressed,
 focused, opened, dragged, and disabled blocks only declare their differences.
 
-`box` and `flex` provide a checked CSS-like flexbox. Containers support reverse
-directions, wrapping, `justify-content`, `align-items`, `align-content`, and
-axis-specific gaps. Direct `box` children support order, grow, shrink, basis,
+`box` and `flex` provide a checked CSS-like flexbox. `flex` supports reverse
+directions, wrapping, `justify`, `items`, `content`, and axis-specific gaps.
+Direct `box` children support order, grow, shrink, basis,
 self-alignment, and auto/fixed/percentage margins:
 
 ```ice
-flex width=fill gap=8.0 justify-content=space-between align-items=center
-  box flex-grow=1.0 padding=12.0 @bg-surface
+flex w=fill gap=8.0 justify=space-between items=center
+  box grow=1.0 p=12.0 @bg-surface
     text "Sidebar"
-  box flex-grow=2.0 padding=12.0 @bg-bg
+  box grow=2.0 p=12.0 @bg-bg
     text "Content"
 ```
 
@@ -170,7 +170,7 @@ src/
 ```
 
 [`showcase.ice`](examples/iced-app/src/ui/showcase.ice) is the compile-tested
-compatibility fixture; focused `.ice` and Rust modules exercise individual
+extended-surface fixture; focused `.ice` and Rust modules exercise individual
 native surfaces without bloating the readable task app.
 
 ## Tooling
@@ -222,11 +222,8 @@ Iced bridge. `scripts/a11y-windows-check.sh` cross-compiles the Windows runtime
 and both production and test forms of the generated reference app. Headless
 tests cover dispatch from the bridge to the app message.
 
-`cargo ice fmt` uses the parser's string- and delimiter-aware tokenization to
-migrate deprecated utilities, including text size, when the typed property
-targets the same generated builder. It preserves routes, quoted markers,
-semantic token utilities, and wrapper-only or dual-owner geometry whose
-behavior differs.
+`cargo ice fmt` normalizes indentation and blank lines. It does not translate
+removed vocabulary; old syntax fails analysis.
 
 Normal Cargo commands work too because the proc macro participates in the
 standard compilation graph:
@@ -256,8 +253,8 @@ next to their parser, checker, or code generator module.
 Ice 1.61 is an executable language revision, not an attempt to replace iced.
 Its stable authoring Core is app/state/component/handler/view structure,
 component-local state, `match`, common layout and widgets, checked event
-routing, and typed Rust effects. Existing
-advanced syntax remains available as a compatibility surface, while typed
+routing, and typed Rust effects. The extended native surface remains available,
+while typed
 `Element`, `Task`, `Subscription`, style, and component boundaries cover unusual
 native behavior without growing Core merely for API parity.
 
@@ -265,6 +262,6 @@ Language revisions and Cargo package versions are intentionally separate. The
 specification is revision 1.61; the workspace packages currently use pre-1.0
 SemVer `0.1.0`.
 
-[`SPEC.md`](SPEC.md) defines the Core and compatibility boundary.
+[`SPEC.md`](SPEC.md) defines the Core and backend boundary.
 [`COVERAGE.md`](COVERAGE.md) inventories the existing iced 0.14 surface; it is
 not a roadmap for adding missing native syntax.

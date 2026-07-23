@@ -10,8 +10,8 @@ pub(in crate::codegen) fn append_text_options(
     if let Some(size) = &options.size {
         write!(
             code,
-            ".size({} as f32)",
-            expr_code(size, env, document, ValueMode::Owned)?
+            ".size({})",
+            clamped_f32_code(size, "f32::EPSILON", "f32::MAX", env, document)?
         )
         .unwrap();
     } else if let Some(size) = style.text_size {
@@ -23,16 +23,7 @@ pub(in crate::codegen) fn append_text_options(
         }
     }
     if let Some(line_height) = &options.line_height {
-        let line_height = match line_height {
-            TextLineHeight::Relative(value) => format!(
-                "::iced::widget::text::LineHeight::Relative({} as f32)",
-                expr_code(value, env, document, ValueMode::Owned)?
-            ),
-            TextLineHeight::Absolute(value) => format!(
-                "::iced::widget::text::LineHeight::Absolute(({} as f32).into())",
-                expr_code(value, env, document, ValueMode::Owned)?
-            ),
-        };
+        let line_height = text_line_height_code(line_height, env, document)?;
         write!(code, ".line_height({line_height})").unwrap();
     }
     if let Some(alignment) = options.align_x {
@@ -87,25 +78,9 @@ pub(in crate::codegen) fn append_text_options(
         .unwrap();
     }
     if let Some(style) = &options.custom_style {
-        let function = document
-            .functions
-            .iter()
-            .find(|item| item.name == style.function && item.kind == ExternKind::TextStyle)
-            .expect("checker validates text style");
-        let args = style
-            .args
-            .iter()
-            .map(|arg| expr_code(arg, env, document, ValueMode::Owned))
-            .collect::<Result<Vec<_>, _>>()?;
-        write!(
-            code,
-            ".style(move |__theme| {}(__theme{}))",
-            function.rust_path,
-            args.iter()
-                .map(|arg| format!(", {arg}"))
-                .collect::<String>()
-        )
-        .unwrap();
+        let custom =
+            custom_style_call_code(style, ExternKind::TextStyle, "__theme", env, document)?;
+        write!(code, ".style(move |__theme| {custom})").unwrap();
     }
     Ok(())
 }
@@ -117,19 +92,23 @@ pub(in crate::codegen) fn append_bool_control_options(
     document: &Document,
     toggler: bool,
 ) -> Result<(), Error> {
-    for (value, method) in [
-        (&options.size, "size"),
-        (&options.spacing, "spacing"),
-        (&options.text_size, "text_size"),
-    ] {
+    for (value, method) in [(&options.size, "size"), (&options.spacing, "spacing")] {
         if let Some(value) = value {
             write!(
                 code,
-                ".{method}({} as f32)",
+                ".{method}(::ui_lang_runtime::bounded_table_metric({}, 1))",
                 expr_code(value, env, document, ValueMode::Owned)?
             )
             .unwrap();
         }
+    }
+    if let Some(text_size) = &options.text_size {
+        write!(
+            code,
+            ".text_size({})",
+            clamped_f32_code(text_size, "f32::EPSILON", "f32::MAX", env, document)?
+        )
+        .unwrap();
     }
     if let Some(width) = &options.width {
         write!(code, ".width({})", length_code(width, env, document)?).unwrap();
@@ -137,8 +116,8 @@ pub(in crate::codegen) fn append_bool_control_options(
     if let Some(height) = &options.line_height {
         write!(
             code,
-            ".text_line_height(::iced::widget::text::LineHeight::Relative({} as f32))",
-            expr_code(height, env, document, ValueMode::Owned)?
+            ".text_line_height(::iced::widget::text::LineHeight::Relative({}))",
+            clamped_f32_code(height, "f32::EPSILON", "f32::MAX", env, document)?
         )
         .unwrap();
     }
@@ -175,15 +154,15 @@ pub(in crate::codegen) fn append_bool_control_options(
             || Ok("None".to_owned()),
             |value| {
                 Ok::<_, Error>(format!(
-                    "Some(({} as f32).into())",
-                    expr_code(value, env, document, ValueMode::Owned)?
+                    "Some({}.into())",
+                    clamped_f32_code(value, "f32::EPSILON", "f32::MAX", env, document)?
                 ))
             },
         )?;
         let line_height = if let Some(value) = &options.icon_line_height {
             format!(
-                "::iced::widget::text::LineHeight::Relative({} as f32)",
-                expr_code(value, env, document, ValueMode::Owned)?
+                "::iced::widget::text::LineHeight::Relative({})",
+                clamped_f32_code(value, "f32::EPSILON", "f32::MAX", env, document)?
             )
         } else {
             "::iced::widget::text::LineHeight::default()".to_owned()
@@ -207,23 +186,13 @@ pub(in crate::codegen) fn checkbox_style_code(
         .custom
         .as_ref()
         .map(|style| {
-            let function = document
-                .functions
-                .iter()
-                .find(|item| item.name == style.function && item.kind == ExternKind::CheckboxStyle)
-                .expect("checker validates checkbox style");
-            let args = style
-                .args
-                .iter()
-                .map(|arg| expr_code(arg, env, document, ValueMode::Owned))
-                .collect::<Result<Vec<_>, _>>()?;
-            Ok::<_, Error>(format!(
-                "{}(__theme, __status{})",
-                function.rust_path,
-                args.iter()
-                    .map(|arg| format!(", {arg}"))
-                    .collect::<String>()
-            ))
+            custom_style_call_code(
+                style,
+                ExternKind::CheckboxStyle,
+                "__theme, __status",
+                env,
+                document,
+            )
         })
         .transpose()?;
     let preset = match styles.preset {
@@ -351,23 +320,13 @@ pub(in crate::codegen) fn toggler_style_code(
         .custom
         .as_ref()
         .map(|style| {
-            let function = document
-                .functions
-                .iter()
-                .find(|item| item.name == style.function && item.kind == ExternKind::TogglerStyle)
-                .expect("checker validates toggler style");
-            let args = style
-                .args
-                .iter()
-                .map(|arg| expr_code(arg, env, document, ValueMode::Owned))
-                .collect::<Result<Vec<_>, _>>()?;
-            Ok::<_, Error>(format!(
-                "{}(__theme, __status{})",
-                function.rust_path,
-                args.iter()
-                    .map(|arg| format!(", {arg}"))
-                    .collect::<String>()
-            ))
+            custom_style_call_code(
+                style,
+                ExternKind::TogglerStyle,
+                "__theme, __status",
+                env,
+                document,
+            )
         })
         .transpose()?;
     let overrides = [
@@ -496,8 +455,8 @@ fn append_toggler_status_style(
     if let Some(ratio) = &style.padding_ratio {
         write!(
             code,
-            " __style.padding_ratio = {} as f32;",
-            expr_code(ratio, env, document, ValueMode::Owned)?
+            " __style.padding_ratio = {};",
+            clamped_f32_code(ratio, "0.0", "0.5", env, document)?
         )
         .unwrap();
     }
@@ -513,23 +472,13 @@ pub(in crate::codegen) fn radio_style_code(
         .custom
         .as_ref()
         .map(|style| {
-            let function = document
-                .functions
-                .iter()
-                .find(|item| item.name == style.function && item.kind == ExternKind::RadioStyle)
-                .expect("checker validates radio style");
-            let args = style
-                .args
-                .iter()
-                .map(|arg| expr_code(arg, env, document, ValueMode::Owned))
-                .collect::<Result<Vec<_>, _>>()?;
-            Ok::<_, Error>(format!(
-                "{}(__theme, __status{})",
-                function.rust_path,
-                args.iter()
-                    .map(|arg| format!(", {arg}"))
-                    .collect::<String>()
-            ))
+            custom_style_call_code(
+                style,
+                ExternKind::RadioStyle,
+                "__theme, __status",
+                env,
+                document,
+            )
         })
         .transpose()?;
     let overrides = [

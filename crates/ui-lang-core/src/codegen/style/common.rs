@@ -22,6 +22,20 @@ pub(in crate::codegen) fn length_code(
     })
 }
 
+pub(in crate::codegen) fn append_dimensions(
+    code: &mut String,
+    dimensions: [&Option<LengthValue>; 2],
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<(), Error> {
+    for (method, length) in ["width", "height"].into_iter().zip(dimensions) {
+        if let Some(length) = length {
+            write!(code, ".{method}({})", length_code(length, env, document)?).unwrap();
+        }
+    }
+    Ok(())
+}
+
 pub(in crate::codegen) fn typed_padding_code(
     padding: &PaddingOptions,
     env: &HashMap<String, Binding>,
@@ -50,7 +64,7 @@ pub(in crate::codegen) fn typed_padding_code(
     let bottom = code(padding.bottom.as_ref())?.unwrap_or(y);
     let left = code(padding.left.as_ref())?.unwrap_or(x);
     Ok(Some(format!(
-        "::iced::Padding {{ top: {top} as f32, right: {right} as f32, bottom: {bottom} as f32, left: {left} as f32 }}"
+        "::ui_lang_runtime::bounded_padding({top}, {right}, {bottom}, {left})"
     )))
 }
 
@@ -64,20 +78,20 @@ pub(in crate::codegen) fn radius_code(
         return Ok(None);
     }
     let base = uniform
-        .map(|value| expr_code(value, env, document, ValueMode::Owned))
+        .map(|value| clamped_f32_code(value, "0.0", "f32::MAX", env, document))
         .transpose()?
         .unwrap_or_else(|| "0.0".to_owned());
     let mut values = Vec::with_capacity(4);
     for corner in corners {
         values.push(
             corner
-                .map(|value| expr_code(value, env, document, ValueMode::Owned))
+                .map(|value| clamped_f32_code(value, "0.0", "f32::MAX", env, document))
                 .transpose()?
                 .unwrap_or_else(|| base.clone()),
         );
     }
     Ok(Some(format!(
-        "::iced::border::Radius {{ top_left: {} as f32, top_right: {} as f32, bottom_right: {} as f32, bottom_left: {} as f32 }}",
+        "::iced::border::Radius {{ top_left: {}, top_right: {}, bottom_right: {}, bottom_left: {} }}",
         values[0], values[1], values[2], values[3]
     )))
 }
@@ -116,20 +130,16 @@ pub(in crate::codegen) fn append_float_style(
         )
         .unwrap();
     }
-    for (value, field) in [
-        (&style.shadow_x, "__style.shadow.offset.x"),
-        (&style.shadow_y, "__style.shadow.offset.y"),
-        (&style.shadow_blur, "__style.shadow.blur_radius"),
-    ] {
-        if let Some(value) = value {
-            write!(
-                code,
-                " {field} = {} as f32;",
-                expr_code(value, env, document, ValueMode::Owned)?
-            )
-            .unwrap();
-        }
-    }
+    append_f32_fields(
+        code,
+        [
+            (&style.shadow_x, "__style.shadow.offset.x"),
+            (&style.shadow_y, "__style.shadow.offset.y"),
+            (&style.shadow_blur, "__style.shadow.blur_radius"),
+        ],
+        env,
+        document,
+    )?;
     if let Some(radius) = radius {
         write!(code, " __style.shadow_border_radius = {radius};").unwrap();
     }
@@ -191,23 +201,7 @@ pub(in crate::codegen) fn container_surface_style_value(
     let utility_style = container_style_value(utilities, document);
     let custom_style = custom
         .map(|style| {
-            let function = document
-                .functions
-                .iter()
-                .find(|item| item.name == style.function && item.kind == ExternKind::ContainerStyle)
-                .expect("checker validates container style");
-            let args = style
-                .args
-                .iter()
-                .map(|arg| expr_code(arg, env, document, ValueMode::Owned))
-                .collect::<Result<Vec<_>, _>>()?;
-            Ok::<_, Error>(format!(
-                "{}(__theme{})",
-                function.rust_path,
-                args.iter()
-                    .map(|arg| format!(", {arg}"))
-                    .collect::<String>()
-            ))
+            custom_style_call_code(style, ExternKind::ContainerStyle, "__theme", env, document)
         })
         .transpose()?;
     if !has_typed_style && custom_style.is_none() {

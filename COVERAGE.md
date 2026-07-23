@@ -3,10 +3,10 @@
 This ledger defines what “Ice covers iced” means. The baseline is the versions
 resolved by this workspace: `iced 0.14.0` and `iced_widget 0.14.2`.
 
-This is a compatibility inventory, not a roadmap. A partial or missing row does
+This is an implementation inventory, not a roadmap. A partial or missing row does
 not imply planned Ice syntax; uncommon behavior should use an existing typed
 Rust boundary unless it satisfies the Core criteria in [`SPEC.md`](SPEC.md).
-Language revision 1.60 and the workspace's pre-1.0 package version `0.1.0`
+Language revision 1.61 and the workspace's pre-1.0 package version `0.1.0`
 are intentionally separate version schemes.
 
 - **native**: accepted Ice syntax is parsed, type-checked, lowered, and compiled
@@ -39,7 +39,7 @@ targets do not yet export to native screen readers.
 | Core surface | Delivered contract |
 | --- | --- |
 | `text` | AccessKit `Label` with the visible text as its value |
-| `input` | `TextInput` with value, or `PasswordInput` with no exported value; positional text is the default name and checked `label=`/`description=` may override/extend it |
+| `input` | `TextInput` with value, or `PasswordInput` with no exported value; leading text is the default name and checked `label=`/`description=` may override/extend it |
 | `button` | `Button` with focus/click actions; compact text is the default name, child content requires `label=`, and `description=` is optional |
 | `checkbox` | `CheckBox` with toggled state and focus/click actions; visible text is the default name and checked `label=`/`description=` may override/extend it |
 | `image` | a labeled image is an `Image`; an unlabeled image is decorative and omitted, and `description=` requires `label=` |
@@ -64,7 +64,7 @@ and remain outside native export.
 
 ## Typed system reachability
 
-Ice 1.60 has thirty-three checked Rust boundaries:
+Ice 1.61 has thirty-three checked Rust boundaries:
 
 | Boundary | Rust ABI | Covers |
 | --- | --- | --- |
@@ -94,13 +94,13 @@ Ice 1.60 has thirty-three checked Rust boundaries:
 | `checkbox-style name(args)` | `fn(&Theme, checkbox::Status, ...) -> checkbox::Style` | native checked/status-aware runtime checkbox style callbacks, equivalent to the default Theme's advanced class representation |
 | `toggler-style name(args)` | `fn(&Theme, toggler::Status, ...) -> toggler::Style` | native checked/status-aware runtime toggler style callbacks, equivalent to the default Theme's advanced class representation |
 | `radio-style name(args)` | `fn(&Theme, radio::Status, ...) -> radio::Style` | native selection/status-aware runtime radio style callbacks, equivalent to the default Theme's advanced class representation |
-| `container-style name(args)` | `fn(&Theme, ...) -> container::Style` | native theme-aware runtime container style callbacks, equivalent to the default Theme's advanced class representation |
+| `box-style name(args)` | `fn(&Theme, ...) -> container::Style` | native theme-aware runtime container style callbacks, equivalent to the default Theme's advanced class representation |
 | `svg-style name(args)` | `fn(&Theme, svg::Status, ...) -> svg::Style` | native theme/status-aware runtime SVG style callbacks, equivalent to the default Theme's advanced class representation |
 | `input-style name(args)` | `fn(&Theme, text_input::Status, ...) -> text_input::Style` | native theme/status-aware runtime text-input style callbacks, equivalent to the default Theme's advanced class representation |
 | `scroll-style name(args)` | `fn(&Theme, scrollable::Status, ...) -> scrollable::Style` | native theme/status-aware runtime scrollable style callbacks, equivalent to the default Theme's advanced class representation |
 | `pick-list-style name(args)` | `fn(&Theme, pick_list::Status, ...) -> pick_list::Style` | native theme/status-aware runtime pick-list style callbacks, equivalent to the default Theme's advanced class representation |
 | `menu-style name(args)` | `fn(&Theme, ...) -> menu::Style` | native theme-aware runtime pick-list/combo overlay menu callbacks, equivalent to the default Theme's advanced class representation |
-| `pane-grid-style name(args)` | `fn(&Theme, ...) -> pane_grid::Style` | native theme-aware runtime pane-grid callbacks, equivalent to the default Theme's advanced class representation |
+| `panes-style name(args)` | `fn(&Theme, ...) -> pane_grid::Style` | native theme-aware runtime panes callbacks, equivalent to the default Theme's advanced class representation |
 
 Generated probes verify the concrete Rust signatures. Reachability is not the
 same as native coverage: a row stays partial or missing until its complete
@@ -114,9 +114,9 @@ public behavior has direct documented Ice syntax and tests.
 | `canvas` | native | declarative rectangle/circle/line/text/path geometry; complete path builder segments, fill rules, solid/linear fill and stroke, caps/joins/dashes, transforms, clips, typed `if`/`for`, complete raster/SVG frame drawing fields, dependency-keyed geometry cache with shared named groups, typed local `Program::State`, all five event families and every variant, state updates, publish/capture/next-frame/timed-redraw actions, pointer routes, and static/state-dependent/out-of-bounds interaction cover the complete public Program behavior |
 | `checkbox` | native | native label/value/disabled event, size/width/spacing, text typography/wrapping, complete font descriptors and custom icon; all four presets, every concrete Style field across active/hovered/disabled checked and unchecked statuses, and typed theme/status-aware runtime callbacks covering the default Theme's advanced classes |
 | `column` | native | children, typed spacing/per-side padding, all `Length` bounds, max width, cross-axis alignment, clipping and wrapping column spacing/alignment |
-| `flex` | native | dependency-free runtime flexbox with row/column reverse directions, nowrap/wrap/wrap-reverse, justify/align content and items, axis gaps, padding and clipping; box items support stable order, grow/shrink/basis, align-self, and fixed/percentage/auto margins |
+| `flex` | native | dependency-free runtime flexbox with row/column reverse directions, nowrap/wrap/wrap-reverse, justify/content/items alignment, axis gaps, padding and clipping; box items support stable order, grow/shrink/basis/self alignment, and fixed/percentage/auto margins |
 | `combo_box` | native | native typed replaceable and incrementally pushable search state/selection, every builder setter, complete text-input icon, every concrete input Style field across active/hovered/focused/focused-hovered/disabled statuses, complete menu overlay Style fields, typed native input/menu style callbacks, and all events |
-| `container` | native | native one-child container with ID, complete concrete layout API, every concrete Style field including linear background, text, per-corner border, shadow and pixel snap, plus typed theme-aware runtime callbacks covering the default Theme's advanced classes |
+| `box` | native | native one-child container with ID, complete concrete layout API, every concrete Style field including linear background, text, per-corner border, shadow and pixel snap, plus typed theme-aware runtime callbacks covering the default Theme's advanced classes |
 | `float` | native | one child, positive scale, all original-bounds and viewport geometry exposed as scoped f64 translation inputs, and every concrete Style field through checked shadow color/offset/blur and per-corner shadow radius |
 | `grid` | native | dynamic children, pixel spacing/width, fixed or fluid columns, aspect-ratio or all `Length` height modes |
 | `image` | native | path, encoded-memory and RGBA handles; all four iced length variants, fit, filter, floating/solid rotation, opacity, scale, expand, per-corner radius and crop cover the complete concrete widget API |
@@ -148,13 +148,13 @@ public behavior has direct documented Ice syntax and tests.
 | `text_input` | native | app-owned, component-prop, or component-local str binding, ID, every concrete builder setter, complete custom icon, every concrete Style field across active/hovered/focused/focused-hovered/disabled statuses, and typed theme/status-aware runtime callbacks covering the default Theme's advanced classes |
 | `themer` | native | default/app/all 22 built-in and arbitrary typed `Theme: Base` subtrees; checked default text color and solid/linear background plus typed alternate-Theme text/background callbacks cover the complete public builder behavior |
 | `toggler` | native | native label/value/disabled event, size/width/spacing, text typography/wrapping/alignment and complete font descriptors; every concrete Style field across active/hovered/disabled checked and unchecked statuses, plus typed theme/status-aware runtime callbacks covering the default Theme's advanced classes |
-| `tooltip` | native | native two-child content, all positions, gap, padding, viewport snap, delay, nine container presets, every concrete container Style field, and checked `container-style` callbacks covering the default Theme's advanced classes |
+| `tooltip` | native | native two-child content, all positions, gap, padding, viewport snap, delay, nine container presets, every concrete container Style field, and checked `box-style` callbacks covering the default Theme's advanced classes |
 
 ## Application and runtime
 
 | iced surface | Ice status | Current representation / missing work |
 | --- | --- | --- |
-| application settings | native | state-dependent title, all built-in/custom theme selection, base background/text style and guarded scale-factor callbacks; application ID, custom typed executor and renderer, ordered checked font byte preloads, default text size/font, antialiasing, vsync, codec-free checked RGBA icons, complete initial/named window settings including structured Linux, Windows, macOS, and Wasm fields, structured state/task boot presets and run |
+| application settings | native | state-dependent title, all built-in/custom theme selection, base background/text style and guarded scale callbacks; application ID, custom typed executor and renderer, ordered checked font byte preloads, default text size/font, antialiasing, vsync, codec-free checked RGBA icons, complete initial/named window settings including structured Linux, Windows, macOS, and Wasm fields, structured state/task boot presets and run |
 | `Daemon` | native | `daemon Name` lowers to `iced::daemon`, rejects an unnamed initial window, exposes the current typed window ID to each per-window view/title/theme/scale callback, preserves named window templates and all shared settings, and standalone `exit` lowers to the native lifecycle task |
 | `Animation<T>` | native | first-class checked `animation[bool]`, `animation[f64]`, and rustc-verified custom Float state map to native `Animation<T>`; every built-in or typed custom easing, preset/ms/s duration, delay, finite/forever repetition, auto-reverse, implicit/exact-instant transition, value/progress/remaining queries, f32/optional-f32 interpolation projection, and active-only native frame subscription are covered |
 | explicit image allocation | native | `task image allocate handle` lowers to native `image::allocate` with required exact success/error routes; `image-allocation` retains GPU memory and exposes handle plus exact `Size<u32>`, `image-error` preserves all five native variants with kind/message projections, and `image-memory` plus downgrade/upgrade covers weak retention; requires iced's `image` feature |
@@ -194,7 +194,7 @@ public behavior has direct documented Ice syntax and tests.
 | `Border` / `Radius` | native | default/exact border construction, all three border free constructors and builders, every radius free constructor and builder, all four radius numeric conversions with safe dynamic integer forms, native corner-array conversion and scaling, every field, equality, typed extern passage, and equivalent compact style sugar cover the complete public behavior; floating values correctly remain unavailable as lazy identities |
 | `Shadow` | native | default and exact color/offset/blur construction, all three field projections, equality, typed extern passage, and deliberate rejection as a floating-point lazy identity cover the complete public behavior |
 | `Transformation` | native | identity/default, orthographic, translate, scale, inverse, scale/translation inspection, composition, lossless matrix conversion, equality, typed extern passage, and native application to every supported geometry and pointer value cover the complete public behavior |
-| `window::Screenshot` | native | exact construction and capture task delivery, public RGBA/physical-size/scale fields, borrowed and owned byte access, native crop success, both crop error kinds and messages, debug formatting, typed extern passage, backward-compatible flattened routes, and deliberate comparison/lazy rejection cover the complete public value behavior |
+| `window::Screenshot` | native | exact construction and capture task delivery as one native value, public RGBA/physical-size/scale fields, borrowed and owned byte access, native crop success, both crop error kinds and messages, debug formatting, typed extern passage, and deliberate comparison/lazy rejection cover the complete public value behavior |
 | custom widget | native | typed owned or app-state-borrowing `Element` adapters with checked event routing, selected Theme/Renderer propagation, alternate-Theme subtrees, and the complete advanced Widget/Overlay escape hatch |
 | custom renderer | native | checked application-wide concrete `iced::program::Renderer` type path propagated through every generated `Element`, including extern components, shaders, alternate themes, and editor adapters |
 

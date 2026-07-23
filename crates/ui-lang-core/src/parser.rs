@@ -105,6 +105,107 @@ pub fn parse(source: &str) -> Result<Document, Error> {
     parse_with_symbols(source).map(|(document, _)| document)
 }
 
+fn parse_padding_option(
+    part: &str,
+    padding: &mut PaddingOptions,
+    line: &Line,
+) -> Result<bool, Error> {
+    let Some((name, value)) = part.split_once('=') else {
+        return Ok(false);
+    };
+    let slot = match name {
+        "p" => &mut padding.all,
+        "px" => &mut padding.x,
+        "py" => &mut padding.y,
+        "pt" => &mut padding.top,
+        "pr" => &mut padding.right,
+        "pb" => &mut padding.bottom,
+        "pl" => &mut padding.left,
+        _ => return Ok(false),
+    };
+    *slot = Some(parse_expr(strip_wrapping_parens(value), line)?);
+    Ok(true)
+}
+
+fn parse_accessibility_option(
+    part: &str,
+    accessibility: &mut AccessibilityOptions,
+    line: &Line,
+) -> Result<bool, Error> {
+    let Some((name, value)) = part.split_once('=') else {
+        return Ok(false);
+    };
+    let slot = match name {
+        "label" => &mut accessibility.label,
+        "description" => &mut accessibility.description,
+        _ => return Ok(false),
+    };
+    *slot = Some(parse_expr(strip_wrapping_parens(value), line)?);
+    Ok(true)
+}
+
+fn parse_unique_id(
+    source: &str,
+    id: &mut Option<Id>,
+    line: &Line,
+    code: &'static str,
+    widget: &str,
+) -> Result<(), Error> {
+    if id.is_some() {
+        return Err(error(code, line, format!("{widget} has more than one ID")));
+    }
+    *id = Some(parse_id(source, line)?);
+    Ok(())
+}
+
+fn parse_line_height_option(
+    part: &str,
+    line_height: &mut Option<TextLineHeight>,
+    line: &Line,
+) -> Result<bool, Error> {
+    let (value, absolute) = if let Some(value) = part.strip_prefix("line-h=") {
+        (value, false)
+    } else if let Some(value) = part.strip_prefix("line-h-px=") {
+        (value, true)
+    } else {
+        return Ok(false);
+    };
+    let value = parse_expr(strip_wrapping_parens(value), line)?;
+    *line_height = Some(if absolute {
+        TextLineHeight::Absolute(value)
+    } else {
+        TextLineHeight::Relative(value)
+    });
+    Ok(true)
+}
+
+fn parse_char_literal(
+    source: &str,
+    line: &Line,
+    code: &'static str,
+    message: impl Into<String>,
+) -> Result<char, Error> {
+    let value = string_literal(source, line)?;
+    let mut chars = value.chars();
+    match (chars.next(), chars.next()) {
+        (Some(value), None) => Ok(value),
+        _ => Err(error(code, line, message)),
+    }
+}
+
+fn parse_extern_call(
+    source: &str,
+    line: &Line,
+    code: &'static str,
+    message: impl Into<String>,
+) -> Result<ExternCall, Error> {
+    let (function, args) = parse_signature(source, line).map_err(|_| error(code, line, message))?;
+    Ok(ExternCall {
+        function,
+        args: parse_expr_list(&args, line)?,
+    })
+}
+
 pub(crate) fn parse_with_symbols(source: &str) -> Result<(Document, Vec<ParsedSymbol>), Error> {
     let symbols = Rc::new(RefCell::new(Vec::new()));
     let lines = line_tree(source, Rc::clone(&symbols))?;
@@ -275,7 +376,7 @@ pub(crate) fn parse_with_symbols(source: &str) -> Result<(Document, Vec<ParsedSy
                         &path,
                         ExternKind::RadioStyle,
                     )?);
-                } else if let Some(source) = item.text.strip_prefix("container-style ") {
+                } else if let Some(source) = item.text.strip_prefix("box-style ") {
                     functions.push(parse_extern_fn(
                         &format!("{source} -> unit"),
                         item,
@@ -317,7 +418,7 @@ pub(crate) fn parse_with_symbols(source: &str) -> Result<(Document, Vec<ParsedSy
                         &path,
                         ExternKind::MenuStyle,
                     )?);
-                } else if let Some(source) = item.text.strip_prefix("pane-grid-style ") {
+                } else if let Some(source) = item.text.strip_prefix("panes-style ") {
                     functions.push(parse_extern_fn(
                         &format!("{source} -> unit"),
                         item,
@@ -342,6 +443,13 @@ pub(crate) fn parse_with_symbols(source: &str) -> Result<(Document, Vec<ParsedSy
                     return Err(error("E010", item, "expected `name #RRGGBB`"));
                 };
                 let name = identifier(name, item)?;
+                if matches!(name.as_str(), "white" | "black" | "transparent") {
+                    return Err(error(
+                        "E012",
+                        item,
+                        format!("theme token `{name}` is built in and cannot be redeclared"),
+                    ));
+                }
                 let value = value.trim();
                 if !valid_color(value) {
                     return Err(error("E011", item, "theme colors use #RRGGBB or #RRGGBBAA"));
@@ -395,6 +503,40 @@ pub(crate) fn parse_with_symbols(source: &str) -> Result<(Document, Vec<ParsedSy
                 format!("unknown declaration `{}`", line.text),
             ));
         }
+    }
+
+    let shadows_image_constructor = |state: &State| {
+        fn contains_shadowed_call(expr: &Expr, functions: &[ExternFn]) -> bool {
+            match expr {
+                Expr::Call { name, .. } if matches!(name.as_str(), "encoded" | "rgba") => functions
+                    .iter()
+                    .any(|function| function.kind == ExternKind::Sync && function.name == *name),
+                Expr::List(values) => values
+                    .iter()
+                    .any(|value| contains_shadowed_call(value, functions)),
+                _ => false,
+            }
+        }
+
+        let declared = state
+            .span
+            .line
+            .checked_sub(1)
+            .and_then(|line| source.lines().nth(line))
+            .and_then(|line| split_top_once(line.trim(), '='))
+            .is_some_and(|(left, _)| left.contains(':'));
+        !declared && contains_shadowed_call(&state.initial, &functions)
+    };
+    if let Some(state) = states
+        .iter()
+        .chain(components.iter().flat_map(|component| &component.states))
+        .find(|state| shadows_image_constructor(state))
+    {
+        return Err(Error::new(
+            "E031",
+            &state.span,
+            "state requires an explicit type when a sync function shadows `encoded` or `rgba`",
+        ));
     }
 
     let span = Span::line(1);

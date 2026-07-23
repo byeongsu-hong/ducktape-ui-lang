@@ -7,3 +7,6 @@ rust-version.workspace = true
 
 [lints]
 workspace = true
+
+[dependencies]
+qrcode = { version = "=0.13.0", default-features = false }

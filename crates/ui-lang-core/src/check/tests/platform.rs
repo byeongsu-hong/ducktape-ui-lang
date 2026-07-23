@@ -84,6 +84,11 @@ view
             "exact iced Rust variant",
         ),
         (
+            "key.named(\"Enter\")",
+            "key.named(\"Self\")",
+            "exact iced Rust variant",
+        ),
+        (
             "key.location(\"standard\")",
             "key.location(\"middle\")",
             "standard, left, right, or numpad",
@@ -227,7 +232,7 @@ state
   value = ""
   focused = false
 on previous
-  task widget focus-previous
+  task widget focus-prev
 on next
   task widget focus-next
 on focus
@@ -351,8 +356,8 @@ fn checks_scoped_widget_operations() {
     );
 
     let error = analyze(&source.replacen(
-        "#row(row_index)/column(column_index)/cell",
-        "#column(column_index)/row(row_index)/cell",
+        "#row(row_index)/col(column_index)/cell",
+        "#col(column_index)/row(row_index)/cell",
         1,
     ))
     .unwrap_err();
@@ -455,7 +460,7 @@ view
 
     let viewer = source.replace(
         "image \"photo.ppm\" opacity=1.5",
-        "viewer \"photo.ppm\" padding=8.0 min-scale=0.5 max-scale=4.0 scale-step=0.25",
+        "viewer \"photo.ppm\" p=8.0 min-scale=0.5 max-scale=4.0 scale-step=0.25",
     );
     analyze(&viewer).unwrap();
     let error = analyze(&viewer.replace("min-scale=0.5", "min-scale=5.0")).unwrap_err();
@@ -530,13 +535,13 @@ state
 on pressed(x, y)
 on key(value)
 view
-  canvas width=fill height=120.0 cache=cached cache-group=drawings press=pressed
+  canvas w=fill h=120.0 cache=cached cache-group=drawings press=pressed
     event keyboard press -> key _
     redraw window frame after=16ms
     capture touch lost
     circle x=60.0 y=60.0 r=24.0 fill=primary
-    image picture x=4.0 y=4.0 width=16.0 height=16.0 opacity=0.8 snap=true
-    svg "<svg/>" memory x=24.0 y=4.0 width=16.0 height=16.0 color=fg opacity=0.9
+    image picture x=4.0 y=4.0 w=16.0 h=16.0 opacity=0.8 snap=true
+    svg "<svg/>" memory x=24.0 y=4.0 w=16.0 h=16.0 color=fg opacity=0.9
 "#;
     analyze(source).unwrap();
 
@@ -555,6 +560,12 @@ view
     let error = analyze(&source.replace("opacity=0.8", "opacity=1.1")).unwrap_err();
     assert_eq!(error.code, "E128");
     assert!(error.message.contains("image opacity"));
+
+    for value in ["3.5e38", "-3.5e38"] {
+        let error = analyze(&source.replace("x=60.0", &format!("x={value}"))).unwrap_err();
+        assert_eq!(error.code, "E128");
+        assert!(error.message.contains("circle x"));
+    }
 
     let error = analyze(&source.replace("color=fg", "color=missing")).unwrap_err();
     assert_eq!(error.code, "E190");
@@ -601,7 +612,7 @@ theme
   danger #ff0000
 on released(button)
 view
-  canvas width=fill height=120.0 cursor=(cursor_state) cursor-outside=outside
+  canvas w=fill h=120.0 cursor=(cursor_state) cursor-outside=outside
     state
       cursor_state = "grab"
       outside = false

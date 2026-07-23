@@ -35,5 +35,36 @@ fn parse_literal(input: &str) -> Result<String, String> {
     if value.contains('\\') {
         return Err("ui_lang::include_app! paths must use `/` and cannot contain escapes".into());
     }
+    let bytes = value.as_bytes();
+    if bytes.get(1) == Some(&b':') && bytes[0].is_ascii_alphabetic()
+        || PathBuf::from(value).components().any(|component| {
+            matches!(
+                component,
+                std::path::Component::Prefix(_) | std::path::Component::RootDir
+            )
+        })
+    {
+        return Err(
+            "ui_lang::include_app! paths must be relative to the manifest directory".into(),
+        );
+    }
     Ok(value.into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_literal;
+
+    #[test]
+    fn include_paths_are_manifest_relative() {
+        assert_eq!(parse_literal(r#""ui/app.ice""#).unwrap(), "ui/app.ice");
+        assert_eq!(parse_literal(r#""../app.ice""#).unwrap(), "../app.ice");
+        for path in [
+            r#""/tmp/app.ice""#,
+            r#""C:/tmp/app.ice""#,
+            r#""ui\\app.ice""#,
+        ] {
+            assert!(parse_literal(path).is_err(), "accepted {path}");
+        }
+    }
 }

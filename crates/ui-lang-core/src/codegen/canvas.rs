@@ -116,12 +116,7 @@ pub(in crate::codegen) fn render_canvas(
     let mut code = format!(
         "{{ #[allow(dead_code)] struct __IceCanvasState {{ cache: ::std::cell::OnceCell<::iced::widget::canvas::Cache>, cache_key: ::std::cell::Cell<::std::option::Option<u64>>, inside: bool, {state_fields} }} impl ::std::default::Default for __IceCanvasState {{ fn default() -> Self {{ Self {{ cache: ::std::cell::OnceCell::new(), cache_key: ::std::cell::Cell::new(::std::option::Option::None), inside: false, {state_initials} }} }} }} let __cache_key: ::std::option::Option<u64> = {cache_key}; let __cache_group: ::std::option::Option<::iced::widget::canvas::Group> = {cache_group}; let __program = __IceCanvasProgram::<__IceCanvasState, {message}, _, _, _> {{ draw: move |__state: &__IceCanvasState, __renderer: &::iced::Renderer, __theme: &::iced::Theme, __bounds: ::iced::Rectangle, __cursor: ::iced::mouse::Cursor| {{ let _ = (&__cache_key, &__cache_group); {cache_setup} let __paint = move |__frame: &mut ::iced::widget::canvas::Frame| {{ {draw_commands} }}; let __geometry = {geometry}; ::std::vec![__geometry] }}, update: {update}, interaction: move |__state: &__IceCanvasState, __bounds: ::iced::Rectangle, __cursor: ::iced::mouse::Cursor| {{ if ({interaction_outside}) || __cursor.is_over(__bounds) {{ {interaction} }} else {{ ::iced::mouse::Interaction::default() }} }}, message: ::std::marker::PhantomData }}; let __canvas = ::iced::widget::canvas(__program)"
     );
-    if let Some(width) = &options.width {
-        write!(code, ".width({})", length_code(width, env, document)?).unwrap();
-    }
-    if let Some(height) = &options.height {
-        write!(code, ".height({})", length_code(height, env, document)?).unwrap();
-    }
+    append_dimensions(&mut code, [&options.width, &options.height], env, document)?;
     code.push_str("; __canvas.into() }");
     Ok(code)
 }

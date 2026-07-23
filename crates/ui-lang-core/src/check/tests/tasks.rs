@@ -20,7 +20,7 @@ on loaded(next)
 on failed(error)
   items = []
 view
-  text len(items) @text-sm
+  text len(items) size=14.0
 "#;
     let document = analyze(source).unwrap();
     assert_eq!(document.handlers[1].params[0].ty.display(), "[Item]");
@@ -315,12 +315,12 @@ on start
       units -> planned _
     flow
       from task optional(2)
-      and-then value -> task double(value)
+      try value -> task double(value)
       done -> finished _
     flow
       from task fallible(2)
       map value -> value + 1
-      and-then value -> task fallible_double(value)
+      try value -> task fallible_double(value)
       done -> finished _
       error -> failed _
 on collected(values)
@@ -343,16 +343,16 @@ view
     );
 
     let error = analyze(&source.replace(
-        "and-then value -> task fallible_double(value)",
+        "try value -> task fallible_double(value)",
         "then value -> task fallible_double(value)",
     ))
     .unwrap_err();
     assert_eq!(error.code, "E144");
-    assert!(error.message.contains("use and-then"));
+    assert!(error.message.contains("use try"));
 
     let error = analyze(&source.replace(
-        "and-then value -> task fallible_double(value)",
-        "and-then value -> task wrong_error(value)",
+        "try value -> task fallible_double(value)",
+        "try value -> task wrong_error(value)",
     ))
     .unwrap_err();
     assert_eq!(error.code, "E101");
@@ -393,7 +393,7 @@ on start
   parallel
     flow
       from task request()
-      map-error reason -> normalize(reason)
+      map-err reason -> normalize(reason)
       collect
       done -> collected _
     flow
@@ -420,15 +420,15 @@ view
     assert_eq!(document.handlers[2].params[0].ty, Type::I64);
 
     let error = analyze(&source.replace(
-        "map-error reason -> normalize(reason)",
-        "map-error reason -> normalize(1)",
+        "map-err reason -> normalize(reason)",
+        "map-err reason -> normalize(1)",
     ))
     .unwrap_err();
     assert_eq!(error.code, "E101");
 
     let error = analyze(&source.replace(
-        "from task request()\n      map-error reason -> normalize(reason)",
-        "from done 1\n      map-error reason -> normalize(reason)",
+        "from task request()\n      map-err reason -> normalize(reason)",
+        "from done 1\n      map-err reason -> normalize(reason)",
     ))
     .unwrap_err();
     assert_eq!(error.code, "E144");

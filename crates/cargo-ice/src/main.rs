@@ -23,7 +23,13 @@ fn run() -> Result<(), String> {
         args.remove(0);
     }
     let command = args.first().map(String::as_str).unwrap_or("check");
-    let check_only = args.iter().any(|arg| arg == "--check");
+    let trailing = args.get(1..).unwrap_or_default();
+    if !valid_command_args(command, trailing) {
+        return Err(format!(
+            "invalid arguments for `cargo ice {command}`; run `cargo ice help`"
+        ));
+    }
+    let check_only = trailing == ["--check"];
 
     match command {
         "schema" => {
@@ -45,11 +51,25 @@ fn run() -> Result<(), String> {
     }
 
     let root = env::current_dir().map_err(|error| error.to_string())?;
+    match command {
+        "expand" => {
+            let requested = args
+                .get(1)
+                .ok_or_else(|| "cargo ice expand <file.ice>".to_owned())?;
+            let path = root.join(requested);
+            let generated = ui_lang_core::compile_file(&path)
+                .map_err(|error| error.render(&path.display().to_string()))?;
+            print!("{}", generated.rust);
+            return Ok(());
+        }
+        "fmt" | "check" | "clippy" | "compat" => {}
+        other => return Err(format!("unknown cargo ice command `{other}`")),
+    }
     let files = ice_files(&root)?;
 
     match command {
         "fmt" => {
-            let roots = app_files(&files)?;
+            let roots = root_files(&files)?;
             if check_only {
                 cargo(&["fmt", "--all", "--", "--check"])?;
             } else {
@@ -77,33 +97,35 @@ fn run() -> Result<(), String> {
             }
         }
         "check" => {
-            let roots = app_files(&files)?;
+            let roots = root_files(&files)?;
             analyze(&roots)?;
             cargo(&["check", "--workspace"])?;
         }
         "clippy" => {
-            let roots = app_files(&files)?;
+            let roots = root_files(&files)?;
             analyze(&roots)?;
             cargo(&["clippy", "--workspace", "--all-targets", "--no-deps"])?;
         }
         "compat" => {
-            let roots = app_files(&files)?;
+            let roots = root_files(&files)?;
             analyze(&roots)?;
             compat::verify(&root)?;
             cargo(&["test", "-p", "iced-app"])?;
         }
-        "expand" => {
-            let requested = args
-                .get(1)
-                .ok_or_else(|| "cargo ice expand <file.ice>".to_owned())?;
-            let path = root.join(requested);
-            let generated = ui_lang_core::compile_file(&path)
-                .map_err(|error| error.render(&path.display().to_string()))?;
-            print!("{}", generated.rust);
-        }
-        other => return Err(format!("unknown cargo ice command `{other}`")),
+        _ => unreachable!("commands were validated before scanning the workspace"),
     }
     Ok(())
+}
+
+fn valid_command_args(command: &str, trailing: &[String]) -> bool {
+    match command {
+        "fmt" => trailing.is_empty() || trailing == ["--check"],
+        "expand" => trailing.len() == 1,
+        "schema" | "lsp" | "help" | "--help" | "-h" | "check" | "clippy" | "compat" => {
+            trailing.is_empty()
+        }
+        _ => true,
+    }
 }
 
 fn analyze(files: &[PathBuf]) -> Result<(), String> {
@@ -111,11 +133,11 @@ fn analyze(files: &[PathBuf]) -> Result<(), String> {
         ui_lang_core::analyze_file(path)
             .map_err(|error| error.render(&path.display().to_string()))?;
     }
-    println!("checked {} .ice app graph(s)", files.len());
+    println!("checked {} .ice root graph(s)", files.len());
     Ok(())
 }
 
-fn app_files(files: &[PathBuf]) -> Result<Vec<PathBuf>, String> {
+fn root_files(files: &[PathBuf]) -> Result<Vec<PathBuf>, String> {
     let mut roots = Vec::new();
     for path in files {
         let source = fs::read_to_string(path).map_err(|error| error.to_string())?;
@@ -124,7 +146,7 @@ fn app_files(files: &[PathBuf]) -> Result<Vec<PathBuf>, String> {
         }
     }
     if roots.is_empty() {
-        return Err("no .ice file contains a top-level `app` declaration".into());
+        return Err("no .ice file contains a top-level `app` or `daemon` declaration".into());
     }
     Ok(roots)
 }
@@ -134,11 +156,17 @@ fn ice_files(root: &Path) -> Result<Vec<PathBuf>, String> {
         for entry in fs::read_dir(path).map_err(|error| error.to_string())? {
             let entry = entry.map_err(|error| error.to_string())?;
             let path = entry.path();
-            if path.is_dir() {
+            let file_type = entry.file_type().map_err(|error| error.to_string())?;
+            if file_type.is_symlink() {
+                continue;
+            }
+            if file_type.is_dir() {
                 if !ignored_dir(&path) {
                     visit(&path, output)?;
                 }
-            } else if path.extension().and_then(|extension| extension.to_str()) == Some("ice") {
+            } else if file_type.is_file()
+                && path.extension().and_then(|extension| extension.to_str()) == Some("ice")
+            {
                 output.push(path);
             }
         }
@@ -178,7 +206,7 @@ fn cargo(args: &[&str]) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::ignored_dir;
+    use super::{ice_files, ignored_dir, root_files, valid_command_args};
     use std::path::Path;
 
     #[test]
@@ -187,5 +215,38 @@ mod tests {
         assert!(ignored_dir(Path::new(".worktree")));
         assert!(ignored_dir(Path::new("tests/cases")));
         assert!(!ignored_dir(Path::new("src/cases")));
+    }
+
+    #[test]
+    fn rejects_unknown_command_arguments() {
+        assert!(valid_command_args("fmt", &[]));
+        assert!(valid_command_args("fmt", &["--check".into()]));
+        assert!(!valid_command_args("fmt", &["--chek".into()]));
+        assert!(!valid_command_args("check", &["extra".into()]));
+        assert!(valid_command_args("expand", &["app.ice".into()]));
+        assert!(!valid_command_args("expand", &[]));
+    }
+
+    #[test]
+    fn missing_root_names_both_root_kinds() {
+        assert!(root_files(&[]).unwrap_err().contains("`app` or `daemon`"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn does_not_follow_symlinks() {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("cargo-ice-files-{nonce}"));
+        std::fs::create_dir(&root).unwrap();
+        let app = root.join("app.ice");
+        std::fs::write(&app, "app Example").unwrap();
+        std::os::unix::fs::symlink(&root, root.join("loop")).unwrap();
+        std::os::unix::fs::symlink(&app, root.join("linked.ice")).unwrap();
+
+        assert_eq!(ice_files(&root).unwrap(), [app]);
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

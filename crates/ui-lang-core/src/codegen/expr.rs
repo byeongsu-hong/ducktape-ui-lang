@@ -1,5 +1,30 @@
 use super::*;
 
+pub(in crate::codegen) fn expr_list_code(
+    values: &[Expr],
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<String, Error> {
+    Ok(values
+        .iter()
+        .map(|value| expr_code(value, env, document, ValueMode::Owned))
+        .collect::<Result<Vec<_>, _>>()?
+        .join(", "))
+}
+
+pub(in crate::codegen) fn expr_args_suffix_code(
+    values: &[Expr],
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<String, Error> {
+    let args = expr_list_code(values, env, document)?;
+    Ok(if args.is_empty() {
+        args
+    } else {
+        format!(", {args}")
+    })
+}
+
 pub(in crate::codegen) fn expr_code(
     expr: &Expr,
     env: &HashMap<String, Binding>,
@@ -23,14 +48,7 @@ pub(in crate::codegen) fn expr_code(
                 .join(", ")
         ),
         Expr::EmptyList => "::std::vec::Vec::new()".into(),
-        Expr::List(values) => format!(
-            "::std::vec![{}]",
-            values
-                .iter()
-                .map(|value| expr_code(value, env, document, ValueMode::Owned))
-                .collect::<Result<Vec<_>, _>>()?
-                .join(", ")
-        ),
+        Expr::List(values) => format!("::std::vec![{}]", expr_list_code(values, env, document)?),
         Expr::None => "::std::option::Option::None".into(),
         Expr::Path(path) => {
             let binding = env.get(&path[0]).ok_or_else(|| {
@@ -44,8 +62,7 @@ pub(in crate::codegen) fn expr_code(
             let mut ty = binding.ty.clone();
             let mut owned_projection = false;
             for field in &path[1..] {
-                if let Some((projection, projected_ty)) =
-                    native_field_projection(&ty, field, &code)
+                if let Some((projection, projected_ty)) = native_field_projection(&ty, field, &code)
                 {
                     code = projection;
                     ty = projected_ty;
@@ -136,31 +153,35 @@ pub(in crate::codegen) fn expr_code(
                     | Type::WindowMode
                     | Type::WindowAttention
                     | Type::Unit
-            )
-                || (binding.local && path.len() == 1)
+            ) || (binding.local && path.len() == 1)
                 || owned_projection;
             if matches!(mode, ValueMode::Owned) && !clone_unnecessary {
                 code.push_str(".clone()");
             }
             code
         }
-        Expr::Call { name, args } => match name.as_str() {
+        Expr::Call { name, args } => {
+            if let Some(function) = find_extern_function(document, name, ExternKind::Sync) {
+                let args = expr_list_code(args, env, document)?;
+                return Ok(format!("{}({args})", function.rust_path));
+            }
+            match name.as_str() {
             "color.default" => "::iced::Color::default()".into(),
             "color.black" => "::iced::Color::BLACK".into(),
             "color.white" => "::iced::Color::WHITE".into(),
             "color.transparent" => "::iced::Color::TRANSPARENT".into(),
             "color.rgb" => format!(
-                "::iced::Color::from_rgb(({}) as f32, ({}) as f32, ({}) as f32)",
-                expr_code(&args[0], env, document, ValueMode::Owned)?,
-                expr_code(&args[1], env, document, ValueMode::Owned)?,
-                expr_code(&args[2], env, document, ValueMode::Owned)?
+                "::iced::Color::from_rgb({}, {}, {})",
+                unit_f32_code(&args[0], env, document)?,
+                unit_f32_code(&args[1], env, document)?,
+                unit_f32_code(&args[2], env, document)?
             ),
             "color.rgba" => format!(
-                "::iced::Color::from_rgba(({}) as f32, ({}) as f32, ({}) as f32, ({}) as f32)",
-                expr_code(&args[0], env, document, ValueMode::Owned)?,
-                expr_code(&args[1], env, document, ValueMode::Owned)?,
-                expr_code(&args[2], env, document, ValueMode::Owned)?,
-                expr_code(&args[3], env, document, ValueMode::Owned)?
+                "::iced::Color::from_rgba({}, {}, {}, {})",
+                unit_f32_code(&args[0], env, document)?,
+                unit_f32_code(&args[1], env, document)?,
+                unit_f32_code(&args[2], env, document)?,
+                unit_f32_code(&args[3], env, document)?
             ),
             "color.rgb8" => {
                 let [Expr::I64(r), Expr::I64(g), Expr::I64(b)] = args.as_slice() else {
@@ -173,8 +194,8 @@ pub(in crate::codegen) fn expr_code(
                     unreachable!("checker requires literal u8 channels")
                 };
                 format!(
-                    "::iced::Color::from_rgba8({r}u8, {g}u8, {b}u8, ({}) as f32)",
-                    expr_code(alpha, env, document, ValueMode::Owned)?
+                    "::iced::Color::from_rgba8({r}u8, {g}u8, {b}u8, {})",
+                    unit_f32_code(alpha, env, document)?
                 )
             }
             "color.try_rgb8" | "color.try_rgba8" => {
@@ -182,36 +203,40 @@ pub(in crate::codegen) fn expr_code(
                 let green = expr_code(&args[1], env, document, ValueMode::Owned)?;
                 let blue = expr_code(&args[2], env, document, ValueMode::Owned)?;
                 let constructor = if name == "color.try_rgb8" {
-                    "::iced::Color::from_rgb8(__red, __green, __blue)".into()
+                    "::iced::Color::from_rgb8(__red, __green, __blue)"
                 } else {
-                    format!(
-                        "::iced::Color::from_rgba8(__red, __green, __blue, ({}) as f32)",
-                        expr_code(&args[3], env, document, ValueMode::Owned)?
-                    )
+                    "::iced::Color::from_rgba8(__red, __green, __blue, __alpha as f32)"
                 };
-                format!(
-                    "match (<u8>::try_from({red}), <u8>::try_from({green}), <u8>::try_from({blue})) {{ (::std::result::Result::Ok(__red), ::std::result::Result::Ok(__green), ::std::result::Result::Ok(__blue)) => ::std::option::Option::Some({constructor}), _ => ::std::option::Option::None }}"
-                )
+                if name == "color.try_rgb8" {
+                    format!(
+                        "match (<u8>::try_from({red}), <u8>::try_from({green}), <u8>::try_from({blue})) {{ (::std::result::Result::Ok(__red), ::std::result::Result::Ok(__green), ::std::result::Result::Ok(__blue)) => ::std::option::Option::Some({constructor}), _ => ::std::option::Option::None }}"
+                    )
+                } else {
+                    let alpha = expr_code(&args[3], env, document, ValueMode::Owned)?;
+                    format!(
+                        "{{ let __alpha = {alpha}; match (<u8>::try_from({red}), <u8>::try_from({green}), <u8>::try_from({blue})) {{ (::std::result::Result::Ok(__red), ::std::result::Result::Ok(__green), ::std::result::Result::Ok(__blue)) if (0.0..=1.0).contains(&__alpha) => ::std::option::Option::Some({constructor}), _ => ::std::option::Option::None }} }}"
+                    )
+                }
             }
             "color.linear_rgba" => format!(
-                "::iced::Color::from_linear_rgba(({}) as f32, ({}) as f32, ({}) as f32, ({}) as f32)",
-                expr_code(&args[0], env, document, ValueMode::Owned)?,
-                expr_code(&args[1], env, document, ValueMode::Owned)?,
-                expr_code(&args[2], env, document, ValueMode::Owned)?,
-                expr_code(&args[3], env, document, ValueMode::Owned)?
+                "::iced::Color::from_linear_rgba({}, {}, {}, {})",
+                unit_f32_code(&args[0], env, document)?,
+                unit_f32_code(&args[1], env, document)?,
+                unit_f32_code(&args[2], env, document)?,
+                unit_f32_code(&args[3], env, document)?
             ),
             "color.from3" => format!(
-                "::iced::Color::from([({}) as f32, ({}) as f32, ({}) as f32])",
-                expr_code(&args[0], env, document, ValueMode::Owned)?,
-                expr_code(&args[1], env, document, ValueMode::Owned)?,
-                expr_code(&args[2], env, document, ValueMode::Owned)?
+                "::iced::Color::from([{}, {}, {}])",
+                unit_f32_code(&args[0], env, document)?,
+                unit_f32_code(&args[1], env, document)?,
+                unit_f32_code(&args[2], env, document)?
             ),
             "color.from4" => format!(
-                "::iced::Color::from([({}) as f32, ({}) as f32, ({}) as f32, ({}) as f32])",
-                expr_code(&args[0], env, document, ValueMode::Owned)?,
-                expr_code(&args[1], env, document, ValueMode::Owned)?,
-                expr_code(&args[2], env, document, ValueMode::Owned)?,
-                expr_code(&args[3], env, document, ValueMode::Owned)?
+                "::iced::Color::from([{}, {}, {}, {}])",
+                unit_f32_code(&args[0], env, document)?,
+                unit_f32_code(&args[1], env, document)?,
+                unit_f32_code(&args[2], env, document)?,
+                unit_f32_code(&args[3], env, document)?
             ),
             "color.parse" => format!(
                 "({}).parse::<::iced::Color>().ok()",
@@ -222,7 +247,7 @@ pub(in crate::codegen) fn expr_code(
                 expr_code(&args[0], env, document, ValueMode::Owned)?
             ),
             "color.invert" => format!(
-                "{{ let mut __color = {}; __color.invert(); __color }}",
+                "({}).inverse()",
                 expr_code(&args[0], env, document, ValueMode::Owned)?
             ),
             "color.scale_alpha" => format!(
@@ -255,13 +280,13 @@ pub(in crate::codegen) fn expr_code(
                 radians_value_code(&args[0], env, document)?
             ),
             "linear.add_stop" => format!(
-                "({}).add_stop(({}) as f32, {})",
+                "::ui_lang_runtime::add_gradient_stops({}, [::iced::gradient::ColorStop {{ offset: ({}) as f32, color: {} }}])",
                 expr_code(&args[0], env, document, ValueMode::Owned)?,
                 expr_code(&args[1], env, document, ValueMode::Owned)?,
                 expr_code(&args[2], env, document, ValueMode::Owned)?
             ),
             "linear.add_stops" => format!(
-                "({}).add_stops({})",
+                "::ui_lang_runtime::add_gradient_stops({}, {})",
                 expr_code(&args[0], env, document, ValueMode::Owned)?,
                 expr_code(&args[1], env, document, ValueMode::Owned)?
             ),
@@ -441,17 +466,17 @@ pub(in crate::codegen) fn expr_code(
                 expr_code(&args[2], env, document, ValueMode::Owned)?
             ),
             "screenshot.crop" => format!(
-                "(&({})).crop({}).ok()",
+                "::ui_lang_runtime::crop_screenshot(&({}), {}).ok()",
                 expr_code(&args[0], env, document, ValueMode::Borrowed)?,
                 expr_code(&args[1], env, document, ValueMode::Owned)?
             ),
             "screenshot.crop_error" => format!(
-                "match (&({})).crop({}) {{ ::std::result::Result::Ok(_) => ::std::option::Option::None, ::std::result::Result::Err(::iced::window::screenshot::CropError::Zero) => ::std::option::Option::Some(\"zero\".to_owned()), ::std::result::Result::Err(::iced::window::screenshot::CropError::OutOfBounds) => ::std::option::Option::Some(\"out-of-bounds\".to_owned()) }}",
+                "match ::ui_lang_runtime::crop_screenshot(&({}), {}) {{ ::std::result::Result::Ok(_) => ::std::option::Option::None, ::std::result::Result::Err(::iced::window::screenshot::CropError::Zero) => ::std::option::Option::Some(\"zero\".to_owned()), ::std::result::Result::Err(::iced::window::screenshot::CropError::OutOfBounds) => ::std::option::Option::Some(\"out-of-bounds\".to_owned()) }}",
                 expr_code(&args[0], env, document, ValueMode::Borrowed)?,
                 expr_code(&args[1], env, document, ValueMode::Owned)?
             ),
             "screenshot.crop_error_message" => format!(
-                "(&({})).crop({}).err().map(|error| error.to_string())",
+                "::ui_lang_runtime::crop_screenshot(&({}), {}).err().map(|error| error.to_string())",
                 expr_code(&args[0], env, document, ValueMode::Borrowed)?,
                 expr_code(&args[1], env, document, ValueMode::Owned)?
             ),
@@ -824,7 +849,7 @@ pub(in crate::codegen) fn expr_code(
                 }
             }
             "animation.remaining" => format!(
-                "({}).remaining({}).as_secs_f64() * 1000.0",
+                "::ui_lang_runtime::animation_remaining_millis(&({}), {})",
                 expr_code(&args[0], env, document, ValueMode::Borrowed)?,
                 animation_at_code(args, 1, env, document)?
             ),
@@ -1437,19 +1462,13 @@ pub(in crate::codegen) fn expr_code(
                 expr_code(&args[0], env, document, ValueMode::Borrowed)?
             ),
             _ => {
-                let function = document
-                    .functions
-                    .iter()
-                    .find(|function| function.name == *name && function.kind == ExternKind::Sync)
+                let function = find_extern_function(document, name, ExternKind::Sync)
                     .expect("checker accepts only declared sync calls");
-                let args = args
-                    .iter()
-                    .map(|arg| expr_code(arg, env, document, ValueMode::Owned))
-                    .collect::<Result<Vec<_>, _>>()?
-                    .join(", ");
+                let args = expr_list_code(args, env, document)?;
                 format!("{}({args})", function.rust_path)
             }
-        },
+        }
+        }
         Expr::Unary { op, value } => format!(
             "({}{})",
             match op {
@@ -1477,9 +1496,7 @@ pub(in crate::codegen) fn expr_code(
             let right_ty = expr_type(right, &types, document, &Span::line(1))?;
             let left = expr_code(left, env, document, mode)?;
             let right = expr_code(right, env, document, mode)?;
-            let left = if left_ty == Type::F64
-                && right_ty == Type::Radians
-                && *op == BinaryOp::Mul
+            let left = if left_ty == Type::F64 && right_ty == Type::Radians && *op == BinaryOp::Mul
             {
                 format!("({left}) as f32")
             } else {
@@ -1495,8 +1512,7 @@ pub(in crate::codegen) fn expr_code(
                         | Type::Vector
                         | Type::Size
                         | Type::Rectangle
-                )
-            {
+                ) {
                 format!("({right}) as f32")
             } else {
                 right
@@ -1523,6 +1539,25 @@ pub(in crate::codegen) fn expr_code(
             )
         }
     })
+}
+
+pub(in crate::codegen) fn clamped_f32_code(
+    expr: &Expr,
+    min: &str,
+    max: &str,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<String, Error> {
+    let code = expr_code(expr, env, document, ValueMode::Owned)?;
+    Ok(format!("(({code}) as f32).max({min}).min({max})"))
+}
+
+fn unit_f32_code(
+    expr: &Expr,
+    env: &HashMap<String, Binding>,
+    document: &Document,
+) -> Result<String, Error> {
+    clamped_f32_code(expr, "0.0", "1.0", env, document)
 }
 
 mod binding;

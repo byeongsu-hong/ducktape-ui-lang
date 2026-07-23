@@ -1,4 +1,7 @@
 extern crate::backend
+  AlternateTheme()
+  sync alternate_theme(active:bool) -> AlternateTheme
+  load_alternate_theme() -> AlternateTheme
   themer alternate_panel(active:bool) -> unit
 
 app AlternateThemeApp
@@ -11,6 +14,20 @@ theme
 
 state
   active = true
+  native_theme:AlternateTheme = alternate_theme(true)
+
+component NativeTheme()
+  state
+    remembered:AlternateTheme = alternate_theme(true)
+  text "Native component state"
+
+on mount
+  run load_alternate_theme() -> loaded _
+
+on loaded(next)
+  native_theme = next
 
 view
-  themer alternate_panel(active)
+  col
+    themer alternate_panel(active)
+    NativeTheme

@@ -69,7 +69,7 @@ subscribe
   touch pressed -> touched _ _ _
 
 view
-  col spacing=8.0 padding=16.0
+  col gap=8.0 p=16.0
     text cursor_kind
     text click_kind
     text finger_id

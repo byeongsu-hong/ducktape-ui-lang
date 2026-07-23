@@ -422,7 +422,7 @@ pub struct Id {
 
 #[derive(Clone, Debug)]
 pub struct ComponentArg {
-    pub name: Option<String>,
+    pub name: String,
     pub value: Expr,
 }
 

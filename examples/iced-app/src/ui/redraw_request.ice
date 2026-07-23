@@ -31,7 +31,7 @@ on inspect
   values_ordered = (next_frame < at) && (at < wait)
 
 view
-  col spacing=8.0 padding=16.0
+  col gap=8.0 p=16.0
     button "Inspect" -> inspect
     text kind
     text "Next frame < scheduled < wait"

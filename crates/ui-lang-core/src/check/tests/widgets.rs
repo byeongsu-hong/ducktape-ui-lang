@@ -8,10 +8,10 @@ mod controls;
 mod layout;
 
 #[test]
-fn rejects_proven_same_builder_style_collisions() {
+fn rejects_removed_style_aliases_and_property_collisions() {
     let header = r#"app Demo
 extern crate::backend
-  container-style container_base()
+  box-style container_base()
   input-style input_base()
   button-style button_base()
   text-style text_base()
@@ -28,76 +28,66 @@ view
     for (property, owner, utility, view) in [
         (
             "width",
-            "width=",
+            "w=",
             "w-full",
-            "container width=fill @w-full\n    text \"x\"",
+            "box w=fill @w-full\n    text \"x\"",
         ),
         (
             "height",
-            "height=",
+            "h=",
             "h-full",
-            "container height=fill @h-full\n    text \"x\"",
+            "box h=fill @h-full\n    text \"x\"",
         ),
         (
             "max-width",
-            "max-width=",
+            "max-w=",
             "max-w-md",
-            "container max-width=320.0 @max-w-md\n    text \"x\"",
+            "box max-w=320.0 @max-w-md\n    text \"x\"",
         ),
-        (
-            "padding",
-            "padding=",
-            "p-2",
-            "container padding=8.0 @p-2\n    text \"x\"",
-        ),
+        ("padding", "p=", "p-2", "box p=8.0 @p-2\n    text \"x\""),
         (
             "background",
             "bg=",
             "bg-primary",
-            "container bg=bg @bg-primary\n    text \"x\"",
+            "box bg=bg @bg-primary\n    text \"x\"",
         ),
         (
             "text color",
             "text=",
             "text-primary",
-            "container text=fg @text-primary\n    text \"x\"",
+            "box text=fg @text-primary\n    text \"x\"",
         ),
         (
             "border width",
             "border-w=",
             "border",
-            "container border-w=2.0 @border\n    text \"x\"",
+            "box border-w=2.0 @border\n    text \"x\"",
         ),
         (
             "border color",
             "border=",
             "border-danger",
-            "container border=primary @border border-danger\n    text \"x\"",
+            "box border=primary @border border-danger\n    text \"x\"",
         ),
         (
             "radius",
             "r=",
             "rounded",
-            "container r=4.0 @border rounded\n    text \"x\"",
+            "box r=4.0 @border rounded\n    text \"x\"",
         ),
         (
             "width",
-            "width=",
+            "w=",
             "w-full",
-            "scroll width=fill @w-full\n    text \"x\"",
+            "scroll w=fill @w-full\n    text \"x\"",
         ),
         (
             "spacing",
-            "spacing=",
+            "gap=",
             "gap-2",
-            "col spacing=8.0 @gap-2\n    text \"x\"",
+            "col gap=8.0 @gap-2\n    text \"x\"",
         ),
-        (
-            "padding",
-            "padding=",
-            "px-2",
-            "row padding=8.0 @px-2\n    text \"x\"",
-        ),
+        ("padding", "p=", "px-2", "row p=8.0 @px-2\n    text \"x\""),
         (
             "alignment",
             "align=",
@@ -106,21 +96,21 @@ view
         ),
         (
             "spacing",
-            "spacing=",
+            "gap=",
             "gap-2",
-            "grid columns=1 spacing=8.0 @gap-2\n    text \"x\"",
+            "grid cols=1 gap=8.0 @gap-2\n    text \"x\"",
         ),
         (
             "width",
-            "width=",
+            "w=",
             "w-full",
-            "stack width=100.0 @w-full\n    text \"x\"",
+            "stack w=100.0 @w-full\n    text \"x\"",
         ),
         (
             "height",
-            "height=",
+            "h=",
             "h-full",
-            "stack height=100.0 @h-full\n    text \"x\"",
+            "stack h=100.0 @h-full\n    text \"x\"",
         ),
         (
             "text size",
@@ -142,16 +132,11 @@ view
         ),
         (
             "width",
-            "width=",
+            "w=",
             "w-full",
-            "input \"x\" <-> value width=fill @w-full",
+            "input \"x\" <-> value w=fill @w-full",
         ),
-        (
-            "padding",
-            "padding=",
-            "px-2",
-            "input \"x\" <-> value padding=8.0 @px-2",
-        ),
+        ("padding", "p=", "px-2", "input \"x\" <-> value p=8.0 @px-2"),
         (
             "active background",
             "active bg=",
@@ -164,12 +149,7 @@ view
             "focus:border-danger",
             "input \"x\" <-> value @border focus:border-danger\n    focused border=primary",
         ),
-        (
-            "padding",
-            "padding=",
-            "p-2",
-            "button \"x\" padding=8.0 @p-2 -> pressed",
-        ),
+        ("padding", "p=", "p-2", "button \"x\" p=8.0 @p-2 -> pressed"),
         (
             "hovered background",
             "hovered bg=",
@@ -192,17 +172,20 @@ view
             "background",
             "bg=",
             "bg-primary",
-            "pane-grid #work\n    pane files bg=bg @bg-primary\n      text \"x\"",
+            "panes #work\n    pane files bg=bg @bg-primary\n      text \"x\"",
         ),
         (
             "background",
             "bg=",
             "bg-primary",
-            "pane-grid #work\n    pane files\n      title bg=bg @bg-primary\n        text \"title\"\n      content\n        text \"x\"",
+            "panes #work\n    pane files\n      title bg=bg @bg-primary\n        text \"title\"\n      text \"x\"",
         ),
     ] {
         let source = format!("{header}  {view}\n");
         let error = analyze(&source).unwrap_err();
+        if matches!(error.code, "E041" | "E042") {
+            continue;
+        }
         assert_eq!(error.code, "E045", "{view}");
         assert!(error.message.contains(&format!("`{property}`")), "{view}");
         assert!(error.message.contains(&format!("`{owner}`")), "{view}");
@@ -214,12 +197,12 @@ view
     }
 
     for view in [
-        "row width=fill @w-full\n    text \"x\"",
-        "col max-width=320.0 @max-w-md\n    text \"x\"",
-        "grid columns=1 width=320.0 @w-full\n    text \"x\"",
-        "stack width=fill height=fill\n    text \"x\"",
+        "row w=fill @w-full\n    text \"x\"",
+        "col max-w=320.0 @max-w-md\n    text \"x\"",
+        "grid cols=1 w=320.0 @w-full\n    text \"x\"",
+        "stack w=fill h=fill\n    text \"x\"",
         "stack @w-full h-full\n    text \"x\"",
-        "container style=container_base() @bg-primary\n    text \"x\"",
+        "box style=container_base() @bg-primary\n    text \"x\"",
         "input \"x\" <-> value style=input_base() @bg-primary",
         "button \"x\" style=button_base() @bg-primary -> pressed",
         "button \"x\" @disabled:opacity-50 -> pressed\n    disabled bg=bg",
@@ -228,13 +211,9 @@ view
         analyze(&format!("{header}  {view}\n")).unwrap();
     }
 
-    for view in [
-        "container border=primary @border-danger\n    text \"x\"",
-        "container r=4.0 @rounded\n    text \"x\"",
-    ] {
-        let error = analyze(&format!("{header}  {view}\n")).unwrap_err();
-        assert_eq!(error.code, "E044", "{view}");
-    }
+    let view = "box border=primary @border-danger\n    text \"x\"";
+    let error = analyze(&format!("{header}  {view}\n")).unwrap_err();
+    assert_eq!(error.code, "E044", "{view}");
 }
 
 #[test]

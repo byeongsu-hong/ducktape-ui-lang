@@ -24,9 +24,7 @@ fn preserves_every_native_color_operation() {
     assert_eq!(app.from3, iced::Color::from([0.25, 0.5, 0.75]));
     assert_eq!(app.from4, iced::Color::from([0.1, 0.2, 0.3, 0.8]));
     assert_eq!(app.inverse, app.rgb.inverse());
-    let mut inverted = app.rgb;
-    inverted.invert();
-    assert_eq!(app.inverted, inverted);
+    assert_eq!(app.inverted, app.rgb.inverse());
     assert_eq!(app.scaled, app.rgba.scale_alpha(0.5));
     assert_eq!(app.round_trip, app.rgba8);
     assert_eq!(app.dynamic_rgb8, Some(app.rgb8));

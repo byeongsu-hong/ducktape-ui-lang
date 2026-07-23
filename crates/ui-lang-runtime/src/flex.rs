@@ -403,12 +403,22 @@ where
             .max_width(self.max_width)
             .max_height(self.max_height);
         let padding_size = Size::new(
-            self.padding.left + self.padding.right,
-            self.padding.top + self.padding.bottom,
+            bounded_f32(f64::from(self.padding.left) + f64::from(self.padding.right)),
+            bounded_f32(f64::from(self.padding.top) + f64::from(self.padding.bottom)),
         );
         let inner_limits = limits.shrink(padding_size);
         let max_main = axis.main(inner_limits.max());
         let max_cross = axis.cross(inner_limits.max());
+        let (main_compress, cross_compress) = match axis {
+            Axis::Horizontal => (
+                inner_limits.compression().width,
+                inner_limits.compression().height,
+            ),
+            Axis::Vertical => (
+                inner_limits.compression().height,
+                inner_limits.compression().width,
+            ),
+        };
         let main_gap = match axis {
             Axis::Horizontal => self.column_gap,
             Axis::Vertical => self.row_gap,
@@ -440,7 +450,7 @@ where
             let fill = main_hint.fill_factor();
             let grow = item.grow.unwrap_or(fill as f32);
             let content_basis = matches!(item.basis, FlexBasis::Content | FlexBasis::Percent(_));
-            let base_main = basis.unwrap_or(if content_basis || fill == 0 {
+            let base_main = basis.unwrap_or(if content_basis || fill == 0 || main_compress {
                 intrinsic_main
             } else {
                 0.0
@@ -466,10 +476,10 @@ where
         let natural_main = lines
             .iter()
             .map(|line| line_base(&measured[line.start..line.end], main_gap))
-            .fold(0.0_f32, f32::max);
-        let initial_cross = lines.iter().map(|line| line.cross).sum::<f32>()
-            + cross_gap * lines.len().saturating_sub(1) as f32;
-        let intrinsic = axis.size(natural_main, initial_cross) + padding_size;
+            .fold(0.0_f64, f64::max)
+            .min(f64::from(f32::MAX)) as f32;
+        let initial_cross = lines_cross(&lines, cross_gap);
+        let intrinsic = bounded_size_add(axis.size(natural_main, initial_cross), padding_size);
         let mut outer_size = limits.resolve(self.width, self.height, intrinsic);
         let target_main = (axis.main(outer_size) - axis.main(padding_size)).max(0.0);
 
@@ -483,12 +493,13 @@ where
             for item in &mut measured[line.start..line.end] {
                 let source = item.source;
                 let child = &mut self.items[source].content;
+                let (_, cross_hint) = axis.lengths(child.as_widget().size());
                 let final_limits = child_limits(
                     axis,
                     Some(item.target_main),
                     item.target_main,
                     max_cross,
-                    false,
+                    cross_compress && cross_hint.fill_factor() != 0,
                     None,
                 );
                 let node = child.as_widget_mut().layout(
@@ -497,16 +508,13 @@ where
                     &final_limits,
                 );
                 item.natural_cross = axis.cross(node.size());
-                line.cross = line
-                    .cross
-                    .max(item.natural_cross + item.margins.fixed_cross());
+                line.cross = line.cross.max(item_outer_cross(item));
                 nodes[source] = node;
             }
         }
 
-        let natural_cross = lines.iter().map(|line| line.cross).sum::<f32>()
-            + cross_gap * lines.len().saturating_sub(1) as f32;
-        let intrinsic = axis.size(target_main, natural_cross) + padding_size;
+        let natural_cross = lines_cross(&lines, cross_gap);
+        let intrinsic = bounded_size_add(axis.size(target_main, natural_cross), padding_size);
         outer_size = limits.resolve(self.width, self.height, intrinsic);
         let target_cross = (axis.cross(outer_size) - axis.cross(padding_size)).max(0.0);
 
@@ -517,11 +525,11 @@ where
             self.align_content,
             self.wrap,
         );
-        let mut line_cursor = line_leading;
+        let mut line_cursor = f64::from(line_leading);
         for line in &lines {
             let line_cross = line.cross;
             let physical_line_cross = if self.wrap == FlexWrap::WrapReverse {
-                target_cross - line_cursor - line_cross
+                f64::from(target_cross) - line_cursor - f64::from(line_cross)
             } else {
                 line_cursor
             };
@@ -551,15 +559,15 @@ where
                     self.direction.is_reverse(),
                 )
             };
-            let mut main_cursor = leading;
+            let mut main_cursor = f64::from(leading);
 
             for item in line_items {
                 let source = item.source;
                 let main_start = item.margins.main_start.unwrap_or(auto_share);
                 let main_end = item.margins.main_end.unwrap_or(auto_share);
-                main_cursor += main_start;
+                main_cursor += f64::from(main_start);
                 let physical_main = if self.direction.is_reverse() {
-                    target_main - main_cursor - item.target_main
+                    f64::from(target_main) - main_cursor - f64::from(item.target_main)
                 } else {
                     main_cursor
                 };
@@ -572,7 +580,7 @@ where
                 let mut node_cross = axis.cross(nodes[source].size());
                 let hint = self.items[source].content.as_widget().size();
                 let (_, cross_hint) = axis.lengths(hint);
-                if align == AlignItems::Stretch
+                if (align == AlignItems::Stretch || cross_compress && cross_hint.fill_factor() != 0)
                     && cross_auto_count == 0
                     && !matches!(cross_hint, Length::Fixed(_))
                 {
@@ -607,7 +615,7 @@ where
                             matches!(axis, Axis::Horizontal),
                         )
                 };
-                let physical_cross = physical_line_cross + cross_offset;
+                let physical_cross = physical_line_cross + f64::from(cross_offset);
                 let padding_main = match axis {
                     Axis::Horizontal => self.padding.left,
                     Axis::Vertical => self.padding.top,
@@ -616,12 +624,16 @@ where
                     Axis::Horizontal => self.padding.top,
                     Axis::Vertical => self.padding.left,
                 };
-                nodes[source].move_to_mut(
-                    axis.point(physical_main + padding_main, physical_cross + padding_cross),
-                );
-                main_cursor += item.target_main + main_end + main_gap + between;
+                nodes[source].move_to_mut(axis.point(
+                    bounded_f32(physical_main + f64::from(padding_main)),
+                    bounded_f32(physical_cross + f64::from(padding_cross)),
+                ));
+                main_cursor += f64::from(item.target_main)
+                    + f64::from(main_end)
+                    + f64::from(main_gap)
+                    + f64::from(between);
             }
-            line_cursor += line_cross + cross_gap + line_between;
+            line_cursor += f64::from(line_cross) + f64::from(cross_gap) + f64::from(line_between);
         }
 
         layout::Node::with_children(outer_size, nodes)
@@ -758,13 +770,30 @@ where
 }
 
 fn non_negative(value: f32) -> f32 {
-    if value.is_finite() {
-        value.max(0.0)
-    } else if value.is_sign_positive() {
-        f32::MAX
-    } else {
+    if value.is_nan() {
         0.0
+    } else {
+        value.clamp(0.0, f32::MAX)
     }
+}
+
+fn finite(value: f32) -> f32 {
+    if value.is_finite() { value } else { 0.0 }
+}
+
+fn bounded_f32(value: f64) -> f32 {
+    if value.is_nan() {
+        0.0
+    } else {
+        value.clamp(f64::from(f32::MIN), f64::from(f32::MAX)) as f32
+    }
+}
+
+fn bounded_size_add(left: Size, right: Size) -> Size {
+    Size::new(
+        bounded_f32(f64::from(left.width) + f64::from(right.width)),
+        bounded_f32(f64::from(left.height) + f64::from(right.height)),
+    )
 }
 
 fn definite_length(length: Length, maximum: f32) -> Option<f32> {
@@ -783,7 +812,9 @@ fn resolve_basis(basis: FlexBasis, available: f32, hint: Length) -> Option<f32> 
         },
         FlexBasis::Content => None,
         FlexBasis::Fixed(value) => Some(non_negative(value)),
-        FlexBasis::Percent(value) if available.is_finite() => Some(non_negative(value) * available),
+        FlexBasis::Percent(value) if available.is_finite() => {
+            Some(non_negative(non_negative(value) * available))
+        }
         FlexBasis::Percent(_) => None,
     }
 }
@@ -791,8 +822,10 @@ fn resolve_basis(basis: FlexBasis, available: f32, hint: Length) -> Option<f32> 
 fn resolve_margin(margin: FlexMargin, percentage_base: f32) -> Option<f32> {
     match margin {
         FlexMargin::Zero => Some(0.0),
-        FlexMargin::Fixed(value) => Some(if value.is_finite() { value } else { 0.0 }),
-        FlexMargin::Percent(value) if percentage_base.is_finite() => Some(value * percentage_base),
+        FlexMargin::Fixed(value) => Some(finite(value)),
+        FlexMargin::Percent(value) if percentage_base.is_finite() => {
+            Some(finite(value * percentage_base))
+        }
         FlexMargin::Percent(_) => Some(0.0),
         FlexMargin::Auto => None,
     }
@@ -851,10 +884,7 @@ fn build_lines(items: &[ItemLayout], wrap: FlexWrap, limit: f32, gap: f32) -> Ve
         return vec![Line {
             start: 0,
             end: items.len(),
-            cross: items
-                .iter()
-                .map(|item| item.natural_cross + item.margins.fixed_cross())
-                .fold(0.0, f32::max),
+            cross: items.iter().map(item_outer_cross).fold(0.0, f32::max),
         }];
     }
     let mut lines = Vec::new();
@@ -876,10 +906,10 @@ fn build_lines(items: &[ItemLayout], wrap: FlexWrap, limit: f32, gap: f32) -> Ve
             });
             start = index;
             used = outer;
-            cross = item.natural_cross + item.margins.fixed_cross();
+            cross = item_outer_cross(item);
         } else {
             used = next;
-            cross = cross.max(item.natural_cross + item.margins.fixed_cross());
+            cross = cross.max(item_outer_cross(item));
         }
     }
     lines.push(Line {
@@ -890,12 +920,23 @@ fn build_lines(items: &[ItemLayout], wrap: FlexWrap, limit: f32, gap: f32) -> Ve
     lines
 }
 
-fn line_base(items: &[ItemLayout], gap: f32) -> f32 {
+fn item_outer_cross(item: &ItemLayout) -> f32 {
+    bounded_f32(f64::from(item.natural_cross) + f64::from(item.margins.fixed_cross()))
+}
+
+fn lines_cross(lines: &[Line], gap: f32) -> f32 {
+    bounded_f32(
+        lines.iter().map(|line| f64::from(line.cross)).sum::<f64>()
+            + f64::from(gap) * lines.len().saturating_sub(1) as f64,
+    )
+}
+
+fn line_base(items: &[ItemLayout], gap: f32) -> f64 {
     items
         .iter()
-        .map(|item| item.base_main + item.margins.fixed_main())
-        .sum::<f32>()
-        + gap * items.len().saturating_sub(1) as f32
+        .map(|item| f64::from(item.base_main) + f64::from(item.margins.fixed_main()))
+        .sum::<f64>()
+        + f64::from(gap) * items.len().saturating_sub(1) as f64
 }
 
 fn resolve_flex_line(items: &mut [ItemLayout], target: f32, gap: f32) {
@@ -903,45 +944,49 @@ fn resolve_flex_line(items: &mut [ItemLayout], target: f32, gap: f32) {
         item.target_main = item.base_main;
     }
     let used = line_base(items, gap);
-    let free = target - used;
+    let free = f64::from(target) - used;
     if free > 0.0 {
-        let grow = items.iter().map(|item| item.grow).sum::<f32>();
+        let grow = items.iter().map(|item| f64::from(item.grow)).sum::<f64>();
         if grow > 0.0 {
             let distributable = free * grow.min(1.0);
             for item in items {
-                item.target_main += distributable * item.grow / grow;
+                item.target_main = (f64::from(item.target_main)
+                    + distributable * f64::from(item.grow) / grow)
+                    .min(f64::from(f32::MAX)) as f32;
             }
         }
     } else if free < 0.0 {
-        let shrink = items.iter().map(|item| item.shrink).sum::<f32>();
+        let shrink = items.iter().map(|item| f64::from(item.shrink)).sum::<f64>();
         let mut remaining = -free * shrink.min(1.0);
         let mut active = (0..items.len()).collect::<Vec<_>>();
-        while remaining > f32::EPSILON && !active.is_empty() {
+        while remaining > f64::EPSILON && !active.is_empty() {
             let weight = active
                 .iter()
-                .map(|index| items[*index].shrink * items[*index].base_main)
-                .sum::<f32>();
-            if weight <= f32::EPSILON {
+                .map(|index| f64::from(items[*index].shrink) * f64::from(items[*index].base_main))
+                .sum::<f64>();
+            if weight <= f64::EPSILON {
                 break;
             }
             let mut clamped = Vec::new();
             for index in &active {
                 let item = &items[*index];
-                let reduction = remaining * item.shrink * item.base_main / weight;
-                if reduction >= item.target_main {
+                let reduction =
+                    remaining * f64::from(item.shrink) * f64::from(item.base_main) / weight;
+                if reduction >= f64::from(item.target_main) {
                     clamped.push(*index);
                 }
             }
             if clamped.is_empty() {
                 for index in active {
                     let item = &mut items[index];
-                    let reduction = remaining * item.shrink * item.base_main / weight;
-                    item.target_main -= reduction;
+                    let reduction =
+                        remaining * f64::from(item.shrink) * f64::from(item.base_main) / weight;
+                    item.target_main = (f64::from(item.target_main) - reduction).max(0.0) as f32;
                 }
                 break;
             }
             for index in &clamped {
-                remaining -= items[*index].target_main;
+                remaining -= f64::from(items[*index].target_main);
                 items[*index].target_main = 0.0;
             }
             active.retain(|index| !clamped.contains(index));
@@ -1107,6 +1152,21 @@ mod tests {
 
     #[test]
     fn distributes_grow_shrink_justify_and_wrapped_lines() {
+        assert_eq!(non_negative(f32::NAN), 0.0);
+        assert_eq!(non_negative(f32::INFINITY), f32::MAX);
+        assert_eq!(
+            resolve_margin(FlexMargin::Fixed(f32::NEG_INFINITY), 1.0),
+            Some(0.0)
+        );
+        assert_eq!(
+            resolve_margin(FlexMargin::Percent(f32::MAX), f32::MAX),
+            Some(0.0)
+        );
+        assert_eq!(
+            resolve_basis(FlexBasis::Percent(f32::MAX), f32::MAX, Length::Shrink),
+            Some(f32::MAX)
+        );
+
         let mut growing = [item(50.0, 1.0, 1.0), item(50.0, 2.0, 1.0)];
         resolve_flex_line(&mut growing, 300.0, 0.0);
         close(growing[0].target_main, 116.666_67);
@@ -1116,6 +1176,20 @@ mod tests {
         resolve_flex_line(&mut shrinking, 300.0, 0.0);
         close(shrinking[0].target_main, 150.0);
         close(shrinking[1].target_main, 150.0);
+
+        let mut huge_growing = [item(50.0, f32::MAX, 1.0), item(50.0, f32::MAX, 1.0)];
+        resolve_flex_line(&mut huge_growing, 300.0, 0.0);
+        close(huge_growing[0].target_main, 150.0);
+        close(huge_growing[1].target_main, 150.0);
+
+        let mut huge_shrinking = [item(200.0, 0.0, f32::MAX), item(200.0, 0.0, f32::MAX)];
+        resolve_flex_line(&mut huge_shrinking, 300.0, 0.0);
+        close(huge_shrinking[0].target_main, 150.0);
+        close(huge_shrinking[1].target_main, 150.0);
+
+        let mut huge_bases = [item(f32::MAX, 0.0, 1.0), item(f32::MAX, 0.0, 1.0)];
+        resolve_flex_line(&mut huge_bases, 300.0, 0.0);
+        assert!(huge_bases.iter().all(|item| item.target_main.is_finite()));
 
         let mut growing_with_auto_margin = [item(50.0, 1.0, 1.0), item(50.0, 0.0, 1.0)];
         growing_with_auto_margin[1].margins.main_start = None;
@@ -1174,7 +1248,104 @@ mod tests {
     }
 
     #[test]
-    fn uses_content_for_unresolved_percent_basis() {
+    fn keeps_extreme_spacing_coordinates_finite() {
+        let children = (0..3)
+            .map(|_| {
+                let child: Element<'_, (), Theme, TestRenderer> =
+                    iced::widget::Space::new().width(10.0).height(10.0).into();
+                flex_item(child)
+            })
+            .collect();
+        let mut element: Element<'_, (), Theme, TestRenderer> = flex(children).gap(f32::MAX).into();
+        let mut tree = Tree::new(&element);
+        let node = element.as_widget_mut().layout(
+            &mut tree,
+            &renderer(),
+            &layout::Limits::new(Size::ZERO, Size::new(300.0, 40.0)),
+        );
+
+        assert!(node.children().iter().all(|child| {
+            let bounds = child.bounds();
+            [bounds.x, bounds.y, bounds.width, bounds.height]
+                .into_iter()
+                .all(f32::is_finite)
+        }));
+
+        let children = (0..3)
+            .map(|_| {
+                let child: Element<'_, (), Theme, TestRenderer> =
+                    iced::widget::Space::new().width(10.0).height(10.0).into();
+                flex_item(child)
+            })
+            .collect();
+        let layout = flex(children)
+            .wrap(FlexWrap::Wrap)
+            .width(10.0)
+            .row_gap(f32::MAX);
+        let mut element: Element<'_, (), Theme, TestRenderer> = layout.into();
+        let mut tree = Tree::new(&element);
+        let node = element.as_widget_mut().layout(
+            &mut tree,
+            &renderer(),
+            &layout::Limits::new(Size::ZERO, Size::new(10.0, f32::INFINITY)),
+        );
+
+        assert!(node.size().height.is_finite());
+
+        let child: Element<'_, (), Theme, TestRenderer> =
+            iced::widget::Space::new().width(10.0).height(10.0).into();
+        let flex = flex(vec![flex_item(child)]).padding(Padding::new(f32::MAX));
+        let mut element: Element<'_, (), Theme, TestRenderer> = flex.into();
+        let mut tree = Tree::new(&element);
+        let node = element.as_widget_mut().layout(
+            &mut tree,
+            &renderer(),
+            &layout::Limits::new(Size::ZERO, Size::INFINITE),
+        );
+
+        assert!(node.size().width.is_finite());
+        assert!(node.size().height.is_finite());
+    }
+
+    #[test]
+    fn compresses_cross_axis_fill_to_the_line() {
+        let fill: Element<'_, (), Theme, TestRenderer> = iced::widget::Space::new()
+            .width(10.0)
+            .height(Length::Fill)
+            .into();
+        let fixed: Element<'_, (), Theme, TestRenderer> =
+            iced::widget::Space::new().width(10.0).height(20.0).into();
+        let flex = flex(vec![flex_item(fill), flex_item(fixed)]).align_items(AlignItems::Start);
+        let mut element: Element<'_, (), Theme, TestRenderer> = flex.into();
+        let mut tree = Tree::new(&element);
+        let node = element.as_widget_mut().layout(
+            &mut tree,
+            &renderer(),
+            &layout::Limits::new(Size::ZERO, Size::new(300.0, 40.0)),
+        );
+
+        assert_eq!(node.size(), Size::new(20.0, 20.0));
+        assert_eq!(node.children()[0].size(), Size::new(10.0, 20.0));
+    }
+
+    #[test]
+    fn uses_content_for_indefinite_fill_and_percent_basis() {
+        let child = || -> Element<'_, (), Theme, TestRenderer> {
+            iced::widget::container(iced::widget::Space::new().width(50.0).height(20.0))
+                .width(Length::Fill)
+                .into()
+        };
+        let layout = flex(vec![flex_item(child())]);
+        let mut element: Element<'_, (), Theme, TestRenderer> = layout.into();
+        let mut tree = Tree::new(&element);
+        let node = element.as_widget_mut().layout(
+            &mut tree,
+            &renderer(),
+            &layout::Limits::new(Size::ZERO, Size::new(300.0, 40.0)),
+        );
+
+        assert_eq!(node.size(), Size::new(50.0, 20.0));
+
         let child: Element<'_, (), Theme, TestRenderer> =
             iced::widget::container(iced::widget::Space::new().width(50.0).height(20.0))
                 .width(Length::Fill)

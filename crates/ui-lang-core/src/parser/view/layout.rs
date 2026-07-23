@@ -5,7 +5,7 @@ pub(in crate::parser) fn parse_container(
     styles: Vec<String>,
     line: &Line,
 ) -> Result<ViewNode, Error> {
-    let kind = parts.first().map_or("container", String::as_str);
+    let kind = parts.first().map_or("box", String::as_str);
     if line.children.len() != 1 {
         return Err(error(
             "E184",
@@ -21,13 +21,13 @@ pub(in crate::parser) fn parse_container(
     let mut options = ContainerOptions::default();
     let option_start = usize::from(id.is_some()) + 1;
     for part in &parts[option_start..] {
-        if let Some(value) = part.strip_prefix("width=") {
+        if let Some(value) = part.strip_prefix("w=") {
             options.width = Some(parse_length(value, line)?);
-        } else if let Some(value) = part.strip_prefix("height=") {
+        } else if let Some(value) = part.strip_prefix("h=") {
             options.height = Some(parse_length(value, line)?);
-        } else if let Some(value) = part.strip_prefix("max-width=") {
+        } else if let Some(value) = part.strip_prefix("max-w=") {
             options.max_width = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("max-height=") {
+        } else if let Some(value) = part.strip_prefix("max-h=") {
             options.max_height = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else if let Some(value) = part.strip_prefix("align-x=") {
             options.align_x = Some(parse_flex_alignment(value, line)?);
@@ -35,61 +35,43 @@ pub(in crate::parser) fn parse_container(
             options.align_y = Some(parse_flex_alignment(value, line)?);
         } else if let Some(value) = part.strip_prefix("clip=") {
             options.clip = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("padding=") {
-            options.padding.all = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("padding-x=") {
-            options.padding.x = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("padding-y=") {
-            options.padding.y = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("padding-top=") {
-            options.padding.top = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("padding-right=") {
-            options.padding.right = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("padding-bottom=") {
-            options.padding.bottom = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("padding-left=") {
-            options.padding.left = Some(parse_expr(strip_wrapping_parens(value), line)?);
+        } else if parse_padding_option(part, &mut options.padding, line)? {
         } else if let Some(value) = part.strip_prefix("order=") {
             options.flex_item.order = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("flex-grow=") {
+        } else if let Some(value) = part.strip_prefix("grow=") {
             options.flex_item.grow = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("flex-shrink=") {
+        } else if let Some(value) = part.strip_prefix("shrink=") {
             options.flex_item.shrink = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("flex-basis=") {
+        } else if let Some(value) = part.strip_prefix("basis=") {
             options.flex_item.basis = Some(parse_flex_basis(value, line)?);
-        } else if let Some(value) = part.strip_prefix("align-self=") {
+        } else if let Some(value) = part.strip_prefix("self=") {
             options.flex_item.align_self = match value {
                 "auto" => None,
                 _ => Some(parse_flex_item_alignment(value, line)?),
             };
         } else if let Some(value) = part.strip_prefix("flex=") {
             parse_flex_shorthand(value, &mut options.flex_item, line)?;
-        } else if let Some(value) = part.strip_prefix("margin=") {
+        } else if let Some(value) = part.strip_prefix("m=") {
             options.flex_item.margin.all = Some(parse_flex_margin(value, line)?);
-        } else if let Some(value) = part.strip_prefix("margin-x=") {
+        } else if let Some(value) = part.strip_prefix("mx=") {
             options.flex_item.margin.x = Some(parse_flex_margin(value, line)?);
-        } else if let Some(value) = part.strip_prefix("margin-y=") {
+        } else if let Some(value) = part.strip_prefix("my=") {
             options.flex_item.margin.y = Some(parse_flex_margin(value, line)?);
-        } else if let Some(value) = part.strip_prefix("margin-top=") {
+        } else if let Some(value) = part.strip_prefix("mt=") {
             options.flex_item.margin.top = Some(parse_flex_margin(value, line)?);
-        } else if let Some(value) = part.strip_prefix("margin-right=") {
+        } else if let Some(value) = part.strip_prefix("mr=") {
             options.flex_item.margin.right = Some(parse_flex_margin(value, line)?);
-        } else if let Some(value) = part.strip_prefix("margin-bottom=") {
+        } else if let Some(value) = part.strip_prefix("mb=") {
             options.flex_item.margin.bottom = Some(parse_flex_margin(value, line)?);
-        } else if let Some(value) = part.strip_prefix("margin-left=") {
+        } else if let Some(value) = part.strip_prefix("ml=") {
             options.flex_item.margin.left = Some(parse_flex_margin(value, line)?);
         } else if let Some(value) = part.strip_prefix("style=") {
-            let (function, args) = parse_signature(value, line).map_err(|_| {
-                error(
-                    "E184",
-                    line,
-                    format!("{kind} style must be a declared style call"),
-                )
-            })?;
-            options.custom_style = Some(ExternCall {
-                function,
-                args: parse_expr_list(&args, line)?,
-            });
+            options.custom_style = Some(parse_extern_call(
+                value,
+                line,
+                "E184",
+                format!("{kind} style must be a declared style call"),
+            )?);
         } else if parse_container_style_option(part, &mut options.style, line)? {
         } else {
             return Err(error(
@@ -241,7 +223,7 @@ pub(in crate::parser) fn parse_overlay(
             dismiss = Some(parse_route(value, line)?);
         } else if let Some(value) = part.strip_prefix("backdrop=") {
             backdrop = value.to_owned();
-        } else if let Some(value) = part.strip_prefix("padding=") {
+        } else if let Some(value) = part.strip_prefix("p=") {
             padding = parse_expr(strip_wrapping_parens(value), line)?;
         } else if let Some(value) = part.strip_prefix("align-x=") {
             align_x = parse_flex_alignment(value, line)?;
@@ -402,27 +384,7 @@ pub(in crate::parser) fn parse_pane_view(
             ));
         }
     }
-    let structured = line.children.iter().any(|child| {
-        let (core, _) = split_style_utilities(&child.text);
-        split_words(core).first().is_some_and(|kind| {
-            matches!(
-                kind.as_str(),
-                "title" | "controls" | "compact-controls" | "content"
-            )
-        })
-    });
-    let (content, title) = if structured {
-        parse_structured_pane(line)?
-    } else {
-        if line.children.len() != 1 {
-            return Err(error(
-                "E187",
-                line,
-                "pane requires exactly one child; wrap siblings in row or col",
-            ));
-        }
-        (Box::new(parse_view(&line.children[0])?), None)
-    };
+    let (content, title) = parse_pane_contents(line)?;
     panes.push(PaneView {
         name: name.clone(),
         maximized,
@@ -435,7 +397,7 @@ pub(in crate::parser) fn parse_pane_view(
     Ok(name)
 }
 
-pub(in crate::parser) fn parse_structured_pane(
+pub(in crate::parser) fn parse_pane_contents(
     line: &Line,
 ) -> Result<(Box<ViewNode>, Option<PaneTitle>), Error> {
     let mut content = None;
@@ -446,24 +408,17 @@ pub(in crate::parser) fn parse_structured_pane(
         let (core, styles) = split_style_utilities(&section.text);
         let parts = split_words(core);
         let kind = parts.first().map(String::as_str).unwrap_or("");
-        if section.children.len() != 1 {
-            return Err(error(
-                "E187",
-                section,
-                format!("pane `{kind}` section requires exactly one child"),
-            ));
-        }
-        let node = || parse_view(&section.children[0]).map(Box::new);
         match kind {
-            "content" if parts.len() == 1 && styles.is_empty() => {
-                if content.is_some() {
-                    return Err(error("E187", section, "duplicate pane `content` section"));
-                }
-                content = Some(node()?);
-            }
             "title" => {
                 if title.is_some() {
                     return Err(error("E187", section, "duplicate pane `title` section"));
+                }
+                if section.children.len() != 1 {
+                    return Err(error(
+                        "E187",
+                        section,
+                        "pane `title` section requires exactly one child",
+                    ));
                 }
                 title = Some(parse_pane_title(&parts[1..], styles, section)?);
             }
@@ -471,19 +426,29 @@ pub(in crate::parser) fn parse_structured_pane(
                 if controls.is_some() {
                     return Err(error("E187", section, "duplicate pane `controls` section"));
                 }
-                controls = Some(node()?);
-            }
-            "compact-controls" if parts.len() == 1 && styles.is_empty() => {
-                if compact_controls.is_some() {
+                if section.children.len() != 1 {
                     return Err(error(
                         "E187",
                         section,
-                        "duplicate pane `compact-controls` section",
+                        "pane `controls` section requires exactly one child",
                     ));
                 }
-                compact_controls = Some(node()?);
+                controls = Some(Box::new(parse_view(&section.children[0])?));
             }
-            "content" | "controls" | "compact-controls" => {
+            "compact" if parts.len() == 1 && styles.is_empty() => {
+                if compact_controls.is_some() {
+                    return Err(error("E187", section, "duplicate pane `compact` section"));
+                }
+                if section.children.len() != 1 {
+                    return Err(error(
+                        "E187",
+                        section,
+                        "pane `compact` section requires exactly one child",
+                    ));
+                }
+                compact_controls = Some(Box::new(parse_view(&section.children[0])?));
+            }
+            "controls" | "compact" => {
                 return Err(error(
                     "E187",
                     section,
@@ -491,16 +456,18 @@ pub(in crate::parser) fn parse_structured_pane(
                 ));
             }
             _ => {
-                return Err(error(
-                    "E187",
-                    section,
-                    "structured pane children must be title, controls, compact-controls, or content sections",
-                ));
+                if content.is_some() {
+                    return Err(error(
+                        "E187",
+                        section,
+                        "pane requires one content node; wrap siblings in row or col",
+                    ));
+                }
+                content = Some(Box::new(parse_view(section)?));
             }
         }
     }
-    let content =
-        content.ok_or_else(|| error("E187", line, "structured pane requires `content`"))?;
+    let content = content.ok_or_else(|| error("E187", line, "pane requires one content node"))?;
     if controls.is_some() && title.is_none() {
         return Err(error(
             "E187",
@@ -512,7 +479,7 @@ pub(in crate::parser) fn parse_structured_pane(
         return Err(error(
             "E187",
             line,
-            "pane compact-controls require a `controls` section",
+            "pane compact controls require a `controls` section",
         ));
     }
     if title
@@ -542,21 +509,7 @@ pub(in crate::parser) fn parse_pane_title(
     let mut always_show_controls = false;
     let mut style = ContainerStyleOptions::default();
     for part in parts {
-        let parse = |value: &str| parse_expr(strip_wrapping_parens(value), line);
-        if let Some(value) = part.strip_prefix("padding=") {
-            padding.all = Some(parse(value)?);
-        } else if let Some(value) = part.strip_prefix("padding-x=") {
-            padding.x = Some(parse(value)?);
-        } else if let Some(value) = part.strip_prefix("padding-y=") {
-            padding.y = Some(parse(value)?);
-        } else if let Some(value) = part.strip_prefix("padding-top=") {
-            padding.top = Some(parse(value)?);
-        } else if let Some(value) = part.strip_prefix("padding-right=") {
-            padding.right = Some(parse(value)?);
-        } else if let Some(value) = part.strip_prefix("padding-bottom=") {
-            padding.bottom = Some(parse(value)?);
-        } else if let Some(value) = part.strip_prefix("padding-left=") {
-            padding.left = Some(parse(value)?);
+        if parse_padding_option(part, &mut padding, line)? {
         } else if part == "always-controls" {
             always_show_controls = true;
         } else if parse_container_style_option(part, &mut style, line)? {
@@ -743,42 +696,20 @@ pub(in crate::parser) fn parse_pane_grid(
     line: &Line,
 ) -> Result<ViewNode, Error> {
     if !styles.is_empty() {
-        return Err(error(
-            "E187",
-            line,
-            "pane-grid does not accept `@` utilities",
-        ));
+        return Err(error("E187", line, "panes does not accept `@` utilities"));
     }
     let name = parts
         .get(1)
         .filter(|part| part.starts_with('#'))
-        .ok_or_else(|| error("E187", line, "pane-grid requires a static `#id`"))?;
+        .ok_or_else(|| error("E187", line, "panes requires a static `#id`"))?;
     let name = identifier(name.trim_start_matches('#'), line)?;
-    let mut legacy_axis = None;
-    let mut legacy_ratio = 0.5_f32;
-    let mut legacy_ratio_set = false;
     let mut options = PaneGridOptions::default();
     for part in &parts[2..] {
-        if let Some(value) = part.strip_prefix("split=") {
-            legacy_axis = Some(match value {
-                "horizontal" => PaneAxis::Horizontal,
-                "vertical" => PaneAxis::Vertical,
-                _ => {
-                    return Err(error(
-                        "E187",
-                        line,
-                        "pane-grid split must be horizontal or vertical",
-                    ));
-                }
-            });
-        } else if let Some(value) = part.strip_prefix("ratio=") {
-            legacy_ratio = parse_pane_ratio(value, line)?;
-            legacy_ratio_set = true;
-        } else if let Some(value) = part.strip_prefix("width=") {
+        if let Some(value) = part.strip_prefix("w=") {
             options.width = Some(parse_length(value, line)?);
-        } else if let Some(value) = part.strip_prefix("height=") {
+        } else if let Some(value) = part.strip_prefix("h=") {
             options.height = Some(parse_length(value, line)?);
-        } else if let Some(value) = part.strip_prefix("spacing=") {
+        } else if let Some(value) = part.strip_prefix("gap=") {
             options.spacing = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else if let Some(value) = part.strip_prefix("min-size=") {
             options.min_size = Some(parse_expr(strip_wrapping_parens(value), line)?);
@@ -789,22 +720,17 @@ pub(in crate::parser) fn parse_pane_grid(
         } else if let Some(value) = part.strip_prefix("click=") {
             options.click = Some(parse_route(value, line)?);
         } else if let Some(value) = part.strip_prefix("style=") {
-            let (function, args) = parse_signature(value, line).map_err(|_| {
-                error(
-                    "E187",
-                    line,
-                    "pane-grid style must be a declared pane-grid style call",
-                )
-            })?;
-            options.custom_style = Some(ExternCall {
-                function,
-                args: parse_expr_list(&args, line)?,
-            });
+            options.custom_style = Some(parse_extern_call(
+                value,
+                line,
+                "E187",
+                "panes style must be a declared panes style call",
+            )?);
         } else {
             return Err(error(
                 "E187",
                 line,
-                format!("unknown pane-grid property `{part}`"),
+                format!("unknown panes property `{part}`"),
             ));
         }
     }
@@ -822,11 +748,7 @@ pub(in crate::parser) fn parse_pane_grid(
             .skip(1)
             .any(|child| child.text == "style")
         {
-            return Err(error(
-                "E187",
-                line,
-                "pane-grid `style` must be its first child",
-            ));
+            return Err(error("E187", line, "panes `style` must be its first child"));
         }
         line.children.as_slice()
     };
@@ -834,64 +756,22 @@ pub(in crate::parser) fn parse_pane_grid(
     let mut splits = std::collections::HashSet::new();
     let mut panes = Vec::new();
     let mut templates = Vec::new();
-    let configuration = if let Some(axis) = legacy_axis {
-        if children.len() < 2 {
-            return Err(error(
-                "E187",
-                line,
-                "pane-grid shorthand requires two open `pane name` children",
-            ));
+    let (configuration, closed) = children.split_first().ok_or_else(|| {
+        error(
+            "E187",
+            line,
+            "panes requires an initial pane or split configuration",
+        )
+    })?;
+    let configuration =
+        parse_pane_configuration(configuration, &mut names, &mut splits, &mut panes)?;
+    for pane in closed {
+        if is_pane_template(pane) {
+            templates.push(parse_pane_template(pane, &mut names)?);
+        } else {
+            parse_closed_pane(pane, &mut names, &mut panes)?;
         }
-        let open = &children[..2];
-        let a = parse_pane_configuration(&open[0], &mut names, &mut splits, &mut panes)?;
-        let b = parse_pane_configuration(&open[1], &mut names, &mut splits, &mut panes)?;
-        if !matches!(&a, PaneConfiguration::Pane(_)) || !matches!(&b, PaneConfiguration::Pane(_)) {
-            return Err(error(
-                "E187",
-                line,
-                "pane-grid shorthand accepts two open panes; use a nested split tree instead",
-            ));
-        }
-        for pane in &children[2..] {
-            if is_pane_template(pane) {
-                templates.push(parse_pane_template(pane, &mut names)?);
-            } else {
-                parse_closed_pane(pane, &mut names, &mut panes)?;
-            }
-        }
-        PaneConfiguration::Split {
-            name: None,
-            axis,
-            ratio: legacy_ratio,
-            a: Box::new(a),
-            b: Box::new(b),
-        }
-    } else {
-        if legacy_ratio_set {
-            return Err(error(
-                "E187",
-                line,
-                "pane-grid `ratio=` requires legacy `split=` or a nested split node",
-            ));
-        }
-        let (configuration, closed) = children.split_first().ok_or_else(|| {
-            error(
-                "E187",
-                line,
-                "pane-grid requires an initial pane or split configuration",
-            )
-        })?;
-        let configuration =
-            parse_pane_configuration(configuration, &mut names, &mut splits, &mut panes)?;
-        for pane in closed {
-            if is_pane_template(pane) {
-                templates.push(parse_pane_template(pane, &mut names)?);
-            } else {
-                parse_closed_pane(pane, &mut names, &mut panes)?;
-            }
-        }
-        configuration
-    };
+    }
     Ok(ViewNode::PaneGrid {
         name,
         configuration,
@@ -907,14 +787,14 @@ pub(in crate::parser) fn parse_pane_grid_style(line: &Line) -> Result<PaneGridSt
         return Err(error(
             "E187",
             line,
-            "pane-grid style requires at least one status",
+            "panes style requires at least one status",
         ));
     }
     let mut style = PaneGridStyle::default();
     let mut statuses = std::collections::HashSet::new();
     for status in &line.children {
         if !status.children.is_empty() {
-            return Err(error("E187", status, "pane-grid style statuses are leaves"));
+            return Err(error("E187", status, "panes style statuses are leaves"));
         }
         let parts = split_words(&status.text);
         let kind = parts.first().map(String::as_str).unwrap_or("");
@@ -922,14 +802,14 @@ pub(in crate::parser) fn parse_pane_grid_style(line: &Line) -> Result<PaneGridSt
             return Err(error(
                 "E187",
                 status,
-                format!("duplicate pane-grid style status `{kind}`"),
+                format!("duplicate panes style status `{kind}`"),
             ));
         }
         if parts.len() == 1 {
             return Err(error(
                 "E187",
                 status,
-                format!("pane-grid style status `{kind}` requires properties"),
+                format!("panes style status `{kind}` requires properties"),
             ));
         }
         let parse = |value: &str| parse_expr(strip_wrapping_parens(value), status);
@@ -982,7 +862,7 @@ pub(in crate::parser) fn parse_pane_grid_style(line: &Line) -> Result<PaneGridSt
                     return Err(error(
                         "E187",
                         status,
-                        "pane-grid style status must be hovered-region, hovered-split, or picked-split",
+                        "panes style status must be hovered-region, hovered-split, or picked-split",
                     ));
                 }
             }

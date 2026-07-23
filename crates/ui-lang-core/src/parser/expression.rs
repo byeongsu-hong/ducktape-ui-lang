@@ -155,7 +155,7 @@ pub(in crate::parser) fn parse_expr_list(source: &str, line: &Line) -> Result<Ve
 enum Token {
     Ident(String),
     Str(String),
-    I64(i64),
+    Integer(String),
     F64(f64),
     Bytes(Vec<u8>),
     LParen,
@@ -230,9 +230,20 @@ impl<'a> ExprParser<'a> {
         }
         if self.peek() == Some(&Token::Neg) {
             self.index += 1;
+            if matches!(
+                self.peek(),
+                Some(Token::Integer(value)) if value == "9223372036854775808"
+            ) {
+                self.index += 1;
+                return Ok(Expr::I64(i64::MIN));
+            }
+            let value = self.unary()?;
+            if matches!(value, Expr::I64(i64::MIN)) {
+                return Err(error("E070", self.line, "integer is out of range"));
+            }
             return Ok(Expr::Unary {
                 op: UnaryOp::Neg,
-                value: Box::new(self.unary()?),
+                value: Box::new(value),
             });
         }
         self.primary()
@@ -244,7 +255,11 @@ impl<'a> ExprParser<'a> {
             .ok_or_else(|| error("E070", self.line, "expected expression"))?;
         match token {
             Token::Str(value) => Ok(Expr::Str(value)),
-            Token::I64(value) => Ok(Expr::I64(value)),
+            Token::Integer(value) => {
+                Ok(Expr::I64(value.parse().map_err(|_| {
+                    error("E070", self.line, "invalid integer")
+                })?))
+            }
             Token::F64(value) => Ok(Expr::F64(value)),
             Token::Bytes(value) => Ok(Expr::Bytes(value)),
             Token::LBracket => {
@@ -405,19 +420,28 @@ fn lex_expr(source: &str, line: &Line) -> Result<Vec<Token>, Error> {
             while index < chars.len() && (chars[index].is_ascii_digit() || chars[index] == '.') {
                 index += 1;
             }
+            let mut float = chars[start..index].contains(&'.');
+            if chars.get(index).is_some_and(|ch| matches!(ch, 'e' | 'E')) {
+                float = true;
+                index += 1;
+                if chars.get(index).is_some_and(|ch| matches!(ch, '+' | '-')) {
+                    index += 1;
+                }
+                while chars.get(index).is_some_and(char::is_ascii_digit) {
+                    index += 1;
+                }
+            }
             let value: String = chars[start..index].iter().collect();
-            if value.contains('.') {
-                tokens.push(Token::F64(
-                    value
-                        .parse()
-                        .map_err(|_| error("E070", line, "invalid float"))?,
-                ));
+            if float {
+                let value = value
+                    .parse::<f64>()
+                    .map_err(|_| error("E070", line, "invalid float"))?;
+                if !value.is_finite() {
+                    return Err(error("E070", line, "float is out of range"));
+                }
+                tokens.push(Token::F64(value));
             } else {
-                tokens.push(Token::I64(
-                    value
-                        .parse()
-                        .map_err(|_| error("E070", line, "invalid integer"))?,
-                ));
+                tokens.push(Token::Integer(value));
             }
             continue;
         }

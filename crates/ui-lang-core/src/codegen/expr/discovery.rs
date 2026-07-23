@@ -14,10 +14,7 @@ pub(in crate::codegen) fn initial_code(state: &State, document: &Document) -> St
         let easing = if ANIMATION_EASINGS.contains(&easing.as_str()) {
             format!("::iced::animation::Easing::{}", pascal(easing))
         } else {
-            let function = document
-                .functions
-                .iter()
-                .find(|function| function.name == *easing && function.kind == ExternKind::Sync)
+            let function = find_extern_function(document, easing, ExternKind::Sync)
                 .expect("checked custom animation easing");
             format!(
                 "::iced::animation::Easing::Custom(|__value: f32| {}(__value as f64) as f32)",
@@ -101,15 +98,31 @@ pub(in crate::codegen) fn initial_value_code(
 }
 
 pub(in crate::codegen) fn pane_field(name: &str) -> String {
-    format!("__pane_{name}")
+    if canonical_snake(name) && !name.ends_with("_splits") {
+        format!("__pane_{name}")
+    } else {
+        format!("__pane_0{}", rust_identifier_hex(name))
+    }
 }
 
 pub(in crate::codegen) fn pane_splits_field(name: &str) -> String {
-    format!("__pane_{name}_splits")
+    format!("{}_splits", pane_field(name))
 }
 
 pub(in crate::codegen) fn pane_type(name: &str) -> String {
-    format!("__IcePane{}", pascal(name))
+    if canonical_snake(name) {
+        format!("__IcePane{}", pascal(name))
+    } else {
+        format!("__Ice0P{}", rust_identifier_hex(name))
+    }
+}
+
+pub(in crate::codegen) fn pane_template_variant(name: &str) -> String {
+    if canonical_snake(name) {
+        pascal(name)
+    } else {
+        format!("__0T{}", rust_identifier_hex(name))
+    }
 }
 
 pub(in crate::codegen) fn pane_template_types(
@@ -161,7 +174,7 @@ pub(in crate::codegen) fn generate_pane_types(
             writeln!(
                 out,
                 "{}({}),",
-                pascal(&template.item),
+                pane_template_variant(&template.item),
                 key_type.rust(&document.structs)
             )
             .unwrap();
@@ -171,7 +184,7 @@ pub(in crate::codegen) fn generate_pane_types(
             writeln!(
                 out,
                 "Self::{}(__key) => ::std::format!({}, __key),",
-                pascal(&template.item),
+                pane_template_variant(&template.item),
                 rust_string(&format!("{}({{}})", template.item))
             )
             .unwrap();
@@ -220,7 +233,7 @@ pub(in crate::codegen) fn pane_reference_value_code(
         PaneReference::Dynamic { template, key } => format!(
             "{}::{}({})",
             pane_type(grid),
-            pascal(template),
+            pane_template_variant(template),
             expr_code(key, env, document, ValueMode::Owned)?
         ),
     })
@@ -269,11 +282,19 @@ pub(in crate::codegen) fn pane_configuration_code(
 }
 
 pub(in crate::codegen) fn pane_resize_variant(name: &str) -> String {
-    format!("__Pane{}Resize", pascal(name))
+    if canonical_snake(name) {
+        format!("__Pane{}Resize", pascal(name))
+    } else {
+        format!("__0P{}R", rust_identifier_hex(name))
+    }
 }
 
 pub(in crate::codegen) fn pane_drag_variant(name: &str) -> String {
-    format!("__Pane{}Drag", pascal(name))
+    if canonical_snake(name) {
+        format!("__Pane{}Drag", pascal(name))
+    } else {
+        format!("__0P{}D", rust_identifier_hex(name))
+    }
 }
 
 pub(in crate::codegen) fn pane_grids(root: &ViewNode) -> Vec<&ViewNode> {
@@ -351,12 +372,20 @@ pub(in crate::codegen) fn uses_canvas(document: &Document) -> bool {
     !canvases(document).is_empty()
 }
 
-pub(in crate::codegen) fn canvases(document: &Document) -> Vec<(&CanvasOptions, &[CanvasEvent])> {
-    fn collect<'a>(node: &'a ViewNode, output: &mut Vec<(&'a CanvasOptions, &'a [CanvasEvent])>) {
+pub(in crate::codegen) fn canvases(
+    document: &Document,
+) -> Vec<(&CanvasOptions, &[State], &[CanvasEvent])> {
+    fn collect<'a>(
+        node: &'a ViewNode,
+        output: &mut Vec<(&'a CanvasOptions, &'a [State], &'a [CanvasEvent])>,
+    ) {
         match node {
             ViewNode::Canvas {
-                options, events, ..
-            } => output.push((options, events)),
+                options,
+                locals,
+                events,
+                ..
+            } => output.push((options, locals, events)),
             ViewNode::Layout { children, .. }
             | ViewNode::If { children, .. }
             | ViewNode::For { children, .. } => {
@@ -428,7 +457,7 @@ pub(in crate::codegen) fn canvas_cache_groups(document: &Document) -> Vec<&str> 
     let mut groups = Vec::new();
     for group in canvases(document)
         .into_iter()
-        .filter_map(|(options, _)| options.cache_group.as_deref())
+        .filter_map(|(options, _, _)| options.cache_group.as_deref())
     {
         if !groups.contains(&group) {
             groups.push(group);
@@ -440,12 +469,16 @@ pub(in crate::codegen) fn canvas_cache_groups(document: &Document) -> Vec<&str> 
 pub(in crate::codegen) fn canvas_events(document: &Document) -> Vec<&CanvasEvent> {
     canvases(document)
         .into_iter()
-        .flat_map(|(_, events)| events)
+        .flat_map(|(_, _, events)| events)
         .collect()
 }
 
 pub(in crate::codegen) fn canvas_group_symbol(group: &str) -> String {
-    format!("__ICE_CANVAS_GROUP_{}", group.to_ascii_uppercase())
+    if canonical_snake(group) {
+        format!("__ICE_CANVAS_GROUP_{}", group.to_ascii_uppercase())
+    } else {
+        format!("__ICE_CANVAS_GROUP_0{}", rust_identifier_hex(group))
+    }
 }
 
 pub(in crate::codegen) fn needs_extern_noop(document: &Document) -> bool {

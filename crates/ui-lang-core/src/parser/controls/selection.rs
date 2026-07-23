@@ -26,17 +26,17 @@ pub(in crate::parser) fn parse_slider(
             options.default = Some(parse_expr(strip_wrapping_parens(value), line)?);
         } else if let Some(value) = part.strip_prefix("shift-step=") {
             options.shift_step = Some(parse_expr(strip_wrapping_parens(value), line)?);
-        } else if let Some(value) = part.strip_prefix("width=") {
+        } else if let Some(value) = part.strip_prefix("w=") {
             options.width = Some(parse_length(value, line)?);
-        } else if let Some(value) = part.strip_prefix("height=") {
+        } else if let Some(value) = part.strip_prefix("h=") {
             options.height = Some(parse_length(value, line)?);
         } else if let Some(value) = part.strip_prefix("style=") {
-            let (function, args) = parse_signature(value, line)
-                .map_err(|_| error("E076", line, "slider style must be a declared style call"))?;
-            options.style.custom = Some(ExternCall {
-                function,
-                args: parse_expr_list(&args, line)?,
-            });
+            options.style.custom = Some(parse_extern_call(
+                value,
+                line,
+                "E076",
+                "slider style must be a declared style call",
+            )?);
         } else if part == "vertical" {
             vertical = true;
         } else if let Some(value) = part.strip_prefix("release=") {
@@ -211,17 +211,12 @@ pub(in crate::parser) fn parse_progress(
                 options.style = Some(style);
                 options.custom_style = None;
             } else {
-                let (function, args) = parse_signature(value, line).map_err(|_| {
-                    error(
-                        "E077",
-                        line,
-                        "progress style must be a preset or declared style call",
-                    )
-                })?;
-                options.custom_style = Some(ExternCall {
-                    function,
-                    args: parse_expr_list(&args, line)?,
-                });
+                options.custom_style = Some(parse_extern_call(
+                    value,
+                    line,
+                    "E077",
+                    "progress style must be a preset or declared style call",
+                )?);
                 options.style = None;
             }
         } else if let Some(value) = part.strip_prefix("bg=") {
@@ -282,12 +277,12 @@ pub(in crate::parser) fn parse_radio(
         } else if let Some(source) = part.strip_prefix("selected=") {
             selected = Some(parse_expr(strip_wrapping_parens(source), line)?);
         } else if let Some(source) = part.strip_prefix("style=") {
-            let (function, args) = parse_signature(source, line)
-                .map_err(|_| error("E078", line, "radio style must be a declared style call"))?;
-            style.custom = Some(ExternCall {
-                function,
-                args: parse_expr_list(&args, line)?,
-            });
+            style.custom = Some(parse_extern_call(
+                source,
+                line,
+                "E078",
+                "radio style must be a declared style call",
+            )?);
         } else if parse_bool_control_option(part, &mut options, false, false, line)? {
         } else {
             return Err(error(
@@ -473,9 +468,9 @@ pub(in crate::parser) fn parse_space(
     let mut width = None;
     let mut height = None;
     for part in &parts[1..] {
-        if let Some(value) = part.strip_prefix("width=") {
+        if let Some(value) = part.strip_prefix("w=") {
             width = Some(parse_length(value, line)?);
-        } else if let Some(value) = part.strip_prefix("height=") {
+        } else if let Some(value) = part.strip_prefix("h=") {
             height = Some(parse_length(value, line)?);
         } else {
             return Err(error(

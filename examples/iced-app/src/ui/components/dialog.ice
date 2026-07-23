@@ -1,6 +1,6 @@
 component Dialog()
-  container width=480.0 height=shrink max-width=720.0 padding=24.0 border-w=1.0 r=10.0 @bg-surface border-border
-    col spacing=16.0 @w-full
+  box w=480.0 h=shrink max-w=720.0 p=24.0 border-w=1.0 r=10.0 @bg-surface border-border
+    col gap=16.0 @w-full
       slot Header
       slot Body
       slot Actions
@@ -10,9 +10,9 @@ component Dialog.Header()
     slot
 
 component Dialog.Body()
-  container width=fill
+  box w=fill
     slot
 
 component Dialog.Actions()
-  row spacing=8.0 @w-full
+  row gap=8.0 @w-full
     slot

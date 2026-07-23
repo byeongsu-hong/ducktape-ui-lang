@@ -19,7 +19,7 @@ pub(in crate::check) fn infer_content_group(
                 return Err(type_error(span, &Type::Str, &ty).hint("text accepts str, i64, or f64"));
             }
             check_text_options(options, env, document, span)?;
-            check_styles(styles, document, span, StyleTarget::Text(options))?;
+            check_styles(styles, document, span, StyleTarget::Text)?;
         }
         ViewNode::RichText {
             options,
@@ -35,7 +35,6 @@ pub(in crate::check) fn infer_content_group(
                 document,
                 span,
                 StyleTarget::RichText {
-                    options,
                     typed_color: color.is_some(),
                 },
             )?;
@@ -66,13 +65,7 @@ pub(in crate::check) fn infer_content_group(
                     .into_iter()
                     .flatten()
                 {
-                    if !valid_theme_color(color, document) {
-                        return Err(Error::new(
-                            "E186",
-                            &item.span,
-                            format!("unknown span color `{color}`"),
-                        ));
-                    }
+                    require_theme_color(color, document, &item.span, "E186", "span")?;
                 }
                 if let Some(background) = &item.options.background {
                     check_background_value(
@@ -121,7 +114,7 @@ pub(in crate::check) fn infer_content_group(
                             &Type::F64,
                             &item.span,
                         )?;
-                        require_literal_range(value, min, None, label, &item.span)?;
+                        require_f32_literal_range(value, min, None, label, &item.span)?;
                     }
                 }
                 for value in [&item.options.underline, &item.options.strikethrough]
@@ -209,7 +202,7 @@ pub(in crate::check) fn infer_content_group(
             ] {
                 if let Some(value) = value {
                     require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                    require_literal_range(value, min, None, label, span)?;
+                    require_f32_literal_range(value, min, None, label, span)?;
                 }
             }
             check_font(options.font.as_ref(), document, span)?;

@@ -17,7 +17,7 @@ on toggle(value)
 on submit
 
 view
-  col spacing=12.0 padding=16.0
+  col gap=12.0 p=16.0
     text "Accessible form"
     input "Name" #name label="Full name" description="Name used on your profile" hint="Ada" <-> name
     input "Password" #password label="Account password" description="Password text is never exported" secure=true <-> secret

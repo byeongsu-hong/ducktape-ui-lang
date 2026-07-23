@@ -57,14 +57,11 @@ pub(in crate::check) fn infer_media_group(
                 check_length_value(length, env, document, span, "media size")?;
             }
             if let Some(rotation) = &options.rotation {
-                let actual = expr_type(rotation, env, document, span)?;
-                if !matches!(actual, Type::F64 | Type::Rotation) {
-                    return Err(Error::new(
-                        "E101",
-                        span,
-                        format!("expected `f64` or `rotation`, got `{}`", actual.display()),
-                    ));
-                }
+                require_type(
+                    &expr_type(rotation, env, document, span)?,
+                    &Type::Rotation,
+                    span,
+                )?;
             }
             if let Some(fit) = &options.fit {
                 require_type(
@@ -80,7 +77,7 @@ pub(in crate::check) fn infer_media_group(
             ] {
                 if let Some(value) = value {
                     require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                    require_literal_range(
+                    require_f32_literal_range(
                         value,
                         min.unwrap_or(f64::NEG_INFINITY),
                         max,
@@ -98,8 +95,7 @@ pub(in crate::check) fn infer_media_group(
             .into_iter()
             .flatten()
             {
-                require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                require_literal_range(value, 0.0, None, "radius", span)?;
+                require_nonnegative_f64(value, env, document, "radius", span)?;
             }
             if let Some(expand) = &options.expand {
                 require_type(&expr_type(expand, env, document, span)?, &Type::Bool, span)?;
@@ -124,7 +120,7 @@ pub(in crate::check) fn infer_media_group(
             ] {
                 if let Some(value) = value {
                     require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                    require_literal_range(value, min, None, label, span)?;
+                    require_f32_literal_range(value, min, None, label, span)?;
                 }
             }
             let min_scale = options.min_scale.as_ref().map_or(Some(0.25), f64_literal);
@@ -141,13 +137,7 @@ pub(in crate::check) fn infer_media_group(
                 .iter()
                 .chain(options.svg_hover_color.iter().flatten())
             {
-                if !valid_theme_color(color, document) {
-                    return Err(Error::new(
-                        "E129",
-                        span,
-                        format!("unknown svg color `{color}`"),
-                    ));
-                }
+                require_theme_color(color, document, span, "E129", "svg")?;
             }
             if let Some(style) = &options.svg_style {
                 let function =
@@ -165,8 +155,7 @@ pub(in crate::check) fn infer_media_group(
                 (&options.gap, "tooltip gap"),
                 (&options.padding, "tooltip padding"),
             ] {
-                require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                require_literal_range(value, 0.0, None, label, span)?;
+                require_nonnegative_f64(value, env, document, label, span)?;
             }
             require_type(
                 &expr_type(&options.delay_ms, env, document, span)?,
@@ -199,13 +188,7 @@ pub(in crate::check) fn infer_media_group(
             .into_iter()
             .flatten()
             {
-                if !valid_theme_color(color, document) {
-                    return Err(Error::new(
-                        "E129",
-                        span,
-                        format!("unknown tooltip color `{color}`"),
-                    ));
-                }
+                require_theme_color(color, document, span, "E129", "tooltip")?;
             }
             for (value, label) in [
                 (&options.border_width, "tooltip border width"),
@@ -217,12 +200,11 @@ pub(in crate::check) fn infer_media_group(
                 (&options.shadow_blur, "tooltip shadow blur"),
             ] {
                 if let Some(value) = value {
-                    require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
-                    require_literal_range(value, 0.0, None, label, span)?;
+                    require_nonnegative_f64(value, env, document, label, span)?;
                 }
             }
             for value in [&options.shadow_x, &options.shadow_y].into_iter().flatten() {
-                require_type(&expr_type(value, env, document, span)?, &Type::F64, span)?;
+                require_f32_value(value, env, document, "tooltip shadow offset", span)?;
             }
             if let Some(pixel_snap) = &options.pixel_snap {
                 require_type(

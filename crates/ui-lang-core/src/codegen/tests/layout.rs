@@ -10,13 +10,13 @@ theme
   danger #ff0000
 state
 view
-  box width=fill padding=8.0 bg=bg
-    flex direction=column spacing=6.0
+  box w=fill p=8.0 bg=bg
+    flex dir=column gap=6.0
       text "Header"
-      flex spacing=4.0
-        box width=fill(1)
+      flex gap=4.0
+        box w=fill(1)
           text "Left"
-        box width=fill(2)
+        box w=fill(2)
           text "Right"
 "#;
     let generated = compile(source, "layouts.ice").unwrap();
@@ -29,11 +29,7 @@ view
     );
     assert!(generated.contains(".width(::iced::Length::FillPortion(2))"));
 
-    let error = compile(
-        &source.replace("direction=column", "direction=diagonal"),
-        "layouts.ice",
-    )
-    .unwrap_err();
+    let error = compile(&source.replace("dir=column", "dir=diagonal"), "layouts.ice").unwrap_err();
     assert_eq!(error.code, "E074");
     assert!(
         error
@@ -52,10 +48,10 @@ theme
   danger #ff0000
 state
 view
-  flex direction=row-reverse flex-wrap=wrap-reverse width=fill height=300.0 max-width=900.0 max-height=500.0 gap=8.0 row-gap=12.0 column-gap=16.0 justify-content=space-evenly align-items=baseline align-content=space-between padding=4.0 clip=true
-    box order=2 flex-grow=1.0 flex-shrink=0.5 flex-basis=percent(40.0) align-self=flex-end margin=auto
+  flex dir=row-reverse wrap=wrap-reverse w=fill h=300.0 max-w=900.0 max-h=500.0 gap=8.0 gap-y=12.0 gap-x=16.0 justify=space-evenly items=baseline content=space-between p=4.0 clip=true
+    box order=2 grow=1.0 shrink=0.5 basis=percent(40.0) self=flex-end m=auto
       text "First"
-    box flex=2.0,1.0,120.0 margin-x=percent(5.0) margin-top=-2.0
+    box flex=2.0,1.0,120.0 mx=percent(5.0) mt=-2.0
       text "Second"
 "#;
     let generated = compile(source, "flexbox.ice").unwrap();
@@ -78,8 +74,8 @@ view
         assert!(generated.contains(expected), "missing `{expected}`");
     }
     let shorthand = source.replace(
-        "direction=row-reverse flex-wrap=wrap-reverse",
-        "flex-flow=row-reverse,wrap-reverse",
+        "dir=row-reverse wrap=wrap-reverse",
+        "flow=row-reverse,wrap-reverse",
     );
     assert!(
         compile(&shorthand, "flexbox.ice")
@@ -98,29 +94,31 @@ theme
   danger #ff0000
 state
 view
-  col width=fill height=shrink spacing=8.0 padding=1.0 padding-x=2.0 padding-y=3.0 padding-top=4.0 padding-right=5.0 padding-bottom=6.0 padding-left=7.0 max-width=640.0 align=center clip=true wrap wrap-spacing=12.0 wrap-align=end
-    row width=fill(2) height=48.0 spacing=4.0 padding=2.0 align=end clip=false wrap wrap-spacing=6.0 wrap-align=start
+  col w=fill h=shrink gap=8.0 p=1.0 px=2.0 py=3.0 pt=4.0 pr=5.0 pb=6.0 pl=7.0 max-w=640.0 align=center clip=true wrap wrap-gap=12.0 wrap-align=end
+    row w=fill(2) h=48.0 gap=4.0 p=2.0 align=end clip=false wrap wrap-gap=6.0 wrap-align=start
       text "One"
       text "Two"
 "#;
     let generated = compile(source, "layouts.ice").unwrap();
-    assert!(generated.contains("::iced::widget::column(__children).spacing(8.0 as f32)"));
-    assert!(generated.contains("::iced::Padding { top: 4.0 as f32, right: 5.0 as f32, bottom: 6.0 as f32, left: 7.0 as f32 }"));
+    assert!(generated.contains(
+        "::iced::widget::column(__children).spacing(::ui_lang_runtime::bounded_spacing(8.0, __child_count))"
+    ));
+    assert!(generated.contains("::ui_lang_runtime::bounded_padding(4.0, 5.0, 6.0, 7.0)"));
     assert!(generated.contains(".width(::iced::Fill).height(::iced::Shrink)"));
     assert!(generated.contains(".max_width(640.0 as f32)"));
     assert!(generated.contains(
-            ".align_x(::iced::alignment::Horizontal::Center).clip(true).wrap().horizontal_spacing(12.0 as f32).align_x(::iced::alignment::Vertical::Bottom)"
+            ".align_x(::iced::alignment::Horizontal::Center).clip(true).wrap().horizontal_spacing(::ui_lang_runtime::bounded_spacing(12.0, __child_count)).align_x(::iced::alignment::Vertical::Bottom)"
         ));
     assert!(generated.contains(".width(::iced::Length::FillPortion(2)).height(48.0 as f32)"));
     assert!(generated.contains(
-            ".align_y(::iced::alignment::Vertical::Bottom).clip(false).wrap().vertical_spacing(6.0 as f32).align_x(::iced::alignment::Horizontal::Left)"
+            ".align_y(::iced::alignment::Vertical::Bottom).clip(false).wrap().vertical_spacing(::ui_lang_runtime::bounded_spacing(6.0, __child_count)).align_x(::iced::alignment::Horizontal::Left)"
         ));
 }
 #[test]
 fn lowers_complete_container_layout() {
     let source = r#"app Boxed
 extern crate::backend
-  container-style dynamic_container(highlight:bool)
+  box-style dynamic_container(highlight:bool)
 theme
   bg #000000
   fg #ffffff
@@ -129,7 +127,7 @@ theme
 state
   highlight = false
 view
-  container #card style=dynamic_container(highlight) width=fill height=80.0 max-width=640.0 max-height=120.0 align-x=center align-y=end clip=true padding=8.0 padding-left=12.0 bg=linear(1.57, bg@0.0, primary/25@1.0) text=fg border=primary border-w=2.0 r=4.0 r-tl=1.0 r-tr=2.0 r-br=3.0 r-bl=4.0 shadow=black/50 shadow-x=-1.0 shadow-y=2.0 shadow-blur=6.0 px-snap=true
+  box #card style=dynamic_container(highlight) w=fill h=80.0 max-w=640.0 max-h=120.0 align-x=center align-y=end clip=true p=8.0 pl=12.0 bg=linear(1.57, bg@0.0, primary/25@1.0) text=fg border=primary border-w=2.0 r=4.0 r-tl=1.0 r-tr=2.0 r-br=3.0 r-bl=4.0 shadow=black/50 shadow-x=-1.0 shadow-y=2.0 shadow-blur=6.0 px-snap=true
     text "Card"
 "#;
     let generated = compile(source, "boxed.ice").unwrap();
@@ -163,11 +161,11 @@ state
 on close
   shown = false
 view
-  overlay when=shown dismiss=close backdrop=black/60 padding=24.0 align-x=center align-y=end
+  overlay when=shown dismiss=close backdrop=black/60 p=24.0 align-x=center align-y=end
     content
       text "Page"
     layer
-      container width=320.0 padding=16.0 @bg-bg rounded-lg
+      box w=320.0 p=16.0 bg=bg r=10.0
         text "Dialog"
 "#;
     let generated = compile(source, "dialog.ice").unwrap();
@@ -192,11 +190,12 @@ theme
   danger #ff0000
 on clicked(name)
 view
-  pane-grid #work split=vertical ratio=0.7 width=fill height=fill spacing=8.0 min-size=120.0 resize=6.0 drag click=clicked(_)
-    pane files
-      text "Files"
-    pane editor
-      text "Editor"
+  panes #work w=fill h=fill gap=8.0 min-size=120.0 resize=6.0 drag click=clicked(_)
+    split vertical ratio=0.7
+      pane files
+        text "Files"
+      pane editor
+        text "Editor"
 "#;
     let generated = compile(source, "workspace.ice").unwrap();
     assert!(generated.contains("__pane_work: ::iced::widget::pane_grid::State"));
@@ -204,7 +203,15 @@ view
     assert!(generated.contains("pane_grid::Axis::Vertical"));
     assert!(generated.contains("Configuration::Pane(\"files\")"));
     assert!(generated.contains("::iced::widget::pane_grid(&self.__pane_work"));
-    assert!(generated.contains(".on_resize(6.0 as f32, __WorkspaceMessage::__PaneWorkResize)"));
+    assert!(generated.contains(
+        ".spacing(::ui_lang_runtime::bounded_table_metric(8.0, self.__pane_work.len()))"
+    ));
+    assert!(generated.contains(
+        ".min_size(::ui_lang_runtime::bounded_table_metric(120.0, self.__pane_work.len()))"
+    ));
+    assert!(generated.contains(
+        ".on_resize(::ui_lang_runtime::bounded_table_metric(6.0, self.__pane_work.len()), __WorkspaceMessage::__PaneWorkResize)"
+    ));
     assert!(generated.contains(".on_drag(__WorkspaceMessage::__PaneWorkDrag)"));
     assert!(generated.contains("self.__pane_work.resize(__event.split, __event.ratio)"));
     assert!(generated.contains("self.__pane_work.drop(pane, target)"));
@@ -224,7 +231,7 @@ on open_preview
 on resize_editor_stack
   pane #work resize editor_stack 0.55
 view
-  pane-grid #work width=fill height=fill
+  panes #work w=fill h=fill
     split workspace_root vertical ratio=0.7
       pane files
         text "Files"
@@ -251,7 +258,9 @@ view
     assert!(generated.contains("Option::Some(\"workspace_root\")"));
     assert!(generated.contains("Option::Some(\"editor_stack\")"));
     assert!(generated.contains("self.__pane_work_splits.get(\"editor_stack\").copied()"));
-    assert!(generated.contains("self.__pane_work.resize(__split, (0.55) as f32)"));
+    assert!(
+        generated.contains("self.__pane_work.resize(__split, ((0.55) as f32).max(0.0).min(1.0))")
+    );
 }
 
 #[test]
@@ -273,7 +282,7 @@ on close_task
   pane #work close task(selected)
 on clicked(name)
 view
-  pane-grid #work click=clicked(_)
+  panes #work click=clicked(_)
     pane files maximized=files_maximized
       col
         if files_maximized
@@ -305,7 +314,7 @@ view
 fn lowers_structured_pane_titles_and_dynamic_controls() {
     let source = r#"app Workspace
 extern crate::backend
-  pane-grid-style dynamic_panes(active:bool)
+  panes-style dynamic_panes(active:bool)
 theme
   bg #000000
   fg #ffffff
@@ -316,26 +325,25 @@ state
   active = true
 on close
 view
-  pane-grid #work split=vertical style=dynamic_panes(active)
+  panes #work style=dynamic_panes(active)
     style
       hovered-region bg=linear(0.785, primary/25@0.0, bg@0.5, danger@1.0) border=fg border-w=2.0 r=4.0 r-tl=1.0 r-tr=2.0 r-br=3.0 r-bl=4.0
       hovered-split color=primary w=3.0
       picked-split color=danger w=4.0
-    pane files bg=linear(1.57, bg@0.0, primary/25@1.0) text=fg border=primary border-w=2.0 r=4.0 r-tl=1.0 r-tr=2.0 r-br=3.0 r-bl=4.0 shadow=black/50 shadow-x=-1.0 shadow-y=2.0 shadow-blur=6.0 px-snap=true
-      title padding=4.0 padding-x=8.0 padding-top=6.0 always-controls bg=primary/50 text=fg border=danger border-w=1.0 r=3.0 shadow=black/50 shadow-x=1.0 shadow-y=2.0 shadow-blur=4.0 px-snap=false
-        text "Files"
-      controls
-        button "Close" -> close
-      compact-controls
-        button "×" -> close
-      content
+    split vertical
+      pane files bg=linear(1.57, bg@0.0, primary/25@1.0) text=fg border=primary border-w=2.0 r=4.0 r-tl=1.0 r-tr=2.0 r-br=3.0 r-bl=4.0 shadow=black/50 shadow-x=-1.0 shadow-y=2.0 shadow-blur=6.0 px-snap=true
+        title p=4.0 px=8.0 pt=6.0 always-controls bg=primary/50 text=fg border=danger border-w=1.0 r=3.0 shadow=black/50 shadow-x=1.0 shadow-y=2.0 shadow-blur=4.0 px-snap=false
+          text "Files"
+        controls
+          button "Close" -> close
+        compact
+          button "×" -> close
         input "Filter" #filter <-> filter
-    pane editor
-      title
-        text "Editor"
-      controls
-        button "Close" -> close
-      content
+      pane editor
+        title
+          text "Editor"
+        controls
+          button "Close" -> close
         text "Editor body"
 "#;
     let generated = compile(source, "workspace.ice").unwrap();
@@ -343,9 +351,7 @@ view
     assert!(generated.contains("crate::backend::dynamic_panes(__theme, self.active)"));
     assert!(generated.contains("pane_grid::Content::new(__pane_content).style"));
     assert!(generated.contains(".title_bar(::iced::widget::pane_grid::TitleBar::new"));
-    assert!(generated.contains("top: 6.0 as f32"));
-    assert!(generated.contains("right: 8.0 as f32"));
-    assert!(generated.contains("bottom: 4.0 as f32"));
+    assert!(generated.contains("::ui_lang_runtime::bounded_padding(6.0, 8.0, 4.0, 8.0)"));
     assert!(generated.contains("pane_grid::Controls::dynamic"));
     assert!(generated.contains("pane_grid::Controls::new"));
     assert!(generated.contains(".always_show_controls().style"));
@@ -357,10 +363,10 @@ view
     assert!(generated.contains(".add_stop(0.5 as f32"));
     assert!(generated.contains("__style.hovered_region.border.color"));
     assert!(generated.contains("__style.hovered_region.border.width = 2.0 as f32"));
-    assert!(generated.contains("top_left: 1.0 as f32"));
-    assert!(generated.contains("top_right: 2.0 as f32"));
-    assert!(generated.contains("bottom_right: 3.0 as f32"));
-    assert!(generated.contains("bottom_left: 4.0 as f32"));
+    assert!(generated.contains("top_left: ((1.0) as f32).max(0.0).min(f32::MAX)"));
+    assert!(generated.contains("top_right: ((2.0) as f32).max(0.0).min(f32::MAX)"));
+    assert!(generated.contains("bottom_right: ((3.0) as f32).max(0.0).min(f32::MAX)"));
+    assert!(generated.contains("bottom_left: ((4.0) as f32).max(0.0).min(f32::MAX)"));
     assert!(generated.contains("__style.hovered_split.color"));
     assert!(generated.contains("__style.hovered_split.width = 3.0 as f32"));
     assert!(generated.contains("__style.picked_split.color"));
@@ -397,11 +403,12 @@ on inspect_neighbor
   pane #work adjacent files right -> observed _
 on observed(name)
 view
-  pane-grid #work split=vertical
-    pane files
-      text "Files"
-    pane editor
-      text "Editor"
+  panes #work
+    split vertical
+      pane files
+        text "Files"
+      pane editor
+        text "Editor"
     pane preview closed
       text "Preview"
 "#;
@@ -411,7 +418,9 @@ view
     assert!(generated.contains("self.__pane_work.swap(__first, __second)"));
     assert!(generated.contains("move_to_edge(__pane, ::iced::widget::pane_grid::Edge::Left)"));
     assert!(generated.contains("layout().splits().next().copied()"));
-    assert!(generated.contains("self.__pane_work.resize(__split, (0.6) as f32)"));
+    assert!(
+        generated.contains("self.__pane_work.resize(__split, ((0.6) as f32).max(0.0).min(1.0))")
+    );
     assert!(generated.contains("pane_grid::Target::Pane(__target"));
     assert!(generated.contains("pane_grid::Region::Edge"));
     assert!(generated.contains(".split(::iced::widget::pane_grid::Axis::Horizontal"));
@@ -443,28 +452,33 @@ on selected(next)
 on opened
 on closed
 view
-  pick choices selected placeholder="Choose" width=fill menu-height=120.0 padding=8.0 text-size=14.0 line-height=1.2 shaping=advanced font=ui open=opened close=closed style=dynamic_pick(busy) menu-style=dynamic_menu(busy) -> selected _
+  pick choices selected hint="Choose" w=fill menu-h=120.0 p=8.0 text-size=14.0 line-h=1.2 shape=advanced font=ui open=opened close=closed style=dynamic_pick(busy) menu-style=dynamic_menu(busy) -> selected _
     active text=fg placeholder=danger handle=primary bg=bg border=fg border-w=1.0 r=4.0
     hovered text=fg
     opened text=fg
     opened-hovered text=fg
     menu text=fg selected-text=bg selected-bg=primary bg=bg border=fg border-w=1.0 r=6.0 shadow=danger shadow-x=1.0 shadow-y=2.0 shadow-blur=4.0
     handle dynamic
-      closed code="⌄" font=ui size=12.0 line-height=1.0 shaping=basic
-      open code="⌃" font=ui size=13.0 line-height=1.1 shaping=advanced
+      closed code="⌄" font=ui size=12.0 line-h=1.0 shape=basic
+      open code="⌃" font=ui size=13.0 line-h=1.1 shape=advanced
 "#;
     let generated = compile(source, "selection.ice").unwrap();
     assert!(
         generated.contains("pub(crate) selected: ::std::option::Option<::std::string::String>")
     );
     assert!(generated.contains("::std::vec![\"List\".to_owned(), \"Board\".to_owned()]"));
+    assert!(generated.contains("::iced::widget::pick_list(__pick_options, self.selected.clone()"));
+    assert!(generated.contains("let __pick_option_count = __pick_options.len()"));
     assert!(
-        generated.contains("::iced::widget::pick_list(self.choices.clone(), self.selected.clone()")
+        generated.contains(
+            ".padding(::ui_lang_runtime::bounded_table_metric(8.0, __pick_option_count))"
+        )
     );
     assert!(generated.contains(".on_open(__SelectionMessage::Opened)"));
     assert!(
-        generated
-            .contains(".text_line_height(::iced::widget::text::LineHeight::Relative(1.2 as f32))")
+        generated.contains(
+            ".text_line_height(::iced::widget::text::LineHeight::Relative(((1.2) as f32).max(f32::EPSILON).min(f32::MAX)))"
+        )
     );
     assert!(generated.contains(".text_shaping(::iced::widget::text::Shaping::Advanced)"));
     assert!(generated.contains("::iced::widget::pick_list::Handle::Dynamic"));
@@ -526,14 +540,14 @@ on reset
 on add
   combo modes push "Calendar"
 view
-  combo modes selected "Search modes" width=fill menu-height=120.0 padding=8.0 text-size=14.0 line-height=1.2 shaping=advanced font=ui input=searched hover=hovered open=opened close=closed style=dynamic_input(busy) menu-style=dynamic_menu(busy) -> selected _
+  combo modes selected "Search modes" w=fill menu-h=120.0 p=8.0 text-size=14.0 line-h=1.2 shape=advanced font=ui input=searched hover=hovered open=opened close=closed style=dynamic_input(busy) menu-style=dynamic_menu(busy) -> selected _
     active bg=bg border=fg border-w=1.0 r=4.0 icon=primary placeholder=danger value=fg selection=primary
     hovered bg=bg icon=fg placeholder=danger value=fg selection=primary
     focused bg=bg border=primary
     focused-hovered bg=bg border=fg
     disabled bg=bg value=danger
     menu text=fg selected-text=bg selected-bg=primary bg=bg border=fg border-w=1.0 r=6.0 shadow=danger shadow-x=1.0 shadow-y=2.0 shadow-blur=4.0
-    icon code="⌕" font=ui size=12.0 spacing=6.0 side=right
+    icon code="⌕" font=ui size=12.0 gap=6.0 side=right
 "#;
     let generated = compile(source, "search.ice").unwrap();
     assert!(
@@ -546,12 +560,20 @@ view
     assert!(generated.contains(
         "::iced::widget::combo_box(&self.modes, \"Search modes\", __combo_selection.as_ref()"
     ));
+    assert!(generated.contains("let __combo_option_count = self.modes.options().len()"));
+    assert!(
+        generated.contains(
+            ".padding(::ui_lang_runtime::bounded_table_metric(8.0, __combo_option_count))"
+        )
+    );
     assert!(generated.contains(".on_input(move |__value| __SearchMessage::Searched(__value))"));
     assert!(
         generated.contains(".on_option_hovered(move |__value| __SearchMessage::Hovered(__value))")
     );
     assert!(
-        generated.contains(".line_height(::iced::widget::text::LineHeight::Relative(1.2 as f32))")
+        generated.contains(
+            ".line_height(::iced::widget::text::LineHeight::Relative(((1.2) as f32).max(f32::EPSILON).min(f32::MAX)))"
+        )
     );
     assert!(generated.contains(".text_shaping(::iced::widget::text::Shaping::Advanced)"));
     assert!(generated.contains("code_point: '⌕'"));
@@ -593,14 +615,14 @@ view
   col
     float scale=1.1 x=(viewport_x + viewport_width - original_x - original_width) y=(viewport_y + viewport_height - original_y - original_height) shadow=black/50 shadow-x=1.0 shadow-y=2.0 shadow-blur=4.0 r=8.0 r-tl=1.0 r-tr=2.0 r-br=3.0 r-bl=4.0
       text "Floating"
-    pin width=fill height=80.0 x=12.0 y=8.0
+    pin w=fill h=80.0 x=12.0 y=8.0
       text "Pinned"
     sensor show=shown resize=resized hide=hidden key=sensor_key anticipate=32.0 delay=10
       text "Observed"
-    responsive at=600.0 width=fill height=40.0
+    responsive at=600.0 w=fill h=40.0
       text "Narrow"
       text "Wide"
-    responsive size=(available_width, available_height) width=fill height=fill
+    responsive size=(available_width, available_height) w=fill h=fill
       col
         if available_width < available_height
           text "Portrait"
@@ -608,7 +630,9 @@ view
           text "Landscape"
 "#;
     let generated = compile(source, "structure.ice").unwrap();
-    assert!(generated.contains("::iced::widget::float(__float_content).scale(1.1 as f32)"));
+    assert!(generated.contains(
+        "::iced::widget::float(__float_content).scale(((1.1) as f32).max(f32::EPSILON).min(f32::MAX))"
+    ));
     assert!(generated.contains("translate(move |__original, __viewport|"));
     assert!(generated.contains(
             "(((__viewport.x as f64) + (__viewport.width as f64)) - (__original.x as f64)) - (__original.width as f64)"
@@ -622,17 +646,24 @@ view
     assert!(generated.contains("__style.shadow.offset.y = 2.0 as f32"));
     assert!(generated.contains("__style.shadow.blur_radius = 4.0 as f32"));
     assert!(generated.contains("__style.shadow_border_radius = ::iced::border::Radius"));
-    assert!(generated.contains("top_left: 1.0 as f32"));
-    assert!(generated.contains("top_right: 2.0 as f32"));
-    assert!(generated.contains("bottom_right: 3.0 as f32"));
-    assert!(generated.contains("bottom_left: 4.0 as f32"));
+    assert!(generated.contains("top_left: ((1.0) as f32).max(0.0).min(f32::MAX)"));
+    assert!(generated.contains("top_right: ((2.0) as f32).max(0.0).min(f32::MAX)"));
+    assert!(generated.contains("bottom_right: ((3.0) as f32).max(0.0).min(f32::MAX)"));
+    assert!(generated.contains("bottom_left: ((4.0) as f32).max(0.0).min(f32::MAX)"));
     assert!(generated.contains("::iced::widget::pin(__pin_content).x(12.0 as f32)"));
     assert!(generated.contains(
             ".on_show(move |__size| __StructureMessage::Shown(__size.width as f64, __size.height as f64))"
         ));
     assert!(generated.contains(".key(self.sensor_key)"));
+    assert!(generated.contains(".anticipate(((32.0) as f32).max(0.0).min(f32::MAX))"));
+    assert!(
+        generated
+            .contains(".delay(::std::time::Duration::from_millis(u64::try_from(10).unwrap_or(0)))")
+    );
     assert!(generated.contains("::iced::widget::responsive(move |__size|"));
-    assert!(generated.contains("if __size.width < 600.0 as f32"));
+    assert!(
+        generated.contains("if __size.width < ((600.0) as f32).max(f32::EPSILON).min(f32::MAX)")
+    );
     assert!(generated.contains("if ((__size.width as f64) < (__size.height as f64))"));
     assert!(generated.contains("if ((__size.width as f64) >= (__size.height as f64))"));
 }
@@ -661,13 +692,13 @@ on scrolled(ax, ay, rx, ry)
 on viewport(ax, ay, reversed_x, reversed_y, rx, ry, bx, by, bw, bh, cx, cy, cw, ch)
 view
   col
-    scroll #feed direction=both width=fill height=200.0 bar=hidden bar-w=8.0 bar-margin=2.0 scroller-w=6.0 bar-spacing=4.0 anchor-x=end anchor-y=start auto=true scroll=scrolled style=dynamic_scroll(busy)
-      text "Legacy offsets"
-    scroll direction=both width=fill height=200.0 viewport=viewport style=dynamic_scroll(busy)
+    scroll #feed dir=both w=fill h=200.0 bar=hidden bar-w=8.0 bar-m=2.0 scroller-w=6.0 bar-gap=4.0 anchor-x=end anchor-y=start auto=true scroll=scrolled style=dynamic_scroll(busy)
+      text "Absolute offsets"
+    scroll dir=both w=fill h=200.0 viewport=viewport style=dynamic_scroll(busy)
       col
         text "Complete viewport"
       active x-disabled=false y-disabled=false
-        container bg=bg text=fg border=primary border-w=1.0 r=4.0 r-tl=1.0 r-tr=2.0 r-br=3.0 r-bl=4.0 shadow=danger shadow-x=1.0 shadow-y=2.0 shadow-blur=4.0 px-snap=true
+        box bg=bg text=fg border=primary border-w=1.0 r=4.0 r-tl=1.0 r-tr=2.0 r-br=3.0 r-bl=4.0 shadow=danger shadow-x=1.0 shadow-y=2.0 shadow-blur=4.0 px-snap=true
         x-rail bg=bg border=primary border-w=1.0 r=2.0
         x-scroller bg=primary border=fg border-w=1.0 r=2.0
         y-rail bg=bg border=primary border-w=1.0 r=2.0
@@ -681,7 +712,9 @@ view
 "#;
     let generated = compile(source, "scrolling.ice").unwrap();
     assert!(generated.contains("scrollable::Direction::Both"));
-    assert!(generated.contains("scrollable::Scrollbar::hidden().width(8.0 as f32)"));
+    assert!(generated.contains(
+        "scrollable::Scrollbar::hidden().width(::ui_lang_runtime::bounded_table_metric(8.0, 2)).margin(::ui_lang_runtime::bounded_table_metric(2.0, 2)).scroller_width(::ui_lang_runtime::bounded_table_metric(6.0, 2)).spacing(::ui_lang_runtime::bounded_table_metric(4.0, 2))"
+    ));
     assert!(generated.contains(".anchor_x(::iced::widget::scrollable::Anchor::End)"));
     assert!(generated.contains(".auto_scroll(true)"));
     assert!(generated.contains("crate::backend::dynamic_scroll(__theme, __status, self.busy)"));

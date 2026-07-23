@@ -60,13 +60,13 @@ pub(in crate::codegen) fn canvas_stroke_code(
     let dash = stroke
         .dash
         .iter()
-        .map(|value| canvas_expr_code(value, env, document).map(|value| format!("{value} as f32")))
+        .map(|value| clamped_f32_code(value, "0.0", "f32::MAX", env, document))
         .collect::<Result<Vec<_>, _>>()?
         .join(", ");
     Ok(format!(
-        "::iced::widget::canvas::Stroke {{ style: {}, width: {} as f32, line_cap: ::iced::widget::canvas::LineCap::{cap}, line_join: ::iced::widget::canvas::LineJoin::{join}, line_dash: ::iced::widget::canvas::LineDash {{ segments: &[{dash}], offset: usize::try_from({}).unwrap_or(usize::MAX) }} }}",
+        "::iced::widget::canvas::Stroke {{ style: {}, width: {}, line_cap: ::iced::widget::canvas::LineCap::{cap}, line_join: ::iced::widget::canvas::LineJoin::{join}, line_dash: ::iced::widget::canvas::LineDash {{ segments: &[{dash}], offset: usize::try_from({}).unwrap_or(0) }} }}",
         canvas_style_code(&stroke.style, env, document)?,
-        canvas_expr_code(&stroke.width, env, document)?,
+        clamped_f32_code(&stroke.width, "0.0", "f32::MAX", env, document)?,
         canvas_expr_code(&stroke.dash_offset, env, document)?
     ))
 }
@@ -148,9 +148,9 @@ pub(in crate::codegen) fn canvas_size_code(
     document: &Document,
 ) -> Result<String, Error> {
     Ok(format!(
-        "::iced::Size::new({} as f32, {} as f32)",
-        canvas_expr_code(width, env, document)?,
-        canvas_expr_code(height, env, document)?
+        "::iced::Size::new({}, {})",
+        clamped_f32_code(width, "0.0", "f32::MAX", env, document)?,
+        clamped_f32_code(height, "0.0", "f32::MAX", env, document)?
     ))
 }
 
