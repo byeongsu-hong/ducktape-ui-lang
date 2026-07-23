@@ -32,6 +32,18 @@ pub(in crate::codegen) fn route_code(
     document: &Document,
     message: &str,
 ) -> Result<String, Error> {
+    if route.handler == "emit"
+        && let Some(output) = component_output(env)
+    {
+        let [arg] = route.args.as_slice() else {
+            unreachable!("checker requires one component output");
+        };
+        let value = match arg {
+            RouteArg::Payload => payload.to_owned(),
+            RouteArg::Expr(expr) => expr_code(expr, env, document, ValueMode::Owned)?,
+        };
+        return Ok(format!("({})({value})", output.code));
+    }
     let local = local_route(route, env, document);
     let variant = local.map_or_else(
         || pascal(&route.handler),
@@ -61,6 +73,9 @@ pub(in crate::codegen) fn ordered_route_code(
     document: &Document,
     message: &str,
 ) -> Result<String, Error> {
+    if route.handler == "emit" && component_output(env).is_some() {
+        return route_code(route, payloads[0], env, document, message);
+    }
     let local = local_route(route, env, document);
     let variant = local.map_or_else(
         || pascal(&route.handler),

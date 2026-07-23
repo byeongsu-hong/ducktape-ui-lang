@@ -13,6 +13,7 @@ pub(in crate::check) fn infer_components_group(
             args,
             id,
             slots: supplied_slots,
+            route,
             span,
         } => {
             check_id(id, env, document, ids, span)?;
@@ -120,6 +121,29 @@ pub(in crate::check) fn infer_components_group(
                     span,
                     format!("component `{name}` requires slot `{missing}`"),
                 ));
+            }
+            match (&component.output, route) {
+                (Type::Unit, None) => {}
+                (Type::Unit, Some(_)) => {
+                    return Err(Error::new(
+                        "E126",
+                        span,
+                        format!("component `{name}` does not emit a value"),
+                    ));
+                }
+                (output, Some(route)) => {
+                    infer_route(route, Some(output.clone()), env, document, signatures)?;
+                }
+                (output, None) => {
+                    return Err(Error::new(
+                        "E126",
+                        span,
+                        format!(
+                            "component `{name}` emits `{}` and requires a route",
+                            output.display()
+                        ),
+                    ));
+                }
             }
         }
         ViewNode::Slot { .. } => {}

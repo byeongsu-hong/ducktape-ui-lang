@@ -697,6 +697,38 @@ pub(in crate::check) fn infer_route(
     document: &Document,
     signatures: &mut HashMap<String, Vec<Option<Type>>>,
 ) -> Result<(), Error> {
+    if route.handler == "emit"
+        && let Some(output) = component_output(env)
+    {
+        let component_name = component_context(env).expect("component output has a context");
+        if *output == Type::Unit {
+            return Err(Error::new(
+                "E135",
+                &route.span,
+                format!("component `{component_name}` does not declare an output"),
+            ));
+        }
+        let [arg] = route.args.as_slice() else {
+            return Err(Error::new(
+                "E133",
+                &route.span,
+                "`emit` expects exactly one value",
+            ));
+        };
+        let actual = match arg {
+            RouteArg::Payload => payload
+                .ok_or_else(|| Error::new("E134", &route.span, "this route has no `_` payload"))?,
+            RouteArg::Expr(expr) => expr_type(expr, env, document, &route.span)?,
+        };
+        return require_type(&actual, output, &route.span);
+    }
+    if route.handler == "emit" && component_context(env).is_some() {
+        return Err(Error::new(
+            "E135",
+            &route.span,
+            "component outputs can only be emitted from the component view",
+        ));
+    }
     if route.handler == "mount" {
         return Err(Error::new(
             "E135",
@@ -774,6 +806,9 @@ pub(in crate::check) fn infer_ordered_payload_route(
             &route.span,
             format!("{label} route expects {} payloads", payloads.len()),
         ));
+    }
+    if route.handler == "emit" && component_output(env).is_some() {
+        return infer_route(route, payloads.first().cloned(), env, document, signatures);
     }
     infer_route(route, Some(Type::Unknown), env, document, signatures)?;
     let key = component_context(env)

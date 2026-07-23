@@ -2,6 +2,67 @@ use super::*;
 use crate::{EffectKind, Statement};
 
 #[test]
+fn requires_component_output_routes_and_matching_emit_values() {
+    let missing_route = analyze(
+        r#"app Demo
+theme
+  bg #000000
+  fg #ffffff
+  primary #333333
+  danger #ff0000
+component Choice() -> bool
+  checkbox "Choice" checked=false -> emit _
+view
+  Choice
+"#,
+    )
+    .unwrap_err();
+    assert_eq!(missing_route.code, "E126");
+
+    let wrong_output = analyze(
+        r#"app Demo
+theme
+  bg #000000
+  fg #ffffff
+  primary #333333
+  danger #ff0000
+component Choice() -> str
+  checkbox "Choice" checked=false -> emit _
+on changed(next)
+view
+  Choice -> changed _
+"#,
+    )
+    .unwrap_err();
+    assert_eq!(wrong_output.code, "E101");
+}
+
+#[test]
+fn rejects_component_output_routes_from_handlers() {
+    let error = analyze(
+        r#"app Demo
+extern crate::backend
+  fetch() -> str
+theme
+  bg #000000
+  fg #ffffff
+  primary #333333
+  danger #ff0000
+component Search() -> str
+  on search
+    run fetch() -> emit _
+  button "Search" -> search
+on changed(value)
+view
+  Search -> changed _
+"#,
+    )
+    .unwrap_err();
+    assert_eq!(error.code, "E135");
+    assert!(error.message.contains("component view"));
+}
+
+#[test]
 fn checks_optional_selection_values() {
     let source = r#"app Demo
 extern crate::backend

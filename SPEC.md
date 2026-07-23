@@ -197,10 +197,11 @@ view
 ```
 
 An Ice source graph has exactly one `app` or `daemon` root and one `view`, with
-at most one `extern` namespace. The root file declares it and normally the view;
-imported fragments may hold any other top-level declarations. The graph may
-have multiple components and handlers. The view and each component have exactly
-one root node.
+any number of `extern` namespaces. The root file declares it and normally the
+view; imported fragments may hold any other top-level declarations. Extern
+items still share one graph-global name table, so duplicate names are errors.
+The graph may have multiple components and handlers. The view and each
+component have exactly one root node.
 
 ## 4. Compact grammar
 
@@ -215,7 +216,7 @@ use_decl       = "use" string
 declaration    = extern_decl | theme_decl | font_decl | qr_decl | state_decl
                | preset_decl | component_decl | handler_decl | subscribe_decl
                | view_decl
-document       = root_decl extern_decl? theme_decl qr_decl* state_decl? preset_decl*
+document       = root_decl extern_decl* theme_decl qr_decl* state_decl? preset_decl*
                  component_decl* handler_decl* subscribe_decl? view_decl
 
 root_decl      = ("app" | "daemon") PascalName (INDENT app_setting*)?
@@ -392,7 +393,7 @@ preset_state   = "state" INDENT preset_override*
 preset_override = name "=" expr
 preset_boot    = "boot" INDENT statement*
 
-component_decl = "component" component_name "(" field_list? ")"
+component_decl = "component" component_name "(" field_list? ")" ("->" type)?
                  INDENT component_member+
 component_member = component_state | component_handler | node
 component_state = "state" INDENT state_entry+
@@ -2938,6 +2939,20 @@ block.
 A component without slots rejects child content. Slot content keeps the
 caller's state, loop bindings, handlers, and IDs while rendering under the
 component instance scope.
+
+Components may expose one typed output. Route that output at every call site;
+inside the component view, `emit` forwards the value:
+
+```ice
+component Toggle(checked:bool) -> bool
+  extern native_toggle(checked) -> emit _
+
+Toggle checked=checked -> changed _
+```
+
+A non-`unit` component requires a route, while a `unit` component rejects one.
+`emit` accepts exactly one value matching the declared output and may be used
+to forward nested component or extern-component output.
 
 ### Extern components and subscriptions
 
