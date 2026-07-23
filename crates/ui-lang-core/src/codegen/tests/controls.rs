@@ -235,14 +235,16 @@ state
   disabled = false
 on pressed
 view
-  button #action label="Save" disabled=disabled width=fill height=48.0 padding=8.0 clip=true style=dynamic_button(disabled) @disabled:opacity-50 -> pressed
-    row
-      text "Save"
-      text "⌘S"
-    active bg=linear(1.57, primary@0.0, bg@1.0) text=fg border=primary border-w=1.0 r=4.0 r-tl=2.0 r-tr=3.0 r-br=5.0 r-bl=6.0 shadow=black/50 shadow-x=-1.0 shadow-y=2.0 shadow-blur=4.0 px-snap=true
-    hovered bg=fg text=bg r=10.0
-    pressed bg=primary text=white r=10.0
-    disabled bg=bg text=fg r=10.0
+  col
+    button #action label="Save" disabled=disabled width=fill height=48.0 padding=8.0 clip=true style=dynamic_button(disabled) @disabled:opacity-50 -> pressed
+      row
+        text "Save"
+        text "⌘S"
+      active bg=linear(1.57, primary@0.0, bg@1.0) text=fg border=primary border-w=1.0 r=4.0 r-tl=2.0 r-tr=3.0 r-br=5.0 r-bl=6.0 shadow=black/50 shadow-x=-1.0 shadow-y=2.0 shadow-blur=4.0 px-snap=true
+      hovered bg=fg text=bg r=10.0
+      pressed bg=primary text=white r=10.0
+      disabled bg=bg text=fg r=10.0
+    button "+" width=28.0 height=28.0 -> pressed
 "#;
     let generated = compile(source, "actions.ice").unwrap();
     assert!(generated.contains("let __button_content: __IceElement"));
@@ -258,6 +260,9 @@ view
     assert!(generated.contains("button::Status::Pressed =>"));
     assert!(generated.contains("button::Status::Disabled =>"));
     assert!(generated.contains("::iced::gradient::Linear::new(1.57 as f32)"));
+    assert!(generated.contains(
+        "::iced::widget::container(::iced::widget::text(\"+\")).width(::iced::Fill).align_x(::iced::alignment::Horizontal::Center).height(::iced::Fill).align_y(::iced::alignment::Vertical::Center).into()"
+    ));
     assert!(generated.contains("__style.shadow.offset.x = (-1.0) as f32"));
     assert!(generated.contains("__style.snap = true"));
     for preset in [

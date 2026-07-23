@@ -52,10 +52,24 @@ pub(in crate::codegen) fn render_controls(
                 )?;
                 render_node(content, document, message, env, &child_scope, slot)?
             } else {
-                format!(
-                    "::iced::widget::text({}).into()",
-                    rust_string(label.as_ref().expect("button label"))
-                )
+                let label = rust_string(label.as_ref().expect("button label"));
+                if options.width.is_none() && options.height.is_none() {
+                    format!("::iced::widget::text({label}).into()")
+                } else {
+                    let mut label =
+                        format!("::iced::widget::container(::iced::widget::text({}))", label);
+                    if options.width.is_some() {
+                        label.push_str(
+                            ".width(::iced::Fill).align_x(::iced::alignment::Horizontal::Center)",
+                        );
+                    }
+                    if options.height.is_some() {
+                        label.push_str(
+                            ".height(::iced::Fill).align_y(::iced::alignment::Vertical::Center)",
+                        );
+                    }
+                    format!("{label}.into()")
+                }
             };
             let mut code = format!(
                 "{{ let __a11y_key = {accessibility_key}; let __a11y_id = ::ui_lang_runtime::StableId::new(&__a11y_key); let __disabled = {disabled_value}; let __activate = {message_code}; let __button_content: __IceElement<'_, {message}> = {content}; let __button = ::iced::widget::button(__button_content)"
