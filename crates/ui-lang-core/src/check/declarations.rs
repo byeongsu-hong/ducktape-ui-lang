@@ -357,6 +357,7 @@ pub(in crate::check) fn slots(node: &ViewNode) -> Vec<(&str, &Span)> {
                 ..
             }
             | ViewNode::MouseArea { content, .. }
+            | ViewNode::ResizeHandle { content, .. }
             | ViewNode::Container { content, .. }
             | ViewNode::Theme { content, .. }
             | ViewNode::Float { content, .. }

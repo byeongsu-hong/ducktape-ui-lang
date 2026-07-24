@@ -337,6 +337,7 @@ pub(in crate::codegen) fn pane_grids(root: &ViewNode) -> Vec<&ViewNode> {
                 }
             }
             ViewNode::MouseArea { content, .. }
+            | ViewNode::ResizeHandle { content, .. }
             | ViewNode::Container { content, .. }
             | ViewNode::Theme { content, .. }
             | ViewNode::Float { content, .. }
@@ -419,6 +420,7 @@ pub(in crate::codegen) fn canvases(
                 }
             }
             ViewNode::MouseArea { content, .. }
+            | ViewNode::ResizeHandle { content, .. }
             | ViewNode::Container { content, .. }
             | ViewNode::Theme { content, .. }
             | ViewNode::Float { content, .. }
@@ -503,6 +505,7 @@ pub(in crate::codegen) fn needs_extern_noop(document: &Document) -> bool {
                 .iter()
                 .any(|column| contains(&column.header) || contains(&column.cell)),
             ViewNode::MouseArea { content, .. }
+            | ViewNode::ResizeHandle { content, .. }
             | ViewNode::Container { content, .. }
             | ViewNode::Theme { content, .. } => contains(content),
             ViewNode::Component { slots, .. } => slots.iter().any(|slot| contains(&slot.content)),

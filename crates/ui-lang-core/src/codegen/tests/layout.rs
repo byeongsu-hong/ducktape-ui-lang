@@ -181,6 +181,39 @@ view
 }
 
 #[test]
+fn lowers_plain_stacks_to_union_sizing_zstack() {
+    // A plain `stack` must size to the bounding box of every layer so a small
+    // first layer (e.g. a 1px focus helper) cannot collapse a later popover.
+    // iced's native `Stack` sizes to the first layer only, so plain stacks lower
+    // to the union-sizing `ui_lang_runtime::zstack` instead.
+    let source = r#"app Popover
+theme
+  bg #000000
+  fg #ffffff
+  primary #333333
+  danger #ff0000
+state
+view
+  stack
+    box w=1.0 h=1.0 @bg-bg
+      text ""
+    box w=190.0 p=4.0 @bg-bg
+      text "Menu"
+"#;
+    let generated = compile(source, "popover.ice").unwrap();
+    assert!(generated.contains("::ui_lang_runtime::zstack(__children)"));
+    // The union-sizing z-stack must not fall back to iced's first-layer Stack.
+    assert!(!generated.contains("::iced::widget::stack(__children)"));
+
+    // `under=N` still uses iced's native base-layer `Stack`/`push_under`, which
+    // already picks the correct intrinsic base.
+    let under = compile(&source.replace("  stack\n", "  stack under=1\n"), "popover.ice").unwrap();
+    assert!(under.contains("::iced::widget::Stack::new()"));
+    assert!(under.contains("push_under(__child)"));
+    assert!(!under.contains("::ui_lang_runtime::zstack(__children)"));
+}
+
+#[test]
 fn lowers_persistent_pane_grids() {
     let source = r#"app Workspace
 theme

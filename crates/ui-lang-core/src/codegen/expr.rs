@@ -1447,6 +1447,10 @@ pub(in crate::codegen) fn expr_code(
                 "::iced::widget::text_editor::Content::with_text(&{})",
                 expr_code(&args[0], env, document, ValueMode::Owned)?
             ),
+            "editor_text" => format!(
+                "({}).text()",
+                expr_code(&args[0], env, document, ValueMode::Borrowed)?
+            ),
             "encoded" => format!(
                 "::iced::widget::image::Handle::from_bytes({})",
                 expr_code(&args[0], env, document, ValueMode::Owned)?

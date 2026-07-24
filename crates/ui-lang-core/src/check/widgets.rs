@@ -329,6 +329,7 @@ pub(in crate::check) fn widget_operation_ids(
                 }
             }
             ViewNode::MouseArea { content, .. }
+            | ViewNode::ResizeHandle { content, .. }
             | ViewNode::Theme { content, .. }
             | ViewNode::Float { content, .. }
             | ViewNode::Pin { content, .. }
@@ -638,6 +639,7 @@ pub(in crate::check) fn static_pane_grids(
                 }
             }
             ViewNode::MouseArea { content, .. }
+            | ViewNode::ResizeHandle { content, .. }
             | ViewNode::Container { content, .. }
             | ViewNode::Theme { content, .. }
             | ViewNode::Float { content, .. }
