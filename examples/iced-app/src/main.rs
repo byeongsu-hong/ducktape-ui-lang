@@ -21,6 +21,8 @@ mod mouse_interaction;
 #[cfg(test)]
 mod redraw_request;
 #[cfg(test)]
+mod resizable_panes;
+#[cfg(test)]
 mod rotation;
 #[cfg(test)]
 mod scroll_delta;

@@ -203,6 +203,11 @@ pub(in crate::codegen) fn render_layout(
             options.under
         )
         .unwrap();
+    } else if kind == Layout::Stack {
+        // A z-stack sizes to the bounding box of every layer (see
+        // `ui_lang_runtime::zstack`); iced's native `Stack` would let the first
+        // layer alone dictate the size and collapse a small-first-layer popover.
+        body.push_str(" let __layout = ::ui_lang_runtime::zstack(__children)");
     } else {
         write!(
             body,

@@ -72,3 +72,22 @@ fn opens_and_renders_a_runtime_pane_template() {
     let _ = app.__view();
     let _ = app.__update(__ShowcaseMessage::CloseModePane("List".into()));
 }
+
+#[test]
+fn reads_and_clears_the_editor_text() {
+    let (mut app, _) = Showcase::__boot();
+    let original = app.notes.text();
+    assert!(!original.is_empty());
+
+    // `read_notes` copies the live editor content into `notes_text`.
+    let _ = app.__update(__ShowcaseMessage::ReadNotes);
+    assert_eq!(app.notes_text, original);
+
+    // `clear_notes` replaces the editor content with an empty document.
+    let _ = app.__update(__ShowcaseMessage::ClearNotes);
+    assert_eq!(app.notes.text(), "");
+
+    let _ = app.__update(__ShowcaseMessage::ReadNotes);
+    assert_eq!(app.notes_text, "");
+    let _ = app.__view();
+}
