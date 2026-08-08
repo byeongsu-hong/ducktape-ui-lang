@@ -29,7 +29,13 @@ extern crate::hyperliquid
   sync filter_symbols(rows:[SymbolRow], query:str, coin:str) -> [SymbolRow]
   sync symbol_row(rows:[SymbolRow], coin:str) -> SymbolRow?
   sync ticket_seed(book:Book?, focus:SymbolRow?) -> str
-  sync tray_status(coin:str, focus:SymbolRow?) -> str
+  sync tray_label(account:Account?, live:bool) -> str
+  sync tray_pnl(account:Account?, live:bool) -> str
+  sync tray_risk(positions:[Position], live:bool) -> str
+  sync tray_feed(live:bool, last_tick:i64) -> str
+  sync at_risk(positions:[Position], live:bool) -> bool
+  sync clock_ms() -> i64
+  sync demo_stale_tick() -> i64
   sync impact_price(book:Book?, size:str, buy:bool) -> str
   sync impact_slippage(book:Book?, size:str, buy:bool) -> str
   sync impact_short(book:Book?, size:str, buy:bool) -> bool

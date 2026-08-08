@@ -647,12 +647,274 @@ pub fn ticket_seed(book: Option<Book>, focus: Option<SymbolRow>) -> String {
     }
 }
 
-/// The menu bar mini status: the focused market's coin and last price, or
-/// just the coin while the market list is still loading.
-pub fn tray_status(coin: String, focus: Option<SymbolRow>) -> String {
-    match focus.filter(|row| row.price > 0.0) {
-        Some(row) => format!("{coin} {}", fmt_px(row.price)),
-        None => coin,
+// ---------------------------------------------------------------------------
+// The menu bar. Every figure here reports the reader, not the market: the
+// market is a browser tab away, and the terminal that would have shown it is
+// closed whenever the menu bar is the only thing on screen.
+//
+// Each function takes `live` and says so when it is false, because the failure
+// this app calls the dangerous one is data that has gone still while still
+// looking current. A menu has no colour to carry that, so the words do.
+// ---------------------------------------------------------------------------
+
+/// How close to its liquidation a position has to be before the status item
+/// changes icon: a tenth of the mark. Nearer than this and the number stops
+/// being a statistic.
+const ALARM_BAND_PCT: f64 = 10.0;
+
+/// How far the mark still has to travel to reach the cliff, as a percentage
+/// of the mark. `None` when the venue reports no liquidation for the position
+/// at all, which is a different thing from being zero away from one.
+fn liq_distance_pct(held: &Position) -> Option<f64> {
+    if held.liq <= 0.0 || held.mark <= 0.0 {
+        return None;
+    }
+    Some((held.liq - held.mark).abs() / held.mark * 100.0)
+}
+
+/// Positions ordered by how close each is to its liquidation, nearest first.
+/// A position with no reported cliff sorts last: it cannot be the worst thing
+/// on the account, and it must not displace something that can.
+pub fn worst_first(positions: Vec<Position>) -> Vec<Position> {
+    let mut positions = positions;
+    positions.sort_by(|left, right| {
+        let key = |held: &Position| liq_distance_pct(held).unwrap_or(f64::INFINITY);
+        key(left)
+            .partial_cmp(&key(right))
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    positions
+}
+
+/// Whether any position is inside the liquidation band, which is the one
+/// thing the status item shouts about without being asked.
+///
+/// A dead feed cannot support the claim: "near liquidation" is a statement
+/// about where the mark is now, and a stale mark is not where it is now. The
+/// icon says the feed died instead, which is the honest alarm.
+pub fn at_risk(positions: Vec<Position>, live: bool) -> bool {
+    live && positions
+        .iter()
+        .filter_map(liq_distance_pct)
+        .any(|distance| distance <= ALARM_BAND_PCT)
+}
+
+/// The bar text: the account's unrealized PnL and nothing else. It is the
+/// first question a trader with positions open asks, and the menu bar has
+/// room for exactly one answer.
+pub fn tray_label(account: Option<Account>, live: bool) -> String {
+    match account.filter(|_| live) {
+        Some(account) => fmt_pnl(account.pnl),
+        None => "—".to_owned(),
+    }
+}
+
+/// The same answer with the precision and the percentage the bar cannot fit.
+/// A dead feed prints the em dash the terminal already uses for a stale
+/// number, so a figure from before the socket died never reads as current.
+pub fn tray_pnl(account: Option<Account>, live: bool) -> String {
+    let Some(account) = account.filter(|_| live) else {
+        return "PnL  —".to_owned();
+    };
+    let basis = account.value - account.pnl;
+    let share = if basis.abs() > f64::EPSILON {
+        format!("  {}", fmt_pct(account.pnl / basis * 100.0))
+    } else {
+        String::new()
+    };
+    format!("PnL  {}{share}", fmt_signed_usd(account.pnl))
+}
+
+/// The worst position and how far it is from its cliff — the one question no
+/// other glanceable surface can answer. The market the terminal happened to
+/// have selected is irrelevant when the terminal is closed, so this reports
+/// the account's own worst risk instead.
+pub fn tray_risk(positions: Vec<Position>, live: bool) -> String {
+    if positions.is_empty() {
+        return "Flat".to_owned();
+    }
+    if !live {
+        return "Risk  —".to_owned();
+    }
+    let worst = worst_first(positions);
+    let held = &worst[0];
+    let side = if held.size >= 0.0 { "long" } else { "short" };
+    match liq_distance_pct(held) {
+        Some(distance) => format!(
+            "{} {side} {} · liq {} away",
+            held.coin,
+            fmt_size(held.size),
+            fmt_liq_distance(distance)
+        ),
+        None => format!("{} {side} {} · no liq", held.coin, fmt_size(held.size)),
+    }
+}
+
+/// A liquidation distance, at the precision it still means something. A
+/// position a third of a percent from its cliff rounds to "0% away", which
+/// reads as already gone; the digit is the difference between a warning and
+/// an epitaph.
+fn fmt_liq_distance(distance: f64) -> String {
+    if distance < 10.0 {
+        format!("{distance:.1}%")
+    } else {
+        format!("{distance:.0}%")
+    }
+}
+
+/// Whether the feed is live, and how old the last tick is.
+///
+/// Age rather than latency, because latency contradicts itself: `fmt_latency`
+/// renders a zero as the same em dash it renders a dead feed as, so a live
+/// socket that answered instantly is indistinguishable from one that stopped
+/// answering. An age cannot do that.
+pub fn tray_feed(live: bool, last_tick: i64) -> String {
+    format!(
+        "{} · {}",
+        if live { "Live" } else { "NOT LIVE" },
+        feed_age(last_tick, now_ms())
+    )
+}
+
+/// The age of the last tick, as the reader would say it. Split out from
+/// [`tray_feed`] so the arithmetic is testable without the wall clock.
+fn feed_age(last_tick: i64, now: i64) -> String {
+    if last_tick <= 0 {
+        return "not connected".to_owned();
+    }
+    let seconds = (now - last_tick).max(0) / 1_000;
+    match seconds {
+        0..60 => "just now".to_owned(),
+        60..3_600 => format!("{}m ago", seconds / 60),
+        3_600..86_400 => format!("{}h ago", seconds / 3_600),
+        _ => format!("{}d ago", seconds / 86_400),
+    }
+}
+
+/// The wall clock, so the app can stamp a tick as it arrives. The feed's own
+/// payload carries no timestamp; this is where the one it is aged against
+/// comes from.
+pub fn clock_ms() -> i64 {
+    now_ms()
+}
+
+/// A tick three minutes old, for the preset that shows a feed which stopped.
+pub fn demo_stale_tick() -> i64 {
+    now_ms() - 3 * 60 * 1_000
+}
+
+#[cfg(test)]
+mod tray_tests {
+    use super::*;
+
+    fn account() -> Account {
+        demo_account()
+    }
+
+    #[test]
+    fn tray_pnl_reports_sign_and_percentage() {
+        let text = tray_pnl(Some(account()), true);
+        let expected = fmt_signed_usd(account().pnl);
+        assert!(text.contains(&expected), "{text} lost the PnL {expected}");
+        assert!(text.contains('%'), "{text} has no percentage");
+        assert!(text.starts_with("PnL  "));
+    }
+
+    /// The same rule the terminal already uses, so a stale number never reads
+    /// as current.
+    #[test]
+    fn tray_pnl_is_an_em_dash_with_no_account_and_with_a_dead_feed() {
+        assert_eq!(tray_pnl(None, true), "PnL  —");
+        assert_eq!(tray_pnl(Some(account()), false), "PnL  —");
+        assert_eq!(tray_label(Some(account()), false), "—");
+        assert_eq!(tray_label(None, true), "—");
+    }
+
+    #[test]
+    fn tray_risk_picks_the_worst_position_not_the_first() {
+        let positions = demo_positions();
+        let nearest = worst_first(positions.clone())[0].coin.clone();
+        let declared = positions[0].coin.clone();
+        assert_ne!(
+            nearest, declared,
+            "the fixture must not put its worst position first, or this proves nothing"
+        );
+        assert!(tray_risk(positions, true).starts_with(&nearest));
+    }
+
+    /// A position a third of a percent from its cliff must not print "0%".
+    #[test]
+    fn a_liquidation_distance_keeps_the_digit_that_matters() {
+        assert_eq!(fmt_liq_distance(0.34), "0.3%");
+        assert_eq!(fmt_liq_distance(8.0), "8.0%");
+        assert_eq!(fmt_liq_distance(172.0), "172%");
+        assert!(!tray_risk(demo_positions(), true).contains("liq 0% away"));
+    }
+
+    #[test]
+    fn tray_risk_says_flat_with_no_positions() {
+        assert_eq!(tray_risk(Vec::new(), true), "Flat");
+        assert_eq!(tray_risk(Vec::new(), false), "Flat");
+    }
+
+    /// FAILS IF the surface reverts to `fmt_latency`, whose zero means both
+    /// "0ms" and "gone".
+    #[test]
+    fn tray_feed_reports_age_not_latency_when_dead() {
+        let now = 1_800_000_000_000;
+        assert_eq!(feed_age(now - 3 * 60 * 1_000, now), "3m ago");
+        assert_eq!(feed_age(now - 2_000, now), "just now");
+        assert_eq!(feed_age(now - 2 * 3_600 * 1_000, now), "2h ago");
+        assert_eq!(feed_age(0, now), "not connected");
+
+        // The row itself, not only the helper: `fmt_latency` renders a zero
+        // as the same em dash it renders a dead feed as, so a tray_feed built
+        // on it says nothing at all about a feed that never connected.
+        assert_eq!(tray_feed(false, 0), "NOT LIVE · not connected");
+        assert_eq!(tray_feed(true, 0), "Live · not connected");
+        assert!(!tray_feed(false, 0).contains(&fmt_latency(0)));
+        assert_eq!(
+            tray_feed(false, demo_stale_tick()),
+            "NOT LIVE · 3m ago",
+            "the row has to carry the age the helper computed"
+        );
+    }
+
+    #[test]
+    fn at_risk_is_true_only_inside_the_liquidation_band() {
+        assert!(at_risk(demo_positions_at_risk(), true));
+        assert!(!at_risk(Vec::new(), true));
+
+        // Far from every cliff: the fixture's short is above 100% away.
+        let far: Vec<Position> = demo_positions()
+            .into_iter()
+            .filter(|held| liq_distance_pct(held).is_none_or(|away| away > ALARM_BAND_PCT))
+            .collect();
+        assert!(!far.is_empty(), "the fixture must contain a calm position");
+        assert!(!at_risk(far, true));
+
+        // A stale mark cannot support the claim, however near it last looked.
+        assert!(!at_risk(demo_positions_at_risk(), false));
+    }
+
+    /// Every distance follows from mark and liq, so moving the mark moves the
+    /// percentage. A constant would not.
+    #[test]
+    fn liquidation_distance_is_computed_from_mark_and_liq() {
+        let mut near = demo_positions_at_risk();
+        let first = liq_distance_pct(&near[0]).unwrap();
+        near[0].mark *= 0.5;
+        let second = liq_distance_pct(&near[0]).unwrap();
+        assert_ne!(first, second);
+
+        let mut no_cliff = near[0].clone();
+        no_cliff.liq = 0.0;
+        assert_eq!(liq_distance_pct(&no_cliff), None);
+        // A position with no cliff cannot displace one that has a near cliff.
+        assert_eq!(
+            worst_first(vec![no_cliff, near[0].clone()])[0].liq,
+            near[0].liq
+        );
     }
 }
 

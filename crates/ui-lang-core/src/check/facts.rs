@@ -3569,7 +3569,7 @@ impl<'a> FactsBuilder<'a> {
                 .settings
                 .tray
                 .as_ref()
-                .is_none_or(|tray| !tray.has_text())
+                .is_none_or(|tray| !tray.reactive())
         {
             return Ok(());
         }
@@ -3644,7 +3644,10 @@ impl<'a> FactsBuilder<'a> {
                 (AppSettingExprId::TrayLabel, &tray.label),
                 (AppSettingExprId::TrayTooltip, &tray.tooltip),
             ] {
-                if let Some(setting) = setting {
+                if let Some(setting) = setting
+                    .as_ref()
+                    .filter(|setting| tray_text_is_reactive(setting))
+                {
                     lower(
                         self,
                         id,
@@ -3652,6 +3655,32 @@ impl<'a> FactsBuilder<'a> {
                         &Type::Str,
                         &app_env,
                         &setting.span,
+                    )?;
+                }
+            }
+            for (index, icon) in tray.icons.iter().enumerate() {
+                if let Some(guard) = &icon.when {
+                    lower(
+                        self,
+                        AppSettingExprId::TrayIconGuard(index as u32),
+                        &guard.value,
+                        &Type::Bool,
+                        &app_env,
+                        &guard.span,
+                    )?;
+                }
+            }
+            for (index, row) in tray.menu.iter().enumerate() {
+                if let TrayRow::Item { text, .. } = row
+                    && tray_text_is_reactive(text)
+                {
+                    lower(
+                        self,
+                        AppSettingExprId::TrayMenuRow(index as u32),
+                        &text.value,
+                        &Type::Str,
+                        &app_env,
+                        &text.span,
                     )?;
                 }
             }

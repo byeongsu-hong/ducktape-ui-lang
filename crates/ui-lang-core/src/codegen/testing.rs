@@ -634,6 +634,18 @@ fn generate_test(
                 )
                 .unwrap();
             }
+            // End to end on purpose: the row is found by its text the way a
+            // reader finds it, and mapped to a message by `__tray_row`, the
+            // same table the live subscription maps a chosen row through.
+            ResolvedTestStepKind::TrayChoose(value) => {
+                let value = expr_code(value, &env, ValueMode::Owned)?;
+                let app = program.app_name();
+                writeln!(
+                    out,
+                    "let __value = {value};\nlet __row = __test.tray_command_row(&__value, {location});\nlet __message = {app}::__tray_row(__row).expect(\"the row-to-handler table has no entry for a row declared with a route\");\n__test.dispatch(__message, {location});"
+                )
+                .unwrap();
+            }
             ResolvedTestStepKind::Expect(expectation) => {
                 generate_expectation(out, expectation, test, &env, program, &location)?;
             }
@@ -725,6 +737,24 @@ fn generate_expectation(
                 )
                 .unwrap();
             }
+        }
+        ResolvedTestExpectation::Tray {
+            field,
+            value,
+            negated,
+        } => {
+            let value = resolved_expr_use_code(program, *value, env, ValueMode::Owned)?;
+            let field = match field {
+                ResolvedTrayField::Label => "Label",
+                ResolvedTrayField::Icon => "Icon",
+                ResolvedTrayField::Item => "Item",
+                ResolvedTrayField::Command => "Command",
+            };
+            writeln!(
+                out,
+                "let __value = {value}; __test.check_tray(::ui_lang_runtime::testing::TrayField::{field}, &__value, {negated}, {location});"
+            )
+            .unwrap();
         }
         ResolvedTestExpectation::Accessibility { target, property } => {
             let path = target_ref_path_code(target, test, env, program)?;

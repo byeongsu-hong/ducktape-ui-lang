@@ -136,11 +136,15 @@ cargo run -p candles-example   # native lightweight financial chart (see example
 cargo run -p trading-example   # live Hyperliquid markets, positions, and fills (see examples/trading)
 ```
 
-The `tray` app-setting block puts an app in the macOS menu bar: a
-codec-free RGBA status icon, a live `label` expression beside it, and — for
-daemons — a `popover` window toggled under the icon, which dismisses itself
-when it loses focus. Other targets compile
-the same source with the tray as a no-op; see `SPEC.md` for the mapping.
+The `tray` app-setting block puts an app in the macOS menu bar: codec-free
+RGBA status icons selected by `when` guards, a live `label` expression beside
+them, and a native `menu` whose rows are expressions and whose routed rows
+call handlers. The platform owns the menu's opening, placement and dismissal,
+so a program declares no window for it. `expect tray label|icon|item|command`
+asserts what the program decided the item should show, and `tray choose` runs
+a menu row the way the platform does; both run on every platform. Other
+targets compile the same source with the tray as a no-op; see `SPEC.md` for
+the mapping.
 
 `showcase` also exercises the 100k-row collection widgets behind typed extern
 boundaries — no Core syntax involved: [`VirtualList`](crates/ui/docs/virtual-list.md),

@@ -2,11 +2,19 @@ daemon Trading
   title "Ducktape Trading"
   id "dev.ducktape.ice.trading"
   tray
+    icon-rgba "../../assets/tray-alarm.rgba" 22 22 when at_risk(positions, live)
+    icon-rgba "../../assets/tray-stale.rgba" 22 22 when !live
     icon-rgba "../../assets/tray-icon.rgba" 22 22
     icon-template true
-    label tray_status(coin, focus)
+    label tray_label(account, live)
     tooltip "Ducktape Trading"
-    popover status
+    menu
+      tray_pnl(account, live)
+      tray_risk(positions, live)
+      tray_feed(live, last_tick)
+      separator
+      "Open terminal" -> show_terminal
+      "Quit" -> quit
   font "../../../../assets/fonts/IBMPlexSansKR-Regular.ttf"
   font "../../../../assets/fonts/IBMPlexSansKR-SemiBold.ttf"
   font "../../../../assets/fonts/MonoplexKR-Regular.ttf"
@@ -19,11 +27,6 @@ daemon Trading
       title-hidden true
       titlebar-transparent true
       fullsize-content-view true
-  window status
-    size 300 236
-    decorations false
-    resizable false
-    level always-on-top
 
 use "theme.ice"
 use "extern/hyperliquid.ice"
@@ -33,7 +36,6 @@ font digits family="Monoplex KR"
 
 state
   main:window-id? = none
-  panel_preview = false
   gate = true
   address = ""
   draft = "0x8cc94dc843e1ea7a19805e0cca43001123512b6a"
@@ -61,6 +63,7 @@ state
   error = ""
   feeds:task-handle? = none
   latency = 0
+  last_tick = 0
   live = false
   feed_error = ""
   flashing = false
@@ -91,10 +94,24 @@ preset held
     alerts = add_alert(add_alert(demo_alerts(), "BTC", "64,400.00", 64000.0), "BTC", "63,700.00", 64000.0)
     fills = demo_fills()
     orders = demo_orders()
+    last_tick = clock_ms()
     live = true
     ticket_price = "64,000.00"
     ticket_size = "3.00"
     quote = price_ticket("64,000.00", "3.00", "5", symbol_row(demo_symbols(), "BTC"), true, -30.0)
+
+preset held_stale
+  state
+    gate = false
+    address = "0x8cc94dc843e1ea7a19805e0cca43001123512b6a"
+    symbols = demo_symbols()
+    visible = demo_symbols()
+    focus = symbol_row(demo_symbols(), "BTC")
+    positions = demo_positions()
+    account = some(demo_account())
+    last_tick = demo_stale_tick()
+    live = false
+    feed_error = "Hyperliquid feed dropped"
 
 preset browsing
   state
@@ -106,6 +123,7 @@ preset browsing
     tape = demo_candles()
     book = some(demo_book())
     tape_prints = demo_tape()
+    last_tick = clock_ms()
     live = true
 
 preset at_risk
@@ -120,6 +138,7 @@ preset at_risk
     tape = demo_candles_at(58000.0)
     book = some(demo_book_at(58000.0))
     tape_prints = demo_tape_at(58000.0)
+    last_tick = clock_ms()
     live = true
     ticket_price = "58,000.00"
     ticket_size = "5.00"
@@ -196,15 +215,6 @@ preset stalled
     quote = price_ticket("64,000.00", "", "5", symbol_row(demo_symbols(), "BTC"), true, -30.0)
     feed_error = "Hyperliquid feed dropped"
     latency = 0
-
-preset panel
-  state
-    gate = false
-    panel_preview = true
-    symbols = demo_symbols()
-    visible = demo_symbols()
-    focus = symbol_row(demo_symbols(), "BTC")
-    live = true
 
 preset failing
   state
@@ -759,82 +769,12 @@ on main_opened(id)
 on quit
   exit
 
-component MiniStatus(coin:str, focus:SymbolRow?, latency:i64, error:str)
-  emits
-    quit
-  box #status-panel
-    with
-      w=fill
-      h=fill
-      bg=panel
-    col
-      with
-        w=fill
-        h=fill
-        p=16.0
-        gap=12.0
-      row
-        with
-          w=fill
-          gap=8.0
-          align=center
-        text coin
-          with
-            size=16.0
-            @text-fg
-            @font-bold
-        Label value="PERP"
-        space w=fill
-        text fmt_latency(latency)
-          with
-            size=10.0
-            font=digits
-            @text-faint
-      match focus
-        some(row)
-          col gap=10.0 w=fill
-            row gap=10.0 align=center
-              Delta
-                with
-                  value=fmt_px(row.price)
-                  up=(row.change_pct >= 0.0)
-                  size=24.0
-                  width=170.0
-              Delta
-                with
-                  value=fmt_pct(row.change_pct)
-                  up=(row.change_pct >= 0.0)
-                  size=12.0
-                  width=70.0
-            row gap=14.0 align=center
-              Stat name="VOL" value=fmt_volume(row.volume)
-              Stat name="OI" value=fmt_volume(row.open_interest)
-              Stat name="FUNDING" value=fmt_funding(row.funding_pct)
-        none
-          text "Loading market" size=12.0 @text-faint
-      if !empty(error)
-        text error
-          with
-            size=11.0
-            w=fill
-            wrap=word
-            @text-muted
-      space h=fill
-      row
-        with
-          w=fill
-          gap=8.0
-          align=center
-        text "Click away, or the item, to dismiss."
-          with
-            size=10.0
-            w=fill
-            wrap=word
-            @text-faint
-        button #quit p=7.0 label="Quit" -> emit(quit)
-          active bg=raised text=muted r=4.0
-          hovered bg=edge text=fg r=4.0
-          text "Quit" size=11.0
+on show_terminal
+  // ponytail: no raise; needs `task window focus` on an optional window-id,
+  // and a handler has no `match` to unwrap one with. Opening a second
+  // terminal would be worse, so an already-open one correctly no-ops.
+  return if main != none
+  task window open main -> main_opened _
 
 on connect
   return if !valid_address(draft)
@@ -1005,6 +945,7 @@ on orders_loaded(rows)
 on market_ticked(tick)
   book = tick.book
   latency = tick.latency
+  last_tick = clock_ms()
   live = true
   feed_error = ""
   symbols = apply_feed(symbols, tick)
@@ -1049,16 +990,7 @@ subscribe
 
 view
   col w=fill h=fill
-    if panel_preview || (main != none && main != some(window))
-      MiniStatus
-        with
-          coin=coin
-          focus=focus
-          latency=latency
-          error=error
-        events
-          quit -> quit
-    if !panel_preview && (main == none || main == some(window))
+    if main == none || main == some(window)
       overlay
         with
           when=gate
@@ -2442,11 +2374,54 @@ test trading_a_size_past_the_book_says_so
   expect no text "The book on screen cannot fill that size."
   expect text "64,001.00"
 
-test trading_menu_bar_panel_shows_the_focused_market
-  preset panel
-  viewport 300 236
-  expect text "PERP"
-  expect text "64,000.00"
-  expect text "FUNDING"
-  expect no text "ORDER BOOK"
-  capture menubar_panel
+test menu_bar_reports_the_account
+  preset held
+  expect tray label "+$521.4K"
+  expect tray item "PnL  +$521,411.64"
+  expect tray item "+16.09%"
+  expect tray item "ETH long 40"
+  expect tray item "liq 0.4% away"
+  expect tray item "Live ·"
+  expect no tray item "FUNDING"
+  expect no tray item "BTC PERP"
+
+test menu_bar_says_when_the_feed_is_dead
+  preset held_stale
+  expect tray icon "../../assets/tray-stale.rgba"
+  expect tray item "NOT LIVE · 3m ago"
+  expect no tray item "Live ·"
+  expect tray label "—"
+
+test menu_bar_shouts_when_a_position_is_near_liquidation
+  preset at_risk
+  expect tray icon "../../assets/tray-alarm.rgba"
+
+test menu_bar_stays_calm_with_nothing_at_risk
+  preset browsing
+  expect tray icon "../../assets/tray-icon.rgba"
+  expect tray item "Flat"
+
+test menu_bar_offers_a_way_back_to_the_terminal
+  preset held
+  expect tray item "Open terminal"
+  expect tray item "Quit"
+
+// The feature's central path: the row the reader picks is the handler that
+// runs. The step finds the row by its text and maps it through the same
+// row-to-handler table the live subscription uses, so an index that drifts
+// there fails here instead of leaving every row dead in the menu bar.
+test menu_bar_row_reaches_its_handler
+  preset held
+  expect main == none
+  tray choose "Open terminal"
+  expect main != none
+
+// A routed row is a command; an unrouted row is a stat, which the platform
+// draws disabled so the reader knows it is a figure and not a button.
+test menu_bar_rows_are_commands_or_stats
+  preset held
+  expect tray command "Open terminal"
+  expect tray command "Quit"
+  expect no tray command "PnL"
+  expect no tray command "liq"
+  expect no tray command "Live ·"

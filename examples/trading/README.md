@@ -24,29 +24,42 @@ blames the exchange for something you just typed.
 
 ![Trading](screenshots/trading.png)
 
-## The menu bar mini status
+## The menu bar
 
-On macOS the terminal also lives in the menu bar: a `tray` block keeps the
-focused market's coin and last price beside a status icon, so the price is
-readable with every window closed.
+On macOS the terminal also lives in the menu bar. A `tray` block puts the
+account's unrealized PnL beside a status icon and hangs a native menu off it —
+PnL with its percentage, the worst position and how far it is from its
+liquidation, and how old the last tick is.
 
-Left-clicking the item opens a panel anchored under it — the focused market's
-price, 24h change, and the volume/OI/funding row — and clicking anywhere else
-dismisses it. The `popover` block owns that, so the app subscribes to nothing
-for it.
+Every row reports the reader, not the market: the market is a browser tab away
+and the terminal that would have shown it is closed whenever the menu bar is
+the only thing on screen. The rows that are figures are created disabled,
+which is how the platform draws something you read rather than press; **Open
+terminal** and **Quit** are the two that are not.
 
-This is why the terminal is a `daemon` rather than an `app`: iced draws one
-view per application window, so the panel and the terminal have to be two
-branches of a view that knows which window it is drawing. Closing the terminal
-therefore leaves the app in the menu bar rather than exiting; **Quit** inside
-the panel ends it. On other platforms the same source builds and runs with the
-tray as a no-op.
+The icon carries the state that cannot wait for a click. It goes hollow when
+the feed stops and inverts when a position is inside its liquidation band —
+which is a claim the app only makes on live data, because "near liquidation"
+is a statement about where the mark is *now*.
+
+The menu is the platform's own surface: macOS opens it, places it on the right
+display and dismisses it, so the app declares no window and subscribes to
+nothing but the chosen row. The terminal stays a `daemon` so that closing it
+leaves the app in the menu bar rather than exiting, and **Open terminal**
+brings it back.
+
+On other platforms the same source builds and runs with the tray as a no-op —
+and `expect tray label|icon|item|command` still assert what it would have
+shown, while `tray choose "Open terminal"` runs a menu row the way the platform
+does, so the menu bar is covered by tests on Linux CI. What only a Mac can
+prove is what it *drew*: that a left click raises the menu, that a stat row is
+legible as a disabled figure, and that the icons read on a light bar — both
+before and after a guard swaps one, which is a separate claim, because the
+template flag has to be reapplied with every icon.
 
 If the status item ever looks inert, `ICE_TRAY_DEBUG=1 cargo run -p
-trading-example` traces the native boundary: whether the click arrived, and
-where the panel was placed.
-
-![The menu bar panel](screenshots/menubar-panel.png)
+trading-example` traces the native boundary: whether the item was created, and
+whether a chosen row reached the subscription.
 
 ## Design
 
